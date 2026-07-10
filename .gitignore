@@ -104,3 +104,20 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# comfy-zoo (Vite / TypeScript)
+/comfy-zoo/node_modules/
+/comfy-zoo/dist/
+/comfy-zoo/.vite/
+/comfy-zoo/.cache/
+/comfy-zoo/coverage/
+/comfy-zoo/.nyc_output/
+/comfy-zoo/npm-debug.log*
+/comfy-zoo/yarn-debug.log*
+/comfy-zoo/yarn-error.log*
+/comfy-zoo/pnpm-debug.log*
+/comfy-zoo/.env
+/comfy-zoo/.env.*
+!/comfy-zoo/.env.example
+/comfy-zoo/.DS_Store
+/comfy-zoo/Thumbs.db
