@@ -1,0 +1,85 @@
+[
+  {
+    "id": "barn",
+    "name": "Barn",
+    "species": ["cow", "donkey", "horse", "bull", "spiritHorse"],
+    "levels": [
+      { "model": "models/buildings/SmallBarn.glb", "capacity": 2, "cost": 50, "foodMax": 6 },
+      { "model": "models/buildings/Barn.glb", "capacity": 4, "cost": 200, "foodMax": 12 },
+      { "model": "models/buildings/BigBarn.glb", "capacity": 8, "cost": 600, "foodMax": 24 }
+    ],
+    "footprint": { "w": 3, "h": 3 },
+    "unlockAtHoused": 0,
+    "lockHint": null
+  },
+  {
+    "id": "openBarn",
+    "name": "Meadow Pen",
+    "species": ["alpaca", "deer", "stag", "goldenStag"],
+    "levels": [
+      { "model": "models/buildings/OpenBarn.glb", "capacity": 3, "cost": 120, "foodMax": 9 },
+      { "model": "models/buildings/OpenBarn.glb", "capacity": 6, "cost": 350, "foodMax": 18 }
+    ],
+    "footprint": { "w": 3, "h": 3 },
+    "unlockAtHoused": 2,
+    "lockHint": "House 2 animals"
+  },
+  {
+    "id": "coop",
+    "name": "Cozy Coop",
+    "species": ["fox", "husky", "shibaInu", "wolf", "shadowWolf", "snowFox"],
+    "levels": [
+      { "model": "models/buildings/ChickenCoop.glb", "capacity": 2, "cost": 180, "foodMax": 6 },
+      { "model": "models/buildings/ChickenCoop.glb", "capacity": 4, "cost": 450, "foodMax": 12 }
+    ],
+    "footprint": { "w": 2, "h": 2 },
+    "unlockAtHoused": 4,
+    "lockHint": "House 4 animals"
+  },
+  {
+    "id": "dinoHabitat",
+    "name": "Dino Grove Habitat",
+    "species": ["velociraptor", "parasaurolophus", "stegosaurus", "triceratops", "apatosaurus", "trex"],
+    "levels": [
+      { "model": "models/buildings/OpenBarn.glb", "capacity": 2, "cost": 0, "foodMax": 8 },
+      { "model": "models/buildings/OpenBarn.glb", "capacity": 4, "cost": 800, "foodMax": 16 },
+      { "model": "models/buildings/OpenBarn.glb", "capacity": 6, "cost": 2000, "foodMax": 24 }
+    ],
+    "footprint": { "w": 4, "h": 4 },
+    "unlockAtHoused": 18,
+    "lockHint": "Follow the giant footprints…"
+  },
+  {
+    "id": "well",
+    "name": "Well",
+    "species": [],
+    "levels": [
+      { "model": "models/buildings/Well.glb", "capacity": 0, "cost": 80, "foodMax": 0 }
+    ],
+    "footprint": { "w": 1, "h": 1 },
+    "unlockAtHoused": 1,
+    "lockHint": "House 1 animal"
+  },
+  {
+    "id": "silo",
+    "name": "Silo",
+    "species": [],
+    "levels": [
+      { "model": "models/buildings/Silo.glb", "capacity": 0, "cost": 250, "foodMax": 0 }
+    ],
+    "footprint": { "w": 1, "h": 1 },
+    "unlockAtHoused": 6,
+    "lockHint": "House 6 animals"
+  },
+  {
+    "id": "windmill",
+    "name": "Windmill",
+    "species": [],
+    "levels": [
+      { "model": "models/buildings/Windmill.glb", "capacity": 0, "cost": 400, "foodMax": 0 }
+    ],
+    "footprint": { "w": 2, "h": 2 },
+    "unlockAtHoused": 8,
+    "lockHint": "House 8 animals"
+  }
+]

@@ -1,0 +1,25 @@
+{
+  "hungerTickSeconds": 90,
+  "sadGraceMinutes": 8,
+  "wanderOffMinutes": 25,
+  "incomeTickSeconds": 20,
+  "captureRetryBonus": 0.1,
+  "dietMatchBonus": 0.15,
+  "maxFollowersBase": 3,
+  "followerUpgradeCosts": [150, 400, 900],
+  "fleeCalmSeconds": 4,
+  "autosaveSeconds": 30,
+  "offlineCapHours": 4,
+  "offlineCoinsPerHappyAnimalPerHour": 30,
+  "interstitialMinIntervalSeconds": 180,
+  "legendaryEncountersPerSession": 2,
+  "doubleHarvestMinutes": 3,
+  "dailyGiftCoinsByStreak": [25, 40, 60, 80, 100, 130, 170],
+  "zones": [
+    { "id": "meadow", "name": "Meadow", "unlockAtHoused": 0 },
+    { "id": "pineForest", "name": "Pine Forest", "unlockAtHoused": 8 },
+    { "id": "palmOasis", "name": "Palm Oasis", "unlockAtHoused": 18 }
+  ],
+  "playerSpeed": 4.2,
+  "playerInteractRadius": 2.2
+}

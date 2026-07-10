@@ -1,0 +1,6 @@
+[
+  { "kind": "berry", "name": "Berries", "nodeModel": "models/nature/Bush_Flowers.glb", "respawnSeconds": 45, "yield": 3, "collectSeconds": 1.2, "zone": "meadow" },
+  { "kind": "hay", "name": "Hay", "nodeModel": "models/nature/Grass_Large_Extruded.glb", "respawnSeconds": 30, "yield": 3, "collectSeconds": 1.0, "zone": "meadow" },
+  { "kind": "forage", "name": "Forage", "nodeModel": "models/nature/Plant_1.glb", "respawnSeconds": 60, "yield": 2, "collectSeconds": 1.5, "zone": "pineForest" },
+  { "kind": "water", "name": "Water", "nodeModel": "models/buildings/Well.glb", "respawnSeconds": 0, "yield": 2, "collectSeconds": 1.0, "zone": "meadow" }
+]

@@ -1,0 +1,18 @@
+[
+  { "id": "q_capture_cow", "text": "Befriend {n} Cow", "kind": "capture", "filter": "cow", "target": 1, "rewardCoins": 20, "minHoused": 0 },
+  { "id": "q_house_any_2", "text": "House {n} animals", "kind": "house", "filter": null, "target": 2, "rewardCoins": 30, "minHoused": 0 },
+  { "id": "q_collect_hay", "text": "Collect {n} hay", "kind": "collect", "filter": "hay", "target": 6, "rewardCoins": 20, "minHoused": 0 },
+  { "id": "q_collect_berry", "text": "Collect {n} berries", "kind": "collect", "filter": "berry", "target": 8, "rewardCoins": 25, "minHoused": 1 },
+  { "id": "q_feed_3", "text": "Fill a trough {n} times", "kind": "feed", "filter": null, "target": 3, "rewardCoins": 30, "minHoused": 1 },
+  { "id": "q_place_openBarn", "text": "Build a Meadow Pen", "kind": "place", "filter": "openBarn", "target": 1, "rewardCoins": 40, "minHoused": 2 },
+  { "id": "q_house_deer_2", "text": "House {n} Deer", "kind": "house", "filter": "deer", "target": 2, "rewardCoins": 50, "minHoused": 2 },
+  { "id": "q_capture_uncommon", "text": "Befriend {n} uncommon animals", "kind": "capture", "filter": "uncommon", "target": 2, "rewardCoins": 45, "minHoused": 3 },
+  { "id": "q_place_coop", "text": "Build a Cozy Coop", "kind": "place", "filter": "coop", "target": 1, "rewardCoins": 60, "minHoused": 4 },
+  { "id": "q_upgrade_barn", "text": "Upgrade a shelter", "kind": "upgrade", "filter": null, "target": 1, "rewardCoins": 80, "minHoused": 4 },
+  { "id": "q_capture_rare", "text": "Befriend {n} rare animal", "kind": "capture", "filter": "rare", "target": 1, "rewardCoins": 70, "minHoused": 5 },
+  { "id": "q_house_any_8", "text": "House {n} animals", "kind": "house", "filter": null, "target": 8, "rewardCoins": 100, "minHoused": 5 },
+  { "id": "q_collect_forage", "text": "Collect {n} forage", "kind": "collect", "filter": "forage", "target": 10, "rewardCoins": 60, "minHoused": 6 },
+  { "id": "q_capture_epic", "text": "Befriend {n} epic animal", "kind": "capture", "filter": "epic", "target": 1, "rewardCoins": 120, "minHoused": 8 },
+  { "id": "q_feed_10", "text": "Fill troughs {n} times", "kind": "feed", "filter": null, "target": 10, "rewardCoins": 90, "minHoused": 8 },
+  { "id": "q_house_any_15", "text": "House {n} animals", "kind": "house", "filter": null, "target": 15, "rewardCoins": 200, "minHoused": 10 }
+]
