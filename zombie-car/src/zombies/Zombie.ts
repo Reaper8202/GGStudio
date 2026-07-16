@@ -44,6 +44,7 @@ import {
   ZOMBIE_HALF_HEIGHT,
   ZOMBIE_RADIUS,
 } from "../config/zombieConfig";
+import { instantiateVoxelAsset } from "../world/VoxelAssetLoader";
 
 /** Ray-cast filter: only the world's static geometry blocks a chase path. */
 const OBSTACLE_FILTER_GROUPS = interactionGroups(Group.Zombie, Group.Static);
@@ -80,13 +81,10 @@ export class Zombie implements ZombieTarget {
   private readonly ctx: GameContext;
   private readonly effects: EffectsSystem;
 
-  private readonly bodyMesh: THREE.Mesh;
-  private readonly headMesh: THREE.Mesh;
-  private readonly bodyMaterial: THREE.MeshLambertMaterial;
-  private readonly headMaterial: THREE.MeshLambertMaterial;
-  private readonly bodyTint: THREE.Color;
-  private readonly headTint: THREE.Color;
+  private readonly visualRoot = new THREE.Group();
+  private readonly visualMaterials: THREE.MeshLambertMaterial[] = [];
   private readonly baseScale: number;
+  private visualOpacity = 1;
 
   private health = 0;
   private moveSpeed = 0;
@@ -118,45 +116,52 @@ export class Zombie implements ZombieTarget {
 
     this.baseScale = 1 + (Math.random() - 0.5) * SCALE_VARIATION;
 
-    this.bodyTint = new THREE.Color(BODY_TINTS[index % BODY_TINTS.length]).offsetHSL(
+    const bodyTint = new THREE.Color(BODY_TINTS[index % BODY_TINTS.length]).offsetHSL(
       0,
       0,
       (Math.random() - 0.5) * 0.08
     );
-    this.headTint = new THREE.Color(HEAD_TINT).offsetHSL(0, 0, (Math.random() - 0.5) * 0.08);
+    const headTint = new THREE.Color(HEAD_TINT).offsetHSL(
+      0,
+      0,
+      (Math.random() - 0.5) * 0.08
+    );
 
-    this.bodyMaterial = new THREE.MeshLambertMaterial({
-      color: this.bodyTint,
+    const bodyMaterial = new THREE.MeshLambertMaterial({
+      color: bodyTint,
       flatShading: true,
       transparent: true,
     });
-    this.headMaterial = new THREE.MeshLambertMaterial({
-      color: this.headTint,
+    const headMaterial = new THREE.MeshLambertMaterial({
+      color: headTint,
       flatShading: true,
       transparent: true,
     });
-    const armMaterial = this.bodyMaterial;
+    const armMaterial = bodyMaterial;
+    this.visualMaterials.push(bodyMaterial, headMaterial);
 
     this.root = new THREE.Group();
     this.root.visible = false;
+    this.root.add(this.visualRoot);
 
-    this.bodyMesh = new THREE.Mesh(bodyGeometry, this.bodyMaterial);
-    this.bodyMesh.position.y = BODY_LOCAL_Y;
-    this.root.add(this.bodyMesh);
+    const bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    bodyMesh.position.y = BODY_LOCAL_Y;
+    this.visualRoot.add(bodyMesh);
 
-    this.headMesh = new THREE.Mesh(headGeometry, this.headMaterial);
-    this.headMesh.position.y = HEAD_LOCAL_Y;
-    this.root.add(this.headMesh);
+    const headMesh = new THREE.Mesh(headGeometry, headMaterial);
+    headMesh.position.y = HEAD_LOCAL_Y;
+    this.visualRoot.add(headMesh);
 
     const armLeft = new THREE.Mesh(armGeometry, armMaterial);
     armLeft.position.set(-(BODY_SIZE.width / 2 + ARM_SIZE.width / 2), ARM_LOCAL_Y, 0);
-    this.root.add(armLeft);
+    this.visualRoot.add(armLeft);
 
     const armRight = new THREE.Mesh(armGeometry, armMaterial);
     armRight.position.set(BODY_SIZE.width / 2 + ARM_SIZE.width / 2, ARM_LOCAL_Y, 0);
-    this.root.add(armRight);
+    this.visualRoot.add(armRight);
 
     ctx.scene.add(this.root);
+    this.loadVoxelVisual();
 
     const bodyDesc = ctx.rapier.RigidBodyDesc.dynamic()
       .setTranslation(0, -50 - index, 0)
@@ -253,7 +258,9 @@ export class Zombie implements ZombieTarget {
 
     this.position.set(position.x, y, position.z);
     this.root.position.set(position.x, y, position.z);
+    this.root.rotation.x = 0;
     this.root.rotation.y = Math.random() * Math.PI * 2;
+    this.visualRoot.position.set(0, 0, 0);
     this.root.visible = true;
     this.root.scale.setScalar(0.05);
     this.setOpacity(0.15);
@@ -506,8 +513,37 @@ export class Zombie implements ZombieTarget {
   }
 
   private setOpacity(opacity: number): void {
-    this.bodyMaterial.opacity = opacity;
-    this.headMaterial.opacity = opacity;
+    this.visualOpacity = opacity;
+    for (const material of this.visualMaterials) {
+      material.transparent = true;
+      material.opacity = opacity;
+    }
+  }
+
+  private loadVoxelVisual(): void {
+    const variant = (this.index % 6) + 1;
+    void instantiateVoxelAsset(`/assets/zombies/Zed_${variant}`, true)
+      .then((model) => {
+        model.scale.setScalar(0.23);
+        model.position.y = -(ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS);
+
+        this.visualRoot.clear();
+        this.visualMaterials.length = 0;
+        model.traverse((child) => {
+          if (!(child instanceof THREE.Mesh)) return;
+          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          for (const material of materials) {
+            if (material instanceof THREE.MeshLambertMaterial) {
+              this.visualMaterials.push(material);
+            }
+          }
+        });
+        this.visualRoot.add(model);
+        this.setOpacity(this.visualOpacity);
+      })
+      .catch((error: unknown) => {
+        console.error(`Failed to load voxel zombie variant ${variant}`, error);
+      });
   }
 
   // ---------------------------------------------------------------------
@@ -521,11 +557,15 @@ export class Zombie implements ZombieTarget {
     if (this.hitFlashTimer > 0) {
       this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
       const t = this.hitFlashTimer / HIT_FLASH_DURATION;
-      this.bodyMaterial.emissive.copy(HIT_FLASH_COLOR).multiplyScalar(t * 0.6);
-      this.headMaterial.emissive.copy(HIT_FLASH_COLOR).multiplyScalar(t * 0.6);
-    } else if (this.bodyMaterial.emissive.r !== 0 || this.bodyMaterial.emissive.g !== 0) {
-      this.bodyMaterial.emissive.setScalar(0);
-      this.headMaterial.emissive.setScalar(0);
+      for (const material of this.visualMaterials) {
+        material.emissive.copy(HIT_FLASH_COLOR).multiplyScalar(t * 0.6);
+      }
+    } else {
+      for (const material of this.visualMaterials) {
+        if (material.emissive.r !== 0 || material.emissive.g !== 0 || material.emissive.b !== 0) {
+          material.emissive.setScalar(0);
+        }
+      }
     }
     if (this.lungeTimer > 0) this.lungeTimer = Math.max(0, this.lungeTimer - dt);
 
@@ -534,7 +574,7 @@ export class Zombie implements ZombieTarget {
         const t = clamp(1 - this.spawnTimer / SPAWN_RISE_DURATION, 0, 1);
         this.root.scale.setScalar(THREE.MathUtils.lerp(0.05, this.baseScale, t));
         this.setOpacity(THREE.MathUtils.lerp(0.15, 1, t));
-        this.bodyMesh.position.y = BODY_LOCAL_Y;
+        this.visualRoot.position.y = 0;
         break;
       }
       case ZombieState.Chasing:
@@ -544,15 +584,15 @@ export class Zombie implements ZombieTarget {
         this.setOpacity(1);
         if (this.state === ZombieState.Chasing) {
           this.bobPhase += dt * WALK_BOB_FREQUENCY;
-          this.bodyMesh.position.y = BODY_LOCAL_Y + Math.sin(this.bobPhase) * WALK_BOB_AMPLITUDE;
+          this.visualRoot.position.y = Math.sin(this.bobPhase) * WALK_BOB_AMPLITUDE;
         } else {
-          this.bodyMesh.position.y = BODY_LOCAL_Y;
+          this.visualRoot.position.y = 0;
         }
         if (this.lungeTimer > 0) {
           const p = this.lungeTimer / LUNGE_DURATION;
-          this.bodyMesh.position.z = -Math.sin(p * Math.PI) * LUNGE_DISTANCE;
+          this.visualRoot.position.z = -Math.sin(p * Math.PI) * LUNGE_DISTANCE;
         } else {
-          this.bodyMesh.position.z = 0;
+          this.visualRoot.position.z = 0;
         }
         break;
       }

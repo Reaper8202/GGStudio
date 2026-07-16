@@ -1,11 +1,10 @@
 # Zombie Vehicle Survival — Level 1 Prototype
 
-Top-down 3D wave-survival prototype: drive an armed vehicle around a construction
-site, survive endless zombie waves, and spend wave rewards on upgrades until the
-vehicle is destroyed. Built with TypeScript, Vite, Three.js, and Rapier
-(`@dimforge/rapier3d-compat`); all visuals are primitive low-poly geometry and
-the HUD is plain HTML/CSS — no backend, no downloaded assets, static-host
-friendly (YouTube Playables target).
+Top-down 3D wave-survival prototype: drive an armed vehicle through a moonlit
+voxel graveyard, survive endless zombie waves, and spend wave rewards on upgrades
+until the vehicle is destroyed. Built with TypeScript, Vite, Three.js, and Rapier
+(`@dimforge/rapier3d-compat`); the graveyard and zombies use bundled voxel OBJ
+assets while the HUD is plain HTML/CSS — no backend and static-host friendly.
 
 ## Setup
 
@@ -49,7 +48,7 @@ Systems communicate only through a typed event bus and the shared contracts in
 | --- | --- |
 | `src/core/` | Fixed-step 60 Hz game loop (clamped dt, pauses when tab hidden), `GameDirector` phase machine (Countdown → WaveActive → Upgrade → GameOver), event bus |
 | `src/types/` | Frozen shared contracts: `GamePhase`, `VehicleBlueprint`, `WeaponStats`, `UpgradeDefinition`, events, collision groups |
-| `src/world/` | Construction-site map from primitives: buildings, container choke points, loading-dock ramp, dynamic props, sealed perimeter, zombie spawn points |
+| `src/world/` | Open graveyard layout, cached voxel asset loading, sparse trunk/perimeter collision, moon/fill/local/player lighting, zombie spawn points |
 | `src/vehicle/` | Data-driven vehicle factory (built from a `VehicleBlueprint` — chassis, N wheels, bumper, engine, turret mount), arcade Rapier controller (momentum, lateral slip, speed-dependent steering, stuck/flip recovery), health |
 | `src/input/` | Keyboard + virtual joystick → one normalized world-space direction |
 | `src/camera/` | Angled top-down follow camera: look-ahead, speed zoom, impact shake, bounds clamping |
@@ -70,8 +69,8 @@ progress + integration contract).
 - Zombie spawn points are a fixed ring validated against the current map by
   hand; editing the world geometry near the perimeter requires re-checking
   them (a stuck-zombie teleport watchdog guarantees waves complete either way).
-- Zombie avoidance is a light steering correction — they can pile up on the
-  container choke points (intended for now).
+- Zombie avoidance is a light steering correction — they can still pile up on
+  tree trunks or the perimeter fence (the stuck-zombie watchdog recovers them).
 - No persistence: money/upgrades are run-scoped by design for Level 1.
 
 ## Recommended next step

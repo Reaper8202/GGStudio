@@ -2,16 +2,16 @@
 
 Top-down 3D zombie vehicle survival prototype for browser / future YouTube
 Playables. TypeScript + Vite + Three.js + Rapier (`@dimforge/rapier3d-compat`)
-+ HTML/CSS HUD. Primitive low-poly geometry only. No backend, no React, no
-external assets. `npm install` / `npm run dev` / `npm run build`; the build is
-a fully static app (`base: "./"`).
++ HTML/CSS HUD. Bundled voxel OBJ/MTL/PNG assets are used for the graveyard
+and zombie variants; no backend or React. `npm install` / `npm run dev` /
+`npm run build`; the build is a fully static app (`base: "./"`).
 
 Shared contracts live in `src/types/index.ts` and `src/types/collision.ts`
 (frozen). Event bus implementation: `src/core/EventBus.ts` (frozen).
 
 ## Game flow
 
-- Loads directly into the construction site (no menu/tutorial/garage).
+- Loads directly into the graveyard (no menu/tutorial/garage).
 - Phases: `Countdown` (3 s, HUD countdown) → `WaveActive` → on wave clear
   `Upgrade` (panel, multiple purchases, explicit **Start Next Wave** button —
   never auto-start) → `Countdown` → … Vehicle destroyed ⇒ `GameOver` (final
@@ -19,14 +19,14 @@ Shared contracts live in `src/types/index.ts` and `src/types/collision.ts`
 - During `Upgrade`/`GameOver`, dangerous gameplay is paused (no zombie attacks
   or movement, no vehicle damage).
 
-## World — construction site
+## World — graveyard
 
-Compact map (zombies must regularly reach the player) built from primitives:
-dirt+concrete ground, partial building structures, concrete barriers, pipes,
-containers, pallets, construction fencing, traffic cones, debris, ≥1 drivable
-ramp, open driving areas AND narrow choke points where a swarm can trap the
-vehicle. Large objects: stable static colliders. Small props (cones, pallets,
-debris): dynamic/movable. Perimeter keeps the vehicle in bounds. Provides
+Open moonlit graveyard built from bundled voxel trees, tombstones, iron fence,
+ghosts, ravens, and landmarks. The cross-shaped central drive lanes remain
+clear; tombstones, lamps, and dressing are visual-only, while collision is
+limited to the sealed perimeter and a few tree trunks. A cool angled moon with
+ambient fill provides readable voxel shadows; warm lantern pools and a
+player-follow spotlight provide local contrast and guide the eye. Provides
 `WorldApi` (bounds + spawn points away from player view).
 
 ## Vehicle
@@ -63,7 +63,7 @@ resize on desktop/mobile.
 
 ## Zombies
 
-Pooled low-poly zombies; stats: health, speed, attackDamage, attackInterval,
+Pooled voxel zombie variants; stats: health, speed, attackDamage, attackInterval,
 reward. States: Spawning → Chasing → Attacking / KnockedBack → Dead. Spawn at
 map-edge spawn points away from the vehicle, never inside geometry, only while
 active count < wave cap. Chase via direct steering with lightweight obstacle

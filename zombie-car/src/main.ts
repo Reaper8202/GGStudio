@@ -1,7 +1,7 @@
 /**
  * Bootstrap entry point: creates the renderer/scene/physics world, the
  * TypedEventBus + GameState, wires up GameDirector/GameLoop, and builds the
- * construction-site map. Owned by Agent A (Foundation & World).
+ * graveyard map. Owned by Agent A (Foundation & World).
  */
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
@@ -11,10 +11,11 @@ import { GameConfig } from "./config/gameConfig";
 import { TypedEventBus } from "./core/EventBus";
 import { GameLoop } from "./core/GameLoop";
 import { GameDirector } from "./core/GameDirector";
-import { ConstructionSite } from "./world/ConstructionSite";
+import { Graveyard } from "./world/Graveyard";
 import { createVehicleSystems } from "./vehicle";
 import { createCombatSystems } from "./zombies";
 import { createUiSystems } from "./ui";
+import { createItemSystem } from "./items";
 
 async function bootstrap(): Promise<void> {
   await RAPIER.init();
@@ -28,11 +29,15 @@ async function bootstrap(): Promise<void> {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, GameConfig.devicePixelRatioCap));
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
   container.appendChild(renderer.domElement);
 
   // --- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a1a1a);
+  scene.background = new THREE.Color(0x080b14);
 
   // --- Camera ---------------------------------------------------------------
   // Temporary static angled top-down view of the map center. The camera
@@ -76,10 +81,16 @@ async function bootstrap(): Promise<void> {
     state,
   };
 
+  // --- Items (car customization catalog + starter loadout) -------------------
+  // The car starts with default wheels, a basic turret, and a basic engine
+  // equipped at level 1. Gameplay systems don't consume loadout stats yet —
+  // the car-builder UI and stat wiring land later; see docs/ITEMS.md.
+  const { registry: itemRegistry, loadout } = createItemSystem();
+
   // --- Core systems -----------------------------------------------------------
   const loop = new GameLoop(ctx, () => renderer.render(scene, camera));
   const director = new GameDirector(ctx, loop);
-  const world = new ConstructionSite(ctx);
+  const world = new Graveyard(ctx);
   director.registerSystem(world);
 
   // === SYSTEM WIRING (integration) ===
@@ -105,6 +116,7 @@ async function bootstrap(): Promise<void> {
   //   }
 
   const { vehicle, input, camera: followCamera } = createVehicleSystems(ctx, world);
+  world.follow(vehicle);
   director.registerSystem(input);
   director.registerSystem(vehicle);
   const { zombies, waves, weapons, effects } = createCombatSystems(ctx, world, vehicle);
@@ -142,7 +154,15 @@ async function bootstrap(): Promise<void> {
   loop.start();
 
   // Exposed for automated/manual testing (see docs/STATUS.md).
-  (window as unknown as { __game: unknown }).__game = { ctx, director, vehicle, zombies, waves };
+  (window as unknown as { __game: unknown }).__game = {
+    ctx,
+    director,
+    vehicle,
+    zombies,
+    waves,
+    itemRegistry,
+    loadout,
+  };
 }
 
 bootstrap().catch((err) => {

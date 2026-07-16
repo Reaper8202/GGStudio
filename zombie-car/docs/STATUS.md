@@ -26,7 +26,8 @@
 ## Progress
 
 - [x] Scaffold: Vite/TS config, deps installed (three 0.185, rapier3d-compat 0.19, vite 8, ts 7), index.html, shared types, event bus, BUILD_SPEC
-- [x] Agent A: core loop, Rapier init, director/phases, construction-site world
+- [x] Agent A: core loop, Rapier init, director/phases, open voxel graveyard,
+      moon/ambient/lantern/player-focus lighting, sparse collision
 - [x] Agent B: vehicle blueprint/factory, arcade controller, input, camera
       (fix pass done: one-shot applyImpulse + post-impulse speed clamp replaced
       persistent addForce; boot healthChanged emits; component HP total 200 —
