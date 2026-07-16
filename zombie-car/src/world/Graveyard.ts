@@ -293,10 +293,22 @@ export class Graveyard implements WorldApi, GameSystem {
         );
         scaleY = Math.min(scaleY, THREE.MathUtils.lerp(0.04, scaleY, roadT));
 
+        // Every tile aligns its walkable surface to exactly y=0, so wherever
+        // two overlapping tiles are both flattened (clearings, the road
+        // corridor) their top faces are coplanar and z-fight — visible as
+        // shimmering/jitter in the overlap bands. Sink each tile by one of
+        // four parity-keyed depth steps instead: any pair of tiles close
+        // enough to overlap differs in ix- or iz-parity (only ±1 neighbors
+        // and, via row stagger, a ±2 column in an adjacent row can reach),
+        // so overlapping surfaces are always separated by at least one
+        // 2cm step — far above depth-buffer precision, far below anything
+        // readable on voxel relief.
+        const overlapDepthBias = ((ix & 1) * 2 + (iz & 1)) * 0.02;
+
         tiles.push({
           x,
           z,
-          y: groundTileBaseOffset * scaleY,
+          y: groundTileBaseOffset * scaleY - overlapDepthBias,
           rotation: (Math.floor(Math.random() * 4) * Math.PI) / 2,
           scale: (0.92 + Math.random() * 0.24) * footprintScale,
           scaleY,
@@ -438,12 +450,20 @@ export class Graveyard implements WorldApi, GameSystem {
             ? "Road-Street6-B"
             : "Road-Street8-B";
 
+        // Consecutive arm tiles overlap by 0.15 and used to all sit at the
+        // exact same y=0.02 — coplanar in every overlap band, which
+        // z-fights/jitters. Alternate two heights along the arm (and start
+        // above the junction crossing's 0.02, which tile 0 overlaps) so no
+        // two overlapping road pieces ever share a depth. The 5mm steps are
+        // invisible but well beyond depth-buffer precision.
+        const tileY = 0.025 + (i % 2) * 0.005;
+
         if (arm.dirZ !== 0) {
           // Main road, native N-S orientation (rotation 0).
           this.placeVoxel({
             asset: streetAsset,
             x: ROAD_X - laneHalfWidth,
-            y: 0.02,
+            y: tileY,
             z: cz,
             castShadow: false,
             tint: roadTint,
@@ -451,7 +471,7 @@ export class Graveyard implements WorldApi, GameSystem {
           this.placeVoxel({
             asset: streetAssetB,
             x: ROAD_X + laneHalfWidth,
-            y: 0.02,
+            y: tileY,
             z: cz,
             castShadow: false,
             tint: roadTint,
@@ -466,7 +486,7 @@ export class Graveyard implements WorldApi, GameSystem {
           this.placeVoxel({
             asset: streetAsset,
             x: cx,
-            y: 0.02,
+            y: tileY,
             z: SIDE_ROAD_Z + laneHalfWidth,
             rotation: Math.PI / 2,
             castShadow: false,
@@ -475,7 +495,7 @@ export class Graveyard implements WorldApi, GameSystem {
           this.placeVoxel({
             asset: streetAssetB,
             x: cx,
-            y: 0.02,
+            y: tileY,
             z: SIDE_ROAD_Z - laneHalfWidth,
             rotation: Math.PI / 2,
             castShadow: false,
