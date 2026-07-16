@@ -19,9 +19,13 @@ npm run dev
 
 Open the printed URL. The **editor** loads with a drivable starter rig.
 
-**New to the editor?** It opens a Help overlay on first launch (the **? Help**
-button brings it back any time), and [docs/HOW_TO_BUILD.md](docs/HOW_TO_BUILD.md)
-is a full step-by-step walkthrough from empty grid to drivable truck.
+**Built for kids.** First launch offers a guided **7-step tutorial** (also the
+🎓 Tutorial button, any time) that walks through building a truck with automatic
+progress detection. The palette starts in **simple mode** — 10 friendly-named
+parts (Block, Wheel Holder, Zombie Blaster…) with wheels auto-configured on
+placement; the "🔧 More parts" toggle reveals the full advanced catalog. The
+**? Help** button has the full rules, and
+[docs/HOW_TO_BUILD.md](docs/HOW_TO_BUILD.md) is the written walkthrough.
 
 Quick orientation:
 

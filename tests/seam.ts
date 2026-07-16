@@ -14,6 +14,8 @@ declare global {
         orient?: number,
         config?: Record<string, unknown>,
       ): { ok: boolean; issues: string[] };
+      startTutorial(): void;
+      tutorialState(): { active: boolean; stepIndex: number; total: number } | undefined;
       configureAt(pos: { x: number; y: number; z: number }, config: Record<string, unknown>): boolean;
       undo(): void;
       redo(): void;

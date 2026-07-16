@@ -86,6 +86,8 @@ export class App {
       loadBlueprintJson: (json: string) => this.editor?.replaceBlueprint(deserializeBlueprint(json)),
       place: (defId: string, pos: Vec3i, orient = 0, config: PartConfig = {}) =>
         this.editor?.debugPlace(defId, pos, orient, config),
+      startTutorial: () => this.editor?.startTutorial(),
+      tutorialState: () => this.editor?.debugTutorialState(),
       configureAt: (pos: Vec3i, config: PartConfig) => this.editor?.debugConfigure(pos, config),
       undo: () => this.editor?.debugUndo(),
       redo: () => this.editor?.debugRedo(),

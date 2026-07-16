@@ -37,8 +37,16 @@ import {
 import { buildPartMesh } from './meshes.ts';
 import { Overlays, defaultToggles, type OverlayToggles } from './overlays.ts';
 import { buildEditorUI, buildInspectorPanel, type EditorUI } from './ui.ts';
+import { TutorialOverlay } from './TutorialOverlay.ts';
+import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
 
 const STORAGE_KEY = 'scraprig.blueprints.v1';
+const PALETTE_MODE_KEY = 'scraprig.palette-mode';
+const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
+
+function isSimplePaletteMode(): boolean {
+  return localStorage.getItem(PALETTE_MODE_KEY) !== 'all';
+}
 
 interface GhostState {
   defId: string;
@@ -74,6 +82,8 @@ export class EditorMode {
   private hideShell = false;
   private toggles: OverlayToggles = defaultToggles();
   private ui: EditorUI;
+  private tutorialOverlay: TutorialOverlay | null = null;
+  private tutorialActive = false;
   private pointerDown: { x: number; y: number } | null = null;
   private disposed = false;
   private readonly keyHandler = (e: KeyboardEvent) => this.onKey(e);
@@ -154,8 +164,15 @@ export class EditorMode {
       },
       onTestDrive: () => {
         const report = validateBlueprint(this.bp, getPartDef);
-        if (report.errors.length === 0) this.onTestDrive(this.bp);
+        if (report.errors.length === 0) {
+          if (this.tutorialActive) {
+            localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+            this.stopTutorial();
+          }
+          this.onTestDrive(this.bp);
+        }
       },
+      onStartTutorial: () => this.startTutorial(),
       onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
       onDeleteSelected: () => this.deleteSelected(),
       onMirrorSelected: () => this.mirrorSelected(),
@@ -209,6 +226,7 @@ export class EditorMode {
     this.renderer.domElement.removeEventListener('pointerup', this.onPointerUp);
     window.removeEventListener('keydown', this.keyHandler);
     this.controls.dispose();
+    this.tutorialOverlay?.dispose();
     this.ui.root.remove();
   }
 
@@ -221,6 +239,31 @@ export class EditorMode {
     this.selected.clear();
     this.history.clear();
     this.refresh();
+  }
+
+  /** Start the kid-friendly guided build with its own fresh blueprint. */
+  startTutorial(): void {
+    this.tutorialOverlay?.dispose();
+    this.tutorialOverlay = null;
+    this.tutorialActive = true;
+    this.replaceBlueprint(createTutorialBlueprint());
+    this.tutorialOverlay = new TutorialOverlay(this.ui.root, this.ui, () => this.stopTutorial());
+    this.tutorialOverlay.update(this.bp, getPartDef);
+  }
+
+  stopTutorial(): void {
+    this.tutorialOverlay?.dispose();
+    this.tutorialOverlay = null;
+    this.tutorialActive = false;
+    this.ui.highlightPaletteButton(null);
+  }
+
+  debugTutorialState(): { active: boolean; stepIndex: number; total: number } {
+    return {
+      active: this.tutorialActive,
+      stepIndex: this.tutorialActive ? tutorialProgress(this.bp, getPartDef) : 0,
+      total: TUTORIAL_STEPS.length,
+    };
   }
 
   // ---------- views ----------
@@ -468,7 +511,11 @@ export class EditorMode {
     const { pos } = this.ghostTarget;
     const def = getPartDef(this.ghost.defId);
     const id = nextPartId(this.bp);
-    const config: PartConfig = def.wheel ? { braking: true, suspensionPreset: 'standard' } : {};
+    const config: PartConfig = def.wheel
+      ? isSimplePaletteMode()
+        ? { driven: true, braking: true, steering: pos.z > 0, suspensionPreset: 'standard' }
+        : { braking: true, suspensionPreset: 'standard' }
+      : {};
     const part: PlacedPart = { id, defId: this.ghost.defId, pos, orient: this.ghost.orient, config };
     const cmds: EditorCommand[] = [placeCommand(part)];
 
@@ -681,6 +728,7 @@ export class EditorMode {
     this.refreshAnalysis();
     this.ui.setBlueprintName(this.bp.name);
     this.ui.setUndoRedo(this.history.canUndo, this.history.canRedo);
+    if (this.tutorialActive) this.tutorialOverlay?.update(this.bp, getPartDef);
   }
 
   private rebuildMeshes(): void {

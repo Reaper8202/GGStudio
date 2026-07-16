@@ -1,6 +1,9 @@
 /** DOM overlay UI for the editor: palette, inspector, top/bottom bars. */
 
+import { KID_LABELS, SIMPLE_PART_IDS } from '../core/tutorial.ts';
 import type { PartCategory, PartDefinition, ValidationIssue } from '../core/types.ts';
+
+const PALETTE_MODE_KEY = 'scraprig.palette-mode';
 
 export interface EditorUIHandlers {
   onArmPart(defId: string): void;
@@ -17,6 +20,7 @@ export interface EditorUIHandlers {
   onViewMode(mode: 'normal' | 'xray' | 'structure', hideArmour: boolean, hideShell: boolean): void;
   onOverlayToggle(key: string, on: boolean): void;
   onTestDrive(): void;
+  onStartTutorial(): void;
   onConfigChange(partId: string, key: string, value: boolean | string): void;
   onDeleteSelected(): void;
   onMirrorSelected(): void;
@@ -34,6 +38,7 @@ export interface EditorUI {
   setTestDriveEnabled(enabled: boolean, blockedBy: string[]): void;
   setInspector(html: HTMLElement | null): void;
   setArmedPart(defId: string | null): void;
+  highlightPaletteButton(defId: string | null): void;
   setStatus(text: string): void;
   ghostTip: HTMLDivElement;
 }
@@ -105,6 +110,7 @@ export function buildEditorUI(
   testBtn.className = 'primary';
   top.appendChild(testBtn);
 
+  top.appendChild(btn('🎓 Tutorial', handlers.onStartTutorial, 'Build your first truck step by step'));
   const helpBtn = btn('? Help', () => toggleHelp(), 'How to build a vehicle');
   top.appendChild(helpBtn);
 
@@ -113,21 +119,60 @@ export function buildEditorUI(
   palette.className = 'palette panel';
   root.appendChild(palette);
   const partButtons = new Map<string, HTMLButtonElement>();
-  for (const cat of CATEGORY_ORDER) {
-    const title = document.createElement('div');
-    title.className = 'cat-title';
-    title.textContent = cat;
-    palette.appendChild(title);
-    for (const def of Object.values(catalog).filter((d) => d.category === cat)) {
+  const paletteContent = document.createElement('div');
+  paletteContent.className = 'palette-content';
+  palette.appendChild(paletteContent);
+  const paletteToggle = document.createElement('button');
+  paletteToggle.className = 'palette-toggle';
+  palette.appendChild(paletteToggle);
+  let paletteMode: 'simple' | 'all' = localStorage.getItem(PALETTE_MODE_KEY) === 'all' ? 'all' : 'simple';
+  let armed: string | null = null;
+  let highlighted: string | null = null;
+
+  const makePartButton = (def: PartDefinition, smallText: string): void => {
       const b = document.createElement('button');
       b.className = 'part-btn';
-      b.innerHTML = `${def.name}<small>${def.massKg} kg · $${def.cost}</small>`;
+      const name = document.createElement('strong');
+      name.textContent = KID_LABELS[def.id]?.name ?? def.name;
+      const small = document.createElement('small');
+      small.textContent = smallText;
+      b.append(name, small);
       b.title = def.description;
       b.addEventListener('click', () => handlers.onArmPart(def.id));
-      palette.appendChild(b);
+      paletteContent.appendChild(b);
       partButtons.set(def.id, b);
+  };
+
+  const rebuildPalette = (): void => {
+    partButtons.clear();
+    paletteContent.replaceChildren();
+    if (paletteMode === 'simple') {
+      for (const id of SIMPLE_PART_IDS) {
+        const def = catalog[id];
+        if (!def) continue;
+        makePartButton(def, KID_LABELS[id]?.blurb ?? def.description);
+      }
+    } else {
+      for (const cat of CATEGORY_ORDER) {
+        const title = document.createElement('div');
+        title.className = 'cat-title';
+        title.textContent = cat;
+        paletteContent.appendChild(title);
+        for (const def of Object.values(catalog).filter((d) => d.category === cat)) {
+          makePartButton(def, `${def.massKg} kg · $${def.cost}`);
+        }
+      }
     }
-  }
+    if (armed) partButtons.get(armed)?.classList.add('active');
+    if (highlighted) partButtons.get(highlighted)?.classList.add('tutorial-glow');
+    paletteToggle.textContent = paletteMode === 'simple' ? '🔧 More parts' : '🧒 Simple parts';
+  };
+  paletteToggle.addEventListener('click', () => {
+    paletteMode = paletteMode === 'simple' ? 'all' : 'simple';
+    localStorage.setItem(PALETTE_MODE_KEY, paletteMode);
+    rebuildPalette();
+  });
+  rebuildPalette();
 
   // --- Inspector + analysis ---
   const inspector = document.createElement('div');
@@ -225,7 +270,7 @@ export function buildEditorUI(
   ghostTip.style.display = 'none';
   root.appendChild(ghostTip);
 
-  // --- Help overlay (auto-opens on first visit) ---
+  // --- Help overlay ---
   const help = buildHelpOverlay();
   help.style.display = 'none';
   root.appendChild(help);
@@ -237,9 +282,27 @@ export function buildEditorUI(
   };
   help.querySelector('button')?.addEventListener('click', () => toggleHelp());
   const debugMode = new URLSearchParams(location.search).get('debug') === '1';
-  if (!debugMode && !localStorage.getItem(HELP_SEEN_KEY)) toggleHelp();
-
-  let armed: string | null = null;
+  const WELCOME_SEEN_KEY = 'scraprig.welcome-seen';
+  const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
+  if (
+    !debugMode &&
+    !localStorage.getItem(TUTORIAL_DONE_KEY) &&
+    !localStorage.getItem(HELP_SEEN_KEY) &&
+    !localStorage.getItem(WELCOME_SEEN_KEY)
+  ) {
+    const welcome = buildWelcomeDialog(
+      () => {
+        localStorage.setItem(WELCOME_SEEN_KEY, '1');
+        welcome.remove();
+        handlers.onStartTutorial();
+      },
+      () => {
+        localStorage.setItem(WELCOME_SEEN_KEY, '1');
+        welcome.remove();
+      },
+    );
+    root.appendChild(welcome);
+  }
 
   return {
     root,
@@ -304,10 +367,37 @@ export function buildEditorUI(
       armed = defId;
       if (defId) partButtons.get(defId)?.classList.add('active');
     },
+    highlightPaletteButton: (defId) => {
+      if (highlighted) partButtons.get(highlighted)?.classList.remove('tutorial-glow');
+      highlighted = defId;
+      if (defId) partButtons.get(defId)?.classList.add('tutorial-glow');
+    },
     setStatus: (t) => {
       status.textContent = t;
     },
   };
+}
+
+function buildWelcomeDialog(onStartTutorial: () => void, onClose: () => void): HTMLDivElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'panel welcome-panel';
+
+  const text = document.createElement('div');
+  text.textContent = '🚗 Want to learn how to build a zombie truck?';
+  wrap.appendChild(text);
+
+  const actions = document.createElement('div');
+  actions.className = 'welcome-actions';
+  const tutorialButton = document.createElement('button');
+  tutorialButton.className = 'primary';
+  tutorialButton.textContent = '🎓 Show me how!';
+  tutorialButton.addEventListener('click', onStartTutorial);
+  const closeButton = document.createElement('button');
+  closeButton.textContent = "🔧 I'll figure it out";
+  closeButton.addEventListener('click', onClose);
+  actions.append(tutorialButton, closeButton);
+  wrap.appendChild(actions);
+  return wrap;
 }
 
 /** Full-screen help overlay: quick start, controls, and the placement rules. */

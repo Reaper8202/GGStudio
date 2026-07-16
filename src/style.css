@@ -65,10 +65,22 @@ canvas.viewport {
   top: 64px;
   bottom: 90px;
   width: 210px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.palette-content {
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.palette-toggle {
+  margin-top: auto;
 }
 
 .inspector {
@@ -142,6 +154,59 @@ button:disabled {
 .part-btn small {
   color: #9aa4b5;
   display: block;
+}
+
+.tutorial-panel {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 64px;
+  width: min(520px, 90vw);
+  text-align: center;
+  z-index: 15;
+}
+
+.tutorial-panel button {
+  margin-top: 8px;
+}
+
+.tutorial-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 3px 0;
+}
+
+.tutorial-glow {
+  outline: 3px solid #79e04d;
+  animation: tut-pulse 1s infinite alternate;
+}
+
+@keyframes tut-pulse {
+  from {
+    outline-color: #79e04d;
+  }
+  to {
+    outline-color: #2c5f14;
+  }
+}
+
+.welcome-panel {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(380px, 90vw);
+  text-align: center;
+  z-index: 25;
+  font-size: 16px;
+}
+
+.welcome-actions {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 .issue-error {

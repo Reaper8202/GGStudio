@@ -1,7 +1,13 @@
 # How to Build a Vehicle — Step-by-Step Guide
 
-The in-game **? Help** button (top bar) shows a condensed version of this guide.
-This document walks through building a working truck from an empty grid.
+**Easiest way to learn: press the 🎓 Tutorial button** — it guides you through
+building your first truck step by step, right in the editor, and checks your
+progress automatically.
+
+The palette starts in **simple mode** (10 parts, friendly names, wheels come
+pre-configured). The "🔧 More parts" button reveals the full catalog for
+advanced builds. The in-game **? Help** button shows a condensed version of
+this guide. The rest of this document is the written walkthrough.
 
 ## The one big rule
 
