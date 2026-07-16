@@ -59,6 +59,14 @@ const ARM_LOCAL_Y = BODY_LOCAL_Y + 0.05;
 const BODY_TINTS = [0x4c6b3f, 0x5a7247, 0x3f5c48, 0x6b5a3f, 0x556b4c, 0x47614a];
 const HEAD_TINT = 0x8a9a7a;
 const HIT_FLASH_COLOR = new THREE.Color(0xffffff);
+/** Constant self-illumination floor for zombie materials. The night scene's
+ *  moon/ambient alone left them too dim to track; a faint emissive lift
+ *  keeps them readable everywhere without adding lights. The diffuse
+ *  texture doubles as the emissiveMap (see `loadVoxelVisual`), so the lift
+ *  preserves the sprite's own light/dark detail instead of flat-washing it
+ *  — it reads as "undead glow", not a brightness cheat. The hit flash
+ *  raises emissive above this floor and decays back to it, never to zero. */
+const BASE_EMISSIVE = 0.25;
 
 const bodyGeometry = new THREE.BoxGeometry(
   BODY_SIZE.width,
@@ -122,7 +130,7 @@ export class Zombie implements ZombieTarget {
     this.effects = effects;
     this.index = index;
 
-    this.baseScale = 1.65 + (Math.random() - 0.5) * SCALE_VARIATION;
+    this.baseScale = 1.85 + (Math.random() - 0.5) * SCALE_VARIATION;
 
     const bodyTint = new THREE.Color(
       BODY_TINTS[index % BODY_TINTS.length],
@@ -572,6 +580,12 @@ export class Zombie implements ZombieTarget {
             : [child.material];
           for (const material of materials) {
             if (material instanceof THREE.MeshLambertMaterial) {
+              // Texture-shaped self-glow (see BASE_EMISSIVE docs). Adding a
+              // map after creation changes the shader's defines, so the
+              // material has to be flagged for recompile.
+              material.emissiveMap = material.map;
+              material.emissive.setScalar(BASE_EMISSIVE);
+              material.needsUpdate = true;
               this.visualMaterials.push(material);
             }
           }
@@ -596,16 +610,14 @@ export class Zombie implements ZombieTarget {
       this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
       const t = this.hitFlashTimer / HIT_FLASH_DURATION;
       for (const material of this.visualMaterials) {
-        material.emissive.copy(HIT_FLASH_COLOR).multiplyScalar(t * 0.6);
+        material.emissive
+          .copy(HIT_FLASH_COLOR)
+          .multiplyScalar(BASE_EMISSIVE + t * 0.75);
       }
     } else {
       for (const material of this.visualMaterials) {
-        if (
-          material.emissive.r !== 0 ||
-          material.emissive.g !== 0 ||
-          material.emissive.b !== 0
-        ) {
-          material.emissive.setScalar(0);
+        if (material.emissive.r !== BASE_EMISSIVE) {
+          material.emissive.setScalar(BASE_EMISSIVE);
         }
       }
     }

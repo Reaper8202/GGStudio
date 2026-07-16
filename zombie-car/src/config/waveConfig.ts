@@ -29,8 +29,28 @@ export function waveRewardForWave(wave: number): number {
   return 100 + wave * 25;
 }
 
-/** Seconds between individual zombie spawns while a wave is filling up. */
-export const SPAWN_INTERVAL_SECONDS = 0.65;
+/** Zombies spawn as hordes: a whole group rises together around one shared
+ *  spawn point, then nothing spawns until the next horde. Size ramps up
+ *  slowly with the wave number. */
+export function hordeSizeForWave(wave: number): number {
+  const min = HORDE_SIZE_MIN;
+  const max = Math.min(HORDE_SIZE_MIN + 1 + Math.floor(wave / 2), HORDE_SIZE_MAX);
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+export const HORDE_SIZE_MIN = 3;
+export const HORDE_SIZE_MAX = 8;
+
+/** Seconds between horde spawns while a wave still has zombies to assign. */
+export const HORDE_INTERVAL_SECONDS = 3.0;
+
+/** Quick retry when a horde couldn't (fully) spawn — pool full or no valid
+ *  spawn point — so the wave keeps filling without waiting a whole interval. */
+export const HORDE_RETRY_SECONDS = 0.5;
+
+/** Max distance (world units) each horde member scatters from the shared
+ *  anchor spawn point, so the group reads as one clumped pack. */
+export const HORDE_SCATTER_RADIUS = 2.5;
 
 /** Minimum distance (world units) a chosen spawn point must be from the
  *  vehicle so zombies never pop in right next to the player. */

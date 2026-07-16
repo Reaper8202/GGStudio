@@ -5,8 +5,8 @@
  * very first wave and after each Upgrade -> Countdown -> WaveActive cycle)
  * this begins a new wave: assigns a zombie count/health/speed multiplier via
  * `waveConfig.ts` formulas, hands the multipliers to `ZombieSystem`, and
- * throttle-spawns zombies from it each fixedUpdate while the phase stays
- * WaveActive. A wave is complete once every assigned zombie has been spawned
+ * burst-spawns clumped hordes from it (one group per `HORDE_INTERVAL_SECONDS`)
+ * while the phase stays WaveActive. A wave is complete once every assigned zombie has been spawned
  * and none remain alive (spawned-but-not-yet-dead, including ones still
  * mid-spawn-animation) — at that point it emits `wave:completed` with this
  * wave's reward and stops spawning until the next `WaveActive` transition.
@@ -16,8 +16,10 @@ import type { GameContext, GameEvents, GameSystem } from "../types";
 import { GamePhase } from "../types";
 import type { ZombieSystem } from "../zombies/ZombieSystem";
 import {
-  SPAWN_INTERVAL_SECONDS,
+  HORDE_INTERVAL_SECONDS,
+  HORDE_RETRY_SECONDS,
   healthMultiplierForWave,
+  hordeSizeForWave,
   maxActiveZombiesForWave,
   speedMultiplierForWave,
   waveRewardForWave,
@@ -59,12 +61,21 @@ export class WaveManager implements GameSystem {
     if (this.spawnedCount < this.assignedCount) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        this.spawnTimer = SPAWN_INTERVAL_SECONDS;
-        if (this.zombies.getActiveCount() < maxActiveZombiesForWave(this.ctx.state.wave)) {
-          if (this.zombies.trySpawn()) {
-            this.spawnedCount++;
-          }
-        }
+        // Horde spawning: burst a whole clumped group at once, sized by the
+        // wave but clamped to what's left to assign and the active-cap
+        // headroom, then pause until the next horde.
+        const headroom =
+          maxActiveZombiesForWave(this.ctx.state.wave) - this.zombies.getActiveCount();
+        const want = Math.min(
+          hordeSizeForWave(this.ctx.state.wave),
+          this.assignedCount - this.spawnedCount,
+          headroom,
+        );
+        const spawned = want > 0 ? this.zombies.trySpawnHorde(want) : 0;
+        this.spawnedCount += spawned;
+        // Full horde landed -> full pause; anything less (no headroom, pool
+        // full, no valid spawn point) -> retry soon so the wave keeps filling.
+        this.spawnTimer = spawned === want ? HORDE_INTERVAL_SECONDS : HORDE_RETRY_SECONDS;
       }
     }
 

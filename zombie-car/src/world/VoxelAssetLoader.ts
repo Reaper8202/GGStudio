@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { MTLLoader } from "three/addons/loaders/MTLLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 
@@ -41,10 +42,12 @@ function replaceMaterials(object: THREE.Object3D): void {
 }
 
 async function loadTemplate(baseUrl: string): Promise<THREE.Group> {
-  const materials = await new MTLLoader().loadAsync(`${baseUrl}.mtl`);
-  materials.preload();
-
-  const object = await new OBJLoader().setMaterials(materials).loadAsync(`${baseUrl}.obj`);
+  // A ".fbx" suffix selects the FBX path (used by the apocalypse prop pack,
+  // which ships FBX-only); everything else is a MagicaVoxel OBJ/MTL pair
+  // addressed by its extensionless base URL.
+  const object = baseUrl.endsWith(".fbx")
+    ? await loadFbxObject(baseUrl)
+    : await loadObjObject(baseUrl);
   replaceMaterials(object);
 
   // MagicaVoxel exports are centered on all axes. Re-anchor them to the
@@ -56,6 +59,21 @@ async function loadTemplate(baseUrl: string): Promise<THREE.Group> {
   const root = new THREE.Group();
   root.add(object);
   return root;
+}
+
+async function loadObjObject(baseUrl: string): Promise<THREE.Object3D> {
+  const materials = await new MTLLoader().loadAsync(`${baseUrl}.mtl`);
+  materials.preload();
+  return new OBJLoader().setMaterials(materials).loadAsync(`${baseUrl}.obj`);
+}
+
+async function loadFbxObject(url: string): Promise<THREE.Object3D> {
+  const object = await new FBXLoader().loadAsync(url);
+  // These packs author in centimeters (a barricade measures ~200 units tall);
+  // normalize to the meter-ish world scale the OBJ assets already use, so
+  // placement `scale` values mean the same thing for both formats.
+  object.scale.setScalar(0.01);
+  return object;
 }
 
 function cloneMaterials(object: THREE.Object3D): void {
@@ -81,5 +99,45 @@ export async function instantiateVoxelAsset(
   const instance = (await pending).clone(true);
   if (uniqueMaterials) cloneMaterials(instance);
   return instance;
+}
+
+/**
+ * Raw geometry/material/pivot for an asset that's a single mesh (e.g. one
+ * MagicaVoxel "usemtl" group) — for callers tiling many copies of the same
+ * asset via `THREE.InstancedMesh` instead of many separate cloned objects
+ * (one draw call for the whole layer instead of one per placement). Not a
+ * general replacement for `instantiateVoxelAsset`: it assumes exactly one
+ * mesh in the template and throws otherwise.
+ */
+export async function loadVoxelInstanceSource(baseUrl: string): Promise<{
+  readonly geometry: THREE.BufferGeometry;
+  readonly material: THREE.Material;
+  /** The pivot offset baked in by `loadTemplate`'s re-anchoring (bottom of
+   *  the model at local y=0) — fold this into each instance's matrix. */
+  readonly pivot: THREE.Vector3;
+}> {
+  let pending = templates.get(baseUrl);
+  if (!pending) {
+    pending = loadTemplate(baseUrl);
+    templates.set(baseUrl, pending);
+  }
+
+  const root = await pending;
+  const object = root.children[0];
+  const meshes: THREE.Mesh[] = [];
+  object.traverse((child) => {
+    if (child instanceof THREE.Mesh) meshes.push(child);
+  });
+  if (meshes.length !== 1) {
+    throw new Error(
+      `loadVoxelInstanceSource: expected exactly one mesh in "${baseUrl}", found ${meshes.length}`
+    );
+  }
+
+  return {
+    geometry: meshes[0].geometry,
+    material: meshes[0].material as THREE.Material,
+    pivot: object.position.clone(),
+  };
 }
 

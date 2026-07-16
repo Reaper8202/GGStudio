@@ -26,7 +26,7 @@ import {
   ZOMBIE_CONTACT_RADIUS,
   ZOMBIE_POOL_SIZE,
 } from "../config/zombieConfig";
-import { MIN_SPAWN_DISTANCE_FROM_VEHICLE } from "../config/waveConfig";
+import { HORDE_SCATTER_RADIUS, MIN_SPAWN_DISTANCE_FROM_VEHICLE } from "../config/waveConfig";
 
 export class ZombieSystem implements GameSystem, ZombieQuery {
   private readonly ctx: GameContext;
@@ -51,6 +51,9 @@ export class ZombieSystem implements GameSystem, ZombieQuery {
 
   private healthMultiplier = 1;
   private speedMultiplier = 1;
+
+  /** Scratch vector for per-member horde scatter around the anchor point. */
+  private readonly spawnScratch = new THREE.Vector3();
 
   constructor(ctx: GameContext, world: WorldApi, vehicle: VehicleApi, effects: EffectsSystem) {
     this.ctx = ctx;
@@ -94,25 +97,33 @@ export class ZombieSystem implements GameSystem, ZombieQuery {
     return count;
   }
 
-  /** Attempts to spawn one zombie at a valid, far-enough spawn point.
-   *  Returns false if the pool is full or no spawn point currently
-   *  qualifies (both treated as "try again next tick" by the caller). */
-  trySpawn(): boolean {
-    let slot: Zombie | null = null;
+  /** Attempts to spawn a horde of up to `count` zombies clumped around one
+   *  shared anchor spawn point (each member scattered within
+   *  `HORDE_SCATTER_RADIUS`). Returns how many actually spawned — fewer than
+   *  `count` when the pool runs out, 0 when no spawn point qualifies (both
+   *  treated as "try again soon" by the caller). */
+  trySpawnHorde(count: number): number {
+    const anchor = this.pickSpawnPoint();
+    if (!anchor) return 0;
+
+    let spawned = 0;
     for (const z of this.pool) {
-      if (!z.active) {
-        slot = z;
-        break;
-      }
+      if (spawned >= count) break;
+      if (z.active) continue;
+
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.sqrt(Math.random()) * HORDE_SCATTER_RADIUS;
+      this.spawnScratch.set(
+        anchor.x + Math.cos(angle) * radius,
+        anchor.y,
+        anchor.z + Math.sin(angle) * radius,
+      );
+
+      z.spawn(this.spawnScratch, this.healthMultiplier, this.speedMultiplier);
+      this.resetWatchdog(z);
+      spawned++;
     }
-    if (!slot) return false;
-
-    const point = this.pickSpawnPoint();
-    if (!point) return false;
-
-    slot.spawn(point, this.healthMultiplier, this.speedMultiplier);
-    this.resetWatchdog(slot);
-    return true;
+    return spawned;
   }
 
   private pickSpawnPoint(): THREE.Vector3 | null {
