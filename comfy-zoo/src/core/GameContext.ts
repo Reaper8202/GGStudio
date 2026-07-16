@@ -57,6 +57,8 @@ export interface GameContext {
   assets: AssetManager;
   grid: TileGrid;
   hash: SpatialHash;
+  /** pen fence colliders — only consulted by wild animals, so housed/herded ones can enter */
+  penHash: SpatialHash;
   fx: Fx;
   joystick: JoystickState;
 

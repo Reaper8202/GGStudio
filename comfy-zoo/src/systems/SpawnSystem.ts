@@ -38,9 +38,24 @@ export class SpawnSystem {
     );
   }
 
+  /** Cell is on the map and not occupied by a shelter/pen/building. */
+  private cellFree(x: number, z: number): boolean {
+    const c = this.ctx.grid.worldToCell(x, z);
+    return this.ctx.grid.inBounds(c.cx, c.cz) && !this.ctx.grid.isOccupied(c.cx, c.cz);
+  }
+
+  /** Find a spawn point outside any occupied (shelter/pen) footprint. */
+  private findSpawnPoint(zone: ZoneId): { x: number; z: number } {
+    let p = randomPointInZone(zone);
+    for (let i = 0; i < 10 && !this.cellFree(p.x, p.z); i++) {
+      p = randomPointInZone(zone);
+    }
+    return p;
+  }
+
   /** Spawn one wild animal of a given def at a point (defaults to its zone). */
   spawn(def: AnimalDef, x?: number, z?: number): Animal {
-    const p = x !== undefined && z !== undefined ? { x, z } : randomPointInZone(def.zone);
+    const p = x !== undefined && z !== undefined ? { x, z } : this.findSpawnPoint(def.zone);
     const animal = new Animal(makeUid(this.ctx, 'wild'), def, this.ctx);
     animal.setHome(p.x, p.z);
     animal.setPosition(p.x, p.z);

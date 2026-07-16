@@ -1,12 +1,18 @@
 /**
- * A placed shelter: level-specific building model, an auto-generated instanced
- * fence pen around its footprint, a trough whose hay-mound scales with fill, and
- * a small wooden occupancy sign ("2/4"). Assigned species come from shelters.json.
+ * A placed shelter. Two flavors:
+ *  - Building (model set): a standalone structure (hub Barn, Well, Silo, Windmill)
+ *    normalized to its footprint. No fence — nothing to clip against.
+ *  - Pen (model null): a simple procedural box fence around the footprint with a
+ *    trough (hay-mound scales with fill) and a wooden occupancy sign ("2/4").
+ * Assigned species come from shelters.json.
  */
 import * as THREE from 'three';
 import type { ShelterDef } from '../data/types';
 import type { GameContext } from '../core/GameContext';
 import { makeBlobShadow } from './Fx';
+
+const POST_COLOR = 0x6b4f34;
+const RAIL_COLOR = 0x8a6b4d;
 
 export class Shelter {
   readonly uid: string;
@@ -22,7 +28,6 @@ export class Shelter {
   occupants: string[] = [];
   food = 0;
 
-  private building: THREE.Object3D | null = null;
   private trough: THREE.Mesh | null = null;
   private sign: THREE.Mesh | null = null;
   private signCtx: CanvasRenderingContext2D | null = null;
@@ -49,30 +54,70 @@ export class Shelter {
     this.centerX = c.x;
     this.centerZ = c.z;
     this.group.position.set(c.x, 0, c.z);
-    this.penRadius = (Math.min(w, h) * ctx.grid.cellSize) / 2 + 0.3;
 
     ctx.grid.occupy(anchorCx, anchorCz, w, h, true);
-    // building collider (inner half so pen annulus stays walkable)
-    const halfW = (w * ctx.grid.cellSize) / 2;
-    const halfH = (h * ctx.grid.cellSize) / 2;
-    ctx.hash.addAABB(c.x, c.z, halfW * 0.5, halfH * 0.5);
+
+    if (this.isPen) {
+      // animals roam the open pen interior; keep them inside the fence line
+      this.penRadius = Math.max(1, (Math.min(w, h) * ctx.grid.cellSize) / 2 - 0.6);
+      if (def.species.length > 0) this.addFenceColliders(c.x, c.z, w, h, ctx);
+    } else {
+      // solid building: collider so the player can't walk through it
+      this.penRadius = (Math.min(w, h) * ctx.grid.cellSize) / 2 + 0.3;
+      const halfW = (w * ctx.grid.cellSize) / 2;
+      const halfH = (h * ctx.grid.cellSize) / 2;
+      ctx.hash.addAABB(c.x, c.z, halfW * 0.6, halfH * 0.6);
+    }
 
     this.build();
   }
 
+  /**
+   * Register the pen's fence line as thin wall colliders in the (wild-animal-only)
+   * pen hash: this blocks wild animals from wandering through the fence while
+   * leaving housed/herded animals free to cross it to enter their own pen.
+   */
+  private addFenceColliders(cx: number, cz: number, w: number, h: number, ctx: GameContext): void {
+    const cs = ctx.grid.cellSize;
+    const halfW = (w * cs) / 2;
+    const halfH = (h * cs) / 2;
+    const t = 0.1;
+    ctx.penHash.addAABB(cx, cz - halfH, halfW, t);
+    ctx.penHash.addAABB(cx, cz + halfH, halfW, t);
+    ctx.penHash.addAABB(cx - halfW, cz, t, halfH);
+    ctx.penHash.addAABB(cx + halfW, cz, t, halfH);
+  }
+
+  /** Pens have no building model — just the fence, trough and sign. */
+  get isPen(): boolean {
+    return this.def.levels[this.level].model === null;
+  }
+
   private build(): void {
-    // clear previous building (on upgrade)
-    if (this.building) this.group.remove(this.building);
-    const modelPath = this.def.levels[this.level].model;
-    const inst = this.ctx.assets.instance(modelPath, { scale: 1 });
-    if (inst) {
-      this.building = inst.object;
-      this.normalizeToFootprint(this.building);
-    } else {
-      this.building = this.fallbackBuilding();
+    // full rebuild (also on upgrade) — never stack fences/troughs/signs
+    while (this.group.children.length > 0) this.group.remove(this.group.children[0]);
+    this.trough = null;
+    this.sign = null;
+    if (this.signTex) {
+      this.signTex.dispose();
+      this.signTex = null;
+      this.signCtx = null;
     }
-    this.group.add(this.building);
-    this.group.add(makeBlobShadow(Math.max(this.def.footprint.w, this.def.footprint.h) * 0.9));
+
+    const modelPath = this.def.levels[this.level].model;
+    if (modelPath !== null) {
+      const inst = this.ctx.assets.instance(modelPath, { scale: 1 });
+      const building = inst ? inst.object : this.fallbackBuilding();
+      if (inst) this.normalizeToFootprint(building);
+      building.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+        }
+      });
+      this.group.add(building);
+      this.group.add(makeBlobShadow(Math.max(this.def.footprint.w, this.def.footprint.h) * 0.9));
+    }
 
     if (this.def.species.length > 0) {
       this.buildFence();
@@ -85,7 +130,7 @@ export class Shelter {
 
   /**
    * The building packs are authored at inconsistent scales — normalize each
-   * shelter model so its bounding-box footprint fits its shelters.json footprint
+   * model so its bounding-box footprint fits its shelters.json footprint
    * (w×h grid cells, ~2 m/cell), uniformly scaled, grounded, and centered.
    */
   private normalizeToFootprint(building: THREE.Object3D): void {
@@ -124,49 +169,57 @@ export class Shelter {
     return g;
   }
 
+  /**
+   * Simple procedural box fence on the footprint edge: square posts every
+   * meter with two horizontal rails per side. Self-contained geometry, so
+   * nothing overlaps or clips regardless of asset-pack scales.
+   */
   private buildFence(): void {
     const { w, h } = this.def.footprint;
     const cs = this.ctx.grid.cellSize;
     const halfW = (w * cs) / 2;
     const halfH = (h * cs) / 2;
+
     const posts: THREE.Vector3[] = [];
     const step = 1;
-    for (let x = -halfW; x <= halfW; x += step) {
+    for (let x = -halfW; x <= halfW + 1e-3; x += step) {
       posts.push(new THREE.Vector3(x, 0, -halfH));
       posts.push(new THREE.Vector3(x, 0, halfH));
     }
-    for (let z = -halfH + step; z < halfH; z += step) {
+    for (let z = -halfH + step; z < halfH - 1e-3; z += step) {
       posts.push(new THREE.Vector3(-halfW, 0, z));
       posts.push(new THREE.Vector3(halfW, 0, z));
     }
 
-    const sources = this.ctx.assets.geometrySources('models/nature/Fence.glb').length
-      ? this.ctx.assets.geometrySources('models/nature/Fence.glb')
-      : this.ctx.assets.geometrySources('models/buildings/Fence.glb');
+    const postGeo = new THREE.BoxGeometry(0.14, 0.75, 0.14);
+    const postMaterial = new THREE.MeshStandardMaterial({ color: POST_COLOR, flatShading: true });
+    const im = new THREE.InstancedMesh(postGeo, postMaterial, posts.length);
+    const m = new THREE.Matrix4();
+    posts.forEach((p, i) => {
+      m.makeTranslation(p.x, 0.375, p.z);
+      im.setMatrixAt(i, m);
+    });
+    im.instanceMatrix.needsUpdate = true;
+    this.group.add(im);
 
-    if (sources.length > 0) {
-      for (const src of sources) {
-        const im = new THREE.InstancedMesh(src.geometry, src.material, posts.length);
-        const m = new THREE.Matrix4();
-        posts.forEach((p, i) => {
-          m.makeTranslation(p.x, p.y, p.z);
-          im.setMatrixAt(i, m);
-        });
-        im.instanceMatrix.needsUpdate = true;
-        this.group.add(im);
+    // two rails per side
+    const railMat = new THREE.MeshStandardMaterial({ color: RAIL_COLOR, flatShading: true });
+    const railT = 0.08;
+    const railYs = [0.3, 0.58];
+    const addRail = (len: number, x: number, z: number, alongX: boolean): void => {
+      for (const y of railYs) {
+        const geo = alongX
+          ? new THREE.BoxGeometry(len, railT, railT)
+          : new THREE.BoxGeometry(railT, railT, len);
+        const rail = new THREE.Mesh(geo, railMat);
+        rail.position.set(x, y, z);
+        this.group.add(rail);
       }
-    } else {
-      const geo = new THREE.CylinderGeometry(0.05, 0.06, 0.6, 5);
-      const mat = new THREE.MeshStandardMaterial({ color: 0x6b4f34, flatShading: true });
-      const im = new THREE.InstancedMesh(geo, mat, posts.length);
-      const m = new THREE.Matrix4();
-      posts.forEach((p, i) => {
-        m.makeTranslation(p.x, 0.3, p.z);
-        im.setMatrixAt(i, m);
-      });
-      im.instanceMatrix.needsUpdate = true;
-      this.group.add(im);
-    }
+    };
+    addRail(halfW * 2, 0, -halfH, true);
+    addRail(halfW * 2, 0, halfH, true);
+    addRail(halfH * 2, -halfW, 0, false);
+    addRail(halfH * 2, halfW, 0, false);
   }
 
   private buildTrough(): void {
@@ -176,13 +229,13 @@ export class Shelter {
       new THREE.BoxGeometry(1.2, 0.3, 0.5),
       new THREE.MeshStandardMaterial({ color: 0x6b4f34, flatShading: true }),
     );
-    base.position.set(0, 0.15, halfH - 0.5);
+    base.position.set(0, 0.15, halfH - 0.7);
     this.group.add(base);
     this.trough = new THREE.Mesh(
       new THREE.BoxGeometry(1.0, 0.4, 0.4),
       new THREE.MeshStandardMaterial({ color: 0xd8b45a, flatShading: true }),
     );
-    this.trough.position.set(0, 0.35, halfH - 0.5);
+    this.trough.position.set(0, 0.35, halfH - 0.7);
     this.group.add(this.trough);
   }
 
@@ -200,7 +253,7 @@ export class Shelter {
       new THREE.PlaneGeometry(0.8, 0.6),
       new THREE.MeshBasicMaterial({ map: this.signTex, transparent: true }),
     );
-    this.sign.position.set(halfW - 0.3, 1.0, halfH - 0.2);
+    this.sign.position.set(halfW - 0.5, 1.05, halfH + 0.05);
     this.group.add(this.sign);
   }
 

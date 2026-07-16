@@ -67,6 +67,12 @@ export function mountUI(bus: EventBus, adapter: PlatformAdapter, query: GameQuer
     if (settings.isOpen()) settings.close();
   };
 
+  // The barn hub is the way into the store (core emits this on interact).
+  bus.on('store:openRequested', () => {
+    closeAll();
+    buildMenu.show();
+  });
+
   const hud = new HUD(ctx, joystick, {
     openBuild: () => {
       closeAll();

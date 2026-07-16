@@ -3,6 +3,7 @@
     "boot": [
       "models/animals/Cow.glb",
       "models/buildings/SmallBarn.glb",
+      "models/buildings/Barn.glb",
       "models/buildings/Fence.glb",
       "models/buildings/Fence2.glb",
       "models/buildings/Well.glb",
@@ -110,7 +111,6 @@
       "models/animals/ShibaInu.glb",
       "models/animals/Stag.glb",
       "models/animals/Wolf.glb",
-      "models/buildings/Barn.glb",
       "models/buildings/BigBarn.glb",
       "models/buildings/ChickenCoop.glb",
       "models/buildings/OpenBarn.glb",

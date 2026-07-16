@@ -79,6 +79,7 @@ async function boot(): Promise<void> {
   const { renderer, scene, camera } = createRenderContext();
   const grid = new TileGrid(WORLD_SIZE, 2);
   const hash = new SpatialHash(4);
+  const penHash = new SpatialHash(4);
   const fx = new Fx(scene);
   const player = new Player(BALANCE.playerSpeed);
   player.setPosition(0, 2);
@@ -93,6 +94,7 @@ async function boot(): Promise<void> {
     assets,
     grid,
     hash,
+    penHash,
     fx,
     joystick: { x: 0, y: 0, active: false },
     player,
@@ -138,9 +140,13 @@ async function boot(): Promise<void> {
     restoreEntities(ctx, save);
     restoreQuests(ctx, save);
     offline.apply();
+    // saves from before the barn became the store hub don't have one — add it
+    if (!ctx.shelters.some((s) => s.def.hub)) placeHub(ctx, build);
   } else {
     newGame(ctx, build, spawner);
   }
+  // vegetation/resources go last so they never spawn in cells shelters occupy
+  worldGen.populate();
   quests.init();
 
   // cosmetic skin selection from the ZooPedia
@@ -197,18 +203,51 @@ async function boot(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// New game — tutorial-by-doing: docile Cow 5 m away, free pre-placed barn.
+// New game — tutorial-by-doing: docile Cow 5 m away, barn hub (the store) plus
+// a free starter pen to house her in.
 // ---------------------------------------------------------------------------
 
 function newGame(ctx: GameContext, build: BuildSystem, spawner: SpawnSystem): void {
-  const barnDef = getShelter('barn');
-  const anchor = ctx.grid.snapFootprint(7, -3, barnDef.footprint.w, barnDef.footprint.h);
-  build.place(barnDef, anchor.cx, anchor.cz, 0);
+  placeHub(ctx, build);
+
+  const penDef = getShelter('barn');
+  const penAnchor = findFreeAnchor(ctx, -7, -3, penDef.footprint.w, penDef.footprint.h);
+  build.place(penDef, penAnchor.cx, penAnchor.cz, 0);
 
   const cow = getAnimal('cow');
   const a = spawner.spawn(cow, ctx.player.x + 3, ctx.player.z + 4); // 5 m from spawn
   a.setHome(a.x, a.z);
   ctx.requestSave('new-game');
+}
+
+/** The barn hub: pre-placed store building, never bought. */
+function placeHub(ctx: GameContext, build: BuildSystem): void {
+  const hubDef = getShelter('hub');
+  const anchor = findFreeAnchor(ctx, 7, -3, hubDef.footprint.w, hubDef.footprint.h);
+  build.place(hubDef, anchor.cx, anchor.cz, 0);
+}
+
+/** Snap near (x,z); if occupied, scan outward for the nearest valid footprint. */
+function findFreeAnchor(
+  ctx: GameContext,
+  x: number,
+  z: number,
+  w: number,
+  h: number,
+): { cx: number; cz: number } {
+  const first = ctx.grid.snapFootprint(x, z, w, h);
+  if (ctx.grid.footprintValid(first.cx, first.cz, w, h)) return first;
+  for (let r = 1; r <= 8; r++) {
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const cx = first.cx + dx;
+        const cz = first.cz + dz;
+        if (ctx.grid.footprintValid(cx, cz, w, h)) return { cx, cz };
+      }
+    }
+  }
+  return first;
 }
 
 // ---------------------------------------------------------------------------
@@ -339,7 +378,7 @@ function makeQuery(
     },
     buildCatalog: (): BuildCatalogEntry[] => {
       const housed = ctx.shelters.reduce((n, s) => n + s.occupants.length, 0);
-      return SHELTERS.map((def) => {
+      return SHELTERS.filter((def) => !def.hub).map((def) => {
         const unlocked = housed >= def.unlockAtHoused;
         return {
           shelterId: def.id,
@@ -349,7 +388,8 @@ function makeQuery(
           species: [...def.species],
           unlocked,
           lockHint: unlocked ? null : def.lockHint,
-          modelPath: def.levels[0].model,
+          // pens have no building model — show the fence in the store thumbnail
+          modelPath: def.levels[0].model ?? 'models/buildings/Fence.glb',
         };
       });
     },

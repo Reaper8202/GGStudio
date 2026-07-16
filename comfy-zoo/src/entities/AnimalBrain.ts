@@ -31,10 +31,16 @@ export class AnimalBrain {
   private targetZ = 0;
   private fleeTimer = 0;
   private spookBubbleTimer = 0;
+  /** how long the wander target has failed to make progress (blocked by a fence) */
+  private stuckTimer = 0;
+  private lastX = 0;
+  private lastZ = 0;
 
   /** set by HerdingSystem each frame while following */
   followTargetX = 0;
   followTargetZ = 0;
+  /** radius of whoever's being followed (player or the animal ahead in the chain) */
+  followTargetRadius = 0.4;
 
   /** pen assignment while housed */
   private penX = 0;
@@ -75,15 +81,39 @@ export class AnimalBrain {
     this.a.setBubble(null);
   }
 
-  returnToWild(): void {
+  returnToWild(ctx: GameContext): void {
     this.a.mode = 'wild';
     this.a.shelterUid = null;
     this.hungry = false;
     this.sad = false;
     this.state = 'wander';
+    // wild movement can't cross fences (avoidPens=true), so if release left the
+    // animal standing inside a pen it would be trapped against its own former
+    // fence — step it just outside first.
+    this.escapeAnyPen(ctx);
     this.a.setHome(this.a.x, this.a.z);
     this.a.setBubble(null);
     this.pickWanderTarget();
+  }
+
+  private escapeAnyPen(ctx: GameContext): void {
+    for (const s of ctx.shelters) {
+      if (!s.isPen || s.def.species.length === 0) continue;
+      const r = s.penRadius;
+      if (s.dist2(this.a.x, this.a.z) >= r * r) continue;
+      let dx = this.a.x - s.centerX;
+      let dz = this.a.z - s.centerZ;
+      const d = Math.hypot(dx, dz);
+      if (d < 1e-3) {
+        const ang = Math.random() * Math.PI * 2;
+        dx = Math.cos(ang);
+        dz = Math.sin(ang);
+      } else {
+        dx /= d;
+        dz /= d;
+      }
+      this.a.setPosition(s.centerX + dx * (r + 1), s.centerZ + dz * (r + 1));
+    }
   }
 
   spook(ctx: GameContext): void {
@@ -137,6 +167,7 @@ export class AnimalBrain {
         this.a.def.fleeSpeed,
         dt,
         ctx,
+        true,
       );
       if (this.fleeTimer <= 0) {
         this.state = 'wander';
@@ -162,8 +193,18 @@ export class AnimalBrain {
       this.a.def.walkSpeed,
       dt,
       ctx,
+      true,
     );
-    if (arrived || this.timer <= 0) {
+    // a fence blocks the straight-line target: net movement collapses to ~0
+    // even while "walking", so retarget quickly instead of grinding on it.
+    const moved = Math.hypot(this.a.x - this.lastX, this.a.z - this.lastZ);
+    this.lastX = this.a.x;
+    this.lastZ = this.a.z;
+    this.stuckTimer = !arrived && moved < 0.01 ? this.stuckTimer + dt : 0;
+    if (this.stuckTimer > 0.5) {
+      this.stuckTimer = 0;
+      this.pickWanderTarget();
+    } else if (arrived || this.timer <= 0) {
       if (Math.random() < 0.4) {
         this.a.playClip('eat');
         this.timer = 1 + Math.random() * 2;
@@ -175,9 +216,12 @@ export class AnimalBrain {
 
   private updateFollow(dt: number, ctx: GameContext): void {
     const speed = Math.max(this.a.def.walkSpeed * 2, BALANCE.playerSpeed * 0.98);
+    // stop far enough back that the two bodies don't overlap, scaled to both radii
+    // so big animals (dinos, horses) don't clip into the leader ahead of them.
+    const stopDist = this.followTargetRadius + this.a.radius + 0.35;
     const dx = this.followTargetX - this.a.x;
     const dz = this.followTargetZ - this.a.z;
-    if (Math.hypot(dx, dz) < 0.8) {
+    if (Math.hypot(dx, dz) < stopDist) {
       this.a.playClip('idle');
     } else {
       this.a.moveToward(this.followTargetX, this.followTargetZ, speed, dt, ctx);

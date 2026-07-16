@@ -17,7 +17,7 @@ import type { QuestSystem } from './QuestSystem';
 import type { BuildSystem } from './BuildSystem';
 import { BALANCE, getAnimal, getResource } from '../core/data';
 
-type ActionCtx = 'capture' | 'collect' | 'build' | 'deposit' | 'none';
+type ActionCtx = 'capture' | 'collect' | 'build' | 'deposit' | 'upgrade' | 'store' | 'none';
 
 interface Target {
   kind: ActionCtx;
@@ -106,6 +106,38 @@ export class InteractionSystem {
       };
     }
 
+    // upgrade: nearest shelter that isn't at its max level yet
+    let upgradeShelter: Shelter | null = null;
+    let upgradeD = Infinity;
+    for (const s of this.ctx.shelters) {
+      if (s.level >= s.def.levels.length - 1) continue;
+      const d2 = s.dist2(px, pz);
+      const range = s.penRadius + 1.5;
+      if (d2 > range * range) continue;
+      if (d2 < upgradeD) {
+        upgradeShelter = s;
+        upgradeD = d2;
+      }
+    }
+    if (upgradeShelter) {
+      return {
+        kind: 'upgrade',
+        shelter: upgradeShelter,
+        x: upgradeShelter.centerX,
+        z: upgradeShelter.centerZ,
+      };
+    }
+
+    // store: near the barn hub → open the store
+    for (const s of this.ctx.shelters) {
+      if (!s.def.hub) continue;
+      const range =
+        (Math.max(s.def.footprint.w, s.def.footprint.h) * this.ctx.grid.cellSize) / 2 + 1.8;
+      if (s.dist2(px, pz) <= range * range) {
+        return { kind: 'store', shelter: s, x: s.centerX, z: s.centerZ };
+      }
+    }
+
     // collect: nearest ready resource node
     const ir = BALANCE.playerInteractRadius;
     let node: ResourceNode | null = null;
@@ -137,7 +169,7 @@ export class InteractionSystem {
     this.context = this.build.active ? 'build' : (target?.kind ?? 'none');
 
     // interact-zone glow near shelters / nodes
-    if (target && (target.kind === 'collect' || target.kind === 'deposit')) {
+    if (target && (target.kind === 'collect' || target.kind === 'deposit' || target.kind === 'upgrade' || target.kind === 'store')) {
       this.ctx.fx.showGlow(this.tmp.set(target.x, 0, target.z));
     } else {
       this.ctx.fx.hideGlow();
@@ -167,6 +199,16 @@ export class InteractionSystem {
         this.doDeposit(target.shelter!);
         this.consumed = true;
           return;
+      }
+      if (target.kind === 'upgrade') {
+        this.build.upgrade(target.shelter!.uid);
+        this.consumed = true;
+        return;
+      }
+      if (target.kind === 'store') {
+        this.ctx.bus.emit('store:openRequested', {});
+        this.consumed = true;
+        return;
       }
       const dur =
         target.kind === 'capture'

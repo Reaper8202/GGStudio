@@ -11,6 +11,11 @@
 
 import { el } from './dom';
 
+// portal builds are served from arbitrary paths (Playables ZIP, itch.io,
+// CrazyGames), so icon URLs must respect the configured base like every
+// other asset loader in this codebase does — a hardcoded "/assets/..." 404s.
+const BASE = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
+
 /** Pack icons shipped in assets/icons/ (see plan §2). Tinted via mask-image. */
 export type PackIcon =
   | 'Movie'
@@ -38,7 +43,16 @@ export type PackIcon =
   | 'Moon';
 
 /** Hand-drawn signature icons (inline SVG, fill: currentColor). */
-export type SignatureIcon = 'paw' | 'leaf' | 'acorn' | 'berry' | 'hammer' | 'hay';
+export type SignatureIcon =
+  | 'paw'
+  | 'leaf'
+  | 'acorn'
+  | 'berry'
+  | 'hammer'
+  | 'hay'
+  | 'upgrade'
+  | 'forage'
+  | 'water';
 
 const SIGNATURE_SVG: Record<SignatureIcon, string> = {
   // Rounded four-toe paw print.
@@ -78,6 +92,23 @@ const SIGNATURE_SVG: Record<SignatureIcon, string> = {
     <rect x="10.6" y="5.5" width="2.8" height="14" rx="1.2"/>
     <path d="M4 11h16M4 14.5h16" stroke="var(--cream,#f6eedd)" stroke-width="1.1" opacity=".55"/>
   </svg>`,
+  // Rounded up-chevron in a ring = upgrade a shelter.
+  upgrade: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M12 3.5c-4.7 0-8.5 3.8-8.5 8.5s3.8 8.5 8.5 8.5 8.5-3.8 8.5-8.5-3.8-8.5-8.5-8.5zm0 2.2c3.5 0 6.3 2.8 6.3 6.3s-2.8 6.3-6.3 6.3-6.3-2.8-6.3-6.3 2.8-6.3 6.3-6.3z" opacity=".35"/>
+    <path d="M12 7.2 7 12.5h3.1V17h3.8v-4.5H17z"/>
+  </svg>`,
+  // Three-leaf clover = pine-forest forage.
+  forage: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="12" cy="7.4" r="3.6"/>
+    <circle cx="6.6" cy="14.4" r="3.6"/>
+    <circle cx="17.4" cy="14.4" r="3.6"/>
+    <rect x="11.1" y="12" width="1.8" height="7.5" rx="0.9"/>
+  </svg>`,
+  // Rounded droplet = water.
+  water: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M12 2.8c2.6 3.8 6.5 8.9 6.5 12.7 0 3.6-2.9 6.5-6.5 6.5s-6.5-2.9-6.5-6.5c0-3.8 3.9-8.9 6.5-12.7z"/>
+    <path d="M9.4 15.6a2.6 2.6 0 0 0 2.6 2.6" stroke="var(--cream,#f6eedd)" stroke-width="1.3" stroke-linecap="round" fill="none" opacity=".6"/>
+  </svg>`,
 };
 
 export interface IconOpts {
@@ -92,7 +123,7 @@ export interface IconOpts {
 /** Build a pack icon element (mask-image tinted). */
 export function packIcon(name: PackIcon, opts: IconOpts = {}): HTMLElement {
   const node = el('span', { class: 'icon icon-pack' + (opts.class ? ' ' + opts.class : '') });
-  const url = `url("/assets/icons/${name}.svg")`;
+  const url = `url("${BASE}assets/icons/${name}.svg")`;
   node.style.webkitMaskImage = url;
   node.style.maskImage = url;
   node.style.backgroundColor = opts.color ?? 'var(--bark)';

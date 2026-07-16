@@ -9,6 +9,7 @@
 
 import type { BuildCatalogEntry } from '../core/EventBus';
 import type { UIContext } from './context';
+import { getAnimal } from '../core/data';
 import { clear, el, handmadeTilt } from './dom';
 import { packIcon, signatureIcon } from './icons';
 import type { ThumbHandle } from './Thumbnails';
@@ -30,14 +31,27 @@ export class BuildMenu {
     ctx.root.append(this.root);
     this.build();
     ctx.bus.on('build:ghostValidity', (p) => this.setConfirmEnabled(p.valid));
+    // Build mode can end core-side (double-click placement) — close up if so.
+    ctx.bus.on('build:mode', (p) => {
+      if (!p.active && this.pendingShelter) {
+        this.pendingShelter = null;
+        this.close();
+      }
+    });
+    // Clicking elsewhere on the map/UI closes the shop (but not while actively
+    // placing a shelter — that click drives the build-ghost placement instead).
+    window.addEventListener('pointerdown', (e) => {
+      if (!this.open || this.pendingShelter) return;
+      if (!this.root.contains(e.target as Node)) this.close();
+    });
   }
 
   private build(): void {
     this.cardsWrap = el('div', { class: 'build-cards' });
     this.catalogView = el('div', { class: 'build-catalog' }, [
       el('div', { class: 'build-signpost-head' }, [
-        signatureIcon('hammer', { size: '22px' }),
-        el('span', { class: 'build-title', text: 'Build' }),
+        packIcon('Shop', { size: '22px', color: 'var(--cream)' }),
+        el('span', { class: 'build-title', text: 'Shop' }),
         this.closeButton(),
       ]),
       this.cardsWrap,
@@ -57,8 +71,9 @@ export class BuildMenu {
     ]);
     cancelBtn.addEventListener('click', () => {
       this.ctx.sfx.play('back', 0.7);
-      this.ctx.bus.emit('ui:cancelBuild', {});
+      // clear pending BEFORE cancelBuild so the build:mode handler doesn't close us
       this.showCatalog();
+      this.ctx.bus.emit('ui:cancelBuild', {});
     });
     this.confirmBar = el('div', { class: 'confirm-bar' }, [
       cancelBtn,
@@ -92,10 +107,19 @@ export class BuildMenu {
       signatureIcon('acorn', { size: '16px', color: 'var(--peach)' }),
       el('span', { text: String(entry.cost) }),
     ]);
+    const names = entry.species.map((id) => getAnimal(id).name);
+    const accepts =
+      names.length > 0
+        ? el('div', { class: 'build-accepts', title: `Accepts: ${names.join(', ')}` }, [
+            signatureIcon('paw', { size: '12px', color: 'var(--bark)' }),
+            el('span', { text: names.join(', ') }),
+          ])
+        : null;
+
     const card = el(
       'button',
       { class: 'build-card' + (entry.unlocked ? '' : ' locked'), title: entry.name },
-      [thumb, el('div', { class: 'build-name', text: entry.name }), cost],
+      [thumb, el('div', { class: 'build-name', text: entry.name }), ...(accepts ? [accepts] : []), cost],
     );
     card.style.setProperty('--rot', `${handmadeTilt()}deg`);
 

@@ -91,7 +91,8 @@ export class Sfx {
     if (existing) return existing;
     const ctx = this.ctx;
     if (!ctx) return null;
-    const url = `/assets/audio/ui/${encodeURIComponent(FILES[name])}`;
+    const base = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
+    const url = `${base}assets/audio/ui/${encodeURIComponent(FILES[name])}`;
     const p = (async () => {
       try {
         const res = await fetch(url);

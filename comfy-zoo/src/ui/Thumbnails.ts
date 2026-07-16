@@ -97,10 +97,12 @@ export class Thumbnails {
 
   private normalizePath(path: string): string {
     // buildCatalog().modelPath / animals.json are manifest-relative
-    // ("models/..."); prefix assets/ and root it.
+    // ("models/..."); prefix assets/ and resolve against the same base URL
+    // the main AssetManager uses (portal builds aren't served from domain root).
     let p = path.replace(/^\/+/, '');
     if (!p.startsWith('assets/')) p = 'assets/' + p;
-    return '/' + p;
+    const base = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
+    return base + p;
   }
 
   private load(path: string): Promise<void> {

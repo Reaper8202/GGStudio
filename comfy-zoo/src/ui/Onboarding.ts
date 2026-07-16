@@ -134,8 +134,8 @@ export class Onboarding {
     this.paw.classList.add('tap');
     this.animTimer = window.setTimeout(() => {
       if (!this.playing) return;
-      // …then where the Build radial item appears (just left/below the leaf).
-      this.place(window.innerWidth - 108, 96);
+      // …then where the Shop radial item appears just below the leaf.
+      this.place(window.innerWidth - 70, 108);
       this.animTimer = window.setTimeout(() => this.retireBuildTap(), 2400);
     }, 1600);
   }

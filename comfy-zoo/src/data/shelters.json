@@ -1,12 +1,24 @@
 [
   {
-    "id": "barn",
+    "id": "hub",
     "name": "Barn",
+    "species": [],
+    "levels": [
+      { "model": "models/buildings/Barn.glb", "capacity": 0, "cost": 0, "foodMax": 0 }
+    ],
+    "footprint": { "w": 3, "h": 3 },
+    "unlockAtHoused": 0,
+    "lockHint": null,
+    "hub": true
+  },
+  {
+    "id": "barn",
+    "name": "Cattle Pen",
     "species": ["cow", "donkey", "horse", "bull", "spiritHorse"],
     "levels": [
-      { "model": "models/buildings/SmallBarn.glb", "capacity": 2, "cost": 50, "foodMax": 6 },
-      { "model": "models/buildings/Barn.glb", "capacity": 4, "cost": 200, "foodMax": 12 },
-      { "model": "models/buildings/BigBarn.glb", "capacity": 8, "cost": 600, "foodMax": 24 }
+      { "model": null, "capacity": 2, "cost": 50, "foodMax": 6 },
+      { "model": null, "capacity": 4, "cost": 200, "foodMax": 12 },
+      { "model": null, "capacity": 8, "cost": 600, "foodMax": 24 }
     ],
     "footprint": { "w": 3, "h": 3 },
     "unlockAtHoused": 0,
@@ -17,8 +29,8 @@
     "name": "Meadow Pen",
     "species": ["alpaca", "deer", "stag", "goldenStag"],
     "levels": [
-      { "model": "models/buildings/OpenBarn.glb", "capacity": 3, "cost": 120, "foodMax": 9 },
-      { "model": "models/buildings/OpenBarn.glb", "capacity": 6, "cost": 350, "foodMax": 18 }
+      { "model": null, "capacity": 3, "cost": 120, "foodMax": 9 },
+      { "model": null, "capacity": 6, "cost": 350, "foodMax": 18 }
     ],
     "footprint": { "w": 3, "h": 3 },
     "unlockAtHoused": 2,
@@ -26,11 +38,11 @@
   },
   {
     "id": "coop",
-    "name": "Cozy Coop",
+    "name": "Cozy Pen",
     "species": ["fox", "husky", "shibaInu", "wolf", "shadowWolf", "snowFox"],
     "levels": [
-      { "model": "models/buildings/ChickenCoop.glb", "capacity": 2, "cost": 180, "foodMax": 6 },
-      { "model": "models/buildings/ChickenCoop.glb", "capacity": 4, "cost": 450, "foodMax": 12 }
+      { "model": null, "capacity": 2, "cost": 180, "foodMax": 6 },
+      { "model": null, "capacity": 4, "cost": 450, "foodMax": 12 }
     ],
     "footprint": { "w": 2, "h": 2 },
     "unlockAtHoused": 4,
@@ -38,12 +50,12 @@
   },
   {
     "id": "dinoHabitat",
-    "name": "Dino Grove Habitat",
+    "name": "Dino Grove Pen",
     "species": ["velociraptor", "parasaurolophus", "stegosaurus", "triceratops", "apatosaurus", "trex"],
     "levels": [
-      { "model": "models/buildings/OpenBarn.glb", "capacity": 2, "cost": 0, "foodMax": 8 },
-      { "model": "models/buildings/OpenBarn.glb", "capacity": 4, "cost": 800, "foodMax": 16 },
-      { "model": "models/buildings/OpenBarn.glb", "capacity": 6, "cost": 2000, "foodMax": 24 }
+      { "model": null, "capacity": 2, "cost": 0, "foodMax": 8 },
+      { "model": null, "capacity": 4, "cost": 800, "foodMax": 16 },
+      { "model": null, "capacity": 6, "cost": 2000, "foodMax": 24 }
     ],
     "footprint": { "w": 4, "h": 4 },
     "unlockAtHoused": 18,

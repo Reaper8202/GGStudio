@@ -58,9 +58,12 @@ export class RewardModal {
     });
   }
 
-  private frame(children: (Node | string)[]): void {
+  private resetThumb(): void {
     this.thumb?.setVisible(false);
     this.thumb = null;
+  }
+
+  private frame(children: (Node | string)[]): void {
     clear(this.card);
     this.card.append(...children);
     this.show();
@@ -97,6 +100,7 @@ export class RewardModal {
 
   private showAdOffer(placement: AdPlacement, payload?: string): void {
     const species = placement === 'skin' ? (payload ?? '').split(':')[0] : payload ?? null;
+    this.resetThumb();
     this.frame([
       el('div', { class: 'reward-flavor', text: rewardFlavor(placement) }),
       this.modelBounce(species || null),
@@ -111,6 +115,7 @@ export class RewardModal {
 
   private showUnavailable(placement: AdPlacement, cooldownSeconds: number): void {
     const mins = Math.max(1, Math.ceil(cooldownSeconds / 60));
+    this.resetThumb();
     this.frame([
       el('div', { class: 'reward-flavor', text: rewardFlavor(placement) }),
       el('div', { class: 'reward-thumb' }, [packIcon('Pause', { size: '54px', color: 'var(--sky)' })]),
@@ -120,6 +125,7 @@ export class RewardModal {
   }
 
   private showOffline(coins: number, awaySeconds: number): void {
+    this.resetThumb();
     this.frame([
       el('div', { class: 'reward-flavor', text: 'While you were away…' }),
       el('div', { class: 'reward-thumb' }, [signatureIcon('acorn', { size: '58px', color: 'var(--peach)' })]),
@@ -133,6 +139,7 @@ export class RewardModal {
   }
 
   private showDailyGift(day: number, coins: number): void {
+    this.resetThumb();
     this.frame([
       el('div', { class: 'reward-flavor', text: `Daily gift · Day ${day}` }),
       el('div', { class: 'reward-thumb' }, [packIcon('Gift', { size: '58px', color: 'var(--leaf)' })]),

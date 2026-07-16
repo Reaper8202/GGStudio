@@ -5,7 +5,16 @@
  */
 import * as THREE from 'three';
 
-export type BubbleKind = 'hay' | 'berry' | 'forage' | 'water' | 'zzz' | 'spook' | 'heart';
+export type BubbleKind =
+  | 'hay'
+  | 'berry'
+  | 'forage'
+  | 'water'
+  | 'zzz'
+  | 'spook'
+  | 'heart'
+  | 'wrongPen'
+  | 'penFull';
 
 const EMOJI: Record<BubbleKind, string> = {
   hay: '🌾',
@@ -15,6 +24,8 @@ const EMOJI: Record<BubbleKind, string> = {
   zzz: '💤',
   spook: '❗',
   heart: '💗',
+  wrongPen: '🚫',
+  penFull: '🔒',
 };
 
 /** Soft radial-gradient texture — used for blob shadows and interact glows. */

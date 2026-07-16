@@ -258,11 +258,36 @@ export class AssetManager {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.geometry) return;
       const geo = mesh.geometry.clone();
+      // The pipeline quantizes attributes (KHR_mesh_quantization: normalized
+      // int16 positions, int8 normals). Baking a matrix into those wraps the
+      // ints and explodes the mesh, so promote to float32 first.
+      dequantizeAttributes(geo);
       // bake the mesh's local transform into the geometry so instances align
       geo.applyMatrix4(mesh.matrixWorld);
       const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
       out.push({ geometry: geo, material: mat });
     });
     return out;
+  }
+}
+
+/**
+ * Replace normalized-integer (quantized) or interleaved vertex attributes with
+ * plain Float32 BufferAttributes. getComponent() denormalizes on read, so the
+ * copy holds real-world values that survive applyMatrix4 without overflow.
+ */
+function dequantizeAttributes(geo: THREE.BufferGeometry): void {
+  for (const name of Object.keys(geo.attributes)) {
+    const attr = geo.getAttribute(name);
+    const isFloat = attr.array instanceof Float32Array && !attr.normalized;
+    const interleaved = (attr as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute;
+    if (isFloat && !interleaved) continue;
+    const arr = new Float32Array(attr.count * attr.itemSize);
+    for (let i = 0; i < attr.count; i++) {
+      for (let c = 0; c < attr.itemSize; c++) {
+        arr[i * attr.itemSize + c] = attr.getComponent(i, c);
+      }
+    }
+    geo.setAttribute(name, new THREE.BufferAttribute(arr, attr.itemSize));
   }
 }

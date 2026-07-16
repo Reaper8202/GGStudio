@@ -273,39 +273,111 @@ body.menu-open #game-canvas {
   z-index: 5;
 }
 
-/* --- 2. Quest chip (top-center, slim twig-styled border) ----------------------- */
-.quest-chip {
+/* --- 1b. Resource row (icon + count per resource, under the coin counter) ----- */
+.resource-row {
+  position: absolute;
+  top: calc(12px + var(--safe-t) + 40px);
+  left: calc(16px + var(--safe-l));
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+.resource-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 4px 6px;
+  background: rgba(58, 52, 46, 0.32);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(2px);
+}
+.resource-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--cream);
+}
+.resource-value {
+  font-size: 14px;
+  color: var(--cream);
+  text-shadow: 0 1px 0 rgba(58, 52, 46, 0.45);
+}
+.resource-chip.pop .resource-value {
+  animation: ui-pop var(--pop-ms) var(--spring);
+}
+
+/* --- 2. Quest chip (top-center pill: badge + label/progress + count) ----------- */
+/* NOTE: selector must beat #ui-root button's (id+tag) specificity, or that
+   reset silently strips background/border/padding back to none/0. */
+#ui-root .quest-chip {
   position: absolute;
   top: calc(12px + var(--safe-t));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: 10px;
+  padding: 8px 18px 8px 24px;
   background: var(--cream);
-  border-radius: var(--radius-sm);
-  /* twig feel: bark border + a faint inner ring like stripped bark */
-  border: 2px solid var(--bark);
-  box-shadow:
-    inset 0 0 0 3px var(--cream),
-    inset 0 0 0 4px rgba(138, 107, 77, 0.55);
+  border-radius: var(--radius-lg);
+  border: 3px solid var(--bark);
+  box-shadow: 0 4px 10px rgba(58, 52, 46, 0.35);
   font-family: var(--font-flavor);
-  font-size: 16px;
+  font-size: 15px;
   color: var(--bark-deep);
-  max-width: min(62vw, 420px);
+  width: max-content;
+  max-width: min(70vw, 440px);
   white-space: nowrap;
 }
-.quest-icon {
-  width: 18px;
-  height: 18px;
+.quest-badge {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--leaf-deep);
+  border: 2.5px solid var(--bark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(58, 52, 46, 0.4);
+}
+.quest-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 14px;
 }
 .quest-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: center;
+  line-height: 1.1;
 }
 .quest-chip.sliding .quest-label {
   animation: ui-pop var(--pop-ms) var(--spring);
+}
+.quest-progress-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(110, 84, 60, 0.22);
+  overflow: hidden;
+}
+.quest-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 4px;
+  background: var(--peach);
+  transition: width 280ms var(--ease-out);
+}
+.quest-count {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  color: var(--bark-deep);
+  flex: none;
 }
 .quest-list {
   display: none;
@@ -364,7 +436,7 @@ body.menu-open #game-canvas {
   animation: bloom 620ms var(--ease-out) both;
 }
 
-/* --- 3. Menu leaf + radial ------------------------------------------------------ */
+/* --- 3. Menu leaf + collapsible radial: frosted-white icons, hover tooltips ------ */
 .menu-leaf-wrap {
   position: absolute;
   top: calc(12px + var(--safe-t));
@@ -403,8 +475,10 @@ body.menu-open #game-canvas {
   height: 50px;
   margin: -25px 0 0 -25px;
   border-radius: 50%;
-  background: var(--cream);
-  border: var(--outline);
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -419,17 +493,41 @@ body.menu-open #game-canvas {
   opacity: 1;
   pointer-events: auto;
 }
-/* fan the three items on a quarter-arc below-left of the leaf */
+/* fan the three items on a tight quarter-arc below-left of the leaf */
 .radial.open .radial-item:nth-child(1) {
-  transform: translate(-74px, 4px) scale(1);
+  transform: translate(-50px, 4px) scale(1);
 }
 .radial.open .radial-item:nth-child(2) {
-  transform: translate(-56px, 60px) scale(1);
+  transform: translate(-38px, 40px) scale(1);
   transition-delay: 30ms;
 }
 .radial.open .radial-item:nth-child(3) {
-  transform: translate(-4px, 82px) scale(1);
+  transform: translate(-4px, 54px) scale(1);
   transition-delay: 60ms;
+}
+.radial-tooltip {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--charcoal);
+  color: var(--cream);
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.radial-item:hover .radial-tooltip,
+.radial-item:focus-visible .radial-tooltip {
+  opacity: 1;
+}
+.radial-item-label {
+  font-size: 14px;
+  color: var(--bark-deep);
+  white-space: nowrap;
 }
 
 /* --- 4a. Action button (touch only) ---------------------------------------------- */
@@ -630,6 +728,23 @@ body.touch-mode .key-hint {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.build-accepts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font-size: 10.5px;
+  color: var(--bark);
+  opacity: 0.75;
+}
+.build-accepts .icon {
+  flex: none;
+}
+.build-accepts span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .build-cost {
   display: flex;
   align-items: center;
@@ -639,6 +754,7 @@ body.touch-mode .key-hint {
 }
 .build-card.locked .build-thumb,
 .build-card.locked .build-name,
+.build-card.locked .build-accepts,
 .build-card.locked .build-cost {
   opacity: 0.45;
   filter: saturate(0.4) brightness(0.8);
@@ -1049,8 +1165,8 @@ body.touch-mode .key-hint {
    Extreme portrait (aspect < 0.6): quest chip docks under the coin counter.
    body.portrait-narrow is set by a resize listener in HUD.ts.
    ========================================================================== */
-body.portrait-narrow .quest-chip {
-  top: calc(52px + var(--safe-t));
+body.portrait-narrow #ui-root .quest-chip {
+  top: calc(92px + var(--safe-t));
   left: calc(16px + var(--safe-l));
   transform: none;
   max-width: calc(100vw - 90px);

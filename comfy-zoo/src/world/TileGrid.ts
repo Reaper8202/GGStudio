@@ -77,13 +77,22 @@ export class TileGrid {
     return this.inBounds(cx, cz) && this.occupied[this.idx(cx, cz)] === 1;
   }
 
-  /** Is a w×h footprint anchored at (cx,cz) valid to build on? */
+  /**
+   * Is a w×h footprint anchored at (cx,cz) valid to build on? Checks a 1-cell
+   * buffer ring around the footprint too (not just the footprint itself) so
+   * plots never sit flush against another shelter or a tree/bush — otherwise
+   * roofs and fences visually overhang into whatever is right next door.
+   */
   footprintValid(cx: number, cz: number, w: number, h: number): boolean {
-    for (let dz = 0; dz < h; dz++) {
-      for (let dx = 0; dx < w; dx++) {
+    for (let dz = -1; dz <= h; dz++) {
+      for (let dx = -1; dx <= w; dx++) {
         const x = cx + dx;
         const z = cz + dz;
-        if (!this.inBounds(x, z)) return false;
+        const inCore = dx >= 0 && dx < w && dz >= 0 && dz < h;
+        if (!this.inBounds(x, z)) {
+          if (inCore) return false; // the footprint itself must be on the map
+          continue; // buffer ring is allowed to fall off the map edge
+        }
         const i = this.idx(x, z);
         if (this.occupied[i] === 1 || this.buildable[i] === 0) return false;
       }

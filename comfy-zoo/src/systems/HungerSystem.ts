@@ -125,7 +125,7 @@ export class HungerSystem {
           // wander back to the wild
           shelter.removeOccupant(uid);
           this.records.delete(uid);
-          animal.brain.returnToWild();
+          animal.brain.returnToWild(this.ctx);
           const rec = this.ctx.zoopedia.get(animal.def.id);
           if (rec && rec.count > 0) rec.count--;
           this.ctx.bus.emit('animal:wanderedOff', {

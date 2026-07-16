@@ -23,6 +23,8 @@ export interface EventMap {
 
   // --- world / building ---
   'shelter:placed': { shelterUid: string; shelterId: string; cost: number };
+  /** Player used the barn hub — UI should open the store menu. */
+  'store:openRequested': Record<string, never>;
   'shelter:upgraded': { shelterUid: string; shelterId: string; newLevel: number; cost: number };
   'shelter:troughChanged': { shelterUid: string; food: number; foodMax: number };
   'build:ghostValidity': { valid: boolean };
@@ -176,5 +178,5 @@ export interface GameQuery {
   totalHoused(): number;
   currentZone(): ZoneId;
   /** Context for the action button: what pressing "action" would do right now. */
-  actionContext(): 'capture' | 'collect' | 'build' | 'deposit' | 'none';
+  actionContext(): 'capture' | 'collect' | 'build' | 'deposit' | 'upgrade' | 'store' | 'none';
 }

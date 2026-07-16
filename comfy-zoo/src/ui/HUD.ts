@@ -1,7 +1,7 @@
 /**
  * HUD — exactly four elements, zero persistent panels:
  *   1. Coin counter (top-left)   2. Quest chip (top-center)
- *   3. Menu leaf + radial (top-right)
+ *   3. Menu leaf + collapsible radial (top-right): labeled Shop / ZooPedia / Settings
  *   4. Action button (bottom-right) + virtual joystick (bottom-left) — TOUCH ONLY.
  *      Desktop shows neither; instead a one-time `E` keycap hint per new context.
  *
@@ -12,9 +12,18 @@
  */
 
 import type { JoystickState } from '../core/EventBus';
+import type { ResourceKind } from '../data/types';
 import type { UIContext } from './context';
 import { clamp, el, store } from './dom';
 import { packIcon, signatureIcon, type SignatureIcon } from './icons';
+
+const RESOURCE_ORDER: ResourceKind[] = ['hay', 'berry', 'forage', 'water'];
+const RESOURCE_ICON: Record<ResourceKind, SignatureIcon> = {
+  hay: 'hay',
+  berry: 'berry',
+  forage: 'forage',
+  water: 'water',
+};
 
 export interface HUDCallbacks {
   openBuild(): void;
@@ -30,6 +39,8 @@ const ACTION_ICON: Record<Exclude<ActionContext, 'none'>, SignatureIcon> = {
   collect: 'berry',
   build: 'hammer',
   deposit: 'hay',
+  upgrade: 'upgrade',
+  store: 'hammer',
 };
 
 export class HUD {
@@ -40,8 +51,12 @@ export class HUD {
   private layer: HTMLElement;
   private coinValueEl!: HTMLElement;
   private coinCounter!: HTMLElement;
+  private resourceRow!: HTMLElement;
+  private resourceValueEls = {} as Record<ResourceKind, HTMLElement>;
   private questChip!: HTMLElement;
   private questLabel!: HTMLElement;
+  private questCount!: HTMLElement;
+  private questProgressFill!: HTMLElement;
   private questList!: HTMLElement;
   private radial!: HTMLElement;
   private leafBtn!: HTMLElement;
@@ -67,6 +82,7 @@ export class HUD {
     this.layer = el('div', { class: 'hud' });
     ctx.root.append(this.layer);
     this.buildCoinCounter();
+    this.buildResourceRow();
     this.buildQuestChip();
     this.buildMenuLeaf();
     this.buildActionAndKeyHint();
@@ -132,13 +148,45 @@ export class HUD {
     }
   }
 
+  // --- 1b. Resource row (icon + count per gathered resource, below coins) --
+  private buildResourceRow(): void {
+    const resources = this.ctx.query.resources();
+    const chips = RESOURCE_ORDER.map((kind) => {
+      const valueEl = el('span', { class: 'resource-value', text: String(resources[kind]) });
+      this.resourceValueEls[kind] = valueEl;
+      return el('div', { class: 'resource-chip' }, [
+        signatureIcon(RESOURCE_ICON[kind], { class: 'resource-icon' }),
+        valueEl,
+      ]);
+    });
+    this.resourceRow = el('div', { class: 'resource-row' }, chips);
+    this.layer.append(this.resourceRow);
+  }
+
+  private setResourceValue(kind: ResourceKind, total: number): void {
+    const el = this.resourceValueEls[kind];
+    if (!el) return;
+    el.textContent = String(total);
+    el.parentElement?.classList.remove('pop');
+    void el.parentElement?.offsetWidth; // reflow to restart animation
+    el.parentElement?.classList.add('pop');
+  }
+
   // --- 2. Quest chip -------------------------------------------------------
   private buildQuestChip(): void {
     this.questLabel = el('span', { class: 'quest-label' });
+    this.questCount = el('span', { class: 'quest-count' });
+    this.questProgressFill = el('div', { class: 'quest-progress-fill' });
+    const progressTrack = el('div', { class: 'quest-progress-track' }, [this.questProgressFill]);
+    const badge = el('div', { class: 'quest-badge' }, [
+      packIcon('Target', { class: 'quest-icon', size: '16px', color: '#fff' }),
+    ]);
+    const body = el('div', { class: 'quest-body' }, [this.questLabel, progressTrack]);
     this.questList = el('div', { class: 'quest-list' });
     this.questChip = el('button', { class: 'quest-chip', 'aria-label': 'current quest' }, [
-      packIcon('Target', { class: 'quest-icon', size: '18px' }),
-      this.questLabel,
+      badge,
+      body,
+      this.questCount,
     ]);
     this.questChip.append(this.questList);
     this.questChip.addEventListener('click', () => this.toggleQuestList());
@@ -149,9 +197,16 @@ export class HUD {
   private refreshQuestChip(): void {
     const quests = this.ctx.query.activeQuests();
     const top = quests[0];
-    this.questLabel.textContent = top
-      ? `${stripTemplate(top.text, top.target)} · ${top.current}/${top.target}`
-      : 'All quests done!';
+    if (!top) {
+      this.questLabel.textContent = 'All quests done!';
+      this.questCount.textContent = '';
+      this.questProgressFill.style.width = '100%';
+      return;
+    }
+    this.questLabel.textContent = stripTemplate(top.text, top.target);
+    this.questCount.textContent = `${top.current}/${top.target}`;
+    const pct = top.target > 0 ? clamp(top.current / top.target, 0, 1) * 100 : 0;
+    this.questProgressFill.style.width = `${pct}%`;
   }
 
   private toggleQuestList(): void {
@@ -198,21 +253,21 @@ export class HUD {
     }, 240);
   }
 
-  // --- 3. Menu leaf + radial ----------------------------------------------
+  // --- 3. Menu leaf + radial: frosted-white icon buttons, hover tooltips ---
   private buildMenuLeaf(): void {
     this.leafBtn = el('button', { class: 'menu-leaf', 'aria-label': 'menu' }, [
       signatureIcon('leaf', { color: 'var(--leaf)', size: '30px' }),
     ]);
     this.radial = el('div', { class: 'radial' }, [
-      this.radialItem('Build', signatureIcon('hammer', { size: '24px' }), () => {
+      this.radialItem('Shop', packIcon('Shop', { size: '20px', color: '#fff' }), () => {
         this.closeRadial();
         this.cb.openBuild();
       }),
-      this.radialItem('ZooPedia', packIcon('Medal', { size: '24px' }), () => {
+      this.radialItem('ZooPedia', packIcon('Medal', { size: '20px', color: '#fff' }), () => {
         this.closeRadial();
         this.cb.openZooPedia();
       }),
-      this.radialItem('Settings', packIcon('Settings', { size: '24px' }), () => {
+      this.radialItem('Settings', packIcon('Settings', { size: '20px', color: '#fff' }), () => {
         this.closeRadial();
         this.cb.openSettings();
       }),
@@ -232,7 +287,10 @@ export class HUD {
   }
 
   private radialItem(label: string, icon: HTMLElement, onClick: () => void): HTMLElement {
-    const btn = el('button', { class: 'radial-item', 'aria-label': label, title: label }, [icon]);
+    const btn = el('button', { class: 'radial-item', 'aria-label': label }, [
+      icon,
+      el('span', { class: 'radial-tooltip', text: label }),
+    ]);
     btn.addEventListener('pointerenter', () => this.ctx.sfx.play('hover', 0.4));
     btn.addEventListener('click', () => {
       this.ctx.sfx.play('confirm', 0.6);
@@ -442,9 +500,14 @@ export class HUD {
     bus.on('quest:progress', () => this.refreshQuestChip());
     bus.on('quest:new', () => this.refreshQuestChip());
     bus.on('quest:completed', () => this.bloomQuestChip());
+    bus.on('resource:inventoryChanged', (p) => this.setResourceValue(p.kind, p.total));
     bus.on('game:ready', () => {
       this.animateCoinsTo(this.ctx.query.coins());
       this.refreshQuestChip();
+      const resources = this.ctx.query.resources();
+      for (const kind of RESOURCE_ORDER) {
+        this.resourceValueEls[kind].textContent = String(resources[kind]);
+      }
     });
   }
 

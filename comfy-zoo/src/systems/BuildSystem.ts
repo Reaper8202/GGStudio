@@ -21,12 +21,19 @@ export class BuildSystem {
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private hit = new THREE.Vector3();
   private lastValid = false;
+  private ghostY = 0.6;
 
   constructor(
     private ctx: GameContext,
     private economy: EconomySystem,
   ) {
     window.addEventListener('pointermove', this.onPointer);
+    // double-clicking a valid spot places the shelter directly
+    ctx.renderer.domElement.addEventListener('dblclick', (e) => {
+      if (!this.active) return;
+      this.onPointer(e as unknown as PointerEvent);
+      this.confirm();
+    });
 
     ctx.bus.on('ui:requestBuild', (p) => this.enter(p.shelterId));
     ctx.bus.on('ui:confirmBuild', () => this.confirm());
@@ -46,14 +53,18 @@ export class BuildSystem {
     this.active = true;
     const { w, h } = this.def.footprint;
     const cs = this.ctx.grid.cellSize;
-    const geo = new THREE.BoxGeometry(w * cs * 0.9, 1.2, h * cs * 0.9);
+    // pens (no building model) preview as a low fence-height slab, buildings as a tall block
+    const isPen = this.def.levels[0].model === null;
+    const height = isPen ? 0.7 : 1.2;
+    this.ghostY = height / 2;
+    const geo = new THREE.BoxGeometry(w * cs * (isPen ? 1 : 0.9), height, h * cs * (isPen ? 1 : 0.9));
     const mat = new THREE.MeshBasicMaterial({
       color: 0x7fb069,
       transparent: true,
       opacity: 0.45,
     });
     this.ghost = new THREE.Mesh(geo, mat);
-    this.ghost.position.y = 0.6;
+    this.ghost.position.y = this.ghostY;
     this.ctx.scene.add(this.ghost);
     this.ctx.bus.emit('build:mode', { active: true, shelterId });
   }
@@ -89,7 +100,7 @@ export class BuildSystem {
     const a = this.currentAnchor();
     if (!a) return;
     const center = this.ctx.grid.footprintCenter(a.cx, a.cz, this.def.footprint.w, this.def.footprint.h);
-    this.ghost.position.set(center.x, 0.6, center.z);
+    this.ghost.position.set(center.x, this.ghostY, center.z);
     const affordable = this.economy.canAfford(this.def.levels[0].cost);
     const valid = a.valid && affordable;
     (this.ghost.material as THREE.MeshBasicMaterial).color.setHex(
@@ -139,7 +150,7 @@ export class BuildSystem {
     }
   }
 
-  private upgrade(shelterUid: string): void {
+  upgrade(shelterUid: string): void {
     const shelter = this.ctx.shelters.find((s) => s.uid === shelterUid);
     if (!shelter) return;
     const nextLevel = shelter.level + 1;

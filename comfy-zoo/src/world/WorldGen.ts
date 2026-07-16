@@ -23,29 +23,50 @@ interface Scatter {
   /** blocks movement (registered in the spatial hash) */
   collides: boolean;
   colliderRadius?: number;
+  /** keep-out radius vs all other decor — nothing may spawn inside it */
+  spacing: number;
   /** fallback primitive if the model isn't loaded yet */
   fallback: 'tree' | 'pine' | 'palm' | 'grass' | 'flower' | 'rock' | 'dead';
 }
 
 const SCATTERS: Scatter[] = [
-  // Meadow: birch + maple + grass + flowers
-  { models: n('BirchTree', 5), zone: 'meadow', count: 26, minScale: 0.8, maxScale: 1.3, collides: true, colliderRadius: 0.45, fallback: 'tree' },
-  { models: n('MapleTree', 5), zone: 'meadow', count: 22, minScale: 0.8, maxScale: 1.3, collides: true, colliderRadius: 0.5, fallback: 'tree' },
-  { models: ['models/nature/Grass_Small.glb', 'models/nature/Grass_Large.glb'], zone: 'meadow', count: 320, minScale: 0.7, maxScale: 1.4, collides: false, fallback: 'grass' },
-  { models: n('Flower', 5, '_Clump'), zone: 'meadow', count: 120, minScale: 0.8, maxScale: 1.2, collides: false, fallback: 'flower' },
+  // Meadow: birch + maple (non-collectable grass/flower clutter removed)
+  { models: n('BirchTree', 5), zone: 'meadow', count: 26, minScale: 0.8, maxScale: 1.3, collides: true, colliderRadius: 0.45, spacing: 1.2, fallback: 'tree' },
+  { models: n('MapleTree', 5), zone: 'meadow', count: 22, minScale: 0.8, maxScale: 1.3, collides: true, colliderRadius: 0.5, spacing: 1.3, fallback: 'tree' },
   // Pine forest: pines + rocks
-  { models: n('PineTree', 5), zone: 'pineForest', count: 60, minScale: 0.9, maxScale: 1.5, collides: true, colliderRadius: 0.5, fallback: 'pine' },
-  { models: n('Rock', 5), zone: 'pineForest', count: 24, minScale: 0.6, maxScale: 1.4, collides: true, colliderRadius: 0.6, fallback: 'rock' },
-  { models: ['models/nature/Grass_Small.glb'], zone: 'pineForest', count: 110, minScale: 0.7, maxScale: 1.2, collides: false, fallback: 'grass' },
+  { models: n('PineTree', 5), zone: 'pineForest', count: 60, minScale: 0.9, maxScale: 1.5, collides: true, colliderRadius: 0.5, spacing: 1.2, fallback: 'pine' },
+  { models: n('Rock', 5), zone: 'pineForest', count: 24, minScale: 0.6, maxScale: 1.4, collides: true, colliderRadius: 0.6, spacing: 1.0, fallback: 'rock' },
   // Palm oasis: palms (+ dead trees clustered in the Dino Grove below)
-  { models: n('PalmTree', 5), zone: 'palmOasis', count: 34, minScale: 0.9, maxScale: 1.4, collides: true, colliderRadius: 0.45, fallback: 'palm' },
-  { models: ['models/nature/Grass_Large.glb'], zone: 'palmOasis', count: 70, minScale: 0.7, maxScale: 1.2, collides: false, fallback: 'grass' },
+  { models: n('PalmTree', 5), zone: 'palmOasis', count: 34, minScale: 0.9, maxScale: 1.4, collides: true, colliderRadius: 0.45, spacing: 1.2, fallback: 'palm' },
 ];
 
 function n(base: string, count: number, suffix = ''): string[] {
   const out: string[] = [];
   for (let i = 1; i <= count; i++) out.push(`models/nature/${base}_${i}${suffix}.glb`);
   return out;
+}
+
+/** Small tileable grayscale noise, used as ground map + bumpMap for grainy texture. */
+function makeNoiseTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const c = canvas.getContext('2d')!;
+  const img = c.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) {
+    const v = 200 + Math.floor(Math.random() * 55);
+    img.data[i * 4] = v;
+    img.data[i * 4 + 1] = v;
+    img.data[i * 4 + 2] = v;
+    img.data[i * 4 + 3] = 255;
+  }
+  c.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(WORLD_SIZE / 2, WORLD_SIZE / 2);
+  return tex;
 }
 
 const ZONE_GROUND: Record<ZoneId, THREE.Color> = {
@@ -64,15 +85,53 @@ export class WorldGen {
   buildAll(): void {
     this.buildGround();
     this.paintGridZones();
-    this.scatterVegetation();
     this.buildGates();
-    this.scatterResources();
     this.buildBounds();
   }
 
-  private buildGround(): void {
-    const segs = 64;
-    const geo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, segs, segs);
+  /**
+   * Scatter vegetation + resource nodes. Called AFTER shelters are placed
+   * (restore/new-game) so nothing spawns inside occupied cells.
+   */
+  populate(): void {
+    this.scatterVegetation();
+    this.scatterResources();
+  }
+
+  // --- decor spacing: nothing may spawn overlapping already-placed decor ----
+  private decorBuckets = new Map<string, { x: number; z: number; r: number }[]>();
+
+  /** Reserve a keep-out disc at (x,z); false if it overlaps existing decor. */
+  private tryClaim(x: number, z: number, r: number): boolean {
+    const bs = 2;
+    const bx = Math.floor(x / bs);
+    const bz = Math.floor(z / bs);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        const list = this.decorBuckets.get(`${bx + dx},${bz + dz}`);
+        if (!list) continue;
+        for (const p of list) {
+          const rr = p.r + r;
+          if ((p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) < rr * rr) return false;
+        }
+      }
+    }
+    const key = `${bx},${bz}`;
+    let list = this.decorBuckets.get(key);
+    if (!list) this.decorBuckets.set(key, (list = []));
+    list.push({ x, z, r });
+    return true;
+  }
+
+  /** Cell is on the map and not occupied by a shelter/building. */
+  private cellFree(x: number, z: number): boolean {
+    const c = this.ctx.grid.worldToCell(x, z);
+    return this.ctx.grid.inBounds(c.cx, c.cz) && !this.ctx.grid.isOccupied(c.cx, c.cz);
+  }
+
+  /** Vertex-colored ground plane of the given size, zone-colored past the play area too. */
+  private coloredGroundGeo(size: number, segs: number): THREE.PlaneGeometry {
+    const geo = new THREE.PlaneGeometry(size, size, segs, segs);
     geo.rotateX(-Math.PI / 2);
     const pos = geo.getAttribute('position');
     const colors = new Float32Array(pos.count * 3);
@@ -90,10 +149,33 @@ export class WorldGen {
       colors[i * 3 + 2] = c.b;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: false });
+    return geo;
+  }
+
+  private buildGround(): void {
+    const geo = this.coloredGroundGeo(WORLD_SIZE, 64);
+    const noiseTex = makeNoiseTexture();
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      flatShading: false,
+      map: noiseTex,
+      bumpMap: noiseTex,
+      bumpScale: 0.06,
+      roughness: 1,
+    });
     const ground = new THREE.Mesh(geo, mat);
     ground.name = 'ground';
+    ground.receiveShadow = true;
     this.ctx.scene.add(ground);
+
+    // Far, coarse skirt beyond the playable bounds so the world reads as endless —
+    // world-edge colliders (buildBounds) still stop the player at HALF regardless.
+    const skirtGeo = this.coloredGroundGeo(WORLD_SIZE * 8, 32);
+    const skirtMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: false, roughness: 1 });
+    const skirt = new THREE.Mesh(skirtGeo, skirtMat);
+    skirt.name = 'ground-skirt';
+    skirt.position.y = -0.05;
+    this.ctx.scene.add(skirt);
   }
 
   private paintGridZones(): void {
@@ -118,13 +200,18 @@ export class WorldGen {
       const points: { x: number; z: number; rot: number; scale: number }[] = [];
       for (let i = 0; i < scatter.count; i++) {
         const pt = randomPointInZone(scatter.zone, 2);
-        // keep a clearing near spawn / around the tutorial barn
+        // keep a clearing near spawn / around the starter buildings
         if (Math.hypot(pt.x, pt.z) < 7) continue;
+        // never spawn in occupied cells (shelters, hub) …
+        if (!this.cellFree(pt.x, pt.z)) continue;
+        const scale = scatter.minScale + Math.random() * (scatter.maxScale - scatter.minScale);
+        // … or intersecting other decor
+        if (!this.tryClaim(pt.x, pt.z, scatter.spacing * scale)) continue;
         points.push({
           x: pt.x,
           z: pt.z,
           rot: Math.random() * Math.PI * 2,
-          scale: scatter.minScale + Math.random() * (scatter.maxScale - scatter.minScale),
+          scale,
         });
       }
 
@@ -140,6 +227,8 @@ export class WorldGen {
           : [this.fallbackSource(scatter.fallback)];
         for (const src of sources) {
           const im = new THREE.InstancedMesh(src.geometry, src.material, chunk.length);
+          im.castShadow = true;
+          im.receiveShadow = true;
           chunk.forEach((pt, i) => {
             p.set(pt.x, 0, pt.z);
             q.setFromAxisAngle(up, pt.rot);
@@ -169,11 +258,13 @@ export class WorldGen {
     const count = 16;
     const pts: { x: number; z: number }[] = [];
     for (let i = 0; i < count; i++) {
-      pts.push({
-        x: DINO_GROVE.minX + Math.random() * (DINO_GROVE.maxX - DINO_GROVE.minX),
-        z: DINO_GROVE.minZ + Math.random() * (DINO_GROVE.maxZ - DINO_GROVE.minZ),
-      });
+      const x = DINO_GROVE.minX + Math.random() * (DINO_GROVE.maxX - DINO_GROVE.minX);
+      const z = DINO_GROVE.minZ + Math.random() * (DINO_GROVE.maxZ - DINO_GROVE.minZ);
+      if (!this.cellFree(x, z)) continue;
+      if (!this.tryClaim(x, z, 1.2)) continue;
+      pts.push({ x, z });
     }
+    if (pts.length === 0) return;
     const m4 = new THREE.Matrix4();
     const sources =
       models.length > 0
@@ -181,6 +272,8 @@ export class WorldGen {
         : [this.fallbackSource('dead')];
     for (const src of sources) {
       const im = new THREE.InstancedMesh(src.geometry, src.material, pts.length);
+      im.castShadow = true;
+      im.receiveShadow = true;
       pts.forEach((pt, i) => {
         m4.makeRotationY(Math.random() * Math.PI * 2);
         m4.setPosition(pt.x, 0, pt.z);
@@ -353,6 +446,8 @@ export class WorldGen {
       for (let i = 0; i < count; i++) {
         const p = randomPointInZone(def.zone, 3);
         if (Math.hypot(p.x, p.z) < 5) continue;
+        if (!this.cellFree(p.x, p.z)) continue;
+        if (!this.tryClaim(p.x, p.z, 1.4)) continue;
         const node = new ResourceNode(def, p.x, p.z, this.ctx.assets);
         this.ctx.scene.add(node.group);
         this.ctx.resourceNodes.push(node);

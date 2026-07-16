@@ -38,6 +38,8 @@ export class Animal {
   x = 0;
   z = 0;
   facing = 0;
+  /** eased heading actually applied to the body, so turns don't snap */
+  private visualFacing = 0;
   /** collision radius, derived from the normalized body height (def.scale, meters) */
   readonly radius: number;
   /** biome wander anchor */
@@ -85,6 +87,21 @@ export class Animal {
       this.body = this.fallbackBody(def);
       this.mixer = null;
       this.clips = [];
+      // real model wasn't loaded yet (streamed in after first frame) — swap
+      // the primitive placeholder for the real one once its phase finishes.
+      const off = ctx.bus.on('assets:phaseLoaded', () => {
+        const late = this.assets.instance(def.model, { normalizeHeight: def.scale, tint, emissive });
+        if (!late) return;
+        this.group.remove(this.body);
+        this.body = late.object;
+        this.mixer = late.mixer;
+        this.clips = late.clips;
+        this.currentAction = null;
+        this.currentClipName = '';
+        this.group.add(this.body);
+        this.playClip('idle');
+        off();
+      });
     }
     // everything below derives from the normalized height (meters)
     this.radius = Math.min(1.4, Math.max(0.25, def.scale * 0.35));
@@ -144,8 +161,19 @@ export class Animal {
     this.bubble.set(kind);
   }
 
-  /** Move toward a target, resolving collisions; returns true when arrived. */
-  moveToward(tx: number, tz: number, speed: number, dt: number, ctx: GameContext): boolean {
+  /**
+   * Move toward a target, resolving collisions; returns true when arrived.
+   * `avoidPens`: also resolve against the pen-fence hash (wild animals only —
+   * housed/herded animals must be able to cross fences to reach their own pen).
+   */
+  moveToward(
+    tx: number,
+    tz: number,
+    speed: number,
+    dt: number,
+    ctx: GameContext,
+    avoidPens = false,
+  ): boolean {
     const dx = tx - this.x;
     const dz = tz - this.z;
     const d = Math.hypot(dx, dz);
@@ -156,7 +184,8 @@ export class Animal {
     const step = Math.min(speed * dt, d);
     const nx = this.x + (dx / d) * step;
     const nz = this.z + (dz / d) * step;
-    const r = ctx.hash.resolveCircle(nx, nz, this.radius);
+    let r = ctx.hash.resolveCircle(nx, nz, this.radius);
+    if (avoidPens) r = ctx.penHash.resolveCircle(r.x, r.z, this.radius);
     this.x = r.x;
     this.z = r.z;
     this.facing = Math.atan2(dx, dz);
@@ -181,7 +210,13 @@ export class Animal {
   update(dt: number, ctx: GameContext): void {
     this.brain.update(dt, ctx);
     this.group.position.set(this.x, 0, this.z);
-    this.body.rotation.y = this.facing;
+    // ease the visual heading toward the target facing (shortest way round)
+    let diff = (this.facing - this.visualFacing) % (Math.PI * 2);
+    if (diff > Math.PI) diff -= Math.PI * 2;
+    if (diff < -Math.PI) diff += Math.PI * 2;
+    const k = 1 - Math.exp(-10 * dt);
+    this.visualFacing += diff * k;
+    this.body.rotation.y = this.visualFacing;
     if (this.mixer) this.mixer.update(dt);
   }
 

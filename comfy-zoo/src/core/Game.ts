@@ -23,8 +23,8 @@ import type { ProgressionSystem } from '../systems/ProgressionSystem';
 const FIXED_DT = 1 / 60;
 const MAX_ACCUM = 0.25; // avoid spiral-of-death after tab stalls
 
-const SKY = 0x9bc8e3;
-const FOG_COLOR = 0xbfd9c9;
+const SKY = 0xe9c9a3;
+const FOG_COLOR = 0xe6cfa9;
 
 export interface GameSystems {
   economy: EconomySystem;
@@ -52,16 +52,32 @@ export function createRenderContext(): {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(SKY);
   scene.fog = new THREE.Fog(FOG_COLOR, 38, 85);
 
-  // warm cozy lighting — no shadow maps by design
-  const hemi = new THREE.HemisphereLight(0xfff3e0, 0x7fa06a, 0.9);
+  // golden-hour cozy lighting — warm key light, cool ambient shadow fill, low contrast
+  const hemi = new THREE.HemisphereLight(0xffe9c9, 0x7391a8, 1.15);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffe8c4, 1.4);
-  sun.position.set(14, 22, 8);
+  const fill = new THREE.DirectionalLight(0xbcd4ff, 0.35);
+  fill.position.set(-10, 12, -10);
+  scene.add(fill);
+  const sun = new THREE.DirectionalLight(0xffb87a, 1.0);
+  sun.position.set(20, 12, 10);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 60;
+  sun.shadow.camera.left = -34;
+  sun.shadow.camera.right = 34;
+  sun.shadow.camera.top = 34;
+  sun.shadow.camera.bottom = -34;
+  sun.shadow.bias = -0.0015;
+  sun.shadow.normalBias = 0.03;
+  sun.shadow.radius = 3;
   scene.add(sun);
 
   const camera = new THREE.PerspectiveCamera(
@@ -108,6 +124,8 @@ export class Game {
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       if (e.key.toLowerCase() === 'e') this.ctx.actionHeld = true;
+      // R releases the follower chain back to the wild
+      if (e.key.toLowerCase() === 'r') this.systems.herding.releaseAll();
     });
     window.addEventListener('keyup', (e) => {
       if (e.key.toLowerCase() === 'e') this.ctx.actionHeld = false;

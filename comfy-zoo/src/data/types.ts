@@ -49,8 +49,8 @@ export interface AnimalDef {
 }
 
 export interface ShelterLevelDef {
-  /** manifest-relative model path for this level */
-  model: string;
+  /** manifest-relative model path for this level; null = fence-pen only (no building) */
+  model: string | null;
   capacity: number;
   /** cost to buy (level 1) or upgrade into this level */
   cost: number;
@@ -68,6 +68,8 @@ export interface ShelterDef {
   /** total-housed count required before this appears unlocked in the build menu */
   unlockAtHoused: number;
   lockHint: string | null;
+  /** the store hub building — pre-placed, not buyable, opens the store on interact */
+  hub?: boolean;
 }
 
 export interface ResourceDef {
