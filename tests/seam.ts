@@ -81,7 +81,7 @@ export async function place(
 /** A minimal valid drivable rig (mirrors the starter layout, fewer frames). */
 export async function buildBasicRig(page: Page): Promise<void> {
   await newBlueprint(page);
-  const steps: [string, P, number?, Record<string, unknown>?][] = [
+  const steps: [string, P, number?][] = [
     ['chassis-core', { x: 0, y: 1, z: 0 }],
     ['driver-seat', { x: 0, y: 2, z: 0 }],
     ['frame-box', { x: 0, y: 1, z: 1 }],
@@ -93,30 +93,28 @@ export async function buildBasicRig(page: Page): Promise<void> {
     ['frame-box', { x: -1, y: 1, z: 1 }],
     ['frame-box', { x: 1, y: 1, z: -1 }],
     ['frame-box', { x: -1, y: 1, z: -1 }],
-    ['wheel-mount', { x: 1, y: 1, z: 2 }],
-    ['wheel-mount', { x: -1, y: 1, z: 2 }],
-    ['wheel-mount', { x: 1, y: 1, z: -2 }],
-    ['wheel-mount', { x: -1, y: 1, z: -2 }],
-    ['engine-mount', { x: 0, y: 1, z: -2 }],
+    ['frame-box', { x: 1, y: 1, z: 2 }],
+    ['frame-box', { x: -1, y: 1, z: 2 }],
+    ['frame-box', { x: 1, y: 1, z: -2 }],
+    ['frame-box', { x: -1, y: 1, z: -2 }],
+    ['frame-box', { x: 0, y: 1, z: -2 }],
     ['engine-small', { x: 0, y: 2, z: -2 }],
     ['fuel-tank', { x: 0, y: 2, z: -1 }],
   ];
-  for (const [d, p, o, c] of steps) {
-    const r = await place(page, d, p, o ?? 0, c ?? {});
+  for (const [d, p, o] of steps) {
+    const r = await place(page, d, p, o ?? 0);
     if (!r.ok) throw new Error(`place ${d} at ${JSON.stringify(p)} failed: ${r.issues.join(', ')}`);
   }
   // Wheels: right side (x>0) needs yaw-180 so its inner socket faces the mount.
   const yaw180 = await orientOf(page, 'yaw180');
-  const wheelCfg = { driven: true, steering: false, braking: true };
-  const steerCfg = { driven: true, steering: true, braking: true };
-  const wheels: [P, number, boolean][] = [
-    [{ x: 2, y: 1, z: 2 }, yaw180, true],
-    [{ x: -2, y: 1, z: 2 }, 0, true],
-    [{ x: 2, y: 1, z: -2 }, yaw180, false],
-    [{ x: -2, y: 1, z: -2 }, 0, false],
+  const wheels: [P, number][] = [
+    [{ x: 2, y: 1, z: 2 }, yaw180],
+    [{ x: -2, y: 1, z: 2 }, 0],
+    [{ x: 2, y: 1, z: -2 }, yaw180],
+    [{ x: -2, y: 1, z: -2 }, 0],
   ];
-  for (const [p, o, steer] of wheels) {
-    const r = await place(page, 'wheel-standard', p, o, steer ? steerCfg : wheelCfg);
+  for (const [p, o] of wheels) {
+    const r = await place(page, 'wheel-standard', p, o);
     if (!r.ok) throw new Error(`wheel at ${JSON.stringify(p)} failed: ${r.issues.join(', ')}`);
   }
 }

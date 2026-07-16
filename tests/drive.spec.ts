@@ -105,11 +105,11 @@ async function buildRigWithWheelOrients(
     ['frame-box', { x: -1, y: 1, z: 1 }],
     ['frame-box', { x: 1, y: 1, z: -1 }],
     ['frame-box', { x: -1, y: 1, z: -1 }],
-    ['wheel-mount', { x: 1, y: 1, z: 2 }],
-    ['wheel-mount', { x: -1, y: 1, z: 2 }],
-    ['wheel-mount', { x: 1, y: 1, z: -2 }],
-    ['wheel-mount', { x: -1, y: 1, z: -2 }],
-    ['engine-mount', { x: 0, y: 1, z: -2 }],
+    ['frame-box', { x: 1, y: 1, z: 2 }],
+    ['frame-box', { x: -1, y: 1, z: 2 }],
+    ['frame-box', { x: 1, y: 1, z: -2 }],
+    ['frame-box', { x: -1, y: 1, z: -2 }],
+    ['frame-box', { x: 0, y: 1, z: -2 }],
     ['engine-small', { x: 0, y: 2, z: -2 }],
     ['fuel-tank', { x: 0, y: 2, z: -1 }],
   ];
@@ -117,9 +117,8 @@ async function buildRigWithWheelOrients(
     const r = await place(page, d, p);
     if (!r.ok) throw new Error(`${d}: ${r.issues.join(',')}`);
   }
-  const cfg = { driven: true, braking: true };
   // Left wheels: rolled 90° about X (suspension sideways). Right side needs the
-  // yaw-180 composed in so its inner socket still faces the mount.
+  // yaw-180 composed in so its inner socket faces the frame side.
   const rightOrient = await page.evaluate(
     ([a, b]) => window.__scrapRig.composeOrient(a, b),
     [leftOrient, yaw180] as const,
@@ -131,7 +130,7 @@ async function buildRigWithWheelOrients(
     [{ x: -2, y: 1, z: -2 }, leftOrient],
   ];
   for (const [p, o] of wheels) {
-    const r = await place(page, 'wheel-standard', p, o, cfg);
+    const r = await place(page, 'wheel-standard', p, o);
     if (!r.ok) throw new Error(`sideways wheel at ${JSON.stringify(p)}: ${r.issues.join(',')}`);
   }
 }

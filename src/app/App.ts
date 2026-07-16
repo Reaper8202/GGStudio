@@ -121,12 +121,6 @@ export function buildStarterBlueprint(): VehicleBlueprint {
     orient,
     config,
   });
-  const wheelCfg = (steering: boolean): PartConfig => ({
-    driven: true,
-    steering,
-    braking: true,
-    suspensionPreset: 'standard',
-  });
   const parts: PlacedPart[] = [
     part('chassis-core', { x: 0, y: 1, z: 0 }),
     part('driver-seat', { x: 0, y: 2, z: 0 }),
@@ -140,15 +134,15 @@ export function buildStarterBlueprint(): VehicleBlueprint {
     part('frame-box', { x: -1, y: 1, z: 1 }),
     part('frame-box', { x: 1, y: 1, z: -1 }),
     part('frame-box', { x: -1, y: 1, z: -1 }),
-    part('wheel-mount', { x: 1, y: 1, z: 2 }),
-    part('wheel-mount', { x: -1, y: 1, z: 2 }),
-    part('wheel-mount', { x: 1, y: 1, z: -2 }),
-    part('wheel-mount', { x: -1, y: 1, z: -2 }),
-    part('wheel-standard', { x: 2, y: 1, z: 2 }, yaw180, wheelCfg(true)),
-    part('wheel-standard', { x: -2, y: 1, z: 2 }, 0, wheelCfg(true)),
-    part('wheel-standard', { x: 2, y: 1, z: -2 }, yaw180, wheelCfg(false)),
-    part('wheel-standard', { x: -2, y: 1, z: -2 }, 0, wheelCfg(false)),
-    part('engine-mount', { x: 0, y: 1, z: -2 }),
+    part('frame-box', { x: 1, y: 1, z: 2 }),
+    part('frame-box', { x: -1, y: 1, z: 2 }),
+    part('frame-box', { x: 1, y: 1, z: -2 }),
+    part('frame-box', { x: -1, y: 1, z: -2 }),
+    part('wheel-standard', { x: 2, y: 1, z: 2 }, yaw180),
+    part('wheel-standard', { x: -2, y: 1, z: 2 }),
+    part('wheel-standard', { x: 2, y: 1, z: -2 }, yaw180),
+    part('wheel-standard', { x: -2, y: 1, z: -2 }),
+    part('frame-box', { x: 0, y: 1, z: -2 }),
     part('engine-small', { x: 0, y: 2, z: -2 }),
     part('fuel-tank', { x: 0, y: 2, z: -1 }),
   ];

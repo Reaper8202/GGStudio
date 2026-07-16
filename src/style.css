@@ -64,7 +64,7 @@ canvas.viewport {
   left: 8px;
   top: 64px;
   bottom: 90px;
-  width: 210px;
+  width: 250px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -72,27 +72,22 @@ canvas.viewport {
 }
 
 .palette-content {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
 }
 
-.palette-toggle {
-  margin-top: auto;
-}
-
-.inspector {
+.build-card {
   position: absolute;
   right: 8px;
   top: 64px;
-  bottom: 90px;
-  width: 250px;
-  overflow-y: auto;
+  width: min(270px, calc(100vw - 282px));
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 3px;
 }
 
 .bottombar {
@@ -104,6 +99,11 @@ canvas.viewport {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.status {
+  margin-left: auto;
+  color: #9aa4b5;
 }
 
 button,
@@ -149,6 +149,56 @@ button:disabled {
 .part-btn {
   text-align: left;
   width: 100%;
+  min-height: 58px;
+}
+
+.erase-btn {
+  margin-top: 4px;
+  background: #742f35;
+  border-color: #a84952;
+}
+
+.erase-btn:hover,
+.erase-btn.active {
+  background: #9b3e47;
+  border-color: #df6570;
+}
+
+.cancel-tool {
+  margin-top: 4px;
+}
+
+.selected-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 58px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 14;
+  max-width: calc(100vw - 24px);
+}
+
+.ui-layer.tutorial-active .selected-toolbar {
+  bottom: 180px;
+}
+
+.paint-swatches {
+  display: flex;
+  gap: 3px;
+}
+
+.paint-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid #d8dde6;
+  border-radius: 50%;
+}
+
+.ready {
+  color: #7fbf6f;
 }
 
 .part-btn small {
@@ -215,16 +265,6 @@ button:disabled {
 
 .issue-warning {
   color: #ffc76e;
-}
-
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 1px 0;
-}
-
-.stat-row span:last-child {
-  color: #bfe4a0;
 }
 
 .ghost-tip {

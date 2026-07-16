@@ -1,5 +1,5 @@
 /**
- * Kid-friendly presentation + interactive tutorial step machine (pure logic).
+ * Editor palette presentation + interactive tutorial step machine (pure logic).
  * The editor overlay renders these steps; predicates inspect the blueprint so
  * progress advances automatically as the player builds.
  */
@@ -10,27 +10,25 @@ import { validateBlueprint } from './placement.ts';
 
 export type GetDef = (defId: string) => PartDefinition;
 
-/** Palette entries shown in simple (kids) mode, in this order. */
+/** Palette entries shown in the editor, in this order. */
 export const SIMPLE_PART_IDS: readonly string[] = [
   'frame-box',
-  'wheel-mount',
+  'frame-reinforced',
   'wheel-standard',
   'wheel-offroad',
   'driver-seat',
-  'engine-mount',
   'engine-small',
   'fuel-tank',
-  'hardpoint',
   'turret',
 ];
 
-export interface KidLabel {
+export interface PartLabel {
   name: string;
-  blurb: string; // one short kid-friendly line
+  blurb: string;
 }
 
-/** Friendly names for EVERY catalog part id (used by the palette in both modes). */
-export const KID_LABELS: Record<string, KidLabel> = {
+/** Display names for every catalog part id. */
+export const KID_LABELS: Record<string, PartLabel> = {
   'chassis-core': {
     name: 'Truck Heart',
     blurb: 'Everything connects to this!',
@@ -39,45 +37,18 @@ export const KID_LABELS: Record<string, KidLabel> = {
     name: 'Block',
     blurb: 'Build your truck one block at a time!',
   },
-  'frame-light': {
-    name: 'Light Block',
-    blurb: 'Keeps your truck quick and light!',
-  },
   'frame-reinforced': {
     name: 'Strong Block',
     blurb: 'Tough stuff for big bumps!',
-  },
-  'beam-long': { name: 'Long Beam', blurb: 'Builds a long, sturdy stretch!' },
-  'wheel-mount': {
-    name: 'Wheel Holder',
-    blurb: 'Gives a wheel a place to snap!',
-  },
-  'engine-mount': { name: 'Engine Stand', blurb: 'Holds the engine up high!' },
-  hardpoint: { name: 'Gun Stand', blurb: 'Gives a blaster a sturdy spot!' },
-  'driver-seat': { name: 'Driver Seat', blurb: 'Put your brave driver here!' },
-  'engine-small': { name: 'Engine', blurb: 'Makes the truck go!' },
-  'engine-big': { name: 'Mega Engine', blurb: 'Big power for a mighty truck!' },
-  'fuel-tank': { name: 'Fuel Tank', blurb: 'Keeps the engine fueled up!' },
-  battery: { name: 'Battery', blurb: 'Stores power for your gadgets!' },
-  'ammo-box': { name: 'Ammo Box', blurb: 'Carries extra blaster rounds!' },
-  'cargo-crate': {
-    name: 'Cargo Box',
-    blurb: 'Hauls all your important stuff!',
   },
   'wheel-standard': { name: 'Wheel', blurb: 'Rolls smoothly down the road!' },
   'wheel-offroad': {
     name: 'Monster Wheel',
     blurb: 'Climbs over big, bumpy ground!',
   },
-  'armour-panel': { name: 'Armour Plate', blurb: 'Helps protect your truck!' },
-  'shell-panel': {
-    name: 'Paint Panel',
-    blurb: 'Adds a splash of cool colour!',
-  },
-  'gun-fixed': {
-    name: 'Front Gun',
-    blurb: 'Blasts whatever is straight ahead!',
-  },
+  'driver-seat': { name: 'Driver Seat', blurb: 'Put your brave driver here!' },
+  'engine-small': { name: 'Engine', blurb: 'Makes the truck go!' },
+  'fuel-tank': { name: 'Fuel Tank', blurb: 'Keeps the engine fueled up!' },
   turret: { name: 'Zombie Blaster', blurb: 'Spins around to blast zombies!' },
 };
 
@@ -85,7 +56,7 @@ export interface TutorialStep {
   id: string;
   /** Short title, may contain an emoji. */
   title: string;
-  /** 1–2 kid-friendly sentences telling them exactly what to do. */
+  /** Short instruction telling the player exactly what to do. */
   text: string;
   /** Palette part to highlight while this step is active. */
   paletteDefId?: string;
@@ -96,31 +67,20 @@ function countOf(bp: VehicleBlueprint, defId: string): number {
   return bp.parts.filter((part) => part.defId === defId).length;
 }
 
-/** The guided build: frame → wheel holders → wheels → driver → engine → fuel → drive. */
+/** The guided build: frame → wheels → driver → engine → fuel → drive. */
 const BUILD_STEPS: readonly TutorialStep[] = [
   {
     id: 'frame',
     title: '🧱 Build the frame',
-    text: "Click the Block and add 4 blocks around the orange Truck Heart to make your truck's body!",
+    text: 'Add 4 Blocks around the orange Truck Heart. Right-click a mistake to erase.',
     paletteDefId: 'frame-box',
     isComplete: (bp) =>
-      countOf(bp, 'frame-box') +
-        countOf(bp, 'frame-light') +
-        countOf(bp, 'frame-reinforced') +
-        countOf(bp, 'beam-long') >=
-      4,
-  },
-  {
-    id: 'mounts',
-    title: '🔩 Wheel Holders',
-    text: 'Add 4 Wheel Holders on the sides of the truck.',
-    paletteDefId: 'wheel-mount',
-    isComplete: (bp) => countOf(bp, 'wheel-mount') >= 4,
+      countOf(bp, 'frame-box') + countOf(bp, 'frame-reinforced') >= 4,
   },
   {
     id: 'wheels',
     title: '🛞 Wheels on!',
-    text: 'Snap a Wheel onto the outside of each Wheel Holder (tip: press R if it shows red).',
+    text: 'Put 4 Wheels straight onto the outside Blocks. Wheels set themselves up.',
     paletteDefId: 'wheel-standard',
     isComplete: (bp) =>
       countOf(bp, 'wheel-standard') + countOf(bp, 'wheel-offroad') >= 4,
@@ -128,22 +88,21 @@ const BUILD_STEPS: readonly TutorialStep[] = [
   {
     id: 'driver',
     title: '🧑‍✈️ The driver',
-    text: 'Every truck needs a driver — place the Driver Seat on top.',
+    text: 'Put the Driver Seat on top.',
     paletteDefId: 'driver-seat',
     isComplete: (bp) => countOf(bp, 'driver-seat') >= 1,
   },
   {
     id: 'engine',
     title: '⚙️ Engine time',
-    text: 'Place an Engine Stand on the truck, then put the Engine ON TOP of it.',
+    text: 'Snap on an Engine.',
     paletteDefId: 'engine-small',
-    isComplete: (bp) =>
-      countOf(bp, 'engine-small') + countOf(bp, 'engine-big') >= 1,
+    isComplete: (bp) => countOf(bp, 'engine-small') >= 1,
   },
   {
     id: 'fuel',
     title: '⛽ Fuel it up',
-    text: 'Engines are thirsty — add a Fuel Tank.',
+    text: 'Add a Fuel Tank.',
     paletteDefId: 'fuel-tank',
     isComplete: (bp) => countOf(bp, 'fuel-tank') >= 1,
   },
@@ -154,7 +113,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
     id: 'drive',
     title: '🏁 Ready to roll!',
-    text: 'Press the green TEST DRIVE button and take it for a spin!',
+    text: 'Press TEST DRIVE!',
     isComplete: (bp, getDef) =>
       validateBlueprint(bp, getDef).errors.length === 0 &&
       BUILD_STEPS.every((step) => step.isComplete(bp, getDef)),

@@ -1,30 +1,25 @@
-/** DOM overlay UI for the editor: palette, inspector, top/bottom bars. */
+/** DOM overlay UI for the editor: build palette, build card, and toolbars. */
 
 import { KID_LABELS, SIMPLE_PART_IDS } from '../core/tutorial.ts';
-import type { PartCategory, PartDefinition, ValidationIssue } from '../core/types.ts';
-
-const PALETTE_MODE_KEY = 'scraprig.palette-mode';
+import { PAINT_COLORS, type PartDefinition, type ValidationIssue } from '../core/types.ts';
 
 export interface EditorUIHandlers {
   onArmPart(defId: string): void;
+  onToggleErase(): void;
+  onCancelTool(): void;
   onSave(): void;
   onLoad(slot: string): void;
   onNew(): void;
   onRename(name: string): void;
-  onDuplicateBlueprint(): void;
   onUndo(): void;
   onRedo(): void;
   onSymmetryToggle(on: boolean): void;
   onView(view: 'persp' | 'front' | 'rear' | 'side' | 'top'): void;
   onLayerChange(layer: number): void;
-  onViewMode(mode: 'normal' | 'xray' | 'structure', hideArmour: boolean, hideShell: boolean): void;
-  onOverlayToggle(key: string, on: boolean): void;
   onTestDrive(): void;
   onStartTutorial(): void;
   onConfigChange(partId: string, key: string, value: boolean | string): void;
   onDeleteSelected(): void;
-  onMirrorSelected(): void;
-  onDuplicateSelected(): void;
   onRotateSelected(axis: 'y' | 'x'): void;
 }
 
@@ -33,17 +28,14 @@ export interface EditorUI {
   setBlueprintName(name: string): void;
   setSlots(slots: string[], current: string | null): void;
   setUndoRedo(canUndo: boolean, canRedo: boolean): void;
-  setStats(rows: [string, string][]): void;
-  setIssues(errors: ValidationIssue[], warnings: ValidationIssue[]): void;
+  setBuildSummary(weightKg: number, rolloverRisk: string, errors: ValidationIssue[], warnings: ValidationIssue[]): void;
   setTestDriveEnabled(enabled: boolean, blockedBy: string[]): void;
-  setInspector(html: HTMLElement | null): void;
+  setSelectedPart(def: PartDefinition | null, partId?: string): void;
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
   setStatus(text: string): void;
   ghostTip: HTMLDivElement;
 }
-
-const CATEGORY_ORDER: PartCategory[] = ['structural', 'functional', 'movement', 'protection', 'weapon'];
 
 export function buildEditorUI(
   container: HTMLElement,
@@ -54,18 +46,6 @@ export function buildEditorUI(
   root.className = 'ui-layer';
   container.appendChild(root);
 
-  // --- Top bar ---
-  const top = document.createElement('div');
-  top.className = 'topbar';
-  root.appendChild(top);
-
-  const nameInput = document.createElement('input');
-  nameInput.type = 'text';
-  nameInput.style.width = '140px';
-  nameInput.title = 'Blueprint name';
-  nameInput.addEventListener('change', () => handlers.onRename(nameInput.value));
-  top.appendChild(nameInput);
-
   const btn = (label: string, fn: () => void, title = ''): HTMLButtonElement => {
     const b = document.createElement('button');
     b.textContent = label;
@@ -74,203 +54,112 @@ export function buildEditorUI(
     return b;
   };
 
+  const top = document.createElement('div');
+  top.className = 'topbar';
+  root.appendChild(top);
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.style.width = '140px';
+  nameInput.title = 'Build name';
+  nameInput.addEventListener('change', () => handlers.onRename(nameInput.value));
   const slotSelect = document.createElement('select');
-  slotSelect.title = 'Saved blueprints';
-  top.appendChild(slotSelect);
-  top.appendChild(btn('Save', handlers.onSave, 'Save blueprint'));
-  top.appendChild(btn('Load', () => handlers.onLoad(slotSelect.value), 'Load selected blueprint'));
-  top.appendChild(btn('New', handlers.onNew));
-  top.appendChild(btn('Duplicate', handlers.onDuplicateBlueprint, 'Duplicate current blueprint'));
-
+  slotSelect.title = 'Saved builds';
+  top.append(
+    nameInput,
+    slotSelect,
+    btn('Save', handlers.onSave),
+    btn('Load', () => handlers.onLoad(slotSelect.value)),
+    btn('New', handlers.onNew),
+  );
   const undoBtn = btn('↩ Undo', handlers.onUndo, 'Ctrl+Z');
   const redoBtn = btn('↪ Redo', handlers.onRedo, 'Ctrl+Shift+Z');
-  top.appendChild(undoBtn);
-  top.appendChild(redoBtn);
-
-  const symBtn = btn('Symmetry: off', () => {
-    symOn = !symOn;
-    symBtn.textContent = symOn ? 'Symmetry: ON' : 'Symmetry: off';
-    symBtn.classList.toggle('active', symOn);
-    handlers.onSymmetryToggle(symOn);
-  }, 'Mirror placements across the centreline (X)');
-  let symOn = false;
-  top.appendChild(symBtn);
-
-  for (const [label, view] of [
-    ['Persp', 'persp'],
-    ['Front', 'front'],
-    ['Rear', 'rear'],
-    ['Side', 'side'],
-    ['Top', 'top'],
-  ] as const) {
-    top.appendChild(btn(label, () => handlers.onView(view), `View: ${label} (keys 1-5)`));
+  top.append(undoBtn, redoBtn);
+  let symmetry = false;
+  const symmetryBtn = btn('Build both sides', () => {
+    symmetry = !symmetry;
+    symmetryBtn.classList.toggle('active', symmetry);
+    handlers.onSymmetryToggle(symmetry);
+  });
+  top.appendChild(symmetryBtn);
+  const viewSelect = document.createElement('select');
+  viewSelect.title = 'View (keys 1–5)';
+  for (const [label, value] of [['3D', 'persp'], ['Front', 'front'], ['Rear', 'rear'], ['Side', 'side'], ['Top', 'top']] as const) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    viewSelect.appendChild(option);
   }
-
+  viewSelect.addEventListener('change', () => handlers.onView(viewSelect.value as 'persp' | 'front' | 'rear' | 'side' | 'top'));
+  top.append(viewSelect, btn('🎓 Tutorial', handlers.onStartTutorial), btn('? Help', () => toggleHelp()));
   const testBtn = btn('▶ TEST DRIVE', handlers.onTestDrive);
   testBtn.className = 'primary';
   top.appendChild(testBtn);
 
-  top.appendChild(btn('🎓 Tutorial', handlers.onStartTutorial, 'Build your first truck step by step'));
-  const helpBtn = btn('? Help', () => toggleHelp(), 'How to build a vehicle');
-  top.appendChild(helpBtn);
-
-  // --- Palette ---
   const palette = document.createElement('div');
   palette.className = 'palette panel';
   root.appendChild(palette);
-  const partButtons = new Map<string, HTMLButtonElement>();
   const paletteContent = document.createElement('div');
   paletteContent.className = 'palette-content';
   palette.appendChild(paletteContent);
-  const paletteToggle = document.createElement('button');
-  paletteToggle.className = 'palette-toggle';
-  palette.appendChild(paletteToggle);
-  let paletteMode: 'simple' | 'all' = localStorage.getItem(PALETTE_MODE_KEY) === 'all' ? 'all' : 'simple';
+  const partButtons = new Map<string, HTMLButtonElement>();
   let armed: string | null = null;
   let highlighted: string | null = null;
+  for (const id of SIMPLE_PART_IDS) {
+    const def = catalog[id];
+    if (!def) continue;
+    const partButton = document.createElement('button');
+    partButton.className = 'part-btn';
+    const name = document.createElement('strong');
+    name.textContent = KID_LABELS[id]?.name ?? def.name;
+    const blurb = document.createElement('small');
+    blurb.textContent = KID_LABELS[id]?.blurb ?? def.description;
+    partButton.append(name, blurb);
+    partButton.title = def.description;
+    partButton.addEventListener('click', () => armed === id ? handlers.onCancelTool() : handlers.onArmPart(id));
+    paletteContent.appendChild(partButton);
+    partButtons.set(id, partButton);
+  }
+  const eraseButton = btn('🧽 Erase', handlers.onToggleErase, 'Delete a part with the next click');
+  eraseButton.className = 'erase-btn';
+  palette.appendChild(eraseButton);
+  const cancelButton = btn('× Cancel', handlers.onCancelTool);
+  cancelButton.className = 'cancel-tool';
+  cancelButton.style.display = 'none';
+  palette.appendChild(cancelButton);
 
-  const makePartButton = (def: PartDefinition, smallText: string): void => {
-      const b = document.createElement('button');
-      b.className = 'part-btn';
-      const name = document.createElement('strong');
-      name.textContent = KID_LABELS[def.id]?.name ?? def.name;
-      const small = document.createElement('small');
-      small.textContent = smallText;
-      b.append(name, small);
-      b.title = def.description;
-      b.addEventListener('click', () => handlers.onArmPart(def.id));
-      paletteContent.appendChild(b);
-      partButtons.set(def.id, b);
-  };
+  const buildCard = document.createElement('div');
+  buildCard.className = 'panel build-card';
+  root.appendChild(buildCard);
 
-  const rebuildPalette = (): void => {
-    partButtons.clear();
-    paletteContent.replaceChildren();
-    if (paletteMode === 'simple') {
-      for (const id of SIMPLE_PART_IDS) {
-        const def = catalog[id];
-        if (!def) continue;
-        makePartButton(def, KID_LABELS[id]?.blurb ?? def.description);
-      }
-    } else {
-      for (const cat of CATEGORY_ORDER) {
-        const title = document.createElement('div');
-        title.className = 'cat-title';
-        title.textContent = cat;
-        paletteContent.appendChild(title);
-        for (const def of Object.values(catalog).filter((d) => d.category === cat)) {
-          makePartButton(def, `${def.massKg} kg · $${def.cost}`);
-        }
-      }
-    }
-    if (armed) partButtons.get(armed)?.classList.add('active');
-    if (highlighted) partButtons.get(highlighted)?.classList.add('tutorial-glow');
-    paletteToggle.textContent = paletteMode === 'simple' ? '🔧 More parts' : '🧒 Simple parts';
-  };
-  paletteToggle.addEventListener('click', () => {
-    paletteMode = paletteMode === 'simple' ? 'all' : 'simple';
-    localStorage.setItem(PALETTE_MODE_KEY, paletteMode);
-    rebuildPalette();
-  });
-  rebuildPalette();
+  const selectedToolbar = document.createElement('div');
+  selectedToolbar.className = 'panel selected-toolbar';
+  selectedToolbar.style.display = 'none';
+  root.appendChild(selectedToolbar);
 
-  // --- Inspector + analysis ---
-  const inspector = document.createElement('div');
-  inspector.className = 'inspector';
-  root.appendChild(inspector);
-
-  const inspectorBody = document.createElement('div');
-  inspectorBody.className = 'panel';
-  inspectorBody.innerHTML = '<div class="cat-title">selection</div><div>Nothing selected</div>';
-  inspector.appendChild(inspectorBody);
-
-  const statsPanel = document.createElement('div');
-  statsPanel.className = 'panel';
-  inspector.appendChild(statsPanel);
-
-  const issuesPanel = document.createElement('div');
-  issuesPanel.className = 'panel';
-  inspector.appendChild(issuesPanel);
-
-  // --- Bottom bar ---
   const bottom = document.createElement('div');
   bottom.className = 'bottombar';
   root.appendChild(bottom);
-
   const layerLabel = document.createElement('span');
-  layerLabel.textContent = 'Layer: all';
+  layerLabel.textContent = 'Build height: All';
   const layerSlider = document.createElement('input');
   layerSlider.type = 'range';
   layerSlider.min = '-1';
   layerSlider.max = '8';
   layerSlider.value = '-1';
-  layerSlider.title = 'Height layer slicing (-1 = all)';
   layerSlider.addEventListener('input', () => {
-    const v = Number(layerSlider.value);
-    layerLabel.textContent = v < 0 ? 'Layer: all' : `Layer: ${v}`;
-    handlers.onLayerChange(v);
+    const layer = Number(layerSlider.value);
+    layerLabel.textContent = layer < 0 ? 'Build height: All' : `Build height: ${layer}`;
+    handlers.onLayerChange(layer);
   });
-  bottom.appendChild(layerLabel);
-  bottom.appendChild(layerSlider);
-
-  let viewMode: 'normal' | 'xray' | 'structure' = 'normal';
-  let hideArmour = false;
-  let hideShell = false;
-  const applyViewMode = () => handlers.onViewMode(viewMode, hideArmour, hideShell);
-  const xrayBtn = btn('X-ray', () => {
-    viewMode = viewMode === 'xray' ? 'normal' : 'xray';
-    xrayBtn.classList.toggle('active', viewMode === 'xray');
-    structBtn.classList.remove('active');
-    applyViewMode();
-  });
-  const structBtn = btn('Structure', () => {
-    viewMode = viewMode === 'structure' ? 'normal' : 'structure';
-    structBtn.classList.toggle('active', viewMode === 'structure');
-    xrayBtn.classList.remove('active');
-    applyViewMode();
-  }, 'Show only structural parts');
-  const armourBtn = btn('Hide armour', () => {
-    hideArmour = !hideArmour;
-    armourBtn.classList.toggle('active', hideArmour);
-    applyViewMode();
-  });
-  const shellBtn = btn('Hide shell', () => {
-    hideShell = !hideShell;
-    shellBtn.classList.toggle('active', hideShell);
-    applyViewMode();
-  });
-  bottom.appendChild(xrayBtn);
-  bottom.appendChild(structBtn);
-  bottom.appendChild(armourBtn);
-  bottom.appendChild(shellBtn);
-
-  for (const [label, key, on] of [
-    ['CoM', 'com', true],
-    ['Contacts', 'contacts', true],
-    ['Support', 'supportPolygon', true],
-    ['Links', 'connections', false],
-    ['Arcs', 'arcs', true],
-  ] as const) {
-    const b = btn(label, () => {
-      const now = !b.classList.contains('active');
-      b.classList.toggle('active', now);
-      handlers.onOverlayToggle(key, now);
-    }, `Toggle ${label} overlay`);
-    b.classList.toggle('active', on);
-    bottom.appendChild(b);
-  }
-
   const status = document.createElement('span');
-  status.style.marginLeft = 'auto';
-  status.style.color = '#9aa4b5';
-  bottom.appendChild(status);
+  status.className = 'status';
+  bottom.append(layerLabel, layerSlider, status);
 
   const ghostTip = document.createElement('div');
   ghostTip.className = 'ghost-tip';
   ghostTip.style.display = 'none';
   root.appendChild(ghostTip);
 
-  // --- Help overlay ---
   const help = buildHelpOverlay();
   help.style.display = 'none';
   root.appendChild(help);
@@ -280,26 +169,14 @@ export function buildEditorUI(
     help.style.display = showing ? 'none' : 'block';
     if (!showing) localStorage.setItem(HELP_SEEN_KEY, '1');
   };
-  help.querySelector('button')?.addEventListener('click', () => toggleHelp());
+  help.querySelector('button')?.addEventListener('click', toggleHelp);
   const debugMode = new URLSearchParams(location.search).get('debug') === '1';
   const WELCOME_SEEN_KEY = 'scraprig.welcome-seen';
   const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
-  if (
-    !debugMode &&
-    !localStorage.getItem(TUTORIAL_DONE_KEY) &&
-    !localStorage.getItem(HELP_SEEN_KEY) &&
-    !localStorage.getItem(WELCOME_SEEN_KEY)
-  ) {
+  if (!debugMode && !localStorage.getItem(TUTORIAL_DONE_KEY) && !localStorage.getItem(HELP_SEEN_KEY) && !localStorage.getItem(WELCOME_SEEN_KEY)) {
     const welcome = buildWelcomeDialog(
-      () => {
-        localStorage.setItem(WELCOME_SEEN_KEY, '1');
-        welcome.remove();
-        handlers.onStartTutorial();
-      },
-      () => {
-        localStorage.setItem(WELCOME_SEEN_KEY, '1');
-        welcome.remove();
-      },
+      () => { localStorage.setItem(WELCOME_SEEN_KEY, '1'); welcome.remove(); handlers.onStartTutorial(); },
+      () => { localStorage.setItem(WELCOME_SEEN_KEY, '1'); welcome.remove(); },
     );
     root.appendChild(welcome);
   }
@@ -307,224 +184,114 @@ export function buildEditorUI(
   return {
     root,
     ghostTip,
-    setBlueprintName: (n) => {
-      nameInput.value = n;
-    },
+    setBlueprintName: (name) => { nameInput.value = name; },
     setSlots: (slots, current) => {
-      slotSelect.innerHTML = '';
-      for (const s of slots) {
-        const o = document.createElement('option');
-        o.value = s;
-        o.textContent = s;
-        if (s === current) o.selected = true;
-        slotSelect.appendChild(o);
+      slotSelect.replaceChildren();
+      for (const slot of slots) {
+        const option = document.createElement('option');
+        option.value = slot;
+        option.textContent = slot;
+        option.selected = slot === current;
+        slotSelect.appendChild(option);
       }
     },
-    setUndoRedo: (u, r) => {
-      undoBtn.disabled = !u;
-      redoBtn.disabled = !r;
-    },
-    setStats: (rows) => {
-      statsPanel.innerHTML = '<div class="cat-title">analysis</div>';
-      for (const [k, v] of rows) {
-        const row = document.createElement('div');
-        row.className = 'stat-row';
-        row.innerHTML = `<span>${k}</span><span>${v}</span>`;
-        statsPanel.appendChild(row);
+    setUndoRedo: (canUndo, canRedo) => { undoBtn.disabled = !canUndo; redoBtn.disabled = !canRedo; },
+    setBuildSummary: (weightKg, rolloverRisk, errors, warnings) => {
+      const stability: Record<string, string> = { low: '😀 Great', medium: '🙂 Okay', high: '😟 Tippy', extreme: '🛑 Will tip' };
+      buildCard.replaceChildren();
+      const weight = document.createElement('div');
+      weight.textContent = `Weight: ${weightKg.toFixed(0)} kg`;
+      const balance = document.createElement('div');
+      balance.textContent = `Stability: ${stability[rolloverRisk] ?? '🙂 Okay'}`;
+      buildCard.append(weight, balance);
+      const tips = errors.length > 0 ? errors.slice(0, 2) : warnings.length > 0 ? warnings.slice(0, 1) : [];
+      if (tips.length === 0) {
+        const ready = document.createElement('div');
+        ready.className = 'ready';
+        ready.textContent = '✅ Ready to drive';
+        buildCard.appendChild(ready);
+      } else {
+        for (const tip of tips) {
+          const line = document.createElement('div');
+          line.className = tip.severity === 'error' ? 'issue-error' : 'issue-warning';
+          line.textContent = tip.message;
+          buildCard.appendChild(line);
+        }
       }
     },
-    setIssues: (errors, warnings) => {
-      issuesPanel.innerHTML = '<div class="cat-title">issues</div>';
-      if (errors.length === 0 && warnings.length === 0) {
-        issuesPanel.innerHTML += '<div style="color:#7fbf6f">No issues</div>';
+    setTestDriveEnabled: (enabled, blockedBy) => { testBtn.disabled = !enabled; testBtn.title = enabled ? 'Enter the test chamber' : `Blocked: ${blockedBy.join('; ')}`; },
+    setSelectedPart: (def, partId) => {
+      selectedToolbar.replaceChildren();
+      if (!def || !partId) { selectedToolbar.style.display = 'none'; return; }
+      selectedToolbar.style.display = 'flex';
+      const title = document.createElement('strong');
+      title.textContent = def.name;
+      selectedToolbar.appendChild(title);
+      if (!def.isRoot) {
+        selectedToolbar.append(btn('Turn', () => handlers.onRotateSelected('y'), 'R'), btn('Flip', () => handlers.onRotateSelected('x'), 'F'));
       }
-      for (const e of errors) {
-        const d = document.createElement('div');
-        d.className = 'issue-error';
-        d.textContent = `✖ ${e.message}`;
-        d.title = e.suggestion ?? '';
-        issuesPanel.appendChild(d);
+      const swatches = document.createElement('span');
+      swatches.className = 'paint-swatches';
+      for (const [paint, color] of Object.entries(PAINT_COLORS)) {
+        const swatch = document.createElement('button');
+        swatch.className = 'paint-swatch';
+        swatch.style.background = `#${color.toString(16).padStart(6, '0')}`;
+        swatch.title = `Paint ${paint}`;
+        swatch.addEventListener('click', () => handlers.onConfigChange(partId, 'paint', paint));
+        swatches.appendChild(swatch);
       }
-      for (const w of warnings) {
-        const d = document.createElement('div');
-        d.className = 'issue-warning';
-        d.textContent = `⚠ ${w.message}`;
-        d.title = w.suggestion ?? '';
-        issuesPanel.appendChild(d);
-      }
-    },
-    setTestDriveEnabled: (enabled, blockedBy) => {
-      testBtn.disabled = !enabled;
-      testBtn.title = enabled ? 'Enter the test chamber' : `Blocked: ${blockedBy.join('; ')}`;
-    },
-    setInspector: (el) => {
-      inspectorBody.innerHTML = '<div class="cat-title">selection</div>';
-      if (el) inspectorBody.appendChild(el);
-      else inspectorBody.innerHTML += '<div style="color:#9aa4b5">Nothing selected</div>';
+      selectedToolbar.appendChild(swatches);
+      if (!def.isRoot) selectedToolbar.appendChild(btn('Delete', handlers.onDeleteSelected, 'Del'));
     },
     setArmedPart: (defId) => {
-      if (armed) partButtons.get(armed)?.classList.remove('active');
+      if (armed) (armed === 'erase' ? eraseButton : partButtons.get(armed))?.classList.remove('active');
       armed = defId;
-      if (defId) partButtons.get(defId)?.classList.add('active');
+      if (armed) (armed === 'erase' ? eraseButton : partButtons.get(armed))?.classList.add('active');
+      cancelButton.style.display = armed ? 'block' : 'none';
     },
     highlightPaletteButton: (defId) => {
       if (highlighted) partButtons.get(highlighted)?.classList.remove('tutorial-glow');
       highlighted = defId;
-      if (defId) partButtons.get(defId)?.classList.add('tutorial-glow');
+      if (highlighted) partButtons.get(highlighted)?.classList.add('tutorial-glow');
     },
-    setStatus: (t) => {
-      status.textContent = t;
-    },
+    setStatus: (text) => { status.textContent = text; },
   };
 }
 
 function buildWelcomeDialog(onStartTutorial: () => void, onClose: () => void): HTMLDivElement {
   const wrap = document.createElement('div');
   wrap.className = 'panel welcome-panel';
-
-  const text = document.createElement('div');
-  text.textContent = '🚗 Want to learn how to build a zombie truck?';
-  wrap.appendChild(text);
-
+  wrap.innerHTML = '<div>🚗 Want to learn how to build a truck?</div>';
   const actions = document.createElement('div');
   actions.className = 'welcome-actions';
-  const tutorialButton = document.createElement('button');
-  tutorialButton.className = 'primary';
-  tutorialButton.textContent = '🎓 Show me how!';
-  tutorialButton.addEventListener('click', onStartTutorial);
-  const closeButton = document.createElement('button');
-  closeButton.textContent = "🔧 I'll figure it out";
-  closeButton.addEventListener('click', onClose);
-  actions.append(tutorialButton, closeButton);
+  const tutorial = document.createElement('button');
+  tutorial.className = 'primary';
+  tutorial.textContent = '🎓 Show me how!';
+  tutorial.addEventListener('click', onStartTutorial);
+  const close = document.createElement('button');
+  close.textContent = "🔧 I'll figure it out";
+  close.addEventListener('click', onClose);
+  actions.append(tutorial, close);
   wrap.appendChild(actions);
   return wrap;
 }
 
-/** Full-screen help overlay: quick start, controls, and the placement rules. */
 function buildHelpOverlay(): HTMLDivElement {
   const wrap = document.createElement('div');
   wrap.className = 'panel';
-  wrap.style.cssText =
-    'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(720px,92vw);max-height:84vh;overflow-y:auto;padding:18px 22px;z-index:20;line-height:1.5';
+  wrap.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(620px,92vw);max-height:84vh;overflow-y:auto;padding:18px 22px;z-index:20;line-height:1.5';
   wrap.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <b style="font-size:17px">How to build a vehicle</b>
-      <button>✕ Close</button>
-    </div>
-    <div class="cat-title">quick start — your first truck</div>
-    <ol style="margin-left:18px">
-      <li><b>Pick a part</b> from the left palette. A ghost copy follows your mouse:
-        <span style="color:#7fbf6f">green = can place</span>, <span style="color:#ff7a6e">red = can't</span>
-        (the tooltip tells you why). Click to place, <b>Esc</b> to put the part away.</li>
-      <li><b>Build structure first.</b> Everything must connect face-to-face to your build —
-        no floating parts. Shape a chassis out of <b>Frame Boxes</b> around the orange Chassis Core.</li>
-      <li><b>Add the essentials.</b> A drivable vehicle needs:
-        a <b>Driver Seat</b> (anywhere on the frame),
-        an <b>Engine Mount</b> with an <b>Engine on top of it</b>,
-        a <b>Fuel Tank</b>,
-        and <b>Wheel Mounts</b> (teal) with <b>Wheels on their left/right sides</b>.</li>
-      <li><b>Configure the wheels.</b> Click a wheel to select it, then in the right panel tick
-        <b>driven</b> (gets engine power), <b>steering</b> (turns with A/D), <b>braking</b>,
-        and pick a suspension preset. No driven wheels = the truck won't move!</li>
-      <li>Press <b>▶ TEST DRIVE</b>. When you come back, your design is exactly as you left it —
-        crashes in the chamber never damage the blueprint.</li>
-    </ol>
+    <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:17px">How to build a vehicle</b><button>✕ Close</button></div>
+    <div class="cat-title">quick start</div>
+    <ol style="margin-left:18px"><li>Pick a part from the palette. Green means it can place; red explains why it cannot. Each placement is one at a time.</li>
+    <li>Build blocks around the orange Truck Heart. Everything needs to connect face-to-face.</li>
+    <li>Wheels snap onto the sides of blocks, engines on top. Add a Driver Seat, Engine, Fuel Tank, and four wheels.</li>
+    <li>Click a part to Turn or Flip it, change its paint, or delete it. Right-click erases a part; paint swatches change its colour.</li>
+    <li>Press <b>▶ TEST DRIVE</b> when ready.</li></ol>
     <div class="cat-title">controls</div>
-    <table style="width:100%;font-size:13px">
-      <tr><td>Orbit / zoom</td><td>left-drag / mouse wheel &nbsp;·&nbsp; keys <b>1–5</b> = camera presets</td></tr>
-      <tr><td>Rotate part</td><td><b>R</b> (spin) / <b>F</b> (tip over) — the yellow notch marks the part's front</td></tr>
-      <tr><td>Select</td><td>click &nbsp;·&nbsp; Shift+click adds &nbsp;·&nbsp; <b>Del</b> deletes</td></tr>
-      <tr><td>Undo / redo</td><td>Ctrl+Z / Ctrl+Shift+Z</td></tr>
-      <tr><td>Duplicate / mirror</td><td>Ctrl+D / M &nbsp;·&nbsp; the <b>Symmetry</b> button auto-mirrors placements</td></tr>
-      <tr><td>Layers</td><td>bottom slider slices the build by height; X-ray / Structure filter the view</td></tr>
-    </table>
-    <div class="cat-title">why won't it place?</div>
-    <ul style="margin-left:18px;font-size:13px">
-      <li>Special parts need special mounts: wheels → <b>sides of Wheel Mounts</b>,
-        engines → <b>top of Engine Mounts</b>, guns/turrets → <b>top of Hardpoints</b>.</li>
-      <li>Armour and shell panels stick onto a <b>face</b> of an existing part — one panel per face.</li>
-      <li>Wheels need the cell <b>below them empty</b> (suspension travel space).</li>
-      <li>Some parts are one-per-vehicle (Chassis Core, Driver Seat).</li>
-    </ul>
-    <div class="cat-title">reading the analysis (right panel)</div>
-    <ul style="margin-left:18px;font-size:13px">
-      <li>The <b>yellow ball</b> is your centre of mass. Keep it <b>low and centred</b> —
-        tall narrow builds tip over in corners, for real.</li>
-      <li>The <b>green outline</b> on the ground is your wheel footprint. If the dashed line from
-        the yellow ball lands outside it, the vehicle falls over standing still.</li>
-      <li><b>Warnings are advice, not blockers</b> — you can always test drive a weird build.
-        Only red errors (no engine, floating parts…) disable TEST DRIVE.</li>
-    </ul>
-    <div class="cat-title">in the test chamber</div>
-    <div style="font-size:13px"><b>W</b> throttle · <b>S</b>/<b>Space</b> brake · <b>A/D</b> steer ·
-      mouse aims turrets · <b>F</b> or click fires · scenario buttons up top · <b>Reset</b> respawns fresh.</div>
-  `;
-  return wrap;
-}
-
-/** Inspector widget for a selected part. */
-export function buildInspectorPanel(
-  def: PartDefinition,
-  partId: string,
-  config: Record<string, unknown>,
-  handlers: Pick<
-    EditorUIHandlers,
-    'onConfigChange' | 'onDeleteSelected' | 'onMirrorSelected' | 'onDuplicateSelected' | 'onRotateSelected'
-  >,
-): HTMLElement {
-  const wrap = document.createElement('div');
-  const title = document.createElement('div');
-  title.innerHTML = `<b>${def.name}</b> <small style="color:#9aa4b5">(${partId})</small>`;
-  wrap.appendChild(title);
-  const desc = document.createElement('div');
-  desc.style.color = '#9aa4b5';
-  desc.style.fontSize = '12px';
-  desc.textContent = def.description;
-  wrap.appendChild(desc);
-
-  if (def.wheel) {
-    for (const key of ['driven', 'steering', 'steerInverted', 'braking'] as const) {
-      const label = document.createElement('label');
-      label.style.display = 'block';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = Boolean(config[key] ?? (key === 'braking'));
-      cb.addEventListener('change', () => handlers.onConfigChange(partId, key, cb.checked));
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode(' ' + key));
-      wrap.appendChild(label);
-    }
-    const presetSel = document.createElement('select');
-    for (const p of ['light', 'standard', 'heavy-duty', 'off-road']) {
-      const o = document.createElement('option');
-      o.value = p;
-      o.textContent = `suspension: ${p}`;
-      if ((config.suspensionPreset ?? 'standard') === p) o.selected = true;
-      presetSel.appendChild(o);
-    }
-    presetSel.addEventListener('change', () =>
-      handlers.onConfigChange(partId, 'suspensionPreset', presetSel.value),
-    );
-    wrap.appendChild(presetSel);
-  }
-
-  const actions = document.createElement('div');
-  actions.style.marginTop = '6px';
-  actions.style.display = 'flex';
-  actions.style.gap = '4px';
-  actions.style.flexWrap = 'wrap';
-  const mk = (label: string, fn: () => void, title = ''): void => {
-    const b = document.createElement('button');
-    b.textContent = label;
-    b.title = title;
-    b.addEventListener('click', fn);
-    actions.appendChild(b);
-  };
-  mk('Rotate Y', () => handlers.onRotateSelected('y'), 'R');
-  mk('Rotate X', () => handlers.onRotateSelected('x'), 'F');
-  mk('Mirror', () => handlers.onMirrorSelected(), 'M');
-  mk('Duplicate', () => handlers.onDuplicateSelected(), 'Ctrl+D');
-  mk('Delete', () => handlers.onDeleteSelected(), 'Del');
-  wrap.appendChild(actions);
+    <table style="width:100%;font-size:13px"><tr><td>Orbit / zoom</td><td>left-drag / mouse wheel · keys <b>1–5</b> choose views</td></tr>
+    <tr><td>Rotate selected / held part</td><td><b>R</b> turn · <b>F</b> flip</td></tr>
+    <tr><td>Erase</td><td>right-click, Erase tool, or <b>Del</b> on a selected part</td></tr>
+    <tr><td>Undo / redo</td><td>Ctrl+Z / Ctrl+Shift+Z</td></tr><tr><td>Layers</td><td>bottom slider slices the build by height</td></tr></table>`;
   return wrap;
 }

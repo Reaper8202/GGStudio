@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Face, Vec3i } from '../src/core/types.ts';
-import { ALL_FACES, cellKey, orientationFromSteps, rotateVec } from '../src/core/grid.ts';
+import type { Vec3i } from '../src/core/types.ts';
+import { ALL_FACES, cellKey } from '../src/core/grid.ts';
 import { PART_CATALOG } from '../src/core/parts.ts';
 import {
-  buildArmourFaces,
-  buildOccupancy,
   createEmptyBlueprint,
   findRoot,
   hasControl,
@@ -15,28 +13,48 @@ import {
   withPartUpdated,
 } from '../src/core/blueprint.ts';
 
-const UNIT_AXES = new Set(['1,0,0', '-1,0,0', '0,1,0', '0,-1,0', '0,0,1', '0,0,-1']);
+const UNIT_AXES = new Set([
+  '1,0,0',
+  '-1,0,0',
+  '0,1,0',
+  '0,-1,0',
+  '0,0,1',
+  '0,0,-1',
+]);
+const EXPECTED_CATALOG_IDS = [
+  'chassis-core',
+  'frame-box',
+  'frame-reinforced',
+  'wheel-standard',
+  'wheel-offroad',
+  'driver-seat',
+  'engine-small',
+  'fuel-tank',
+  'turret',
+];
 
 function vecKey(v: Vec3i): string {
   return `${v.x},${v.y},${v.z}`;
 }
 
 describe('part catalog integrity', () => {
+  it('contains only the root and eight editor parts in their display order', () => {
+    expect(Object.keys(PART_CATALOG)).toEqual(EXPECTED_CATALOG_IDS);
+  });
+
   it('has matching ids, positive mass, valid sockets, and exactly one root', () => {
     let rootCount = 0;
     for (const [id, def] of Object.entries(PART_CATALOG)) {
       expect(def.id).toBe(id);
       expect(def.massKg).toBeGreaterThan(0);
       if (def.isRoot) rootCount += 1;
+      expect(def.requiresMount).toBeUndefined();
 
       const occupied = new Set(def.cells.map(cellKey));
       for (const socket of def.sockets) {
         expect(ALL_FACES).toContain(socket.face);
-        if (def.armour?.faceMounted) {
-          expect(def.cells).toHaveLength(0);
-        } else {
-          expect(occupied.has(cellKey(socket.cell))).toBe(true);
-        }
+        expect(socket.type).toBe('frame');
+        expect(occupied.has(cellKey(socket.cell))).toBe(true);
       }
     }
     expect(rootCount).toBe(1);
@@ -57,19 +75,49 @@ describe('part catalog integrity', () => {
 
       if (def.engine) {
         for (let i = 1; i < def.engine.torqueCurve.length; i++) {
-          expect(def.engine.torqueCurve[i][0]).toBeGreaterThan(def.engine.torqueCurve[i - 1][0]);
+          expect(def.engine.torqueCurve[i][0]).toBeGreaterThan(
+            def.engine.torqueCurve[i - 1][0],
+          );
         }
       }
     }
+  });
+
+  it('keeps wheel clearance, direct frame sockets, and self-contained resources', () => {
+    for (const id of ['wheel-standard', 'wheel-offroad']) {
+      const wheel = PART_CATALOG[id];
+      expect(wheel.clearanceCells).toEqual([{ x: 0, y: -1, z: 0 }]);
+      expect(wheel.sockets).toEqual([
+        {
+          id: 'wheel-mount-px',
+          type: 'frame',
+          cell: { x: 0, y: 0, z: 0 },
+          face: 'px',
+        },
+      ]);
+    }
+
+    expect(PART_CATALOG['fuel-tank'].health).toBe(80);
+    expect(PART_CATALOG.turret.clearanceCells).toEqual([{ x: 0, y: 1, z: 0 }]);
+    expect(PART_CATALOG.turret.ammoCapacity).toBe(200);
+    expect(PART_CATALOG.turret.batteryCapacity).toBe(500);
   });
 });
 
 describe('blueprint helpers', () => {
   it('adds, updates, and removes parts immutably while keeping monotonic ids', () => {
     const bp = createEmptyBlueprint('test rig');
-    const part = { id: nextPartId(bp), defId: 'chassis-core', pos: { x: 0, y: 0, z: 0 }, orient: 0, config: {} };
+    const part = {
+      id: nextPartId(bp),
+      defId: 'chassis-core',
+      pos: { x: 0, y: 0, z: 0 },
+      orient: 0,
+      config: {},
+    };
     const withPart = withPartAdded(bp, part);
-    const updated = withPartUpdated(withPart, 'p1', { pos: { x: 1, y: 0, z: 0 } });
+    const updated = withPartUpdated(withPart, 'p1', {
+      pos: { x: 1, y: 0, z: 0 },
+    });
     const removed = withPartRemoved(updated, 'p1');
 
     expect(bp.parts).toHaveLength(0);
@@ -80,44 +128,29 @@ describe('blueprint helpers', () => {
     expect(nextPartId(withPart)).toBe('p2');
   });
 
-  it('builds occupancy for a rotated beam', () => {
-    const orient = orientationFromSteps(0, 1, 0);
-    const bp = withPartAdded(createEmptyBlueprint('beam rig'), {
-      id: 'p1',
-      defId: 'beam-long',
-      pos: { x: 2, y: 0, z: 2 },
-      orient,
-      config: {},
-    });
-
-    expect(buildOccupancy(bp)).toEqual(
-      new Map([
-        ['2,0,2', 'p1'],
-        ['3,0,2', 'p1'],
-        ['4,0,2', 'p1'],
-      ]),
-    );
-  });
-
-  it('builds armour face occupancy from rotated armour sockets', () => {
-    const orient = orientationFromSteps(0, 1, 0);
-    const coveredFace: Face = rotateVec(orient, { x: 0, y: 0, z: 1 }).x === 1 ? 'px' : 'pz';
-    const bp = withPartAdded(createEmptyBlueprint('armour rig'), {
-      id: 'p1',
-      defId: 'armour-panel',
-      pos: { x: 0, y: 0, z: 0 },
-      orient,
-      config: {},
-    });
-
-    expect(buildArmourFaces(bp)).toEqual(new Map([[`0,0,0|${coveredFace}`, 'p1']]));
-  });
-
   it('queries root, control, and engine presence', () => {
     let bp = createEmptyBlueprint('query rig');
-    bp = withPartAdded(bp, { id: 'p1', defId: 'chassis-core', pos: { x: 0, y: 0, z: 0 }, orient: 0, config: {} });
-    bp = withPartAdded(bp, { id: 'p2', defId: 'driver-seat', pos: { x: 0, y: 1, z: 0 }, orient: 0, config: {} });
-    bp = withPartAdded(bp, { id: 'p3', defId: 'engine-small', pos: { x: 0, y: 2, z: 0 }, orient: 0, config: {} });
+    bp = withPartAdded(bp, {
+      id: 'p1',
+      defId: 'chassis-core',
+      pos: { x: 0, y: 0, z: 0 },
+      orient: 0,
+      config: {},
+    });
+    bp = withPartAdded(bp, {
+      id: 'p2',
+      defId: 'driver-seat',
+      pos: { x: 0, y: 1, z: 0 },
+      orient: 0,
+      config: {},
+    });
+    bp = withPartAdded(bp, {
+      id: 'p3',
+      defId: 'engine-small',
+      pos: { x: 0, y: 2, z: 0 },
+      orient: 0,
+      config: {},
+    });
 
     expect(findRoot(bp)?.id).toBe('p1');
     expect(hasControl(bp)).toBe(true);

@@ -19,12 +19,13 @@ npm run dev
 
 Open the printed URL. The **editor** loads with a drivable starter rig.
 
-**Built for kids.** First launch offers a guided **7-step tutorial** (also the
-🎓 Tutorial button, any time) that walks through building a truck with automatic
-progress detection. The palette starts in **simple mode** — 10 friendly-named
-parts (Block, Wheel Holder, Zombie Blaster…) with wheels auto-configured on
-placement; the "🔧 More parts" toggle reveals the full advanced catalog. The
-**? Help** button has the full rules, and
+**Radically simple by design** (think Bad Piggies, in 3D): one palette of 8
+parts with plain names, no mounts or config screens — wheels snap onto the
+sides of blocks and set themselves up, engines snap on top, right-click
+erases, six paint swatches recolour any part. First launch offers a guided
+**6-step tutorial** with automatic progress detection (🎓 Tutorial restarts it
+any time). A correctly built truck survives ramps, jumps, and drops; only
+wall-speed crashes and wobbly construction break things.
 [docs/HOW_TO_BUILD.md](docs/HOW_TO_BUILD.md) is the written walkthrough.
 
 Quick orientation:

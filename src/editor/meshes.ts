@@ -1,10 +1,10 @@
 /**
  * Shared part-mesh factory (editor ghost/placed parts and chamber view).
- * Simple flat-shaded primitives with edge lines — readable block aesthetic.
+ * Flat-shaded primitives with edge lines — readable block aesthetic.
  */
 
 import * as THREE from 'three';
-import type { PartDefinition, PlacedPart } from '../core/types.ts';
+import { PAINT_COLORS, type PartDefinition, type PlacedPart } from '../core/types.ts';
 import { CELL_SIZE } from '../core/types.ts';
 import { FACE_VECTORS, rotateFace, rotateVec } from '../core/grid.ts';
 import { cellCentreM } from '../core/mass.ts';
@@ -12,24 +12,12 @@ import { cellCentreM } from '../core/mass.ts';
 const COLORS: Record<string, number> = {
   'chassis-core': 0xd97a2b,
   'frame-box': 0x8a8f98,
-  'frame-light': 0xb9bec7,
   'frame-reinforced': 0x5a606b,
-  'beam-long': 0x7d8695,
-  'wheel-mount': 0x4f8a8b,
-  'engine-mount': 0x8b6a4f,
-  hardpoint: 0x8b4f6b,
   'driver-seat': 0xc9a227,
   'engine-small': 0xa03c3c,
-  'engine-big': 0x7c2929,
   'fuel-tank': 0xb0803a,
-  battery: 0x3a6ab0,
-  'ammo-box': 0x6b7a3a,
-  'cargo-crate': 0x9a7b5a,
   'wheel-standard': 0x23262b,
   'wheel-offroad': 0x1b1e22,
-  'armour-panel': 0x606d60,
-  'shell-panel': 0x88b0c8,
-  'gun-fixed': 0x3f4750,
   turret: 0x39424e,
 };
 
@@ -49,6 +37,7 @@ function boxWithEdges(w: number, h: number, d: number, color: number, opacity = 
   const g = new THREE.Group();
   const mat = new THREE.MeshLambertMaterial({ color, transparent: opacity < 1, opacity });
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  mesh.userData.placementSurface = true;
   g.add(mesh);
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(mesh.geometry),
@@ -65,7 +54,7 @@ function boxWithEdges(w: number, h: number, d: number, color: number, opacity = 
 export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity = 1): THREE.Group {
   const group = new THREE.Group();
   group.name = `part:${placed.id}`;
-  const color = partColor(def);
+  const color = placed.config.paint ? PAINT_COLORS[placed.config.paint] : partColor(def);
   const s = CELL_SIZE;
 
   if (def.wheel) {
@@ -73,12 +62,14 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
     const centre = cellCentreM(placed.pos);
     const tire = new THREE.Mesh(
       new THREE.CylinderGeometry(w.radius, w.radius, w.width, 18),
-      new THREE.MeshLambertMaterial({ color, transparent: opacity < 1, opacity }),
+      new THREE.MeshLambertMaterial({ color: partColor(def), transparent: opacity < 1, opacity }),
     );
     const hub = new THREE.Mesh(
       new THREE.CylinderGeometry(w.radius * 0.45, w.radius * 0.45, w.width + 0.02, 10),
-      new THREE.MeshLambertMaterial({ color: 0x9aa0aa, transparent: opacity < 1, opacity }),
+      new THREE.MeshLambertMaterial({ color, transparent: opacity < 1, opacity }),
     );
+    tire.userData.placementSurface = true;
+    hub.userData.placementSurface = true;
     const wheelGroup = new THREE.Group();
     wheelGroup.add(tire, hub);
     // Cylinder axis is +Y; align to placed axle axis.
@@ -161,6 +152,7 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
         new THREE.CylinderGeometry(0.045, 0.045, s * 1.4, 8),
         new THREE.MeshLambertMaterial({ color: 0x22262c, transparent: opacity < 1, opacity }),
       );
+      barrel.userData.placementSurface = true;
       barrel.quaternion.setFromUnitVectors(
         new THREE.Vector3(0, 1, 0),
         new THREE.Vector3(fwd.x, fwd.y, fwd.z),

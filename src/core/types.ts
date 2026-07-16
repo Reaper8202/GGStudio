@@ -163,6 +163,18 @@ export interface PartDefinition {
   visualScale?: number;
 }
 
+/** Paint swatches available on every part (customization). */
+export const PAINT_COLORS = {
+  scrap: 0x8a8f98,
+  red: 0xc84c4c,
+  blue: 0x4d79c7,
+  green: 0x5f9b55,
+  yellow: 0xd6a928,
+  purple: 0x8b5bb5,
+} as const;
+
+export type PaintColor = keyof typeof PAINT_COLORS;
+
 export interface PartConfig {
   driven?: boolean;
   steering?: boolean;
@@ -170,6 +182,8 @@ export interface PartConfig {
   steerInverted?: boolean;
   braking?: boolean;
   suspensionPreset?: SuspensionPreset;
+  /** Player-chosen paint; undefined = the part's default colour. */
+  paint?: PaintColor;
 }
 
 export interface PlacedPart {
@@ -269,4 +283,4 @@ export const GRID_MAX: Vec3i = { x: 6, y: 8, z: 8 };
 /** World metres per grid cell. */
 export const CELL_SIZE = 0.5;
 
-export const BLUEPRINT_SCHEMA_VERSION = 2;
+export const BLUEPRINT_SCHEMA_VERSION = 3;

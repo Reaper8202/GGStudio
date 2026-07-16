@@ -36,17 +36,12 @@ import {
 } from '../core/grid.ts';
 import { buildPartMesh } from './meshes.ts';
 import { Overlays, defaultToggles, type OverlayToggles } from './overlays.ts';
-import { buildEditorUI, buildInspectorPanel, type EditorUI } from './ui.ts';
+import { buildEditorUI, type EditorUI } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
 
 const STORAGE_KEY = 'scraprig.blueprints.v1';
-const PALETTE_MODE_KEY = 'scraprig.palette-mode';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
-
-function isSimplePaletteMode(): boolean {
-  return localStorage.getItem(PALETTE_MODE_KEY) !== 'all';
-}
 
 interface GhostState {
   defId: string;
@@ -71,20 +66,20 @@ export class EditorMode {
   private readonly raycaster = new THREE.Raycaster();
   private ghost: GhostState | null = null;
   private ghostMesh: THREE.Group | null = null;
+  private ghostMeshKey: string | null = null;
   private ghostTarget: { pos: Vec3i; valid: boolean; message: string } | null = null;
   private readonly history: CommandHistory;
   private bp: VehicleBlueprint;
   private selected = new Set<string>();
   private symmetry = false;
   private layer = -1;
-  private viewMode: 'normal' | 'xray' | 'structure' = 'normal';
-  private hideArmour = false;
-  private hideShell = false;
-  private toggles: OverlayToggles = defaultToggles();
+  private readonly toggles: OverlayToggles = { ...defaultToggles(), com: true, contacts: true, supportPolygon: true, connections: false, arcs: false };
   private ui: EditorUI;
   private tutorialOverlay: TutorialOverlay | null = null;
   private tutorialActive = false;
   private pointerDown: { x: number; y: number } | null = null;
+  private lastPointer: { x: number; y: number } | null = null;
+  private eraseArmed = false;
   private disposed = false;
   private readonly keyHandler = (e: KeyboardEvent) => this.onKey(e);
 
@@ -112,6 +107,7 @@ export class EditorMode {
     this.controls = new OrbitControls(this.persp, renderer.domElement);
     this.controls.target.set(0, 1, 0);
     this.controls.enableDamping = true;
+    this.raycaster.params.Line.threshold = 0;
 
     // Grid + bounds
     const gridW = (GRID_MAX.x - GRID_MIN.x + 1) * CELL_SIZE;
@@ -133,14 +129,10 @@ export class EditorMode {
       onArmPart: (defId) => this.armGhost(defId),
       onSave: () => this.save(),
       onLoad: (slot) => this.load(slot),
-      onNew: () => this.replaceBlueprint(createEmptyBlueprint('new-rig')),
+      onNew: () => this.replaceBlueprint(this.createNewBlueprint()),
       onRename: (name) => {
         this.bp = { ...this.bp, name };
         this.refresh();
-      },
-      onDuplicateBlueprint: () => {
-        this.bp = { ...this.bp, id: `${this.bp.id}-copy`, name: `${this.bp.name} copy` };
-        this.save();
       },
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
@@ -151,16 +143,6 @@ export class EditorMode {
       onLayerChange: (l) => {
         this.layer = l;
         this.rebuildMeshes();
-      },
-      onViewMode: (mode, hideArmour, hideShell) => {
-        this.viewMode = mode;
-        this.hideArmour = hideArmour;
-        this.hideShell = hideShell;
-        this.rebuildMeshes();
-      },
-      onOverlayToggle: (key, on) => {
-        (this.toggles as unknown as Record<string, boolean>)[key] = on;
-        this.refreshOverlays();
       },
       onTestDrive: () => {
         const report = validateBlueprint(this.bp, getPartDef);
@@ -175,14 +157,15 @@ export class EditorMode {
       onStartTutorial: () => this.startTutorial(),
       onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
       onDeleteSelected: () => this.deleteSelected(),
-      onMirrorSelected: () => this.mirrorSelected(),
-      onDuplicateSelected: () => this.duplicateSelected(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
+      onToggleErase: () => this.toggleErase(),
+      onCancelTool: () => this.disarmTool(),
     });
 
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);
     renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
     renderer.domElement.addEventListener('pointerup', this.onPointerUp);
+    renderer.domElement.addEventListener('contextmenu', this.onContextMenu);
     window.addEventListener('keydown', this.keyHandler);
 
     if (restore?.view) {
@@ -224,6 +207,7 @@ export class EditorMode {
     this.renderer.domElement.removeEventListener('pointermove', this.onPointerMove);
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
     this.renderer.domElement.removeEventListener('pointerup', this.onPointerUp);
+    this.renderer.domElement.removeEventListener('contextmenu', this.onContextMenu);
     window.removeEventListener('keydown', this.keyHandler);
     this.controls.dispose();
     this.tutorialOverlay?.dispose();
@@ -241,7 +225,15 @@ export class EditorMode {
     this.refresh();
   }
 
-  /** Start the kid-friendly guided build with its own fresh blueprint. */
+  private createNewBlueprint(): VehicleBlueprint {
+    const bp = createEmptyBlueprint('new-rig');
+    return {
+      ...bp,
+      parts: [{ id: 'p1', defId: 'chassis-core', pos: { x: 0, y: 1, z: 0 }, orient: 0, config: {} }],
+    };
+  }
+
+  /** Start the guided build with its own fresh blueprint. */
   startTutorial(): void {
     this.tutorialOverlay?.dispose();
     this.tutorialOverlay = null;
@@ -338,38 +330,18 @@ export class EditorMode {
       const p = getPart(this.bp, id);
       return p && !getPartDef(p.defId).isRoot;
     });
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      if ([...this.selected].some((id) => {
+        const part = getPart(this.bp, id);
+        return part ? getPartDef(part.defId).isRoot : false;
+      })) {
+        this.ui.setStatus("🔒 Truck Heart can't be deleted");
+      }
+      return;
+    }
     this.exec(batchCommand('delete selection', ids.map((id) => removeCommand(id))));
     this.selected.clear();
     this.refresh();
-  }
-
-  private mirrorSelected(): void {
-    const cmds: EditorCommand[] = [];
-    let bp = this.bp;
-    for (const id of this.selected) {
-      const part = getPart(bp, id);
-      if (!part) continue;
-      const newId = nextPartId(bp);
-      const mirroredPos = mirrorCellX(part.pos);
-      if (mirroredPos.x === part.pos.x) continue;
-      const result = canPlacePart(bp, getPartDef, part.defId, mirroredPos, part.orient, part.config);
-      if (!result.ok) continue;
-      const cmd = mirrorCommand(id, newId);
-      cmds.push(cmd);
-      bp = cmd.apply(bp);
-    }
-    if (cmds.length > 0) this.exec(batchCommand('mirror selection', cmds));
-  }
-
-  private duplicateSelected(): void {
-    // Duplicate armed as ghost: pick first selected part and arm its def.
-    const first = [...this.selected][0];
-    if (!first) return;
-    const part = getPart(this.bp, first);
-    if (!part) return;
-    this.armGhost(part.defId);
-    if (this.ghost) this.ghost.orient = part.orient;
   }
 
   private rotateSelected(axis: 'y' | 'x'): void {
@@ -388,11 +360,13 @@ export class EditorMode {
     const ok = canPlacePart(without, getPartDef, part.defId, part.pos, next, part.config).ok;
     if (ok) this.exec(rotateCommand(part.id, next));
     else this.ui.setStatus('Rotation blocked here');
+    this.refreshGhostAtLastPointer();
   }
 
   // ---------- ghost placement ----------
 
   private armGhost(defId: string): void {
+    this.eraseArmed = false;
     this.ghost = { defId, orient: 0 };
     this.ui.setArmedPart(defId);
     this.selected.clear();
@@ -407,11 +381,33 @@ export class EditorMode {
       this.scene.remove(this.ghostMesh);
       this.ghostMesh = null;
     }
+    this.ghostMeshKey = null;
     this.ui.ghostTip.style.display = 'none';
+  }
+
+  private toggleErase(): void {
+    if (this.eraseArmed) {
+      this.disarmTool();
+      return;
+    }
+    this.disarmGhost();
+    this.eraseArmed = true;
+    this.ui.setArmedPart('erase');
+    this.ui.setStatus('Erase: click a part to remove it');
+  }
+
+  private disarmTool(): void {
+    this.eraseArmed = false;
+    this.disarmGhost();
+  }
+
+  private refreshGhostAtLastPointer(): void {
+    if (this.lastPointer) this.updateGhost(this.lastPointer.x, this.lastPointer.y);
   }
 
   private updateGhost(clientX: number, clientY: number): void {
     if (!this.ghost) return;
+    this.lastPointer = { x: clientX, y: clientY };
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((clientX - rect.left) / rect.width) * 2 - 1,
@@ -425,7 +421,7 @@ export class EditorMode {
     let orient = this.ghost.orient;
 
     const hits = this.raycaster.intersectObjects(this.partsGroup.children, true);
-    const hit = hits.find((h) => (h.object as THREE.Object3D).visible);
+    const hit = hits.find((candidate) => this.isPlacementSurfaceHit(candidate));
     if (hit && hit.face) {
       const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).round();
       const p = hit.point;
@@ -463,20 +459,25 @@ export class EditorMode {
       message: result.issues[0]?.message ?? '',
     };
 
-    if (this.ghostMesh) this.scene.remove(this.ghostMesh);
-    const placed: PlacedPart = { id: '__ghost', defId: this.ghost.defId, pos: target, orient, config: {} };
-    this.ghostMesh = buildPartMesh(def, placed, 0.55);
-    this.ghostMesh.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (mesh.isMesh) {
-        const m = (mesh.material as THREE.MeshLambertMaterial).clone();
-        m.color.set(result.ok ? 0x5fd75f : 0xe05545);
-        m.transparent = true;
-        m.opacity = 0.55;
-        mesh.material = m;
-      }
-    });
-    this.scene.add(this.ghostMesh);
+    const meshKey = `${this.ghost.defId}:${orient}:${result.ok}`;
+    if (!this.ghostMesh || this.ghostMeshKey !== meshKey) {
+      if (this.ghostMesh) this.scene.remove(this.ghostMesh);
+      const placed: PlacedPart = { id: '__ghost', defId: this.ghost.defId, pos: { x: 0, y: 0, z: 0 }, orient, config: {} };
+      this.ghostMesh = buildPartMesh(def, placed, 0.55);
+      this.ghostMesh.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const material = (mesh.material as THREE.MeshLambertMaterial).clone();
+        material.color.set(result.ok ? 0x5fd75f : 0xe05545);
+        material.transparent = true;
+        material.opacity = 0.55;
+        mesh.material = material;
+      });
+      this.ghostMeshKey = meshKey;
+      this.scene.add(this.ghostMesh);
+    }
+    this.ghostMesh.visible = true;
+    this.ghostMesh.position.set(target.x * CELL_SIZE, target.y * CELL_SIZE, target.z * CELL_SIZE);
 
     const tip = this.ui.ghostTip;
     if (!result.ok && result.issues.length > 0) {
@@ -507,15 +508,18 @@ export class EditorMode {
   }
 
   private placeGhost(): void {
-    if (!this.ghost || !this.ghostTarget || !this.ghostTarget.valid) return;
+    this.refreshGhostAtLastPointer();
+    if (!this.ghost || !this.ghostTarget) return;
     const { pos } = this.ghostTarget;
     const def = getPartDef(this.ghost.defId);
+    const placement = canPlacePart(this.bp, getPartDef, this.ghost.defId, pos, this.ghost.orient, {});
+    if (!placement.ok) {
+      this.ghostTarget = { pos, valid: false, message: placement.issues[0]?.message ?? '' };
+      this.refreshGhostAtLastPointer();
+      return;
+    }
     const id = nextPartId(this.bp);
-    const config: PartConfig = def.wheel
-      ? isSimplePaletteMode()
-        ? { driven: true, braking: true, steering: pos.z > 0, suspensionPreset: 'standard' }
-        : { braking: true, suspensionPreset: 'standard' }
-      : {};
+    const config: PartConfig = {};
     const part: PlacedPart = { id, defId: this.ghost.defId, pos, orient: this.ghost.orient, config };
     const cmds: EditorCommand[] = [placeCommand(part)];
 
@@ -535,7 +539,10 @@ export class EditorMode {
         }
       }
     }
-    this.exec(cmds.length > 1 ? batchCommand('symmetric place', cmds) : cmds[0]);
+    if (this.exec(cmds.length > 1 ? batchCommand('symmetric place', cmds) : cmds[0])) {
+      this.disarmGhost();
+      this.selectOnly(id);
+    }
   }
 
   // ---------- selection ----------
@@ -547,14 +554,7 @@ export class EditorMode {
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hits = this.raycaster.intersectObjects(this.partsGroup.children, true);
-    const hit = hits.find((h) => h.object.visible);
-    let partId: string | null = null;
-    if (hit) {
-      let obj: THREE.Object3D | null = hit.object;
-      while (obj && !obj.name.startsWith('part:')) obj = obj.parent;
-      if (obj) partId = obj.name.slice(5);
-    }
+    const partId = this.partIdAtIntersections(this.raycaster.intersectObjects(this.partsGroup.children, true));
     if (!additive) this.selected.clear();
     if (partId) {
       if (additive && this.selected.has(partId)) this.selected.delete(partId);
@@ -562,6 +562,34 @@ export class EditorMode {
     }
     this.refreshSelectionUI();
     this.rebuildMeshes();
+  }
+
+  private isPlacementSurfaceHit(hit: THREE.Intersection<THREE.Object3D>): boolean {
+    const mesh = hit.object as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.visible || !hit.face || mesh.userData.placementSurface !== true) return false;
+    let object: THREE.Object3D | null = mesh;
+    while (object) {
+      if (object.userData.editorPickable === false || !object.visible) return false;
+      object = object.parent;
+    }
+    return true;
+  }
+
+  private partIdAtIntersections(hits: THREE.Intersection<THREE.Object3D>[]): string | null {
+    const hit = hits.find((candidate) => this.isPlacementSurfaceHit(candidate));
+    if (!hit) return null;
+    let object: THREE.Object3D | null = hit.object;
+    while (object && !object.name.startsWith('part:')) object = object.parent;
+    return object ? object.name.slice(5) : null;
+  }
+
+  private partIdAt(clientX: number, clientY: number): string | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.raycaster.setFromCamera(new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    ), this.camera);
+    return this.partIdAtIntersections(this.raycaster.intersectObjects(this.partsGroup.children, true));
   }
 
   private selectOnly(partId: string): void {
@@ -574,22 +602,14 @@ export class EditorMode {
   private refreshSelectionUI(): void {
     const first = [...this.selected][0];
     if (!first) {
-      this.ui.setInspector(null);
+      this.ui.setSelectedPart(null);
       this.refreshOverlays();
       return;
     }
     const part = getPart(this.bp, first);
     if (!part) return;
     const def = getPartDef(part.defId);
-    this.ui.setInspector(
-      buildInspectorPanel(def, part.id, part.config as Record<string, unknown>, {
-        onConfigChange: (id: string, k: string, v: boolean | string) => this.changeConfig(id, k, v),
-        onDeleteSelected: () => this.deleteSelected(),
-        onMirrorSelected: () => this.mirrorSelected(),
-        onDuplicateSelected: () => this.duplicateSelected(),
-        onRotateSelected: (axis: 'y' | 'x') => this.rotateSelected(axis),
-      }),
-    );
+    this.ui.setSelectedPart(def, part.id);
     this.refreshOverlays();
   }
 
@@ -597,6 +617,7 @@ export class EditorMode {
 
   private onPointerMove = (e: PointerEvent): void => {
     if (this.disposed) return;
+    this.lastPointer = { x: e.clientX, y: e.clientY };
     this.updateGhost(e.clientX, e.clientY);
   };
 
@@ -608,10 +629,34 @@ export class EditorMode {
     if (!this.pointerDown) return;
     const moved = Math.hypot(e.clientX - this.pointerDown.x, e.clientY - this.pointerDown.y);
     this.pointerDown = null;
-    if (moved > 6 || e.button !== 0) return; // drag = camera, not click
-    if (this.ghost) this.placeGhost();
+    if (moved > 6) return; // drag = camera, not click
+    if (e.button === 2) {
+      this.deleteAt(e.clientX, e.clientY);
+      return;
+    }
+    if (e.button !== 0) return;
+    if (this.eraseArmed) this.deleteAt(e.clientX, e.clientY);
+    else if (this.ghost) this.placeGhost();
     else this.selectAt(e.clientX, e.clientY, e.shiftKey);
   };
+
+  private onContextMenu = (e: MouseEvent): void => e.preventDefault();
+
+  private deleteAt(clientX: number, clientY: number): void {
+    const id = this.partIdAt(clientX, clientY);
+    if (!id) return;
+    const part = getPart(this.bp, id);
+    if (!part) return;
+    if (getPartDef(part.defId).isRoot) {
+      this.ui.setStatus("🔒 Truck Heart can't be deleted");
+      return;
+    }
+    if (this.exec(removeCommand(id))) {
+      this.selected.delete(id);
+      this.refreshSelectionUI();
+      this.rebuildMeshes();
+    }
+  }
 
   private onKey(e: KeyboardEvent): void {
     if (this.disposed) return;
@@ -629,14 +674,9 @@ export class EditorMode {
       this.redo();
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && key === 'd') {
-      e.preventDefault();
-      this.duplicateSelected();
-      return;
-    }
     switch (key) {
       case 'escape':
-        this.disarmGhost();
+        this.disarmTool();
         this.selected.clear();
         this.refreshSelectionUI();
         this.rebuildMeshes();
@@ -644,19 +684,18 @@ export class EditorMode {
       case 'r':
         if (this.ghost) {
           this.ghost.orient = this.nextAllowedOrient(this.ghost.defId, this.ghost.orient, 'y');
+          this.refreshGhostAtLastPointer();
         } else this.rotateSelected('y');
         break;
       case 'f':
         if (this.ghost) {
           this.ghost.orient = this.nextAllowedOrient(this.ghost.defId, this.ghost.orient, 'x');
+          this.refreshGhostAtLastPointer();
         } else this.rotateSelected('x');
         break;
       case 'delete':
       case 'backspace':
         this.deleteSelected();
-        break;
-      case 'm':
-        this.mirrorSelected();
         break;
       case '1':
         this.setView('persp');
@@ -724,10 +763,12 @@ export class EditorMode {
   // ---------- refresh ----------
 
   private refresh(): void {
+    this.normalizeWheels();
     this.rebuildMeshes();
     this.refreshAnalysis();
     this.ui.setBlueprintName(this.bp.name);
     this.ui.setUndoRedo(this.history.canUndo, this.history.canRedo);
+    this.refreshSelectionUI();
     if (this.tutorialActive) this.tutorialOverlay?.update(this.bp, getPartDef);
   }
 
@@ -735,21 +776,25 @@ export class EditorMode {
     this.partsGroup.clear();
     for (const part of this.bp.parts) {
       const def = getPartDef(part.defId);
-      if (this.viewMode === 'structure' && def.category !== 'structural') continue;
-      if (this.hideArmour && def.armour && !def.armour.cosmetic) continue;
-      if (this.hideShell && def.armour?.cosmetic) continue;
       let opacity = 1;
-      if (this.viewMode === 'xray') opacity = 0.35;
+      let pickable = true;
       if (this.layer >= 0) {
         const above = def.cells.length === 0 ? part.pos.y > this.layer :
           def.cells.every((c) => part.pos.y + rotateVec(part.orient, c).y > this.layer);
-        if (above) opacity = Math.min(opacity, 0.12);
+        if (above) {
+          opacity = 0.12;
+          pickable = false;
+        }
       }
       const mesh = buildPartMesh(def, part, opacity);
+      mesh.userData.editorPickable = pickable;
+      mesh.traverse((object) => { object.userData.editorPickable = pickable; });
       if (this.selected.has(part.id)) {
         mesh.traverse((o) => {
           const m = o as THREE.Mesh;
-          if (m.isMesh) {
+          // Only materials that actually have an emissive uniform (Lambert);
+          // forcing one onto MeshBasicMaterial crashes the Three renderer.
+          if (m.isMesh && (m.material as THREE.MeshLambertMaterial).isMeshLambertMaterial) {
             const mat = (m.material as THREE.MeshLambertMaterial).clone();
             mat.emissive = new THREE.Color(0x2b4d17);
             mat.emissiveIntensity = 1;
@@ -764,29 +809,39 @@ export class EditorMode {
   private refreshAnalysis(): void {
     const report = analyzeVehicle(this.bp, getPartDef);
     const validation = validateBlueprint(this.bp, getPartDef);
-    const com = report.centreOfMass;
-    this.ui.setStats([
-      ['Parts', String(this.bp.parts.length)],
-      ['Mass', `${report.totalMassKg.toFixed(0)} kg`],
-      ['Cost', `$${report.totalCost}`],
-      ['CoM height', `${com.y.toFixed(2)} m`],
-      ['Front/rear', `${(report.frontMassFraction * 100).toFixed(0)}% front`],
-      ['Left/right', `${(report.leftMassFraction * 100).toFixed(0)}% left`],
-      ['Track', `${report.trackWidthM.toFixed(2)} m`],
-      ['Wheelbase', `${report.wheelbaseM.toFixed(2)} m`],
-      ['Clearance', `${report.groundClearanceM.toFixed(2)} m`],
-      ['Power/weight', `${report.powerToWeightKwPerT.toFixed(0)} kW/t`],
-      ['Stability', report.rolloverRisk],
-      ['Margin', `${report.stabilityMarginM.toFixed(2)} m`],
-      ['Max slope', `${report.estimatedMaxSlopeDeg.toFixed(0)}°`],
-      ['Fuel', `${report.fuelCapacityL.toFixed(0)} L`],
-    ]);
-    this.ui.setIssues(validation.errors, report.warnings);
+    this.ui.setBuildSummary(report.totalMassKg, report.rolloverRisk, validation.errors, report.warnings);
     this.ui.setTestDriveEnabled(
       validation.errors.length === 0 && this.bp.parts.length > 0,
       validation.errors.map((e) => e.message),
     );
     this.refreshOverlays();
+  }
+
+  private normalizeWheels(): void {
+    const wheels = this.bp.parts.filter((part) => getPartDef(part.defId).wheel);
+    if (wheels.length === 0) return;
+    const minZ = Math.min(...wheels.map((wheel) => wheel.pos.z));
+    const maxZ = Math.max(...wheels.map((wheel) => wheel.pos.z));
+    const midpoint = (minZ + maxZ) / 2;
+    const allSteer = minZ === maxZ;
+    let changed = false;
+    const parts = this.bp.parts.map((part) => {
+      if (!getPartDef(part.defId).wheel) return part;
+      const config: PartConfig = {
+        ...part.config,
+        driven: true,
+        braking: true,
+        steerInverted: false,
+        suspensionPreset: 'standard',
+        steering: allSteer || part.pos.z > midpoint,
+      };
+      const differs = Object.keys(config).some((key) => config[key as keyof PartConfig] !== part.config[key as keyof PartConfig]) ||
+        Object.keys(part.config).some((key) => !(key in config));
+      if (!differs) return part;
+      changed = true;
+      return { ...part, config };
+    });
+    if (changed) this.bp = { ...this.bp, parts };
   }
 
   private refreshOverlays(): void {

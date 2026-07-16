@@ -16,7 +16,12 @@ import type {
   WheelDefinition,
 } from '../core/types.ts';
 import { CELL_SIZE, SUSPENSION_PRESET_MULTIPLIERS } from '../core/types.ts';
-import { FACE_VECTORS, rotateFace, rotateVec, worldCells } from '../core/grid.ts';
+import {
+  FACE_VECTORS,
+  rotateFace,
+  rotateVec,
+  worldCells,
+} from '../core/grid.ts';
 import { cellCentreM, placedCellMasses } from '../core/mass.ts';
 
 export type GetDef = (defId: string) => PartDefinition;
@@ -28,10 +33,12 @@ export const GROUP_WHEEL = 0x0004;
 export const GROUP_DEBRIS = 0x0008;
 export const GROUP_ZOMBIE = 0x0010;
 
-export const VEHICLE_GROUPS = (GROUP_VEHICLE << 16) | (GROUP_TERRAIN | GROUP_DEBRIS | GROUP_ZOMBIE);
+export const VEHICLE_GROUPS =
+  (GROUP_VEHICLE << 16) | (GROUP_TERRAIN | GROUP_DEBRIS | GROUP_ZOMBIE);
 export const ATTACHED_WHEEL_GROUPS = GROUP_WHEEL << 16; // filter 0: mass only
 export const DEBRIS_GROUPS =
-  (GROUP_DEBRIS << 16) | (GROUP_TERRAIN | GROUP_DEBRIS | GROUP_ZOMBIE | GROUP_VEHICLE);
+  (GROUP_DEBRIS << 16) |
+  (GROUP_TERRAIN | GROUP_DEBRIS | GROUP_ZOMBIE | GROUP_VEHICLE);
 export const WHEEL_RAY_GROUPS = (0xffff << 16) | GROUP_TERRAIN;
 
 export interface RuntimePart {
@@ -79,7 +86,10 @@ export interface AssembledVehicle {
   rootPartId: string;
 }
 
-function suspensionScaled(base: SuspensionParams, preset: keyof typeof SUSPENSION_PRESET_MULTIPLIERS): SuspensionParams {
+function suspensionScaled(
+  base: SuspensionParams,
+  preset: keyof typeof SUSPENSION_PRESET_MULTIPLIERS,
+): SuspensionParams {
   const m = SUSPENSION_PRESET_MULTIPLIERS[preset];
   return {
     restLength: base.restLength,
@@ -103,7 +113,8 @@ export function lowestPointM(bp: VehicleBlueprint, getDef: GetDef): number {
       const susp = rotateVec(p.orient, def.wheel.suspensionDir);
       minY = Math.min(
         minY,
-        centre.y + susp.y * (def.wheel.suspension.restLength + def.wheel.radius),
+        centre.y +
+          susp.y * (def.wheel.suspension.restLength + def.wheel.radius),
       );
     }
   }
@@ -119,7 +130,11 @@ export function assembleVehicle(
 ): AssembledVehicle {
   const yaw = spawn.yawRad ?? 0;
   const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-    .setTranslation(spawn.translation.x, spawn.translation.y, spawn.translation.z)
+    .setTranslation(
+      spawn.translation.x,
+      spawn.translation.y,
+      spawn.translation.z,
+    )
     .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
     .setCanSleep(false);
   const body = world.createRigidBody(bodyDesc);
@@ -209,7 +224,7 @@ export function assembleVehicle(
         .setFriction(0.5)
         .setCollisionGroups(VEHICLE_GROUPS)
         .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
-        .setContactForceEventThreshold(2500);
+        .setContactForceEventThreshold(100_000);
       const col = world.createCollider(desc, body);
       entry.colliderHandles.push(col.handle);
       entry.colliderCentresM.push({ x: cx, y: cy, z: cz });
@@ -221,7 +236,7 @@ export function assembleVehicle(
           .setFriction(0.5)
           .setCollisionGroups(VEHICLE_GROUPS)
           .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
-          .setContactForceEventThreshold(2500);
+          .setContactForceEventThreshold(100_000);
         const col = world.createCollider(desc, body);
         entry.colliderHandles.push(col.handle);
         entry.colliderCentresM.push(cm.centreM);
@@ -240,5 +255,12 @@ export function assembleVehicle(
     }
   });
 
-  return { body, parts, wheels, connections: live, connectionsByPart, rootPartId };
+  return {
+    body,
+    parts,
+    wheels,
+    connections: live,
+    connectionsByPart,
+    rootPartId,
+  };
 }

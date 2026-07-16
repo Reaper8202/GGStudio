@@ -48,7 +48,7 @@ describe('editor commands', () => {
       part('p1', 'frame-box', 0, 0, 0, 0, { driven: true }),
     ]);
 
-    expectRoundTrip(original, placeCommand(part('p2', 'frame-light', 1)));
+    expectRoundTrip(original, placeCommand(part('p2', 'frame-reinforced', 1)));
     expectRoundTrip(original, removeCommand('p1'));
     expectRoundTrip(original, moveCommand('p1', { x: 2, y: 1, z: -1 }));
     expectRoundTrip(original, rotateCommand('p1', 7));
@@ -68,7 +68,7 @@ describe('editor commands', () => {
 
   it('round trips a mirrored copy and preserves mirrored wheel geometry', () => {
     const original = blueprint([
-      part('wheel-left', 'wheel-standard', -3, 1, 2, 0, {
+      part('wheel-left', 'wheel-standard', -2, 1, 2, 0, {
         driven: true,
         steering: true,
         steerInverted: true,
@@ -81,7 +81,7 @@ describe('editor commands', () => {
     const right = getPart(applied, 'wheel-right')!;
     const wheelDef = getPartDef('wheel-standard');
 
-    expect(right.pos).toEqual({ x: 3, y: 1, z: 2 });
+    expect(right.pos).toEqual({ x: 2, y: 1, z: 2 });
     expect(right.config).toEqual(left.config);
     expect(worldCells(wheelDef.cells, right.pos, right.orient)).toEqual(
       worldCells(wheelDef.cells, left.pos, left.orient).map(mirrorCellX),
@@ -144,7 +144,7 @@ describe('editor commands', () => {
 
   it('undos a symmetry placement batch atomically', () => {
     const original = blueprint();
-    const left = part('wheel-left', 'wheel-standard', -3, 1, 0);
+    const left = part('wheel-left', 'wheel-standard', -2, 1, 0);
     const symmetry = batchCommand('Place wheel pair', [
       placeCommand(left),
       mirrorCommand('wheel-left', 'wheel-right'),
@@ -177,7 +177,7 @@ describe('editor commands', () => {
     const original = blueprint([part('p1', 'frame-box', 0)]);
 
     expect(() =>
-      placeCommand(part('p1', 'frame-light', 1)).apply(original),
+      placeCommand(part('p1', 'frame-reinforced', 1)).apply(original),
     ).toThrow('duplicate part id: p1');
   });
 });

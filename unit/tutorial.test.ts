@@ -10,40 +10,29 @@ import {
   TUTORIAL_STEPS,
   tutorialProgress,
 } from '../src/core/tutorial.ts';
+import { BLUEPRINT_SCHEMA_VERSION } from '../src/core/types.ts';
 import type { Vec3i, VehicleBlueprint } from '../src/core/types.ts';
 
-const EXPECTED_KID_NAMES: Record<string, string> = {
+const EXPECTED_LABELS: Record<string, string> = {
   'chassis-core': 'Truck Heart',
   'frame-box': 'Block',
-  'frame-light': 'Light Block',
   'frame-reinforced': 'Strong Block',
-  'beam-long': 'Long Beam',
-  'wheel-mount': 'Wheel Holder',
-  'engine-mount': 'Engine Stand',
-  hardpoint: 'Gun Stand',
-  'driver-seat': 'Driver Seat',
-  'engine-small': 'Engine',
-  'engine-big': 'Mega Engine',
-  'fuel-tank': 'Fuel Tank',
-  battery: 'Battery',
-  'ammo-box': 'Ammo Box',
-  'cargo-crate': 'Cargo Box',
   'wheel-standard': 'Wheel',
   'wheel-offroad': 'Monster Wheel',
-  'armour-panel': 'Armour Plate',
-  'shell-panel': 'Paint Panel',
-  'gun-fixed': 'Front Gun',
+  'driver-seat': 'Driver Seat',
+  'engine-small': 'Engine',
+  'fuel-tank': 'Fuel Tank',
   turret: 'Zombie Blaster',
 };
 
-const FRAME_POSITIONS: readonly Vec3i[] = [
-  { x: 0, y: 1, z: 1 },
-  { x: 0, y: 1, z: -1 },
-  { x: 1, y: 1, z: 0 },
-  { x: -1, y: 1, z: 0 },
+const FRAME_BUILD: readonly { defId: string; pos: Vec3i }[] = [
+  { defId: 'frame-box', pos: { x: 0, y: 1, z: 1 } },
+  { defId: 'frame-box', pos: { x: 0, y: 1, z: -1 } },
+  { defId: 'frame-box', pos: { x: 1, y: 1, z: 0 } },
+  { defId: 'frame-reinforced', pos: { x: -1, y: 1, z: 0 } },
 ];
 
-const MOUNT_POSITIONS: readonly Vec3i[] = [
+const WHEEL_SUPPORTS: readonly Vec3i[] = [
   { x: 1, y: 1, z: 1 },
   { x: -1, y: 1, z: 1 },
   { x: 1, y: 1, z: -1 },
@@ -80,54 +69,75 @@ function addParts(
   );
 }
 
-function buildThroughFuel(): VehicleBlueprint {
-  let bp = createTutorialBlueprint();
-  bp = addParts(bp, 'frame-box', FRAME_POSITIONS);
-  bp = addParts(bp, 'wheel-mount', MOUNT_POSITIONS);
-  bp = addParts(bp, 'wheel-standard', [
-    { x: -2, y: 1, z: 1 },
-    { x: -2, y: 1, z: -1 },
-  ]);
-  bp = addParts(
+function addFrameBuild(bp: VehicleBlueprint): VehicleBlueprint {
+  return FRAME_BUILD.reduce(
+    (current, part) => addValidPart(current, part.defId, part.pos),
     bp,
-    'wheel-standard',
-    [
-      { x: 2, y: 1, z: 1 },
-      { x: 2, y: 1, z: -1 },
-    ],
-    orientationFromSteps(0, 2, 0),
   );
-  bp = addValidPart(bp, 'driver-seat', { x: 0, y: 2, z: 0 });
-  bp = addValidPart(bp, 'engine-mount', { x: 0, y: 1, z: 2 });
-  bp = addValidPart(bp, 'engine-small', { x: 0, y: 2, z: 2 });
-  return addValidPart(bp, 'fuel-tank', { x: 0, y: 2, z: 1 });
 }
 
-describe('kid-friendly catalog presentation', () => {
-  it('has exactly one non-empty label for every catalog part', () => {
-    const catalogIds = Object.keys(PART_CATALOG).sort();
-    expect(Object.keys(KID_LABELS).sort()).toEqual(catalogIds);
-    expect(Object.keys(EXPECTED_KID_NAMES).sort()).toEqual(catalogIds);
+function addDirectWheels(bp: VehicleBlueprint): VehicleBlueprint {
+  let current = addParts(bp, 'frame-box', WHEEL_SUPPORTS);
+  current = addValidPart(current, 'wheel-standard', { x: -2, y: 1, z: 1 });
+  current = addValidPart(current, 'wheel-offroad', { x: -2, y: 1, z: -1 });
+  const rightWheelOrient = orientationFromSteps(0, 2, 0);
+  current = addValidPart(
+    current,
+    'wheel-standard',
+    { x: 2, y: 1, z: 1 },
+    rightWheelOrient,
+  );
+  return addValidPart(
+    current,
+    'wheel-offroad',
+    { x: 2, y: 1, z: -1 },
+    rightWheelOrient,
+  );
+}
+
+function buildThroughFuel(): VehicleBlueprint {
+  let bp = addFrameBuild(createTutorialBlueprint());
+  bp = addDirectWheels(bp);
+  bp = addValidPart(bp, 'driver-seat', { x: 0, y: 2, z: 0 });
+  bp = addValidPart(bp, 'engine-small', { x: 0, y: 2, z: 1 });
+  return addValidPart(bp, 'fuel-tank', { x: 0, y: 2, z: -1 });
+}
+
+describe('editor catalog presentation', () => {
+  it('has exactly one non-empty label for every kept catalog part', () => {
+    const catalogIds = Object.keys(PART_CATALOG);
+    expect(Object.keys(KID_LABELS)).toEqual(catalogIds);
+    expect(Object.keys(EXPECTED_LABELS)).toEqual(catalogIds);
 
     for (const id of catalogIds) {
-      expect(KID_LABELS[id].name).toBe(EXPECTED_KID_NAMES[id]);
+      expect(KID_LABELS[id].name).toBe(EXPECTED_LABELS[id]);
       expect(KID_LABELS[id].name.trim()).not.toBe('');
       expect(KID_LABELS[id].blurb.trim()).not.toBe('');
     }
   });
 
-  it('only exposes real catalog parts in the simple palette', () => {
-    expect(
-      SIMPLE_PART_IDS.filter((id) => PART_CATALOG[id] === undefined),
-    ).toEqual([]);
+  it('exposes exactly the eight visible tiles in spec order', () => {
+    expect(SIMPLE_PART_IDS).toEqual([
+      'frame-box',
+      'frame-reinforced',
+      'wheel-standard',
+      'wheel-offroad',
+      'driver-seat',
+      'engine-small',
+      'fuel-tank',
+      'turret',
+    ]);
+    expect(SIMPLE_PART_IDS).not.toContain('chassis-core');
+    expect(SIMPLE_PART_IDS.every((id) => PART_CATALOG[id] !== undefined)).toBe(
+      true,
+    );
   });
 });
 
 describe('tutorial progression', () => {
-  it('defines the exact seven-step sequence', () => {
+  it('defines the exact six-step sequence and instructions', () => {
     expect(TUTORIAL_STEPS.map((step) => step.id)).toEqual([
       'frame',
-      'mounts',
       'wheels',
       'driver',
       'engine',
@@ -136,18 +146,26 @@ describe('tutorial progression', () => {
     ]);
     expect(TUTORIAL_STEPS.map((step) => step.paletteDefId)).toEqual([
       'frame-box',
-      'wheel-mount',
       'wheel-standard',
       'driver-seat',
       'engine-small',
       'fuel-tank',
       undefined,
     ]);
+    expect(TUTORIAL_STEPS.map((step) => step.text)).toEqual([
+      'Add 4 Blocks around the orange Truck Heart. Right-click a mistake to erase.',
+      'Put 4 Wheels straight onto the outside Blocks. Wheels set themselves up.',
+      'Put the Driver Seat on top.',
+      'Snap on an Engine.',
+      'Add a Fuel Tank.',
+      'Press TEST DRIVE!',
+    ]);
   });
 
   it('starts with only the Truck Heart at the requested position', () => {
     const bp = createTutorialBlueprint();
 
+    expect(bp.schemaVersion).toBe(BLUEPRINT_SCHEMA_VERSION);
     expect(bp.name).toBe('my-first-truck');
     expect(bp.parts).toEqual([
       {
@@ -161,53 +179,39 @@ describe('tutorial progression', () => {
     expect(tutorialProgress(bp, getPartDef)).toBe(0);
   });
 
-  it('walks a valid truck build through every tutorial stage', () => {
+  it('walks a valid direct-attachment truck through every tutorial stage', () => {
     let bp = createTutorialBlueprint();
 
-    bp = addParts(bp, 'frame-box', FRAME_POSITIONS);
+    bp = addFrameBuild(bp);
     expect(tutorialProgress(bp, getPartDef)).toBe(1);
 
-    bp = addParts(bp, 'wheel-mount', MOUNT_POSITIONS);
+    bp = addDirectWheels(bp);
     expect(tutorialProgress(bp, getPartDef)).toBe(2);
 
-    bp = addParts(bp, 'wheel-standard', [
-      { x: -2, y: 1, z: 1 },
-      { x: -2, y: 1, z: -1 },
-    ]);
-    bp = addParts(
-      bp,
-      'wheel-standard',
-      [
-        { x: 2, y: 1, z: 1 },
-        { x: 2, y: 1, z: -1 },
-      ],
-      orientationFromSteps(0, 2, 0),
-    );
+    bp = addValidPart(bp, 'driver-seat', { x: 0, y: 2, z: 0 });
     expect(tutorialProgress(bp, getPartDef)).toBe(3);
 
-    bp = addValidPart(bp, 'driver-seat', { x: 0, y: 2, z: 0 });
+    bp = addValidPart(bp, 'engine-small', { x: 0, y: 2, z: 1 });
     expect(tutorialProgress(bp, getPartDef)).toBe(4);
 
-    bp = addValidPart(bp, 'engine-mount', { x: 0, y: 1, z: 2 });
-    bp = addValidPart(bp, 'engine-small', { x: 0, y: 2, z: 2 });
-    expect(tutorialProgress(bp, getPartDef)).toBe(5);
-
-    bp = addValidPart(bp, 'fuel-tank', { x: 0, y: 2, z: 1 });
-    expect(TUTORIAL_STEPS[5].isComplete(bp, getPartDef)).toBe(true);
+    bp = addValidPart(bp, 'fuel-tank', { x: 0, y: 2, z: -1 });
+    expect(TUTORIAL_STEPS[4].isComplete(bp, getPartDef)).toBe(true);
     expect(validateBlueprint(bp, getPartDef).errors).toEqual([]);
     expect(tutorialProgress(bp, getPartDef)).toBe(TUTORIAL_STEPS.length);
   });
 
   it('stays on the first incomplete step when parts are added out of order', () => {
-    let bp = createTutorialBlueprint();
-    bp = addValidPart(bp, 'engine-mount', { x: 0, y: 1, z: 1 });
-    bp = addValidPart(bp, 'engine-small', { x: 0, y: 2, z: 1 });
+    const bp = addValidPart(createTutorialBlueprint(), 'engine-small', {
+      x: 0,
+      y: 2,
+      z: 0,
+    });
 
-    expect(TUTORIAL_STEPS[4].isComplete(bp, getPartDef)).toBe(true);
+    expect(TUTORIAL_STEPS[3].isComplete(bp, getPartDef)).toBe(true);
     expect(tutorialProgress(bp, getPartDef)).toBe(0);
   });
 
-  it('does not finish when the build passes steps 1–6 but fails validation', () => {
+  it('does not finish when all build steps pass but validation has an error', () => {
     const complete = buildThroughFuel();
     const invalid = blueprint.withPartAdded(complete, {
       id: blueprint.nextPartId(complete),
@@ -218,14 +222,14 @@ describe('tutorial progression', () => {
     });
 
     expect(
-      TUTORIAL_STEPS.slice(0, 6).every((step) =>
+      TUTORIAL_STEPS.slice(0, 5).every((step) =>
         step.isComplete(invalid, getPartDef),
       ),
     ).toBe(true);
     expect(
       validateBlueprint(invalid, getPartDef).errors.map((issue) => issue.code),
     ).toContain('DISCONNECTED');
-    expect(TUTORIAL_STEPS[6].isComplete(invalid, getPartDef)).toBe(false);
-    expect(tutorialProgress(invalid, getPartDef)).toBe(6);
+    expect(TUTORIAL_STEPS[5].isComplete(invalid, getPartDef)).toBe(false);
+    expect(tutorialProgress(invalid, getPartDef)).toBe(5);
   });
 });

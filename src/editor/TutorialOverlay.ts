@@ -15,6 +15,7 @@ export class TutorialOverlay {
     private readonly onExit: () => void,
   ) {
     this.panel.className = 'panel tutorial-panel';
+    root.classList.add('tutorial-active');
     root.appendChild(this.panel);
   }
 
@@ -47,6 +48,7 @@ export class TutorialOverlay {
 
   dispose(): void {
     this.ui.highlightPaletteButton(null);
+    this.panel.parentElement?.classList.remove('tutorial-active');
     this.panel.remove();
   }
 }

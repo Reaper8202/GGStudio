@@ -27,8 +27,30 @@ export interface DamageEvents {
   detachedIslands: DetachedIsland[];
 }
 
-const IMPACT_DAMAGE_SCALE = 1 / 900; // hp per N of contact force
-const CONNECTION_DAMAGE_SCALE = 1 / 55000; // connection health per N
+export const SAFE_IMPACT_FORCE_N = 100_000;
+export const IMPACT_DAMAGE_SCALE = 1 / 65; // HP per N·s above the safe force
+export const CONNECTION_DAMAGE_SCALE = 1 / 5_000; // connection health per N·s
+export const REFERENCE_CONNECTION_FORCE_N = 120_000;
+
+const IMPACT_STEP_SECONDS = 1 / 60;
+
+export function impactImpulseNs(forceN: number): number {
+  return Math.max(0, forceN - SAFE_IMPACT_FORCE_N) * IMPACT_STEP_SECONDS;
+}
+
+export function partDamage(impulseNs: number): number {
+  return impulseNs * IMPACT_DAMAGE_SCALE;
+}
+
+export function connectionDamage(
+  impulseShareNs: number,
+  maxForceN: number,
+): number {
+  return (
+    (impulseShareNs * CONNECTION_DAMAGE_SCALE * REFERENCE_CONNECTION_FORCE_N) /
+    maxForceN
+  );
+}
 
 /** Apply impact damage to a part (by collider handle) and its connections. */
 export function applyImpactDamage(
@@ -41,19 +63,30 @@ export function applyImpactDamage(
   if (!partId) return;
   const part = vehicle.parts.get(partId);
   if (!part || !part.alive) return;
-  part.health -= forceMagnitude * IMPACT_DAMAGE_SCALE;
-  for (const ci of vehicle.connectionsByPart.get(partId) ?? []) {
-    const conn = vehicle.connections[ci];
-    if (conn.health <= 0) continue;
-    // Stronger joints shed proportionally less health.
-    conn.health -= (forceMagnitude * CONNECTION_DAMAGE_SCALE * 30000) / conn.maxForce;
+  const impulseNs = impactImpulseNs(forceMagnitude);
+  part.health -= partDamage(impulseNs);
+
+  const liveConnections = (vehicle.connectionsByPart.get(partId) ?? [])
+    .map((ci) => vehicle.connections[ci])
+    .filter((conn) => conn.health > 0);
+  if (liveConnections.length === 0) return;
+  const impulseShareNs = impulseNs / liveConnections.length;
+  for (const conn of liveConnections) {
+    conn.health -= connectionDamage(impulseShareNs, conn.maxForce);
   }
 }
 
-export function applyDirectDamage(vehicle: AssembledVehicle, partId: string, amount: number): void {
+export function applyDirectDamage(
+  vehicle: AssembledVehicle,
+  partId: string,
+  amount: number,
+): void {
   const part = vehicle.parts.get(partId);
   if (!part || !part.alive) return;
-  const absorb = part.def.armour && !part.def.armour.cosmetic ? part.def.armour.protection : 0;
+  const absorb =
+    part.def.armour && !part.def.armour.cosmetic
+      ? part.def.armour.protection
+      : 0;
   part.health -= Math.max(1, amount - absorb);
 }
 
@@ -85,7 +118,9 @@ export function resolveStructure(
   }
 
   // Recompute islands over alive, still-attached parts.
-  const attached = [...vehicle.parts.values()].filter((p) => p.alive && !p.detached);
+  const attached = [...vehicle.parts.values()].filter(
+    (p) => p.alive && !p.detached,
+  );
   const liveConns = vehicle.connections.filter((c) => {
     if (c.health <= 0) return false;
     const a = vehicle.parts.get(c.aId);
@@ -98,9 +133,11 @@ export function resolveStructure(
   );
 
   const detachedIslands: DetachedIsland[] = [];
-  if (islands.length <= 1) return { destroyedParts: destroyed, detachedIslands };
+  if (islands.length <= 1)
+    return { destroyedParts: destroyed, detachedIslands };
 
-  const rootIsland = islands.find((isle) => isle.includes(vehicle.rootPartId)) ?? islands[0];
+  const rootIsland =
+    islands.find((isle) => isle.includes(vehicle.rootPartId)) ?? islands[0];
   const body = vehicle.body;
   const bodyPos = body.translation();
   const bodyRot = body.rotation();
@@ -145,18 +182,31 @@ export function resolveStructure(
     // Point velocity at the island CoM: v + ω × r (not a plain linvel copy).
     if (islandCentres.length > 0) {
       const centroid = islandCentres.reduce(
-        (acc, c) => ({ x: acc.x + c.x / islandCentres.length, y: acc.y + c.y / islandCentres.length, z: acc.z + c.z / islandCentres.length }),
+        (acc, c) => ({
+          x: acc.x + c.x / islandCentres.length,
+          y: acc.y + c.y / islandCentres.length,
+          z: acc.z + c.z / islandCentres.length,
+        }),
         { x: 0, y: 0, z: 0 },
       );
       // centroid is body-local; rotate into world.
       const qv = { x: bodyRot.x, y: bodyRot.y, z: bodyRot.z };
-      const t = scale(cross(v3(qv.x, qv.y, qv.z), v3(centroid.x, centroid.y, centroid.z)), 2);
+      const t = scale(
+        cross(v3(qv.x, qv.y, qv.z), v3(centroid.x, centroid.y, centroid.z)),
+        2,
+      );
       const centroidW = add(
         v3(bodyPos.x, bodyPos.y, bodyPos.z),
-        add(v3(centroid.x, centroid.y, centroid.z), add(scale(t, bodyRot.w), cross(v3(qv.x, qv.y, qv.z), t))),
+        add(
+          v3(centroid.x, centroid.y, centroid.z),
+          add(scale(t, bodyRot.w), cross(v3(qv.x, qv.y, qv.z), t)),
+        ),
       );
       const r = sub(centroidW, v3(com.x, com.y, com.z));
-      const pointVel = add(v3(linvel.x, linvel.y, linvel.z), cross(v3(angvel.x, angvel.y, angvel.z), r));
+      const pointVel = add(
+        v3(linvel.x, linvel.y, linvel.z),
+        cross(v3(angvel.x, angvel.y, angvel.z), r),
+      );
       newBody.setLinvel({ x: pointVel.x, y: pointVel.y, z: pointVel.z }, true);
     }
     detachedIslands.push({ body: newBody, partIds: isle });
