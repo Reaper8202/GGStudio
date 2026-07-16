@@ -17,7 +17,13 @@ npm install
 npm run dev
 ```
 
-Open the printed URL. The **editor** loads with a drivable starter rig:
+Open the printed URL. The **editor** loads with a drivable starter rig.
+
+**New to the editor?** It opens a Help overlay on first launch (the **? Help**
+button brings it back any time), and [docs/HOW_TO_BUILD.md](docs/HOW_TO_BUILD.md)
+is a full step-by-step walkthrough from empty grid to drivable truck.
+
+Quick orientation:
 
 - Left palette: click a part to arm the placement ghost; click in the world to
   place (green = valid, red shows the blocking rule). `R`/`F` rotate the ghost,

@@ -105,6 +105,9 @@ export function buildEditorUI(
   testBtn.className = 'primary';
   top.appendChild(testBtn);
 
+  const helpBtn = btn('? Help', () => toggleHelp(), 'How to build a vehicle');
+  top.appendChild(helpBtn);
+
   // --- Palette ---
   const palette = document.createElement('div');
   palette.className = 'palette panel';
@@ -222,6 +225,20 @@ export function buildEditorUI(
   ghostTip.style.display = 'none';
   root.appendChild(ghostTip);
 
+  // --- Help overlay (auto-opens on first visit) ---
+  const help = buildHelpOverlay();
+  help.style.display = 'none';
+  root.appendChild(help);
+  const HELP_SEEN_KEY = 'scraprig.help-seen';
+  const toggleHelp = (): void => {
+    const showing = help.style.display !== 'none';
+    help.style.display = showing ? 'none' : 'block';
+    if (!showing) localStorage.setItem(HELP_SEEN_KEY, '1');
+  };
+  help.querySelector('button')?.addEventListener('click', () => toggleHelp());
+  const debugMode = new URLSearchParams(location.search).get('debug') === '1';
+  if (!debugMode && !localStorage.getItem(HELP_SEEN_KEY)) toggleHelp();
+
   let armed: string | null = null;
 
   return {
@@ -291,6 +308,68 @@ export function buildEditorUI(
       status.textContent = t;
     },
   };
+}
+
+/** Full-screen help overlay: quick start, controls, and the placement rules. */
+function buildHelpOverlay(): HTMLDivElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'panel';
+  wrap.style.cssText =
+    'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(720px,92vw);max-height:84vh;overflow-y:auto;padding:18px 22px;z-index:20;line-height:1.5';
+  wrap.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <b style="font-size:17px">How to build a vehicle</b>
+      <button>✕ Close</button>
+    </div>
+    <div class="cat-title">quick start — your first truck</div>
+    <ol style="margin-left:18px">
+      <li><b>Pick a part</b> from the left palette. A ghost copy follows your mouse:
+        <span style="color:#7fbf6f">green = can place</span>, <span style="color:#ff7a6e">red = can't</span>
+        (the tooltip tells you why). Click to place, <b>Esc</b> to put the part away.</li>
+      <li><b>Build structure first.</b> Everything must connect face-to-face to your build —
+        no floating parts. Shape a chassis out of <b>Frame Boxes</b> around the orange Chassis Core.</li>
+      <li><b>Add the essentials.</b> A drivable vehicle needs:
+        a <b>Driver Seat</b> (anywhere on the frame),
+        an <b>Engine Mount</b> with an <b>Engine on top of it</b>,
+        a <b>Fuel Tank</b>,
+        and <b>Wheel Mounts</b> (teal) with <b>Wheels on their left/right sides</b>.</li>
+      <li><b>Configure the wheels.</b> Click a wheel to select it, then in the right panel tick
+        <b>driven</b> (gets engine power), <b>steering</b> (turns with A/D), <b>braking</b>,
+        and pick a suspension preset. No driven wheels = the truck won't move!</li>
+      <li>Press <b>▶ TEST DRIVE</b>. When you come back, your design is exactly as you left it —
+        crashes in the chamber never damage the blueprint.</li>
+    </ol>
+    <div class="cat-title">controls</div>
+    <table style="width:100%;font-size:13px">
+      <tr><td>Orbit / zoom</td><td>left-drag / mouse wheel &nbsp;·&nbsp; keys <b>1–5</b> = camera presets</td></tr>
+      <tr><td>Rotate part</td><td><b>R</b> (spin) / <b>F</b> (tip over) — the yellow notch marks the part's front</td></tr>
+      <tr><td>Select</td><td>click &nbsp;·&nbsp; Shift+click adds &nbsp;·&nbsp; <b>Del</b> deletes</td></tr>
+      <tr><td>Undo / redo</td><td>Ctrl+Z / Ctrl+Shift+Z</td></tr>
+      <tr><td>Duplicate / mirror</td><td>Ctrl+D / M &nbsp;·&nbsp; the <b>Symmetry</b> button auto-mirrors placements</td></tr>
+      <tr><td>Layers</td><td>bottom slider slices the build by height; X-ray / Structure filter the view</td></tr>
+    </table>
+    <div class="cat-title">why won't it place?</div>
+    <ul style="margin-left:18px;font-size:13px">
+      <li>Special parts need special mounts: wheels → <b>sides of Wheel Mounts</b>,
+        engines → <b>top of Engine Mounts</b>, guns/turrets → <b>top of Hardpoints</b>.</li>
+      <li>Armour and shell panels stick onto a <b>face</b> of an existing part — one panel per face.</li>
+      <li>Wheels need the cell <b>below them empty</b> (suspension travel space).</li>
+      <li>Some parts are one-per-vehicle (Chassis Core, Driver Seat).</li>
+    </ul>
+    <div class="cat-title">reading the analysis (right panel)</div>
+    <ul style="margin-left:18px;font-size:13px">
+      <li>The <b>yellow ball</b> is your centre of mass. Keep it <b>low and centred</b> —
+        tall narrow builds tip over in corners, for real.</li>
+      <li>The <b>green outline</b> on the ground is your wheel footprint. If the dashed line from
+        the yellow ball lands outside it, the vehicle falls over standing still.</li>
+      <li><b>Warnings are advice, not blockers</b> — you can always test drive a weird build.
+        Only red errors (no engine, floating parts…) disable TEST DRIVE.</li>
+    </ul>
+    <div class="cat-title">in the test chamber</div>
+    <div style="font-size:13px"><b>W</b> throttle · <b>S</b>/<b>Space</b> brake · <b>A/D</b> steer ·
+      mouse aims turrets · <b>F</b> or click fires · scenario buttons up top · <b>Reset</b> respawns fresh.</div>
+  `;
+  return wrap;
 }
 
 /** Inspector widget for a selected part. */

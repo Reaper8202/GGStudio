@@ -4,7 +4,7 @@ import { boot, buildBasicRig, newBlueprint, orientOf, place } from './seam.ts';
 test('editor boots with palette, analysis panel, and a non-black scene', async ({ page }) => {
   await boot(page);
   await expect(page.locator('.palette')).toBeVisible();
-  await expect(page.getByText('ANALYSIS', { exact: false })).toBeVisible();
+  await expect(page.getByText('analysis', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'TEST DRIVE' })).toBeVisible();
   // Canvas must not be black/empty: a uniform frame compresses to a tiny PNG.
   const shot = await page.locator('canvas.viewport').screenshot();
