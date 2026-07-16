@@ -45,6 +45,13 @@ interface GhostState {
   orient: number;
 }
 
+/** Camera/layer state preserved across editor <-> chamber round trips. */
+export interface EditorViewState {
+  cameraPos: { x: number; y: number; z: number };
+  target: { x: number; y: number; z: number };
+  layer: number;
+}
+
 export class EditorMode {
   private readonly scene = new THREE.Scene();
   private persp: THREE.PerspectiveCamera;
@@ -57,7 +64,7 @@ export class EditorMode {
   private ghost: GhostState | null = null;
   private ghostMesh: THREE.Group | null = null;
   private ghostTarget: { pos: Vec3i; valid: boolean; message: string } | null = null;
-  private readonly history = new CommandHistory();
+  private readonly history: CommandHistory;
   private bp: VehicleBlueprint;
   private selected = new Set<string>();
   private symmetry = false;
@@ -76,8 +83,10 @@ export class EditorMode {
     private readonly renderer: THREE.WebGLRenderer,
     initial: VehicleBlueprint,
     private readonly onTestDrive: (bp: VehicleBlueprint) => void,
+    restore?: { history?: CommandHistory; view?: EditorViewState },
   ) {
     this.bp = initial;
+    this.history = restore?.history ?? new CommandHistory();
     this.scene.background = new THREE.Color(0x1a1e26);
     this.scene.add(new THREE.HemisphereLight(0xcfd8e8, 0x2a2620, 1.05));
     const dir = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -159,8 +168,21 @@ export class EditorMode {
     renderer.domElement.addEventListener('pointerup', this.onPointerUp);
     window.addEventListener('keydown', this.keyHandler);
 
+    if (restore?.view) {
+      this.persp.position.set(restore.view.cameraPos.x, restore.view.cameraPos.y, restore.view.cameraPos.z);
+      this.controls.target.set(restore.view.target.x, restore.view.target.y, restore.view.target.z);
+      this.layer = restore.view.layer;
+    }
     this.refreshSlots();
     this.refresh();
+  }
+
+  viewState(): EditorViewState {
+    return {
+      cameraPos: { x: this.persp.position.x, y: this.persp.position.y, z: this.persp.position.z },
+      target: { x: this.controls.target.x, y: this.controls.target.y, z: this.controls.target.z },
+      layer: this.layer,
+    };
   }
 
   // ---------- rendering loop ----------

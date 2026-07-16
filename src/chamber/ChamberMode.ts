@@ -52,6 +52,8 @@ export class ChamberMode {
   private accumulator = 0;
   private lastTime = performance.now();
   private hud!: HTMLDivElement;
+  private banner!: HTMLDivElement;
+  private failTimers = { flipped: 0, noTraction: 0, airborne: 0 };
   private ui!: HTMLDivElement;
   private disposed = false;
   private readonly keydown = (e: KeyboardEvent) => {
@@ -269,6 +271,12 @@ export class ChamberMode {
     help.textContent = 'W/S throttle+reverse-brake · A/D steer · Space brake · F or click: fire · mouse: aim';
     this.ui.appendChild(help);
 
+    this.banner = document.createElement('div');
+    this.banner.className = 'panel';
+    this.banner.style.cssText =
+      'position:absolute;left:50%;top:38%;transform:translateX(-50%);font-size:20px;font-weight:700;color:#ffb44d;display:none;padding:10px 18px';
+    this.ui.appendChild(this.banner);
+
     this.renderer.domElement.addEventListener('pointermove', this.onAim);
     this.renderer.domElement.addEventListener('pointerdown', this.onFireDown);
     this.renderer.domElement.addEventListener('pointerup', this.onFireUp);
@@ -479,6 +487,25 @@ export class ChamberMode {
     desired.y = Math.max(desired.y, 1.2);
     this.camera.position.lerp(desired, Math.min(1, frameDt * 4));
     this.camera.lookAt(target);
+
+    // Failure banners: name the failure the physics just produced.
+    const tf = this.vehicle.telemetry();
+    const uy = 1 - 2 * (rot.x * rot.x + rot.z * rot.z);
+    const throttleOn = this.keys.has('w') || this.keys.has('arrowup');
+    this.failTimers.flipped = uy < 0.15 ? this.failTimers.flipped + frameDt : 0;
+    this.failTimers.noTraction =
+      throttleOn && tf.speedKmh < 2 && tf.rpm > 1800 && tf.groundedWheels > 0
+        ? this.failTimers.noTraction + frameDt
+        : 0;
+    this.failTimers.airborne =
+      throttleOn && tf.groundedWheels === 0 && uy > 0.5 ? this.failTimers.airborne + frameDt : 0;
+    let bannerText = '';
+    if (this.failTimers.flipped > 0.6) bannerText = 'VEHICLE FLIPPED — press Reset';
+    else if (tf.fuelCapacity > 0 && tf.fuel <= 0) bannerText = 'OUT OF FUEL';
+    else if (this.failTimers.noTraction > 1.2) bannerText = 'WHEELS SPINNING — no traction';
+    else if (this.failTimers.airborne > 0.8) bannerText = 'WHEELS OFF THE GROUND';
+    this.banner.textContent = bannerText;
+    this.banner.style.display = bannerText ? 'block' : 'none';
 
     // HUD.
     const t = this.vehicle.telemetry();

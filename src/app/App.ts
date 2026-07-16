@@ -14,7 +14,8 @@ import { validateBlueprint } from '../core/placement.ts';
 import { analyzeVehicle } from '../core/analysis.ts';
 import { getPartDef } from '../core/parts.ts';
 import { composeOrientations, orientationFromSteps } from '../core/grid.ts';
-import { EditorMode } from '../editor/EditorMode.ts';
+import { EditorMode, type EditorViewState } from '../editor/EditorMode.ts';
+import { CommandHistory } from '../core/commands.ts';
 import { ChamberMode, type ScenarioName } from '../chamber/ChamberMode.ts';
 import type { VehicleControls } from '../runtime/vehicle.ts';
 
@@ -23,6 +24,9 @@ export class App {
   private editor: EditorMode | null = null;
   private chamber: ChamberMode | null = null;
   private bp: VehicleBlueprint = createEmptyBlueprint('starter-rig');
+  /** Survive editor <-> chamber round trips: undo history and camera/layer. */
+  private readonly history = new CommandHistory();
+  private savedView: EditorViewState | undefined;
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -53,12 +57,16 @@ export class App {
   private openEditor(): void {
     this.chamber?.dispose();
     this.chamber = null;
-    this.editor = new EditorMode(this.root, this.renderer, this.bp, (bp) => this.enterChamber(bp));
+    this.editor = new EditorMode(this.root, this.renderer, this.bp, (bp) => this.enterChamber(bp), {
+      history: this.history,
+      view: this.savedView,
+    });
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
   }
 
   private enterChamber(bp: VehicleBlueprint): void {
     this.bp = bp;
+    this.savedView = this.editor?.viewState();
     this.editor?.dispose();
     this.editor = null;
     this.chamber = new ChamberMode(this.root, this.renderer, bp, () => this.openEditor());

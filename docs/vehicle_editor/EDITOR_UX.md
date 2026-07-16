@@ -17,7 +17,10 @@ Orbit (drag), pan (right-drag/shift), wheel zoom, perspective default; ortho fro
 - Palette selection arms a **ghost**: follows raycast against placed parts' faces / ground plane, snapped to grid; green = valid, red = invalid with the placement issue shown in a tooltip near the cursor.
 - R/F rotate yaw/pitch through the part's allowed orientations; click places; Esc disarms.
 - Symmetry mode mirrors ghost + placement across X=0 (wheel config mirrored too).
-- Select by click; move (G + click new cell), rotate, duplicate (Ctrl+D), mirror, delete (Del). Box select via **Shift+drag** (plain left-drag always orbits — no conflict).
+- Select by click; multi-select via **Shift+click**; rotate, duplicate (Ctrl+D re-arms as ghost), mirror, delete (Del). Plain left-drag always orbits. (Box select is deferred — see KNOWN_LIMITATIONS.md.)
+- Every oriented part carries a bright notch on its local +Z face so R/F rotation reads spatially.
+- The chamber names failures as they happen (banner): VEHICLE FLIPPED, WHEELS SPINNING, WHEELS OFF THE GROUND, OUT OF FUEL.
+- Editor camera, layer slice, and undo history survive the editor↔chamber round trip.
 - Everything runs through reversible commands (`core/commands.ts`); Ctrl+Z / Ctrl+Shift+Z.
 
 ## Visual analysis modes

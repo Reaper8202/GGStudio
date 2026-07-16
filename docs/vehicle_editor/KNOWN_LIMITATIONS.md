@@ -41,6 +41,16 @@
 - Wheel visual spin uses accumulated angle without wrap; extremely long
   sessions could lose float precision (cosmetic only).
 
+## Balance backlog (from the Phase-7 UX review)
+
+- Off-road wheels are strictly better than standard on grip (1.15/1.0 vs
+  1.0/0.95) with only mass/cost as a downside — the dominant build is a wide,
+  flat, all-off-road AWD slab. Planned lever: per-wheel rolling-resistance /
+  top-speed cost so standard wheels win on flat asphalt and off-road wheels
+  only pay off on slopes/rubble/mud.
+- Warning `suggestion` tooltips spell out the exact fix; consider gating hints
+  until a design has failed once in the chamber, to preserve the discovery loop.
+
 ## Technical debt
 
 - `EditorMode.refreshAnalysis`/`refreshOverlays` run `analyzeVehicle` twice per

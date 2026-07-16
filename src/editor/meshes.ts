@@ -116,6 +116,7 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
     return group;
   }
 
+  let first = true;
   for (const local of def.cells) {
     const cell = {
       x: placed.pos.x + rotateVec(placed.orient, local).x,
@@ -126,6 +127,23 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
     const box = boxWithEdges(s * 0.98, s * 0.98, s * 0.98, color, opacity);
     box.position.set(centre.x, centre.y, centre.z);
     group.add(box);
+
+    // Orientation decal: a bright notch on the part's local +Z face of its
+    // origin cell, so R/F rotation reads spatially instead of by trial.
+    if (first && !def.wheel) {
+      first = false;
+      const fwd = rotateVec(placed.orient, { x: 0, y: 0, z: 1 });
+      const notch = new THREE.Mesh(
+        new THREE.BoxGeometry(s * 0.18, s * 0.18, s * 0.18),
+        new THREE.MeshBasicMaterial({ color: 0xf0e35a, transparent: opacity < 1, opacity }),
+      );
+      notch.position.set(
+        centre.x + fwd.x * (s / 2),
+        centre.y + fwd.y * (s / 2),
+        centre.z + fwd.z * (s / 2),
+      );
+      group.add(notch);
+    }
 
     if (def.engine) {
       const cap = boxWithEdges(s * 0.6, s * 0.25, s * 0.6, 0x30343b, opacity);
