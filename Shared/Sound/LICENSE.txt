@@ -1,0 +1,44 @@
+LICENSE AGREEMENT: [lolurio's FREE Cozy Game UI SFX Pack]
+Creator: [lolurio]
+Link: [https://lolurio.itch.io/]
+
+This sound pack is licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0).
+
+-----------------------------------------------------------
+1. PERMITTED USAGE
+-----------------------------------------------------------
+Under CC BY 4.0, you are free to:
+- SHARE: Copy and redistribute these sounds in any medium or format.
+- ADAPT: Remix, transform, and build upon these sounds for any purpose, 
+  including commercial games, videos, or apps.
+
+-----------------------------------------------------------
+2. ATTRIBUTION REQUIREMENT
+-----------------------------------------------------------
+You must give appropriate credit. Please include the following in your 
+credits, "About" screen, or documentation:
+
+"UI Sound Effects by lolurio"
+
+-----------------------------------------------------------
+3. RESTRICTIONS & PROTECTIONS
+-----------------------------------------------------------
+- NO REDISTRIBUTION: You may not sell or redistribute these sounds 
+  as a standalone library or as individual files. 
+- NO AI TRAINING: These sounds may not be used to train generative 
+  audio or AI models without explicit written consent.
+- NO ENDORSEMENT: You may not suggest that the creator endorses 
+  your specific project.
+
+-----------------------------------------------------------
+4. LIMITATION OF LIABILITY
+-----------------------------------------------------------
+These sounds are provided "as-is." The creator is not liable for any 
+damages or technical issues arising from the use of these files.
+
+-----------------------------------------------------------
+FULL LEGAL CODE: https://creativecommons.org/licenses/by/4.0/legalcode
+-----------------------------------------------------------
+
+Questions? Contact: [loluriomusic@gmail.com]
+Thank you!
