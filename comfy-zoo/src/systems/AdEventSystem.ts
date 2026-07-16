@@ -9,7 +9,6 @@ import * as THREE from 'three';
 import type { GameContext } from '../core/GameContext';
 import type { AdPlacement } from '../core/EventBus';
 import type { SpawnSystem } from './SpawnSystem';
-import type { HungerSystem } from './HungerSystem';
 import { BALANCE, LEGENDARIES, MYTHICS, getAnimal } from '../core/data';
 import { radialTexture } from '../entities/Fx';
 import { DINO_GROVE } from '../world/layout';
@@ -31,7 +30,6 @@ export class AdEventSystem {
   constructor(
     private ctx: GameContext,
     private spawner: SpawnSystem,
-    private hunger: HungerSystem,
   ) {
     ctx.bus.on('ui:requestAd', (p) => this.handleRequest(p.placement, p.payload));
 

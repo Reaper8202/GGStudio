@@ -23,6 +23,9 @@ type Obstacle =
   | ({ kind: 'circle' } & CircleCollider)
   | ({ kind: 'aabb' } & AABBCollider);
 
+/** Opaque handle returned by add*; pass to remove() to unregister (e.g. zone gates). */
+export type ObstacleHandle = object;
+
 export class SpatialHash {
   private readonly cell: number;
   private buckets = new Map<number, Obstacle[]>();
@@ -59,12 +62,24 @@ export class SpatialHash {
     }
   }
 
-  addCircle(x: number, z: number, r: number): void {
-    this.insert({ kind: 'circle', x, z, r }, x - r, z - r, x + r, z + r);
+  addCircle(x: number, z: number, r: number): ObstacleHandle {
+    const o: Obstacle = { kind: 'circle', x, z, r };
+    this.insert(o, x - r, z - r, x + r, z + r);
+    return o;
   }
 
-  addAABB(x: number, z: number, hw: number, hh: number): void {
-    this.insert({ kind: 'aabb', x, z, hw, hh }, x - hw, z - hh, x + hw, z + hh);
+  addAABB(x: number, z: number, hw: number, hh: number): ObstacleHandle {
+    const o: Obstacle = { kind: 'aabb', x, z, hw, hh };
+    this.insert(o, x - hw, z - hh, x + hw, z + hh);
+    return o;
+  }
+
+  /** Unregister an obstacle previously returned by addCircle/addAABB. */
+  remove(handle: ObstacleHandle): void {
+    for (const arr of this.buckets.values()) {
+      const i = arr.indexOf(handle as Obstacle);
+      if (i >= 0) arr.splice(i, 1);
+    }
   }
 
   private nearby(x: number, z: number, r: number, out: Obstacle[]): void {

@@ -1,12 +1,61 @@
-/* Design-token stub — replaced in full by the ui agent (see CONTRACTS.md §tokens). */
+/* ==========================================================================
+   Comfy Zoo — theme.css. Every design token lives here as a custom property;
+   components reference tokens only. The world is the interface: no gradients,
+   no gloss, no bevels, no pure black or pure white anywhere.
+   ========================================================================== */
+
+/* --- Fonts ------------------------------------------------------------------ */
+@font-face {
+  font-family: 'Lilita One';
+  src: url('/assets/fonts/LilitaOne.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Yuyu';
+  src: url('/assets/fonts/Yuyu.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* --- Tokens ------------------------------------------------------------------ */
 :root {
+  /* palette */
   --cream: #f6eedd;
   --bark: #8a6b4d;
+  --bark-deep: #6e543c;
   --leaf: #7fb069;
+  --leaf-deep: #669253;
   --sky: #9bc8e3;
   --peach: #f2a65a;
-  --soft-red: #c96f6f;
+  --soft-red: #c96f6f; /* ONLY for the can't-afford shake */
+  --charcoal: #3a342e; /* silhouette / shadow ink — never pure black */
+  --parchment: #f1e6cd;
+
+  /* shape */
+  --radius-sm: 16px;
+  --radius-lg: 24px;
+  --outline: 2px solid var(--bark);
+
+  /* type — Lilita One for all interactive text/numbers, Yuyu for flavor */
+  --font-ui: 'Lilita One', ui-rounded, system-ui, sans-serif;
+  --font-flavor: 'Yuyu', 'Lilita One', ui-rounded, system-ui, sans-serif;
+
+  /* motion */
+  --pop-ms: 200ms;
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* scale-pop with overshoot */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* safe area */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
 }
+
+/* --- Base (contract: keep #game-canvas / #ui-root semantics) ----------------- */
 html,
 body {
   margin: 0;
@@ -21,9 +70,992 @@ body {
   height: 100%;
   display: block;
   touch-action: none;
+  transition: filter 200ms ease;
+}
+body.menu-open #game-canvas {
+  filter: saturate(0.55);
 }
 #ui-root {
   position: fixed;
   inset: 0;
   pointer-events: none; /* children opt back in */
+  font-family: var(--font-ui);
+  color: var(--bark);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#ui-root button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+#ui-root button:active {
+  transform: scale(0.92, 0.88); /* squash on press */
+}
+
+/* --- Icons -------------------------------------------------------------------- */
+.icon {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  vertical-align: middle;
+}
+.icon-pack {
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  background-color: var(--bark);
+}
+.icon-svg {
+  color: var(--bark);
+}
+.icon-svg svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.blossom.hollow {
+  opacity: 0.28;
+}
+.blossom-stars {
+  display: inline-flex;
+  gap: 2px;
+}
+.blossom-stars .icon {
+  width: 20px;
+  height: 20px;
+  color: var(--peach);
+}
+
+/* --- Shared: pop / shake / scrims --------------------------------------------- */
+@keyframes ui-pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes ui-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+.hidden {
+  display: none !important;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  background: rgba(58, 52, 46, 0.18);
+}
+.scrim.open {
+  display: flex;
+}
+
+.menu-close {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--cream);
+  border: var(--outline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+}
+
+/* ==========================================================================
+   HUD — four elements, zero persistent panels
+   ========================================================================== */
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* --- 1. Coin counter (no container box; soft shadow on the world) ------------- */
+.coin-counter {
+  position: absolute;
+  top: calc(12px + var(--safe-t));
+  left: calc(16px + var(--safe-l));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+.coin-acorn {
+  width: 30px;
+  height: 30px;
+  filter: drop-shadow(0 2px 3px rgba(58, 52, 46, 0.35));
+}
+.coin-value {
+  font-size: 28px;
+  color: var(--cream);
+  text-shadow:
+    0 2px 0 rgba(58, 52, 46, 0.45),
+    0 3px 8px rgba(58, 52, 46, 0.3);
+  letter-spacing: 0.5px;
+}
+.coin-counter.shake {
+  animation: ui-shake 380ms ease;
+}
+.coin-counter.shake .coin-value {
+  color: var(--soft-red);
+}
+
+/* coin-fly particles arc to the counter (start/end/arc set inline as vars) */
+@keyframes coin-fly {
+  0% {
+    left: var(--sx);
+    top: var(--sy);
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    left: calc(var(--sx) + (var(--tx) - var(--sx)) * 0.5);
+    top: calc(var(--sy) + (var(--ty) - var(--sy)) * 0.5 + var(--arc));
+  }
+  100% {
+    left: var(--tx);
+    top: var(--ty);
+    transform: translate(-50%, -50%) scale(0.6);
+    opacity: 0.9;
+  }
+}
+.coin-fly {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  animation: coin-fly 620ms var(--ease-out) both;
+  filter: drop-shadow(0 1px 2px rgba(58, 52, 46, 0.3));
+  z-index: 5;
+}
+
+/* --- 2. Quest chip (top-center, slim twig-styled border) ----------------------- */
+.quest-chip {
+  position: absolute;
+  top: calc(12px + var(--safe-t));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--cream);
+  border-radius: var(--radius-sm);
+  /* twig feel: bark border + a faint inner ring like stripped bark */
+  border: 2px solid var(--bark);
+  box-shadow:
+    inset 0 0 0 3px var(--cream),
+    inset 0 0 0 4px rgba(138, 107, 77, 0.55);
+  font-family: var(--font-flavor);
+  font-size: 16px;
+  color: var(--bark-deep);
+  max-width: min(62vw, 420px);
+  white-space: nowrap;
+}
+.quest-icon {
+  width: 18px;
+  height: 18px;
+}
+.quest-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quest-chip.sliding .quest-label {
+  animation: ui-pop var(--pop-ms) var(--spring);
+}
+.quest-list {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--cream);
+  border: var(--outline);
+  border-radius: var(--radius-sm);
+  animation: ui-pop var(--pop-ms) var(--spring);
+  min-width: 220px;
+}
+.quest-chip.expanded .quest-list {
+  display: flex;
+}
+.quest-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-flavor);
+  font-size: 15px;
+  white-space: nowrap;
+}
+.quest-row-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* flower-burst bloom on quest complete */
+@keyframes bloom {
+  0% {
+    transform: rotate(calc(var(--i) * 60deg)) translateY(0) scale(0.4);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(calc(var(--i) * 60deg)) translateY(-44px) scale(1.1);
+    opacity: 0;
+  }
+}
+.quest-bloom {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.quest-bloom .icon {
+  position: absolute;
+  left: -7px;
+  top: -7px;
+  animation: bloom 620ms var(--ease-out) both;
+}
+
+/* --- 3. Menu leaf + radial ------------------------------------------------------ */
+.menu-leaf-wrap {
+  position: absolute;
+  top: calc(12px + var(--safe-t));
+  right: calc(16px + var(--safe-r));
+  pointer-events: auto;
+}
+.menu-leaf {
+  position: relative;
+  z-index: 1;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: var(--outline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--pop-ms) var(--spring);
+}
+.menu-leaf.open {
+  transform: rotate(-32deg);
+}
+.radial {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 54px;
+  height: 54px;
+  pointer-events: none;
+}
+.radial-item {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 50px;
+  height: 50px;
+  margin: -25px 0 0 -25px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: var(--outline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translate(0, 0) scale(0.4);
+  transition:
+    transform var(--pop-ms) var(--spring),
+    opacity 150ms ease;
+  pointer-events: none;
+}
+.radial.open .radial-item {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* fan the three items on a quarter-arc below-left of the leaf */
+.radial.open .radial-item:nth-child(1) {
+  transform: translate(-74px, 4px) scale(1);
+}
+.radial.open .radial-item:nth-child(2) {
+  transform: translate(-56px, 60px) scale(1);
+  transition-delay: 30ms;
+}
+.radial.open .radial-item:nth-child(3) {
+  transform: translate(-4px, 82px) scale(1);
+  transition-delay: 60ms;
+}
+
+/* --- 4a. Action button (touch only) ---------------------------------------------- */
+.action-btn {
+  position: absolute;
+  right: calc(22px + var(--safe-r));
+  bottom: calc(26px + var(--safe-b));
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: var(--leaf);
+  border: 3px solid var(--leaf-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(58, 52, 46, 0.25);
+  transition: opacity 180ms ease;
+}
+.action-btn.dimmed {
+  opacity: 0.35;
+}
+.action-btn.pop {
+  animation: ui-pop var(--pop-ms) var(--spring);
+}
+.action-btn.pressed {
+  transform: scale(0.9, 0.86);
+}
+.action-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.action-icon .icon {
+  width: 38px;
+  height: 38px;
+}
+
+/* --- 4b. Virtual joystick (touch only; thumb-follow; 30% idle opacity) ----------- */
+.joy-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 45%;
+  height: 55%;
+  pointer-events: auto;
+  touch-action: none;
+}
+.joy-base {
+  position: fixed;
+  width: 112px;
+  height: 112px;
+  margin: -56px 0 0 -56px;
+  border-radius: 50%;
+  background: rgba(246, 238, 221, 0.28);
+  border: 2px solid rgba(246, 238, 221, 0.55);
+  transition: opacity 300ms ease;
+  pointer-events: none;
+}
+.joy-base.idle {
+  opacity: 0.3;
+}
+.joy-base.active {
+  opacity: 0.9;
+}
+.joy-thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: var(--outline);
+  box-shadow: 0 2px 6px rgba(58, 52, 46, 0.25);
+}
+
+/* --- 4c. Desktop E-keycap hint ----------------------------------------------------- */
+.key-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(18% + var(--safe-b));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--cream);
+  border: var(--outline);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+.key-hint.pop {
+  animation: ui-pop var(--pop-ms) var(--spring);
+}
+body.touch-mode .key-hint {
+  display: none;
+}
+.key-hint-icon {
+  display: inline-flex;
+  align-items: center;
+}
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--parchment);
+  border: 2px solid var(--bark);
+  box-shadow: 0 3px 0 var(--bark);
+  font-size: 18px;
+  color: var(--bark-deep);
+}
+
+/* ==========================================================================
+   Build menu — wooden signpost over the bottom third only
+   ========================================================================== */
+.build-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 34%;
+  transform: translateY(110%);
+  transition: transform 240ms var(--spring);
+  pointer-events: auto;
+  background: var(--bark);
+  border-top: 4px solid var(--bark-deep);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 10px 14px calc(12px + var(--safe-b));
+  box-sizing: border-box;
+}
+.build-menu.open {
+  transform: translateY(0);
+}
+.build-signpost-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.build-signpost-head .icon-svg {
+  color: var(--cream);
+}
+.build-signpost-head .icon-pack {
+  background-color: var(--cream);
+}
+.build-title {
+  font-size: 20px;
+  color: var(--cream);
+}
+.build-cards {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 2px 10px;
+  -webkit-overflow-scrolling: touch;
+}
+.build-card {
+  position: relative;
+  flex: none;
+  width: 116px;
+  border-radius: var(--radius-sm);
+  background: var(--parchment);
+  border: var(--outline);
+  padding: 8px 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transform: rotate(var(--rot, 0deg)); /* handmade ±1–2° tilt set inline */
+  transition: transform 150ms var(--spring);
+}
+.build-card:not(.disabled):hover {
+  transform: rotate(0deg) scale(1.05);
+}
+.build-card.disabled {
+  cursor: default;
+}
+.build-thumb {
+  width: 92px;
+  height: 92px;
+}
+.build-thumb-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.build-name {
+  font-size: 14px;
+  color: var(--bark-deep);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.build-cost {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 15px;
+  color: var(--bark-deep);
+}
+.build-card.locked .build-thumb,
+.build-card.locked .build-name,
+.build-card.locked .build-cost {
+  opacity: 0.45;
+  filter: saturate(0.4) brightness(0.8);
+}
+.build-lock {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: inherit;
+  background: rgba(58, 52, 46, 0.42);
+}
+.lock-hint {
+  font-family: var(--font-flavor);
+  font-size: 12px;
+  color: var(--cream);
+  text-align: center;
+  padding: 0 6px;
+}
+.build-catalog.hidden {
+  display: none;
+}
+
+/* slim confirm/cancel bar (replaces the catalog while placing) */
+.confirm-bar {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 6px 0 2px;
+}
+.confirm-bar.active {
+  display: flex;
+  animation: ui-pop var(--pop-ms) var(--spring);
+}
+.confirm-hint {
+  font-family: var(--font-flavor);
+  font-size: 15px;
+  color: var(--cream);
+}
+.confirm-yes,
+.confirm-no {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--bark-deep);
+}
+.confirm-yes {
+  background: var(--leaf);
+}
+.confirm-yes.disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.confirm-no {
+  background: var(--peach);
+}
+
+/* ==========================================================================
+   ZooPedia — leather-and-leaf journal, page spread
+   ========================================================================== */
+.zp-journal {
+  position: relative;
+  width: min(92vw, 640px);
+  max-height: 84vh;
+  background: var(--bark-deep);
+  border-radius: var(--radius-lg);
+  border: 3px solid var(--bark);
+  padding: 14px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: ui-pop 230ms var(--spring);
+}
+.zp-close {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  z-index: 2;
+}
+.zp-spread {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-height: 0;
+}
+.zp-page {
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--parchment);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.zp-left {
+  border-radius: var(--radius-sm) 4px 4px var(--radius-sm);
+  align-items: center;
+  justify-content: center;
+}
+.zp-right {
+  border-radius: 4px var(--radius-sm) var(--radius-sm) 4px;
+  align-items: flex-start;
+}
+.zp-canvas {
+  width: min(38vw, 220px);
+  height: min(38vw, 220px);
+  display: block;
+}
+.zp-name {
+  font-family: var(--font-flavor);
+  font-size: 26px;
+  color: var(--bark-deep);
+}
+.zp-stars {
+  display: flex;
+}
+.zp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.zp-row .icon {
+  width: 18px;
+  height: 18px;
+}
+.zp-row-label {
+  font-size: 15px;
+  color: var(--bark-deep);
+}
+.zp-skins {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  flex-wrap: wrap;
+}
+.zp-swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: var(--sky);
+  border: var(--outline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.zp-swatch.active {
+  border-color: var(--leaf-deep);
+  box-shadow: 0 0 0 3px var(--leaf);
+}
+.zp-swatch.locked {
+  background: var(--bark);
+}
+.zp-arrow {
+  align-self: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--cream);
+  border: var(--outline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.zp-prev .icon {
+  transform: rotate(180deg);
+}
+.zp-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 6px;
+  color: var(--cream);
+  font-size: 14px;
+}
+.zp-count,
+.zp-complete {
+  font-family: var(--font-ui);
+}
+
+/* ==========================================================================
+   Reward modal — small centered card, never full-screen
+   ========================================================================== */
+.reward-card {
+  width: min(84vw, 340px);
+  background: var(--cream);
+  border: var(--outline);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  animation: ui-pop 230ms var(--spring);
+  transform: rotate(-1deg); /* handmade tilt */
+}
+.reward-flavor {
+  font-family: var(--font-flavor);
+  font-size: 20px;
+  color: var(--bark-deep);
+  text-align: center;
+}
+.reward-thumb {
+  width: 150px;
+  height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.reward-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.reward-big {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 26px;
+  color: var(--bark-deep);
+}
+.reward-sub,
+.reward-timer {
+  font-family: var(--font-flavor);
+  font-size: 15px;
+  color: var(--bark);
+  text-align: center;
+}
+.watch-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 26px;
+  border-radius: var(--radius-lg);
+  background: var(--peach);
+  border: 3px solid var(--bark);
+  color: var(--cream);
+  font-size: 19px;
+  transition: transform 150ms var(--spring);
+}
+.watch-btn:hover {
+  transform: scale(1.04);
+}
+.ok-btn {
+  background: var(--leaf);
+}
+.not-now {
+  font-family: var(--font-flavor);
+  font-size: 15px;
+  color: var(--bark);
+  opacity: 0.75;
+  text-decoration: underline;
+}
+
+/* local fake-ad interstitial ("supporting the zoo…") */
+.interstitial {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(246, 238, 221, 0.94);
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  z-index: 8;
+}
+.interstitial.show {
+  opacity: 1;
+}
+.interstitial-text {
+  font-family: var(--font-flavor);
+  font-size: 20px;
+  color: var(--bark-deep);
+}
+
+/* ==========================================================================
+   Settings card
+   ========================================================================== */
+.settings-card {
+  width: min(84vw, 320px);
+  background: var(--cream);
+  border: var(--outline);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: ui-pop 230ms var(--spring);
+  transform: rotate(1deg); /* handmade tilt */
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-title {
+  font-size: 20px;
+  color: var(--bark-deep);
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--parchment);
+  border: var(--outline);
+  text-align: left;
+}
+.settings-row.on {
+  border-color: var(--leaf-deep);
+}
+.settings-row.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.settings-icon {
+  display: inline-flex;
+  align-items: center;
+}
+.settings-label {
+  font-size: 17px;
+  color: var(--bark-deep);
+}
+.settings-state,
+.settings-soon {
+  margin-left: auto;
+  font-family: var(--font-flavor);
+  font-size: 14px;
+  color: var(--bark);
+}
+.settings-credits {
+  font-family: var(--font-flavor);
+  font-size: 13px;
+  color: var(--bark);
+  text-align: center;
+  opacity: 0.8;
+}
+
+/* ==========================================================================
+   Onboarding paw cursor
+   ========================================================================== */
+.paw-cursor {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  color: var(--cream);
+  filter: drop-shadow(0 2px 4px rgba(58, 52, 46, 0.45));
+  pointer-events: none;
+  z-index: 6;
+}
+.paw-cursor svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.paw-cursor.glide {
+  transition:
+    left 900ms var(--ease-out),
+    top 900ms var(--ease-out);
+}
+@keyframes paw-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.6;
+  }
+}
+.paw-cursor.pulse {
+  animation: paw-pulse 900ms ease-in-out infinite;
+}
+@keyframes paw-tap {
+  0%,
+  100% {
+    transform: scale(1) translateY(0);
+  }
+  40% {
+    transform: scale(0.8) translateY(6px);
+  }
+  60% {
+    transform: scale(1.1) translateY(-2px);
+  }
+}
+.paw-cursor.tap {
+  animation: paw-tap 800ms ease-in-out infinite;
+  transition:
+    left 700ms var(--ease-out),
+    top 700ms var(--ease-out);
+}
+
+/* ==========================================================================
+   Extreme portrait (aspect < 0.6): quest chip docks under the coin counter.
+   body.portrait-narrow is set by a resize listener in HUD.ts.
+   ========================================================================== */
+body.portrait-narrow .quest-chip {
+  top: calc(52px + var(--safe-t));
+  left: calc(16px + var(--safe-l));
+  transform: none;
+  max-width: calc(100vw - 90px);
+}
+body.portrait-narrow .quest-list {
+  left: 0;
+  transform: none;
 }

@@ -1,0 +1,684 @@
+{
+  "phases": {
+    "boot": [
+      "models/animals/Cow.glb",
+      "models/buildings/SmallBarn.glb",
+      "models/buildings/Fence.glb",
+      "models/buildings/Fence2.glb",
+      "models/buildings/Well.glb",
+      "models/nature/BirchTree_1.glb",
+      "models/nature/BirchTree_2.glb",
+      "models/nature/MapleTree_1.glb",
+      "models/nature/MapleTree_2.glb",
+      "models/nature/Grass_Small.glb",
+      "models/nature/Grass_Large.glb",
+      "models/nature/Grass_Large_Extruded.glb",
+      "models/nature/Bush.glb",
+      "models/nature/Bush_Flowers.glb",
+      "models/nature/Flower_1_Clump.glb",
+      "models/nature/Flower_2_Clump.glb",
+      "models/nature/Plant_1.glb",
+      "models/nature/Rock_1.glb",
+      "models/nature/Rock_2.glb",
+      "fonts/LilitaOne.woff2",
+      "fonts/Yuyu.woff2",
+      "audio/ui/UI SFX_EXTRA_Start Button.ogg",
+      "audio/ui/UI SFX_MENU_Confirm.ogg",
+      "audio/ui/UI SFX_FEEDBACK_Positive.ogg"
+    ],
+    "main": [
+      "audio/ui/UI SFX_EXTRA_Glockenspiel Hopping.ogg",
+      "audio/ui/UI SFX_EXTRA_Marimba Hopping.ogg",
+      "audio/ui/UI SFX_EXTRA_Quick Sub Descending.ogg",
+      "audio/ui/UI SFX_FEEDBACK_Alert.ogg",
+      "audio/ui/UI SFX_FEEDBACK_Negative.ogg",
+      "audio/ui/UI SFX_FEEDBACK_Woom.ogg",
+      "audio/ui/UI SFX_FEEDBACK_Woop.ogg",
+      "audio/ui/UI SFX_InGameMenu_Close.ogg",
+      "audio/ui/UI SFX_InGameMenu_Load.ogg",
+      "audio/ui/UI SFX_InGameMenu_Open.ogg",
+      "audio/ui/UI SFX_InGameMenu_Save.ogg",
+      "audio/ui/UI SFX_MENU_Back.ogg",
+      "audio/ui/UI SFX_MENU_Hover.ogg",
+      "audio/ui/UI SFX_MENU_Scroll.ogg",
+      "icons/Alert.svg",
+      "icons/Bookmark.svg",
+      "icons/Circle.svg",
+      "icons/Correct.svg",
+      "icons/Disket.svg",
+      "icons/Dislike.svg",
+      "icons/Down.svg",
+      "icons/Gift.svg",
+      "icons/Group.svg",
+      "icons/Heart.svg",
+      "icons/Home.svg",
+      "icons/Home2.svg",
+      "icons/Info.svg",
+      "icons/Laptop.svg",
+      "icons/Left.svg",
+      "icons/Like.svg",
+      "icons/Locked.svg",
+      "icons/Medal.svg",
+      "icons/Minus.svg",
+      "icons/Mixer.svg",
+      "icons/Moon.svg",
+      "icons/Movie.svg",
+      "icons/Pause.svg",
+      "icons/Phone.svg",
+      "icons/Play.svg",
+      "icons/Plus.svg",
+      "icons/Podium.svg",
+      "icons/Power.svg",
+      "icons/Right.svg",
+      "icons/Settings.svg",
+      "icons/Shop.svg",
+      "icons/Smile.svg",
+      "icons/Stop.svg",
+      "icons/Sun.svg",
+      "icons/Tab.svg",
+      "icons/Target.svg",
+      "icons/Trash.svg",
+      "icons/Unlocked.svg",
+      "icons/Up.svg",
+      "icons/User.svg",
+      "icons/VolumeOff.svg",
+      "icons/VolumeOn.svg",
+      "icons/Warning1.svg",
+      "icons/Warning2.svg",
+      "icons/Wrong.svg",
+      "icons/Zoom.svg",
+      "icons/ZoomIn.svg",
+      "icons/ZoomOut.svg",
+      "icons/cursor/Arrow.svg",
+      "icons/cursor/ArrowOutline.svg",
+      "icons/cursor/Hand.svg",
+      "icons/cursor/Loading.svg",
+      "icons/cursor/Move.svg",
+      "icons/cursor/No.svg",
+      "icons/cursor/ResizeDiagonal.svg",
+      "icons/cursor/ResizeEW.svg",
+      "icons/cursor/ResizeNS.svg",
+      "icons/cursor/Text.svg",
+      "models/animals/Alpaca.glb",
+      "models/animals/Bull.glb",
+      "models/animals/Deer.glb",
+      "models/animals/Donkey.glb",
+      "models/animals/Fox.glb",
+      "models/animals/Horse.glb",
+      "models/animals/Horse_White.glb",
+      "models/animals/Husky.glb",
+      "models/animals/ShibaInu.glb",
+      "models/animals/Stag.glb",
+      "models/animals/Wolf.glb",
+      "models/buildings/Barn.glb",
+      "models/buildings/BigBarn.glb",
+      "models/buildings/ChickenCoop.glb",
+      "models/buildings/OpenBarn.glb",
+      "models/buildings/Silo.glb",
+      "models/buildings/Silo_House.glb",
+      "models/buildings/TowerWindmill.glb",
+      "models/buildings/WaterTower.glb",
+      "models/buildings/Windmill.glb",
+      "models/nature/BirchTree_3.glb",
+      "models/nature/BirchTree_4.glb",
+      "models/nature/BirchTree_5.glb",
+      "models/nature/Bush_Large.glb",
+      "models/nature/Bush_Large_Flowers.glb",
+      "models/nature/Bush_Small.glb",
+      "models/nature/Bush_Small_Flowers.glb",
+      "models/nature/DeadTree_1.glb",
+      "models/nature/DeadTree_10.glb",
+      "models/nature/DeadTree_2.glb",
+      "models/nature/DeadTree_3.glb",
+      "models/nature/DeadTree_4.glb",
+      "models/nature/DeadTree_5.glb",
+      "models/nature/DeadTree_6.glb",
+      "models/nature/DeadTree_7.glb",
+      "models/nature/DeadTree_8.glb",
+      "models/nature/DeadTree_9.glb",
+      "models/nature/Flower_3_Clump.glb",
+      "models/nature/Flower_4_Clump.glb",
+      "models/nature/Flower_5_Clump.glb",
+      "models/nature/MapleTree_3.glb",
+      "models/nature/MapleTree_4.glb",
+      "models/nature/MapleTree_5.glb",
+      "models/nature/NormalTree_1.glb",
+      "models/nature/NormalTree_2.glb",
+      "models/nature/NormalTree_3.glb",
+      "models/nature/NormalTree_4.glb",
+      "models/nature/NormalTree_5.glb",
+      "models/nature/PalmTree_1.glb",
+      "models/nature/PalmTree_2.glb",
+      "models/nature/PalmTree_3.glb",
+      "models/nature/PalmTree_4.glb",
+      "models/nature/PalmTree_5.glb",
+      "models/nature/Petals_1.glb",
+      "models/nature/Petals_2.glb",
+      "models/nature/Petals_3.glb",
+      "models/nature/Petals_4.glb",
+      "models/nature/PineTree_1.glb",
+      "models/nature/PineTree_2.glb",
+      "models/nature/PineTree_3.glb",
+      "models/nature/PineTree_4.glb",
+      "models/nature/PineTree_5.glb",
+      "models/nature/Plant_2.glb",
+      "models/nature/Rock_3.glb",
+      "models/nature/Rock_4.glb",
+      "models/nature/Rock_5.glb"
+    ],
+    "dinos": [
+      "models/dinos/Apatosaurus.glb",
+      "models/dinos/Parasaurolophus.glb",
+      "models/dinos/Stegosaurus.glb",
+      "models/dinos/Trex.glb",
+      "models/dinos/Triceratops.glb",
+      "models/dinos/Velociraptor.glb"
+    ]
+  },
+  "files": {
+    "audio/ui/UI SFX_EXTRA_Glockenspiel Hopping.ogg": {
+      "bytes": 123901
+    },
+    "audio/ui/UI SFX_EXTRA_Marimba Hopping.ogg": {
+      "bytes": 106104
+    },
+    "audio/ui/UI SFX_EXTRA_Quick Sub Descending.ogg": {
+      "bytes": 43818
+    },
+    "audio/ui/UI SFX_EXTRA_Start Button.ogg": {
+      "bytes": 375051
+    },
+    "audio/ui/UI SFX_FEEDBACK_Alert.ogg": {
+      "bytes": 63162
+    },
+    "audio/ui/UI SFX_FEEDBACK_Negative.ogg": {
+      "bytes": 72176
+    },
+    "audio/ui/UI SFX_FEEDBACK_Positive.ogg": {
+      "bytes": 38791
+    },
+    "audio/ui/UI SFX_FEEDBACK_Woom.ogg": {
+      "bytes": 54111
+    },
+    "audio/ui/UI SFX_FEEDBACK_Woop.ogg": {
+      "bytes": 12997
+    },
+    "audio/ui/UI SFX_InGameMenu_Close.ogg": {
+      "bytes": 113627
+    },
+    "audio/ui/UI SFX_InGameMenu_Load.ogg": {
+      "bytes": 123902
+    },
+    "audio/ui/UI SFX_InGameMenu_Open.ogg": {
+      "bytes": 116199
+    },
+    "audio/ui/UI SFX_InGameMenu_Save.ogg": {
+      "bytes": 89991
+    },
+    "audio/ui/UI SFX_MENU_Back.ogg": {
+      "bytes": 51669
+    },
+    "audio/ui/UI SFX_MENU_Confirm.ogg": {
+      "bytes": 47247
+    },
+    "audio/ui/UI SFX_MENU_Hover.ogg": {
+      "bytes": 17660
+    },
+    "audio/ui/UI SFX_MENU_Scroll.ogg": {
+      "bytes": 7854
+    },
+    "fonts/LilitaOne.woff2": {
+      "bytes": 6392
+    },
+    "fonts/Yuyu.woff2": {
+      "bytes": 13816
+    },
+    "icons/Alert.svg": {
+      "bytes": 546
+    },
+    "icons/Bookmark.svg": {
+      "bytes": 482
+    },
+    "icons/Circle.svg": {
+      "bytes": 382
+    },
+    "icons/Correct.svg": {
+      "bytes": 526
+    },
+    "icons/Disket.svg": {
+      "bytes": 735
+    },
+    "icons/Dislike.svg": {
+      "bytes": 540
+    },
+    "icons/Down.svg": {
+      "bytes": 534
+    },
+    "icons/Gift.svg": {
+      "bytes": 801
+    },
+    "icons/Group.svg": {
+      "bytes": 1334
+    },
+    "icons/Heart.svg": {
+      "bytes": 550
+    },
+    "icons/Home.svg": {
+      "bytes": 577
+    },
+    "icons/Home2.svg": {
+      "bytes": 438
+    },
+    "icons/Info.svg": {
+      "bytes": 500
+    },
+    "icons/Laptop.svg": {
+      "bytes": 456
+    },
+    "icons/Left.svg": {
+      "bytes": 540
+    },
+    "icons/Like.svg": {
+      "bytes": 554
+    },
+    "icons/Locked.svg": {
+      "bytes": 651
+    },
+    "icons/Medal.svg": {
+      "bytes": 816
+    },
+    "icons/Minus.svg": {
+      "bytes": 361
+    },
+    "icons/Mixer.svg": {
+      "bytes": 994
+    },
+    "icons/Moon.svg": {
+      "bytes": 537
+    },
+    "icons/Movie.svg": {
+      "bytes": 547
+    },
+    "icons/Pause.svg": {
+      "bytes": 630
+    },
+    "icons/Phone.svg": {
+      "bytes": 415
+    },
+    "icons/Play.svg": {
+      "bytes": 410
+    },
+    "icons/Plus.svg": {
+      "bytes": 602
+    },
+    "icons/Podium.svg": {
+      "bytes": 660
+    },
+    "icons/Power.svg": {
+      "bytes": 666
+    },
+    "icons/Right.svg": {
+      "bytes": 534
+    },
+    "icons/Settings.svg": {
+      "bytes": 1263
+    },
+    "icons/Shop.svg": {
+      "bytes": 791
+    },
+    "icons/Smile.svg": {
+      "bytes": 834
+    },
+    "icons/Stop.svg": {
+      "bytes": 349
+    },
+    "icons/Sun.svg": {
+      "bytes": 1311
+    },
+    "icons/Tab.svg": {
+      "bytes": 800
+    },
+    "icons/Target.svg": {
+      "bytes": 671
+    },
+    "icons/Trash.svg": {
+      "bytes": 615
+    },
+    "icons/Unlocked.svg": {
+      "bytes": 662
+    },
+    "icons/Up.svg": {
+      "bytes": 536
+    },
+    "icons/User.svg": {
+      "bytes": 511
+    },
+    "icons/VolumeOff.svg": {
+      "bytes": 914
+    },
+    "icons/VolumeOn.svg": {
+      "bytes": 1197
+    },
+    "icons/Warning1.svg": {
+      "bytes": 660
+    },
+    "icons/Warning2.svg": {
+      "bytes": 653
+    },
+    "icons/Wrong.svg": {
+      "bytes": 636
+    },
+    "icons/Zoom.svg": {
+      "bytes": 699
+    },
+    "icons/ZoomIn.svg": {
+      "bytes": 1037
+    },
+    "icons/ZoomOut.svg": {
+      "bytes": 811
+    },
+    "icons/cursor/Arrow.svg": {
+      "bytes": 428
+    },
+    "icons/cursor/ArrowOutline.svg": {
+      "bytes": 521
+    },
+    "icons/cursor/Hand.svg": {
+      "bytes": 736
+    },
+    "icons/cursor/Loading.svg": {
+      "bytes": 683
+    },
+    "icons/cursor/Move.svg": {
+      "bytes": 1525
+    },
+    "icons/cursor/No.svg": {
+      "bytes": 643
+    },
+    "icons/cursor/ResizeDiagonal.svg": {
+      "bytes": 856
+    },
+    "icons/cursor/ResizeEW.svg": {
+      "bytes": 841
+    },
+    "icons/cursor/ResizeNS.svg": {
+      "bytes": 883
+    },
+    "icons/cursor/Text.svg": {
+      "bytes": 610
+    },
+    "models/animals/Alpaca.glb": {
+      "bytes": 353560
+    },
+    "models/animals/Bull.glb": {
+      "bytes": 444704
+    },
+    "models/animals/Cow.glb": {
+      "bytes": 445092
+    },
+    "models/animals/Deer.glb": {
+      "bytes": 451268
+    },
+    "models/animals/Donkey.glb": {
+      "bytes": 504352
+    },
+    "models/animals/Fox.glb": {
+      "bytes": 455744
+    },
+    "models/animals/Horse.glb": {
+      "bytes": 509380
+    },
+    "models/animals/Horse_White.glb": {
+      "bytes": 507192
+    },
+    "models/animals/Husky.glb": {
+      "bytes": 437388
+    },
+    "models/animals/ShibaInu.glb": {
+      "bytes": 417896
+    },
+    "models/animals/Stag.glb": {
+      "bytes": 407292
+    },
+    "models/animals/Wolf.glb": {
+      "bytes": 457152
+    },
+    "models/buildings/Barn.glb": {
+      "bytes": 35784
+    },
+    "models/buildings/BigBarn.glb": {
+      "bytes": 50924
+    },
+    "models/buildings/ChickenCoop.glb": {
+      "bytes": 14752
+    },
+    "models/buildings/Fence.glb": {
+      "bytes": 4456
+    },
+    "models/buildings/Fence2.glb": {
+      "bytes": 5984
+    },
+    "models/buildings/OpenBarn.glb": {
+      "bytes": 22308
+    },
+    "models/buildings/Silo.glb": {
+      "bytes": 21588
+    },
+    "models/buildings/Silo_House.glb": {
+      "bytes": 35008
+    },
+    "models/buildings/SmallBarn.glb": {
+      "bytes": 29136
+    },
+    "models/buildings/TowerWindmill.glb": {
+      "bytes": 90668
+    },
+    "models/buildings/WaterTower.glb": {
+      "bytes": 28500
+    },
+    "models/buildings/Well.glb": {
+      "bytes": 42436
+    },
+    "models/buildings/Windmill.glb": {
+      "bytes": 21472
+    },
+    "models/dinos/Apatosaurus.glb": {
+      "bytes": 132888
+    },
+    "models/dinos/Parasaurolophus.glb": {
+      "bytes": 116268
+    },
+    "models/dinos/Stegosaurus.glb": {
+      "bytes": 151736
+    },
+    "models/dinos/Trex.glb": {
+      "bytes": 128384
+    },
+    "models/dinos/Triceratops.glb": {
+      "bytes": 125948
+    },
+    "models/dinos/Velociraptor.glb": {
+      "bytes": 111144
+    },
+    "models/nature/BirchTree_1.glb": {
+      "bytes": 153016
+    },
+    "models/nature/BirchTree_2.glb": {
+      "bytes": 183232
+    },
+    "models/nature/BirchTree_3.glb": {
+      "bytes": 199036
+    },
+    "models/nature/BirchTree_4.glb": {
+      "bytes": 134300
+    },
+    "models/nature/BirchTree_5.glb": {
+      "bytes": 147572
+    },
+    "models/nature/Bush.glb": {
+      "bytes": 44368
+    },
+    "models/nature/Bush_Flowers.glb": {
+      "bytes": 79776
+    },
+    "models/nature/Bush_Large.glb": {
+      "bytes": 41800
+    },
+    "models/nature/Bush_Large_Flowers.glb": {
+      "bytes": 78160
+    },
+    "models/nature/Bush_Small.glb": {
+      "bytes": 39936
+    },
+    "models/nature/Bush_Small_Flowers.glb": {
+      "bytes": 75452
+    },
+    "models/nature/DeadTree_1.glb": {
+      "bytes": 65084
+    },
+    "models/nature/DeadTree_10.glb": {
+      "bytes": 59680
+    },
+    "models/nature/DeadTree_2.glb": {
+      "bytes": 70060
+    },
+    "models/nature/DeadTree_3.glb": {
+      "bytes": 66472
+    },
+    "models/nature/DeadTree_4.glb": {
+      "bytes": 54656
+    },
+    "models/nature/DeadTree_5.glb": {
+      "bytes": 35720
+    },
+    "models/nature/DeadTree_6.glb": {
+      "bytes": 58008
+    },
+    "models/nature/DeadTree_7.glb": {
+      "bytes": 62200
+    },
+    "models/nature/DeadTree_8.glb": {
+      "bytes": 74436
+    },
+    "models/nature/DeadTree_9.glb": {
+      "bytes": 39272
+    },
+    "models/nature/Flower_1_Clump.glb": {
+      "bytes": 44896
+    },
+    "models/nature/Flower_2_Clump.glb": {
+      "bytes": 36176
+    },
+    "models/nature/Flower_3_Clump.glb": {
+      "bytes": 36428
+    },
+    "models/nature/Flower_4_Clump.glb": {
+      "bytes": 36436
+    },
+    "models/nature/Flower_5_Clump.glb": {
+      "bytes": 36168
+    },
+    "models/nature/Grass_Large.glb": {
+      "bytes": 5648
+    },
+    "models/nature/Grass_Large_Extruded.glb": {
+      "bytes": 12192
+    },
+    "models/nature/Grass_Small.glb": {
+      "bytes": 4808
+    },
+    "models/nature/MapleTree_1.glb": {
+      "bytes": 123664
+    },
+    "models/nature/MapleTree_2.glb": {
+      "bytes": 137384
+    },
+    "models/nature/MapleTree_3.glb": {
+      "bytes": 159816
+    },
+    "models/nature/MapleTree_4.glb": {
+      "bytes": 94356
+    },
+    "models/nature/MapleTree_5.glb": {
+      "bytes": 134692
+    },
+    "models/nature/NormalTree_1.glb": {
+      "bytes": 182296
+    },
+    "models/nature/NormalTree_2.glb": {
+      "bytes": 167208
+    },
+    "models/nature/NormalTree_3.glb": {
+      "bytes": 151208
+    },
+    "models/nature/NormalTree_4.glb": {
+      "bytes": 151496
+    },
+    "models/nature/NormalTree_5.glb": {
+      "bytes": 89220
+    },
+    "models/nature/PalmTree_1.glb": {
+      "bytes": 78760
+    },
+    "models/nature/PalmTree_2.glb": {
+      "bytes": 77512
+    },
+    "models/nature/PalmTree_3.glb": {
+      "bytes": 77136
+    },
+    "models/nature/PalmTree_4.glb": {
+      "bytes": 78848
+    },
+    "models/nature/PalmTree_5.glb": {
+      "bytes": 76448
+    },
+    "models/nature/Petals_1.glb": {
+      "bytes": 36872
+    },
+    "models/nature/Petals_2.glb": {
+      "bytes": 35228
+    },
+    "models/nature/Petals_3.glb": {
+      "bytes": 35172
+    },
+    "models/nature/Petals_4.glb": {
+      "bytes": 35136
+    },
+    "models/nature/PineTree_1.glb": {
+      "bytes": 123048
+    },
+    "models/nature/PineTree_2.glb": {
+      "bytes": 129428
+    },
+    "models/nature/PineTree_3.glb": {
+      "bytes": 121732
+    },
+    "models/nature/PineTree_4.glb": {
+      "bytes": 129248
+    },
+    "models/nature/PineTree_5.glb": {
+      "bytes": 111544
+    },
+    "models/nature/Plant_1.glb": {
+      "bytes": 40420
+    },
+    "models/nature/Plant_2.glb": {
+      "bytes": 36992
+    },
+    "models/nature/Rock_1.glb": {
+      "bytes": 24124
+    },
+    "models/nature/Rock_2.glb": {
+      "bytes": 23844
+    },
+    "models/nature/Rock_3.glb": {
+      "bytes": 31404
+    },
+    "models/nature/Rock_4.glb": {
+      "bytes": 27904
+    },
+    "models/nature/Rock_5.glb": {
+      "bytes": 31004
+    }
+  }
+}

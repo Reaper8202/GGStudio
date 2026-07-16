@@ -38,7 +38,8 @@ export class Animal {
   x = 0;
   z = 0;
   facing = 0;
-  readonly radius = 0.5;
+  /** collision radius, derived from the normalized body height (def.scale, meters) */
+  readonly radius: number;
   /** biome wander anchor */
   homeX = 0;
   homeZ = 0;
@@ -69,8 +70,10 @@ export class Animal {
     const tint = skin?.tint ?? def.tint;
     const emissive = skin?.emissive ?? def.emissive;
 
+    // def.scale is the animal's target height in METERS — the packs are
+    // authored at inconsistent scales, so normalize by rest-pose bounding box.
     const inst = this.assets.instance(def.model, {
-      scale: def.scale,
+      normalizeHeight: def.scale,
       tint,
       emissive,
     });
@@ -83,11 +86,13 @@ export class Animal {
       this.mixer = null;
       this.clips = [];
     }
-    this.group.add(makeBlobShadow(0.6 * def.scale));
+    // everything below derives from the normalized height (meters)
+    this.radius = Math.min(1.4, Math.max(0.25, def.scale * 0.35));
+    this.group.add(makeBlobShadow(Math.min(2.2, Math.max(0.35, def.scale * 0.45))));
     this.group.add(this.body);
 
     this.bubble = ctx.fx.makeBubble();
-    this.bubble.sprite.position.y = 1.6 * def.scale;
+    this.bubble.sprite.position.y = def.scale + 0.5;
     this.group.add(this.bubble.sprite);
 
     this.brain = new AnimalBrain(this);
@@ -119,6 +124,7 @@ export class Animal {
       leg.position.set(fx, 0.2, fz);
       g.add(leg);
     }
+    // primitive body is ~1 m tall, so scaling by def.scale ≈ target meters
     g.scale.setScalar(def.scale);
     return g;
   }

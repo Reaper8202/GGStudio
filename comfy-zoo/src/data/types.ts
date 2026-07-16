@@ -27,6 +27,7 @@ export interface AnimalDef {
   variantOf?: string;
   tint?: string;
   emissive?: string;
+  /** target height in meters — the model's bounding box is normalized to this at load */
   scale: number;
   /** m/s */
   walkSpeed: number;

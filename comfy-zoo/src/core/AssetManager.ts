@@ -35,6 +35,19 @@ export interface GeometrySource {
 
 const CLIP_PREFERENCE = ['idle', 'walk', 'run', 'eat'];
 
+/** Clips that must never leak through the fuzzy resolver (frozen-death-pose bug). */
+const HARMFUL_CLIP_TERMS = ['death', 'attack', 'hit', 'jump'];
+
+/** Per-state substring preference chains (case-insensitive). */
+const CLIP_CHAINS: Record<string, string[]> = {
+  idle: ['idle'],
+  walk: ['walk', 'idle'],
+  // animal pack has GALLOP instead of Run; dinos have Run
+  run: ['run', 'gallop', 'walk'],
+  // 'eat' also matches the pack's 'Eating'
+  eat: ['eat', 'idle'],
+};
+
 export class AssetManager {
   private loader: GLTFLoader;
   private manifest: Manifest | null = null;
@@ -117,19 +130,58 @@ export class AssetManager {
   /**
    * Instantiate a model. SkeletonUtils.clone preserves skinned rigs so many
    * instances can animate independently. Returns null if the asset is absent.
+   *
+   * `normalizeHeight` (meters): the source packs are authored at wildly
+   * inconsistent scales, so when set we measure the rest-pose bounding box and
+   * uniformly scale the clone so its height equals exactly that many meters,
+   * grounded at y=0 and centered on x/z.
    */
   instance(
     path: string,
-    opts: { tint?: string; emissive?: string; scale?: number } = {},
+    opts: {
+      tint?: string;
+      emissive?: string;
+      scale?: number;
+      normalizeHeight?: number;
+    } = {},
   ): ModelInstance | null {
     const model = this.models.get(path);
     if (!model) return null;
     const object = skeletonClone(model.scene) as THREE.Object3D;
     if (opts.scale && opts.scale !== 1) object.scale.setScalar(opts.scale);
+    if (opts.normalizeHeight !== undefined) {
+      this.normalizeToHeight(object, opts.normalizeHeight, path);
+    }
     if (opts.tint || opts.emissive) this.applyTint(object, opts.tint, opts.emissive);
     let mixer: THREE.AnimationMixer | null = null;
     if (model.clips.length > 0) mixer = new THREE.AnimationMixer(object);
     return { object, mixer, clips: model.clips };
+  }
+
+  /** Cache of computed normalization factors per (path,targetHeight). */
+  private normFactors = new Map<string, number>();
+
+  private normalizeToHeight(object: THREE.Object3D, target: number, path: string): void {
+    object.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(object);
+    if (box.isEmpty()) return;
+    const height = box.max.y - box.min.y; // measured at current scale s0
+    if (height <= 1e-4) return;
+    const s0 = object.scale.x || 1;
+    const factor = (target / height) * s0; // new uniform scale
+    const ratio = factor / s0; // how much measured (world) extents shrink/grow
+    object.scale.setScalar(factor);
+    // ground at y=0 and center on x/z so rotation pivots on the visual center
+    object.position.y -= box.min.y * ratio;
+    object.position.x -= ((box.min.x + box.max.x) / 2) * ratio;
+    object.position.z -= ((box.min.z + box.max.z) / 2) * ratio;
+    const key = `${path}@${target}`;
+    if (!this.normFactors.has(key)) {
+      this.normFactors.set(key, factor);
+      console.debug(
+        `[assets] normalized ${path}: bboxH=${(height / s0).toFixed(2)} native ×${factor.toFixed(4)} → ${target}m`,
+      );
+    }
   }
 
   private applyTint(root: THREE.Object3D, tint?: string, emissive?: string): void {
@@ -155,7 +207,7 @@ export class AssetManager {
     });
   }
 
-  /** Resolve an animation clip by case-insensitive substring, with fallback to clip 0. */
+  /** Resolve an animation clip by case-insensitive substring. */
   findClip(clips: THREE.AnimationClip[], name: string): THREE.AnimationClip | null {
     if (clips.length === 0) return null;
     const lower = name.toLowerCase();
@@ -164,10 +216,29 @@ export class AssetManager {
     return null;
   }
 
-  /** Best available clip for a semantic state, honoring the preference order. */
+  /**
+   * Best available clip for a semantic state. Pack clip names are inconsistent
+   * (animals: Idle, Idle_2, Walk, GALLOP, Eating, Attack_*, Death, HitReact_*;
+   * dinos: "Armature|<Name>_<Idle|Walk|Run|...>"), so each state tries a chain
+   * of substrings, and harmful clips (death/attack/hit/jump) are NEVER returned
+   * — not even as a last-resort fallback.
+   */
   clipFor(clips: THREE.AnimationClip[], preferred: string): THREE.AnimationClip | null {
     if (clips.length === 0) return null;
-    return this.findClip(clips, preferred) ?? clips[0];
+    const safe = clips.filter((c) => AssetManager.isSafeClip(c.name));
+    if (safe.length === 0) return null;
+    const chain = CLIP_CHAINS[preferred.toLowerCase()] ?? [preferred.toLowerCase(), 'idle'];
+    for (const term of chain) {
+      const match = safe.find((c) => c.name.toLowerCase().includes(term));
+      if (match) return match;
+    }
+    // final fallback: anything idle-like, else the first non-harmful clip
+    return safe.find((c) => c.name.toLowerCase().includes('idle')) ?? safe[0];
+  }
+
+  private static isSafeClip(name: string): boolean {
+    const lower = name.toLowerCase();
+    return !HARMFUL_CLIP_TERMS.some((t) => lower.includes(t));
   }
 
   clipPreference(): string[] {

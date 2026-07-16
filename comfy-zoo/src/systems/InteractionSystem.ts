@@ -43,7 +43,6 @@ export class InteractionSystem {
   private spotted = new Set<string>();
   private active: ActiveHold | null = null;
   private consumed = false;
-  private prevHeld = false;
   private tmp = new THREE.Vector3();
 
   constructor(
@@ -146,33 +145,28 @@ export class InteractionSystem {
 
     if (this.build.active) {
       this.cancel();
-      this.prevHeld = held;
       return;
     }
 
     if (!held) {
       this.cancel();
       this.consumed = false;
-      this.prevHeld = held;
       return;
     }
 
     if (this.consumed) {
-      this.prevHeld = held;
       return;
     }
 
     // begin a hold on the current target
     if (!this.active) {
       if (!target) {
-        this.prevHeld = held;
-        return;
+          return;
       }
       if (target.kind === 'deposit') {
         this.doDeposit(target.shelter!);
         this.consumed = true;
-        this.prevHeld = held;
-        return;
+          return;
       }
       const dur =
         target.kind === 'capture'
@@ -199,8 +193,6 @@ export class InteractionSystem {
         this.consumed = true;
       }
     }
-
-    this.prevHeld = held;
   }
 
   private cancel(): void {

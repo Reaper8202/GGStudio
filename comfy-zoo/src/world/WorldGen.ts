@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import type { ZoneId } from '../data/types';
 import type { GameContext } from '../core/GameContext';
+import type { ObstacleHandle } from '../core/SpatialHash';
 import { RESOURCES } from '../core/data';
 import { ResourceNode } from './ResourceNode';
 import { WORLD_SIZE, HALF, zoneOfPoint, randomPointInZone, DINO_GROVE } from './layout';
@@ -315,34 +316,25 @@ export class WorldGen {
       if (this.ctx.state.unlockedZones.includes(zone)) continue;
       const colliders = group.userData.colliders as { x: number; z: number }[] | undefined;
       if (!colliders) continue;
-      for (const c of colliders) this.ctx.hash.addCircle(c.x, c.z, 0.75);
-      group.userData.collidersApplied = true;
+      group.userData.handles = colliders.map((c) =>
+        this.ctx.hash.addCircle(c.x, c.z, 0.75),
+      );
     }
   }
 
   private openGate(zone: ZoneId): void {
     const group = this.gates.get(zone);
-    if (!group) return;
-    group.visible = false;
-    // NOTE: static-hash colliders can't be removed individually; rebuild the hash
-    // without this gate the next frame via the flag consumed by Game.
+    if (!group || group.userData.open) return;
     group.userData.open = true;
-    this.ctx.fx.poof(new THREE.Vector3().setFromMatrixPosition(group.children[0].matrixWorld));
-    this.needsColliderRebuild = true;
-  }
-
-  /** set when a gate opens; Game rebuilds the static hash */
-  needsColliderRebuild = false;
-
-  /** Which gates are still closed (for hash rebuilds). */
-  closedGateColliders(): { x: number; z: number }[] {
-    const out: { x: number; z: number }[] = [];
-    for (const [zone, group] of this.gates) {
-      if (this.ctx.state.unlockedZones.includes(zone) || group.userData.open) continue;
-      const colliders = group.userData.colliders as { x: number; z: number }[] | undefined;
-      if (colliders) out.push(...colliders);
+    group.visible = false;
+    const handles = (group.userData.handles ?? []) as ObstacleHandle[];
+    for (const h of handles) this.ctx.hash.remove(h);
+    group.userData.handles = [];
+    if (group.children.length > 0) {
+      this.ctx.fx.poof(
+        new THREE.Vector3().setFromMatrixPosition(group.children[0].matrixWorld),
+      );
     }
-    return out;
   }
 
   private buildBounds(): void {

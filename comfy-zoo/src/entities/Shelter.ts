@@ -65,7 +65,12 @@ export class Shelter {
     if (this.building) this.group.remove(this.building);
     const modelPath = this.def.levels[this.level].model;
     const inst = this.ctx.assets.instance(modelPath, { scale: 1 });
-    this.building = inst ? inst.object : this.fallbackBuilding();
+    if (inst) {
+      this.building = inst.object;
+      this.normalizeToFootprint(this.building);
+    } else {
+      this.building = this.fallbackBuilding();
+    }
     this.group.add(this.building);
     this.group.add(makeBlobShadow(Math.max(this.def.footprint.w, this.def.footprint.h) * 0.9));
 
@@ -76,6 +81,28 @@ export class Shelter {
       this.updateSign();
       this.setFoodVisual();
     }
+  }
+
+  /**
+   * The building packs are authored at inconsistent scales — normalize each
+   * shelter model so its bounding-box footprint fits its shelters.json footprint
+   * (w×h grid cells, ~2 m/cell), uniformly scaled, grounded, and centered.
+   */
+  private normalizeToFootprint(building: THREE.Object3D): void {
+    building.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(building);
+    if (box.isEmpty()) return;
+    const bw = box.max.x - box.min.x;
+    const bd = box.max.z - box.min.z;
+    if (bw <= 1e-3 || bd <= 1e-3) return;
+    const cs = this.ctx.grid.cellSize;
+    const targetW = this.def.footprint.w * cs * 0.9;
+    const targetD = this.def.footprint.h * cs * 0.9;
+    const factor = Math.min(targetW / bw, targetD / bd);
+    building.scale.multiplyScalar(factor);
+    building.position.y -= box.min.y * factor;
+    building.position.x -= ((box.min.x + box.max.x) / 2) * factor;
+    building.position.z -= ((box.min.z + box.max.z) / 2) * factor;
   }
 
   private fallbackBuilding(): THREE.Object3D {
