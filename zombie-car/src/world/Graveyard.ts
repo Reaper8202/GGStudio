@@ -13,6 +13,9 @@ interface VoxelPlacement {
   readonly y?: number;
   readonly rotation?: number;
   readonly scale?: number;
+  /** Independent Y-axis scale, defaults to `scale`. Lets a placement's
+   *  height (relief) be squashed/stretched without affecting its footprint. */
+  readonly scaleY?: number;
 }
 
 const treePositions: ReadonlyArray<readonly [number, number, number]> = [
@@ -135,9 +138,40 @@ export class Graveyard implements WorldApi, GameSystem {
     // surface sits ~2.4 units above its own base (the rest is a solid
     // underside block). Left at the default y=0 it floats over the whole
     // map, burying the vehicle/zombies/tombstones under it — push it down
-    // so the real surface lines up with world ground level (y=0).
-    const groundTileSurfaceOffset = -2.4;
+    // so the real surface lines up with world ground level (y=0). Squashing
+    // a tile's Y-scale (see the plaza clearing below) shrinks that offset
+    // proportionally too, so the surface stays flush at y=0 regardless of
+    // how flat/noisy any individual tile is.
+    const groundTileBaseOffset = -2.4;
     const tileSize = 8;
+    // Multiple flattened "clearings" scattered around the map (not just one
+    // centered plaza) — each blends smoothly into the surrounding noisy
+    // relief over its own blend radius, and where two clearings' blend
+    // radii overlap, whichever pulls flattest wins. The start/combat plaza
+    // at the origin is always included since that flatten read well; the
+    // rest are randomized in position, size, and depth every load for
+    // organic variety instead of one uniform ring.
+    interface SmoothZone {
+      readonly x: number;
+      readonly z: number;
+      readonly flatRadius: number;
+      readonly blendRadius: number;
+      readonly squash: number;
+    }
+    const smoothZones: SmoothZone[] = [{ x: 0, z: 0, flatRadius: 9, blendRadius: 24, squash: 0.22 }];
+    const extraZoneCount = 4 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < extraZoneCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 10 + Math.random() * (half - 14);
+      const flatRadius = 3 + Math.random() * 6;
+      smoothZones.push({
+        x: Math.cos(angle) * radius,
+        z: Math.sin(angle) * radius,
+        flatRadius,
+        blendRadius: flatRadius + 8 + Math.random() * 14,
+        squash: 0.16 + Math.random() * 0.3,
+      });
+    }
     // Per-tile rotation alone wasn't enough — the SEAMS between tiles still
     // formed one continuous straight grid line every `tileSpacing` units,
     // and that grid is what reads as "uniform," regardless of what's
@@ -160,13 +194,30 @@ export class Graveyard implements WorldApi, GameSystem {
     for (let iz = 0; iz < tileSpan; iz++) {
       const rowStagger = (iz % 4) * (tileSpacing / 4);
       for (let ix = 0; ix < tileSpan; ix++) {
+        const x = tileStart + ix * tileSpacing + rowStagger;
+        const z = tileStart + iz * tileSpacing;
+
+        // Wider spread than before (was 0.92-1.16) so terrain outside every
+        // clearing reads noticeably rougher, sharpening the contrast against
+        // the flattened zones. Each zone pulls scaleY down toward its own
+        // squash within its blend radius; the strongest (lowest) pull wins
+        // where zones overlap, and tiles outside every zone's influence keep
+        // their full-noise value untouched.
+        let scaleY = 0.82 + Math.random() * 0.55;
+        for (const zone of smoothZones) {
+          const dist = Math.hypot(x - zone.x, z - zone.z);
+          const t = THREE.MathUtils.smoothstep(dist, zone.flatRadius, zone.blendRadius);
+          scaleY = Math.min(scaleY, THREE.MathUtils.lerp(zone.squash, scaleY, t));
+        }
+
         this.placeVoxel({
           asset: "SM-0-Ground",
-          x: tileStart + ix * tileSpacing + rowStagger,
-          y: groundTileSurfaceOffset,
-          z: tileStart + iz * tileSpacing,
+          x,
+          y: groundTileBaseOffset * scaleY,
+          z,
           rotation: (Math.floor(Math.random() * 4) * Math.PI) / 2,
           scale: 0.92 + Math.random() * 0.24,
+          scaleY,
         });
       }
     }
@@ -357,12 +408,12 @@ export class Graveyard implements WorldApi, GameSystem {
   }
 
   private placeVoxel(placement: VoxelPlacement): void {
-    const { asset, x, z, y = 0, rotation = 0, scale = 1 } = placement;
+    const { asset, x, z, y = 0, rotation = 0, scale = 1, scaleY = scale } = placement;
     void instantiateVoxelAsset(`${ASSET_ROOT}/${asset}`)
       .then((object) => {
         object.position.set(x, y, z);
         object.rotation.y = rotation;
-        object.scale.setScalar(scale);
+        object.scale.set(scale, scaleY, scale);
         this.ctx.scene.add(object);
       })
       .catch((error: unknown) => {

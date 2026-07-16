@@ -60,9 +60,17 @@ const BODY_TINTS = [0x4c6b3f, 0x5a7247, 0x3f5c48, 0x6b5a3f, 0x556b4c, 0x47614a];
 const HEAD_TINT = 0x8a9a7a;
 const HIT_FLASH_COLOR = new THREE.Color(0xffffff);
 
-const bodyGeometry = new THREE.BoxGeometry(BODY_SIZE.width, BODY_SIZE.height, BODY_SIZE.depth);
+const bodyGeometry = new THREE.BoxGeometry(
+  BODY_SIZE.width,
+  BODY_SIZE.height,
+  BODY_SIZE.depth,
+);
 const headGeometry = new THREE.BoxGeometry(HEAD_SIZE, HEAD_SIZE, HEAD_SIZE);
-const armGeometry = new THREE.BoxGeometry(ARM_SIZE.width, ARM_SIZE.height, ARM_SIZE.depth);
+const armGeometry = new THREE.BoxGeometry(
+  ARM_SIZE.width,
+  ARM_SIZE.height,
+  ARM_SIZE.depth,
+);
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -114,17 +122,15 @@ export class Zombie implements ZombieTarget {
     this.effects = effects;
     this.index = index;
 
-    this.baseScale = 1 + (Math.random() - 0.5) * SCALE_VARIATION;
+    this.baseScale = 1.65 + (Math.random() - 0.5) * SCALE_VARIATION;
 
-    const bodyTint = new THREE.Color(BODY_TINTS[index % BODY_TINTS.length]).offsetHSL(
-      0,
-      0,
-      (Math.random() - 0.5) * 0.08
-    );
+    const bodyTint = new THREE.Color(
+      BODY_TINTS[index % BODY_TINTS.length],
+    ).offsetHSL(0, 0, (Math.random() - 0.5) * 0.08);
     const headTint = new THREE.Color(HEAD_TINT).offsetHSL(
       0,
       0,
-      (Math.random() - 0.5) * 0.08
+      (Math.random() - 0.5) * 0.08,
     );
 
     const bodyMaterial = new THREE.MeshLambertMaterial({
@@ -153,11 +159,19 @@ export class Zombie implements ZombieTarget {
     this.visualRoot.add(headMesh);
 
     const armLeft = new THREE.Mesh(armGeometry, armMaterial);
-    armLeft.position.set(-(BODY_SIZE.width / 2 + ARM_SIZE.width / 2), ARM_LOCAL_Y, 0);
+    armLeft.position.set(
+      -(BODY_SIZE.width / 2 + ARM_SIZE.width / 2),
+      ARM_LOCAL_Y,
+      0,
+    );
     this.visualRoot.add(armLeft);
 
     const armRight = new THREE.Mesh(armGeometry, armMaterial);
-    armRight.position.set(BODY_SIZE.width / 2 + ARM_SIZE.width / 2, ARM_LOCAL_Y, 0);
+    armRight.position.set(
+      BODY_SIZE.width / 2 + ARM_SIZE.width / 2,
+      ARM_LOCAL_Y,
+      0,
+    );
     this.visualRoot.add(armRight);
 
     ctx.scene.add(this.root);
@@ -174,7 +188,10 @@ export class Zombie implements ZombieTarget {
       .setCcdEnabled(false);
     this.body = ctx.physics.createRigidBody(bodyDesc);
 
-    const colliderDesc = ctx.rapier.ColliderDesc.capsule(ZOMBIE_HALF_HEIGHT, ZOMBIE_RADIUS)
+    const colliderDesc = ctx.rapier.ColliderDesc.capsule(
+      ZOMBIE_HALF_HEIGHT,
+      ZOMBIE_RADIUS,
+    )
       .setDensity(6)
       // Frictionless on purpose: chase steering re-sets a velocity INTO a
       // blocking wall every step, producing a large solver normal impulse
@@ -190,7 +207,10 @@ export class Zombie implements ZombieTarget {
 
     this.scratchRayOrigin = { x: 0, y: 0, z: 0 };
     this.scratchRayDir = { x: 0, y: 0, z: 0 };
-    this.scratchRay = new ctx.rapier.Ray(this.scratchRayOrigin, this.scratchRayDir);
+    this.scratchRay = new ctx.rapier.Ray(
+      this.scratchRayOrigin,
+      this.scratchRayDir,
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -202,7 +222,11 @@ export class Zombie implements ZombieTarget {
   }
 
   takeDamage(amount: number, direction?: THREE.Vector3): void {
-    if (!this.active || this.state === ZombieState.Dead || this.state === ZombieState.Spawning) {
+    if (
+      !this.active ||
+      this.state === ZombieState.Dead ||
+      this.state === ZombieState.Spawning
+    ) {
       return;
     }
     if (amount <= 0) return;
@@ -217,7 +241,7 @@ export class Zombie implements ZombieTarget {
       const nudge = 1.5;
       this.body.setLinvel(
         { x: lv.x + (nx / len) * nudge, y: lv.y, z: lv.z + (nz / len) * nudge },
-        true
+        true,
       );
     }
 
@@ -228,7 +252,11 @@ export class Zombie implements ZombieTarget {
   // Lifecycle (driven by ZombieSystem)
   // ---------------------------------------------------------------------
 
-  spawn(position: THREE.Vector3, healthMultiplier: number, speedMultiplier: number): void {
+  spawn(
+    position: THREE.Vector3,
+    healthMultiplier: number,
+    speedMultiplier: number,
+  ): void {
     this.active = true;
     this.state = ZombieState.Spawning;
 
@@ -269,7 +297,11 @@ export class Zombie implements ZombieTarget {
   /** Vehicle-side impact: speed-scaled damage + knockback away from the hit
    *  direction. No-op while spawning, dead, or on cooldown. */
   applyVehicleImpact(damage: number, dirX: number, dirZ: number): void {
-    if (!this.active || this.state === ZombieState.Dead || this.state === ZombieState.Spawning) {
+    if (
+      !this.active ||
+      this.state === ZombieState.Dead ||
+      this.state === ZombieState.Spawning
+    ) {
       return;
     }
     if (this.impactCooldown > 0) return;
@@ -280,7 +312,10 @@ export class Zombie implements ZombieTarget {
     this.knockbackTimer = KNOCKBACK_DURATION;
 
     const lv = this.body.linvel();
-    this.body.setLinvel({ x: dirX * KNOCKBACK_SPEED, y: lv.y, z: dirZ * KNOCKBACK_SPEED }, true);
+    this.body.setLinvel(
+      { x: dirX * KNOCKBACK_SPEED, y: lv.y, z: dirZ * KNOCKBACK_SPEED },
+      true,
+    );
 
     if (this.health <= 0) this.die();
   }
@@ -351,7 +386,7 @@ export class Zombie implements ZombieTarget {
     vehicle: VehicleApi,
     _world: WorldApi,
     separationX: number,
-    separationZ: number
+    separationZ: number,
   ): void {
     if (!this.active) return;
     this.impactCooldown = Math.max(0, this.impactCooldown - dt);
@@ -392,12 +427,12 @@ export class Zombie implements ZombieTarget {
     dt: number,
     vehicle: VehicleApi,
     separationX: number,
-    separationZ: number
+    separationZ: number,
   ): void {
     const toVehicle = this.scratchToVehicle.set(
       vehicle.position.x - this.position.x,
       0,
-      vehicle.position.z - this.position.z
+      vehicle.position.z - this.position.z,
     );
     const dist = toVehicle.length();
 
@@ -487,7 +522,7 @@ export class Zombie implements ZombieTarget {
       true,
       undefined,
       OBSTACLE_FILTER_GROUPS,
-      this.collider
+      this.collider,
     );
     return hit !== null;
   }
@@ -499,7 +534,8 @@ export class Zombie implements ZombieTarget {
 
   private zeroHorizontalVelocity(): void {
     const lv = this.body.linvel();
-    if (lv.x !== 0 || lv.z !== 0) this.body.setLinvel({ x: 0, y: lv.y, z: 0 }, true);
+    if (lv.x !== 0 || lv.z !== 0)
+      this.body.setLinvel({ x: 0, y: lv.y, z: 0 }, true);
   }
 
   private updateFacing(dirX: number, dirZ: number): void {
@@ -531,7 +567,9 @@ export class Zombie implements ZombieTarget {
         this.visualMaterials.length = 0;
         model.traverse((child) => {
           if (!(child instanceof THREE.Mesh)) return;
-          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          const materials = Array.isArray(child.material)
+            ? child.material
+            : [child.material];
           for (const material of materials) {
             if (material instanceof THREE.MeshLambertMaterial) {
               this.visualMaterials.push(material);
@@ -562,17 +600,24 @@ export class Zombie implements ZombieTarget {
       }
     } else {
       for (const material of this.visualMaterials) {
-        if (material.emissive.r !== 0 || material.emissive.g !== 0 || material.emissive.b !== 0) {
+        if (
+          material.emissive.r !== 0 ||
+          material.emissive.g !== 0 ||
+          material.emissive.b !== 0
+        ) {
           material.emissive.setScalar(0);
         }
       }
     }
-    if (this.lungeTimer > 0) this.lungeTimer = Math.max(0, this.lungeTimer - dt);
+    if (this.lungeTimer > 0)
+      this.lungeTimer = Math.max(0, this.lungeTimer - dt);
 
     switch (this.state) {
       case ZombieState.Spawning: {
         const t = clamp(1 - this.spawnTimer / SPAWN_RISE_DURATION, 0, 1);
-        this.root.scale.setScalar(THREE.MathUtils.lerp(0.05, this.baseScale, t));
+        this.root.scale.setScalar(
+          THREE.MathUtils.lerp(0.05, this.baseScale, t),
+        );
         this.setOpacity(THREE.MathUtils.lerp(0.15, 1, t));
         this.visualRoot.position.y = 0;
         break;
@@ -584,7 +629,8 @@ export class Zombie implements ZombieTarget {
         this.setOpacity(1);
         if (this.state === ZombieState.Chasing) {
           this.bobPhase += dt * WALK_BOB_FREQUENCY;
-          this.visualRoot.position.y = Math.sin(this.bobPhase) * WALK_BOB_AMPLITUDE;
+          this.visualRoot.position.y =
+            Math.sin(this.bobPhase) * WALK_BOB_AMPLITUDE;
         } else {
           this.visualRoot.position.y = 0;
         }
