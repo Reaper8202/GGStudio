@@ -31,7 +31,12 @@ export interface EditorUI {
   setUndoRedo(canUndo: boolean, canRedo: boolean): void;
   setBuildSummary(weightKg: number, rolloverRisk: string, errors: ValidationIssue[], warnings: ValidationIssue[]): void;
   setTestDriveEnabled(enabled: boolean, blockedBy: string[]): void;
-  setSelectedPart(def: PartDefinition | null, partId?: string): void;
+  setSelectedPart(
+    def: PartDefinition | null,
+    partId?: string,
+    level?: number,
+    effectiveDef?: PartDefinition,
+  ): void;
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
   setStatus(text: string): void;
@@ -229,13 +234,24 @@ export function buildEditorUI(
       fightBtn.disabled = !enabled;
       fightBtn.title = enabled ? 'Fight zombies' : blockedTitle;
     },
-    setSelectedPart: (def, partId) => {
+    setSelectedPart: (def, partId, level = 1, effectiveDef = def ?? undefined) => {
       selectedToolbar.replaceChildren();
       if (!def || !partId) { selectedToolbar.style.display = 'none'; return; }
       selectedToolbar.style.display = 'flex';
       const title = document.createElement('strong');
       title.textContent = def.name;
       selectedToolbar.appendChild(title);
+      const levelAndStats = document.createElement('span');
+      levelAndStats.className = 'selected-stats';
+      const maxLevel = def.upgrade?.maxLevel;
+      const levelLabel = maxLevel === undefined
+        ? `Level ${level}`
+        : `Level ${level}/${maxLevel}`;
+      const stats = def.upgrade && effectiveDef
+        ? effectiveStatLabels(effectiveDef)
+        : [];
+      levelAndStats.textContent = [levelLabel, ...stats].join(' · ');
+      selectedToolbar.appendChild(levelAndStats);
       if (!def.isRoot) {
         selectedToolbar.append(btn('Turn', () => handlers.onRotateSelected('y'), 'R'), btn('Flip', () => handlers.onRotateSelected('x'), 'F'));
       }
@@ -265,6 +281,39 @@ export function buildEditorUI(
     },
     setStatus: (text) => { status.textContent = text; },
   };
+}
+
+function effectiveStatLabels(def: PartDefinition): string[] {
+  const labels = [`HP ${formatStat(def.health)}`];
+  if (def.engine) {
+    const peakTorque = Math.max(
+      0,
+      ...def.engine.torqueCurve.map(([, torque]) => torque),
+    );
+    labels.push(
+      `${formatStat(def.engine.maxPowerKw)} kW`,
+      `${formatStat(peakTorque)} N·m`,
+    );
+  }
+  if (def.wheel) {
+    labels.push(
+      `grip ${def.wheel.frictionLong.toFixed(2)}/${def.wheel.frictionLat.toFixed(2)}`,
+    );
+  }
+  if (def.weapon) {
+    labels.push(
+      `${formatStat(def.weapon.damage)} damage`,
+      `${formatStat(def.weapon.fireRate)} shots/s`,
+    );
+  }
+  if (def.armour) {
+    labels.push(`${formatStat(def.armour.protection)} protection`);
+  }
+  return labels;
+}
+
+function formatStat(value: number): string {
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
 }
 
 function buildWelcomeDialog(onStartTutorial: () => void, onClose: () => void): HTMLDivElement {

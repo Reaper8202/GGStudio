@@ -180,6 +180,12 @@ button:disabled {
   max-width: calc(100vw - 24px);
 }
 
+.selected-stats {
+  color: #b9c3d2;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .ui-layer.tutorial-active .selected-toolbar {
   bottom: 180px;
 }

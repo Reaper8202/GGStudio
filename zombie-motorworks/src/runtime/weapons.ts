@@ -5,12 +5,26 @@
  */
 
 import RAPIER from '@dimforge/rapier3d-compat';
-import type { AssembledVehicle } from './assembler.ts';
-import { GROUP_DEBRIS, GROUP_TERRAIN, GROUP_ZOMBIE } from './assembler.ts';
+import type { AssembledVehicle, GetDef } from './assembler.ts';
+import {
+  GROUP_DEBRIS,
+  GROUP_TERRAIN,
+  GROUP_ZOMBIE,
+  resolvePlacedDef,
+} from './assembler.ts';
 import type { PlacedPart, Vec3, WeaponDefinition } from '../core/types.ts';
 import { rotateVec } from '../core/grid.ts';
 import { cellCentreM } from '../core/mass.ts';
-import { add, clamp, norm, rotateAroundAxis, rotateByQuat, scale, v3 } from './vec.ts';
+import { getPartDef } from '../core/parts.ts';
+import {
+  add,
+  clamp,
+  norm,
+  rotateAroundAxis,
+  rotateByQuat,
+  scale,
+  v3,
+} from './vec.ts';
 
 export interface RuntimeWeapon {
   partId: string;
@@ -19,6 +33,7 @@ export interface RuntimeWeapon {
   forwardLocal: Vec3;
   yaw: number; // turret yaw relative to mounted forward, rad
   cooldown: number; // s
+  shotsFired: number;
 }
 
 export interface TracerShot {
@@ -28,7 +43,14 @@ export interface TracerShot {
   damage: number;
 }
 
-export function createWeapon(placed: PlacedPart, def: WeaponDefinition): RuntimeWeapon {
+export function createWeapon(
+  placed: PlacedPart,
+  getDef: GetDef = getPartDef,
+): RuntimeWeapon {
+  const def = resolvePlacedDef(placed, getDef).weapon;
+  if (def === undefined) {
+    throw new Error(`Part definition ${placed.defId} is not a weapon`);
+  }
   return {
     partId: placed.id,
     def,
@@ -36,11 +58,13 @@ export function createWeapon(placed: PlacedPart, def: WeaponDefinition): Runtime
     forwardLocal: rotateVec(placed.orient, { x: 0, y: 0, z: 1 }),
     yaw: 0,
     cooldown: 0,
+    shotsFired: 0,
   };
 }
 
 const TURRET_YAW_RATE = 3.2; // rad/s
-const WEAPON_RAY_GROUPS = (0xffff << 16) | (GROUP_TERRAIN | GROUP_ZOMBIE | GROUP_DEBRIS);
+const WEAPON_RAY_GROUPS =
+  (0xffff << 16) | (GROUP_TERRAIN | GROUP_ZOMBIE | GROUP_DEBRIS);
 
 export interface WeaponStepResult {
   shots: TracerShot[];
@@ -48,12 +72,21 @@ export interface WeaponStepResult {
   powerUsed: number;
 }
 
+export interface WeaponAimInput {
+  aimYawWorld: number;
+  fire: boolean;
+}
+
+export interface WeaponStepInput extends WeaponAimInput {
+  weaponAim?: ReadonlyMap<string, WeaponAimInput>;
+}
+
 export function stepWeapons(
   world: RAPIER.World,
   vehicle: AssembledVehicle,
   weapons: RuntimeWeapon[],
   attachedAliveIds: Set<string>,
-  input: { fire: boolean; aimYawWorld: number },
+  input: WeaponStepInput,
   ammoAvailable: number,
   powerAvailable: number,
   dt: number,
@@ -68,6 +101,7 @@ export function stepWeapons(
   for (const wpn of weapons) {
     wpn.cooldown = Math.max(0, wpn.cooldown - dt);
     if (!attachedAliveIds.has(wpn.partId)) continue;
+    const weaponInput = input.weaponAim?.get(wpn.partId) ?? input;
 
     const up = norm(rotateByQuat(rot, v3(0, 1, 0)));
     const mountedFwdW = norm(rotateByQuat(rot, wpn.forwardLocal));
@@ -75,29 +109,52 @@ export function stepWeapons(
     if (wpn.def.mountType === 'turret') {
       // Desired world yaw -> yaw relative to mounted forward, arc-clamped.
       const fwdYawW = Math.atan2(mountedFwdW.x, mountedFwdW.z);
-      let desired = wpn.def.arcDeg >= 360
-        ? normalizeAngle(input.aimYawWorld - fwdYawW)
-        : clamp(normalizeAngle(input.aimYawWorld - fwdYawW), -halfArc(wpn.def), halfArc(wpn.def));
+      let desired =
+        wpn.def.arcDeg >= 360
+          ? normalizeAngle(weaponInput.aimYawWorld - fwdYawW)
+          : clamp(
+              normalizeAngle(weaponInput.aimYawWorld - fwdYawW),
+              -halfArc(wpn.def),
+              halfArc(wpn.def),
+            );
       if (wpn.def.arcDeg >= 360) {
         // shortest-path tracking, unbounded arc
         desired = normalizeAngle(desired);
       }
-      const dYaw = clamp(normalizeAngle(desired - wpn.yaw), -TURRET_YAW_RATE * dt, TURRET_YAW_RATE * dt);
+      const dYaw = clamp(
+        normalizeAngle(desired - wpn.yaw),
+        -TURRET_YAW_RATE * dt,
+        TURRET_YAW_RATE * dt,
+      );
       wpn.yaw += dYaw;
     } else {
       wpn.yaw = 0;
     }
 
-    if (!input.fire || wpn.cooldown > 0) continue;
+    if (!weaponInput.fire || wpn.cooldown > 0) continue;
     if (ammoAvailable - ammoUsed < wpn.def.ammoPerShot) continue;
     if (powerAvailable - powerUsed < wpn.def.powerPerShot) continue;
 
-    const fireDir = wpn.yaw !== 0 ? norm(rotateAroundAxis(mountedFwdW, up, wpn.yaw)) : mountedFwdW;
-    const mountW = add(v3(pos.x, pos.y, pos.z), rotateByQuat(rot, wpn.mountLocal));
+    const fireDir =
+      wpn.yaw !== 0
+        ? norm(rotateAroundAxis(mountedFwdW, up, wpn.yaw))
+        : mountedFwdW;
+    const mountW = add(
+      v3(pos.x, pos.y, pos.z),
+      rotateByQuat(rot, wpn.mountLocal),
+    );
     const muzzle = add(mountW, scale(fireDir, 0.4));
 
     const ray = new RAPIER.Ray(muzzle, fireDir);
-    const hit = world.castRay(ray, wpn.def.rangeM, true, undefined, WEAPON_RAY_GROUPS, undefined, body);
+    const hit = world.castRay(
+      ray,
+      wpn.def.rangeM,
+      true,
+      undefined,
+      WEAPON_RAY_GROUPS,
+      undefined,
+      body,
+    );
     const end = hit
       ? add(muzzle, scale(fireDir, hit.timeOfImpact))
       : add(muzzle, scale(fireDir, wpn.def.rangeM));
@@ -114,11 +171,16 @@ export function stepWeapons(
     });
 
     // Recoil at the mount, opposite fire direction.
-    body.applyImpulseAtPoint(scale(fireDir, -wpn.def.recoilImpulse), mountW, true);
+    body.applyImpulseAtPoint(
+      scale(fireDir, -wpn.def.recoilImpulse),
+      mountW,
+      true,
+    );
 
     ammoUsed += wpn.def.ammoPerShot;
     powerUsed += wpn.def.powerPerShot;
     wpn.cooldown = 1 / wpn.def.fireRate;
+    wpn.shotsFired++;
   }
   return { shots, ammoUsed, powerUsed };
 }

@@ -105,6 +105,20 @@ export class ZombieSystem {
     return this.aliveTargets;
   }
 
+  /** Debug seam positions from the current Rapier body translations. */
+  debugAlivePositions(limit = 6): [number, number, number][] {
+    const positions: [number, number, number][] = [];
+    const count = Math.min(
+      this.aliveTargets.length,
+      Math.max(0, Math.floor(limit)),
+    );
+    for (let i = 0; i < count; i++) {
+      const position = this.aliveTargets[i].body.translation();
+      positions.push([position.x, position.y, position.z]);
+    }
+    return positions;
+  }
+
   /** Spawn up to count pooled zombies around one eligible far-away anchor. */
   trySpawnHorde(count: number): number {
     if (this.disposed || count <= 0) return 0;

@@ -23,6 +23,8 @@ import {
   worldCells,
 } from '../core/grid.ts';
 import { cellCentreM, placedCellMasses } from '../core/mass.ts';
+import { getPartDef } from '../core/parts.ts';
+import { effectivePartDef, getEffectiveDef } from '../core/upgrades.ts';
 
 export type GetDef = (defId: string) => PartDefinition;
 
@@ -86,6 +88,16 @@ export interface AssembledVehicle {
   rootPartId: string;
 }
 
+/** Resolve catalog and injected definitions through the same level rules. */
+export function resolvePlacedDef(
+  placed: PlacedPart,
+  getDef: GetDef,
+): PartDefinition {
+  return getDef === getPartDef
+    ? getEffectiveDef(placed)
+    : effectivePartDef(getDef(placed.defId), placed.config.level ?? 1);
+}
+
 function suspensionScaled(
   base: SuspensionParams,
   preset: keyof typeof SUSPENSION_PRESET_MULTIPLIERS,
@@ -104,7 +116,7 @@ function suspensionScaled(
 export function lowestPointM(bp: VehicleBlueprint, getDef: GetDef): number {
   let minY = Infinity;
   for (const p of bp.parts) {
-    const def = getDef(p.defId);
+    const def = resolvePlacedDef(p, getDef);
     for (const c of worldCells(def.cells, p.pos, p.orient)) {
       minY = Math.min(minY, c.y * CELL_SIZE);
     }
@@ -145,7 +157,7 @@ export function assembleVehicle(
   const half = CELL_SIZE / 2;
 
   for (const placed of bp.parts) {
-    const def = getDef(placed.defId);
+    const def = resolvePlacedDef(placed, getDef);
     if (def.isRoot) rootPartId = placed.id;
     const entry: RuntimePart = {
       placed,

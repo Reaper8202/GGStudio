@@ -35,6 +35,8 @@ export interface VehicleControls {
   steer: number; // -1..1
   fire: boolean;
   aimYawWorld: number; // rad
+  /** Per-placed-weapon overrides; absent entries retain the global aim/fire. */
+  weaponAim?: ReadonlyMap<string, { aimYawWorld: number; fire: boolean }>;
 }
 
 export interface VehicleTelemetry {
@@ -110,8 +112,7 @@ export class RuntimeVehicle {
           rpm: part.def.engine.idleRpm,
         });
       }
-      if (part.def.weapon)
-        this.weapons.push(createWeapon(part.placed, part.def.weapon));
+      if (part.def.weapon) this.weapons.push(createWeapon(part.placed, getDef));
       this.fuelCapacity += part.def.fuelCapacity ?? 0;
       this.powerCapacity += part.def.batteryCapacity ?? 0;
       this.ammo += part.def.ammoCapacity ?? 0;
@@ -281,6 +282,7 @@ export class RuntimeVehicle {
       {
         fire: controllable && controls.fire,
         aimYawWorld: controls.aimYawWorld,
+        weaponAim: controls.weaponAim,
       },
       this.ammo,
       this.power,

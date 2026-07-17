@@ -39,6 +39,7 @@ import { Overlays, defaultToggles, type OverlayToggles } from './overlays.ts';
 import { buildEditorUI, type EditorUI } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
+import { getEffectiveDef } from '../core/upgrades.ts';
 
 const STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
@@ -620,7 +621,11 @@ export class EditorMode {
     const part = getPart(this.bp, first);
     if (!part) return;
     const def = getPartDef(part.defId);
-    this.ui.setSelectedPart(def, part.id);
+    const level = Math.min(
+      def.upgrade?.maxLevel ?? 1,
+      Math.max(1, Math.floor(part.config.level ?? 1)),
+    );
+    this.ui.setSelectedPart(def, part.id, level, getEffectiveDef(part));
     this.refreshOverlays();
   }
 

@@ -34,9 +34,15 @@ test('guided tutorial advances through a first truck', async ({ page }) => {
   expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(true);
 });
 
-test('palette shows the eight build tiles and erase tool', async ({ page }) => {
+test('palette shows the ten build tiles and erase tool', async ({ page }) => {
   await boot(page);
   await expect(page.getByText('Block', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /Armour Plate/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /Heavy Cannon/ }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: '🧽 Erase' })).toBeVisible();
-  await expect(page.locator('.palette .part-btn')).toHaveCount(8);
+  await expect(page.locator('.palette .part-btn')).toHaveCount(10);
 });

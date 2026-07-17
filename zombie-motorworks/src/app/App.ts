@@ -160,6 +160,7 @@ export class App {
       },
       telemetry: () => this.chamber?.debugTelemetry(),
       survivalTelemetry: () => this.survival?.debugTelemetry() ?? null,
+      zombiePositions: () => this.survival?.debugZombiePositions() ?? [],
       debugStartWave: (wave: number) => this.survival?.debugStartWave(wave),
       debugKillAllZombies: () => this.survival?.debugKillAllZombies(),
       setScenario: (s: ScenarioName) => this.chamber?.debugSetScenario(s),
@@ -208,6 +209,7 @@ export function buildStarterBlueprint(): VehicleBlueprint {
     part('frame-box', { x: 0, y: 1, z: -2 }),
     part('engine-small', { x: 0, y: 2, z: -2 }),
     part('fuel-tank', { x: 0, y: 2, z: -1 }),
+    part('turret', { x: 0, y: 2, z: 1 }),
   ];
   return { ...createEmptyBlueprint('starter-rig'), parts };
 }

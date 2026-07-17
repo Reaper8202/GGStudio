@@ -49,7 +49,13 @@ declare global {
         runMoney: number;
         integrityPct: number;
         vehiclePos: [number, number, number];
+        weapons: {
+          partId: string;
+          aimMode: 'auto' | 'manual';
+          shotsFired: number;
+        }[];
       } | null;
+      zombiePositions(): [number, number, number][];
       debugStartWave(wave: number): void;
       debugKillAllZombies(): void;
       setScenario(s: string): void;

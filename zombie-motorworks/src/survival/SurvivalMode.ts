@@ -14,6 +14,7 @@ import type { SurfaceKind } from '../runtime/surfaces.ts';
 import { RuntimeVehicle, type VehicleControls } from '../runtime/vehicle.ts';
 import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
+import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import { Graveyard } from './Graveyard.ts';
 import { WaveManager } from './WaveManager.ts';
@@ -39,6 +40,11 @@ export interface SurvivalTelemetry {
   runMoney: number;
   integrityPct: number;
   vehiclePos: [number, number, number];
+  weapons: {
+    partId: string;
+    aimMode: 'auto' | 'manual';
+    shotsFired: number;
+  }[];
 }
 
 interface TracerVisual {
@@ -72,6 +78,7 @@ export class SurvivalMode {
   private readonly graveyard: Graveyard;
   private readonly vehicle: RuntimeVehicle;
   private readonly zombies: ZombieSystem;
+  private readonly autoAim: AutoAim;
   private readonly waves: WaveManager;
   private readonly followCamera: FollowCamera;
   private readonly vehicleGroup = new THREE.Group();
@@ -171,6 +178,7 @@ export class SurvivalMode {
       this.vehicle,
       this.handleZombieKilled,
     );
+    this.autoAim = new AutoAim(this.vehicle, this.zombies);
     this.waves = new WaveManager(this.zombies, {
       onRemainingChanged: (remaining) => {
         this.zombiesRemaining = remaining;
@@ -298,7 +306,7 @@ export class SurvivalMode {
     const help = document.createElement('div');
     help.className = 'hud-note';
     help.textContent =
-      'W/S drive + brake · A/D steer · Space brake · F or click fire · mouse aim';
+      'W/S drive + brake · A/D steer · Space brake · turrets auto-fire · heavy weapons: mouse aim + click/F';
     root.appendChild(help);
 
     const countdownOverlay = overlayPanel();
@@ -408,6 +416,7 @@ export class SurvivalMode {
 
   private stepPhysics(): void {
     this.updateControls();
+    this.controls.weaponAim = this.autoAim.step();
     this.vehicle.preStep(
       FIXED_DT,
       this.controls,
@@ -746,7 +755,16 @@ export class SurvivalMode {
       runMoney: this.runMoney,
       integrityPct: this.vehicle.integrityPct(),
       vehiclePos: [position.x, position.y, position.z],
+      weapons: this.vehicle.weaponStates().map((weapon) => ({
+        partId: weapon.partId,
+        aimMode: weapon.def.aimMode,
+        shotsFired: weapon.shotsFired,
+      })),
     };
+  }
+
+  debugZombiePositions(): [number, number, number][] {
+    return this.zombies.debugAlivePositions();
   }
 
   dispose(): void {
