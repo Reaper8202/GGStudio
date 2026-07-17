@@ -22,7 +22,13 @@ function sampleBlueprint() {
     defId: 'wheel-standard',
     pos: { x: 1, y: 0, z: 0 },
     orient: 0,
-    config: { driven: true, steering: true, braking: true, paint: 'blue' },
+    config: {
+      level: 3,
+      driven: true,
+      steering: true,
+      braking: true,
+      paint: 'blue',
+    },
   });
   return bp;
 }
@@ -114,6 +120,57 @@ describe('blueprint serialization', () => {
         ],
       }),
     ],
+    [
+      'non-integer upgrade level',
+      JSON.stringify({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        id: 'bp',
+        name: 'bad',
+        parts: [
+          {
+            id: 'p1',
+            defId: 'wheel-standard',
+            pos: { x: 0, y: 0, z: 0 },
+            orient: 0,
+            config: { level: 1.5 },
+          },
+        ],
+      }),
+    ],
+    [
+      'upgrade level below one',
+      JSON.stringify({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        id: 'bp',
+        name: 'bad',
+        parts: [
+          {
+            id: 'p1',
+            defId: 'wheel-standard',
+            pos: { x: 0, y: 0, z: 0 },
+            orient: 0,
+            config: { level: 0 },
+          },
+        ],
+      }),
+    ],
+    [
+      'upgrade level beyond the catalog maximum',
+      JSON.stringify({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        id: 'bp',
+        name: 'bad',
+        parts: [
+          {
+            id: 'p1',
+            defId: 'wheel-standard',
+            pos: { x: 0, y: 0, z: 0 },
+            orient: 0,
+            config: { level: 6 },
+          },
+        ],
+      }),
+    ],
   ])('throws BlueprintFormatError for %s', (_name, json) => {
     expect(() => deserializeBlueprint(json)).toThrow(BlueprintFormatError);
   });
@@ -160,6 +217,28 @@ describe('blueprint serialization', () => {
           config: {},
         },
       ],
+    });
+  });
+
+  it('migrates a v3 fixture through the v4 pass-through migration', () => {
+    const legacy = {
+      schemaVersion: 3,
+      id: 'v3-bp',
+      name: 'v3 rig',
+      parts: [
+        {
+          id: 'p1',
+          defId: 'engine-small',
+          pos: { x: 0, y: 0, z: 0 },
+          orient: 0,
+          config: {},
+        },
+      ],
+    };
+
+    expect(deserializeBlueprint(JSON.stringify(legacy))).toEqual({
+      ...legacy,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
     });
   });
 

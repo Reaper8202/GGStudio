@@ -20,6 +20,8 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'engine-small',
   'fuel-tank',
   'turret',
+  'armour-plate',
+  'cannon-heavy',
 ];
 
 export interface PartLabel {
@@ -50,6 +52,8 @@ export const KID_LABELS: Record<string, PartLabel> = {
   'engine-small': { name: 'Engine', blurb: 'Makes the truck go!' },
   'fuel-tank': { name: 'Fuel Tank', blurb: 'Keeps the engine fueled up!' },
   turret: { name: 'Zombie Blaster', blurb: 'Spins around to blast zombies!' },
+  'armour-plate': { name: 'Armour Plate', blurb: 'Adds a tough layer of protection!' },
+  'cannon-heavy': { name: 'Heavy Cannon', blurb: 'A big boom for tough zombies!' },
 };
 
 export interface TutorialStep {

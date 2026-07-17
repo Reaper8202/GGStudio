@@ -108,6 +108,10 @@ export const MIGRATIONS: Record<number, (raw: unknown) => unknown> = {
       }),
     };
   },
+  3: (raw: unknown): unknown => {
+    const bp = requireRecord(raw, 'blueprint');
+    return { ...bp, schemaVersion: 4 };
+  },
 };
 
 export function serializeBlueprint(bp: VehicleBlueprint): string {
@@ -174,8 +178,9 @@ function validatePart(
   seenIds.add(id);
 
   const defId = requireString(part.defId, `${prefix}.defId`);
+  let def;
   try {
-    getPartDef(defId);
+    def = getPartDef(defId);
   } catch {
     throw new BlueprintFormatError(`unknown defId: ${defId}`);
   }
@@ -186,13 +191,28 @@ function validatePart(
     throw new BlueprintFormatError(`orient outside 0..23: ${id}`);
   }
 
-  const config = validateConfig(part.config, `${prefix}.config`);
+  const config = validateConfig(part.config, `${prefix}.config`, def);
   return { id, defId, pos, orient, config };
 }
 
-function validateConfig(raw: unknown, path: string): PartConfig {
+function validateConfig(
+  raw: unknown,
+  path: string,
+  def: ReturnType<typeof getPartDef>,
+): PartConfig {
   if (raw === undefined) return {};
   const config = requireRecord(raw, path);
+  const level = config.level;
+  if (level !== undefined) {
+    if (typeof level !== 'number' || !Number.isInteger(level) || level < 1) {
+      throw new BlueprintFormatError(`${path}.level must be an integer >= 1`);
+    }
+    if (def.upgrade !== undefined && level > def.upgrade.maxLevel) {
+      throw new BlueprintFormatError(
+        `${path}.level exceeds max level ${def.upgrade.maxLevel}`,
+      );
+    }
+  }
   return { ...config } as PartConfig;
 }
 

@@ -31,6 +31,8 @@ const EXPECTED_CATALOG_IDS = [
   'engine-small',
   'fuel-tank',
   'turret',
+  'armour-plate',
+  'cannon-heavy',
 ];
 
 function vecKey(v: Vec3i): string {
@@ -38,7 +40,7 @@ function vecKey(v: Vec3i): string {
 }
 
 describe('part catalog integrity', () => {
-  it('contains only the root and eight editor parts in their display order', () => {
+  it('contains the root and ten editor parts in their display order', () => {
     expect(Object.keys(PART_CATALOG)).toEqual(EXPECTED_CATALOG_IDS);
   });
 
@@ -101,6 +103,9 @@ describe('part catalog integrity', () => {
     expect(PART_CATALOG.turret.clearanceCells).toEqual([{ x: 0, y: 1, z: 0 }]);
     expect(PART_CATALOG.turret.ammoCapacity).toBe(200);
     expect(PART_CATALOG.turret.batteryCapacity).toBe(500);
+    expect(PART_CATALOG.turret.weapon?.aimMode).toBe('auto');
+    expect(PART_CATALOG['armour-plate'].armour?.protection).toBeGreaterThan(0);
+    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('manual');
   });
 });
 

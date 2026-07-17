@@ -19,6 +19,8 @@ const COLORS: Record<string, number> = {
   'wheel-standard': 0x23262b,
   'wheel-offroad': 0x1b1e22,
   turret: 0x39424e,
+  'armour-plate': 0x69737a,
+  'cannon-heavy': 0x303840,
 };
 
 const CATEGORY_FALLBACK: Record<string, number> = {
@@ -107,6 +109,24 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
     return group;
   }
 
+  if (def.id === 'armour-plate') {
+    const centre = cellCentreM(placed.pos);
+    const plate = new THREE.Mesh(
+      new THREE.BoxGeometry(s * 0.98, s * 0.32, s * 0.98, 2, 1, 2),
+      new THREE.MeshLambertMaterial({ color, transparent: opacity < 1, opacity }),
+    );
+    plate.userData.placementSurface = true;
+    plate.position.set(centre.x, centre.y, centre.z);
+    group.add(plate);
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(plate.geometry),
+      new THREE.LineBasicMaterial({ color: 0x171b20, transparent: true, opacity: 0.55 * opacity }),
+    );
+    edges.position.copy(plate.position);
+    group.add(edges);
+    return group;
+  }
+
   let first = true;
   for (const local of def.cells) {
     const cell = {
@@ -148,8 +168,14 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
     }
     if (def.weapon) {
       const fwd = rotateVec(placed.orient, { x: 0, y: 0, z: 1 });
+      const isHeavyCannon = def.id === 'cannon-heavy';
       const barrel = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.045, 0.045, s * 1.4, 8),
+        new THREE.CylinderGeometry(
+          isHeavyCannon ? 0.07 : 0.045,
+          isHeavyCannon ? 0.08 : 0.045,
+          s * (isHeavyCannon ? 2.6 : 1.4),
+          isHeavyCannon ? 10 : 8,
+        ),
         new THREE.MeshLambertMaterial({ color: 0x22262c, transparent: opacity < 1, opacity }),
       );
       barrel.userData.placementSurface = true;
@@ -157,7 +183,8 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
         new THREE.Vector3(0, 1, 0),
         new THREE.Vector3(fwd.x, fwd.y, fwd.z),
       );
-      barrel.position.set(centre.x + fwd.x * s * 0.8, centre.y + fwd.y * s * 0.8 + 0.08, centre.z + fwd.z * s * 0.8);
+      const barrelOffset = isHeavyCannon ? 1.35 : 0.8;
+      barrel.position.set(centre.x + fwd.x * s * barrelOffset, centre.y + fwd.y * s * barrelOffset + 0.08, centre.z + fwd.z * s * barrelOffset);
       barrel.name = 'weapon-barrel';
       group.add(barrel);
     }

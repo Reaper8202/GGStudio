@@ -64,6 +64,8 @@ interface PlayerProfile {
 - engine: torque/power ×(1+0.10(level−1)); wheel: friction ×(1+0.06(level−1)); weapon: damage ×(1+0.12(level−1)), fireRate ×(1+0.08(level−1)); armour: protection +flat/level; all parts: health ×(1+0.08(level−1)). maxLevel 5 default.
 Used by analysis, assembler, and editor stat UI so numbers always agree. Levels ≤1 or missing → base def unchanged.
 
+> Phase 4b TODO: consume `getEffectiveDef` in `assembler.ts`, `vehicle.ts` weapon creation, and the editor part panel.
+
 ## Survival systems (src/survival/, ported & adapted from ../zombie-car/src)
 - `world/`: VoxelAssetLoader (OBJ/MTL+FBX, template cache), Graveyard (halfSize 35, instanced ground, perimeter wall colliders in GROUP_TERRAIN, spawnPoints, lighting). Assets copied to `public/assets/graveyard/**`, `public/assets/zombies/**`.
 - `zombies/`: pooled Zombie (dynamic capsule, lockRotations, GROUP_ZOMBIE, memberships collide with terrain+vehicle+zombie), state machine, setLinvel steering + separation + stuck watchdog, voxel visuals with capsule fallback while loading. Zombie attack (within 2.4u, 1s interval) → `vehicle.applyDirectDamage(nearestPartId, dmg)`. Ram: vehicle speed ≥5 → damage speed×3.5 + knockback impulse to zombie.
