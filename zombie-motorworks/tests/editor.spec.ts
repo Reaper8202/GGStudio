@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { boot, buildBasicRig, newBlueprint, place } from './seam.ts';
+import {
+  advanceToEditor,
+  boot,
+  buildBasicRig,
+  newBlueprint,
+  place,
+} from './seam.ts';
 
 test('editor boots with palette, build card, and a non-black scene', async ({ page }) => {
   await boot(page);
@@ -106,6 +112,7 @@ test('blueprint save/load round-trips through localStorage', async ({ page }) =>
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.reload();
   await page.waitForFunction(() => window.__scrapRig !== undefined);
+  await advanceToEditor(page);
   await page.getByRole('button', { name: 'Load', exact: true }).click();
   expect(JSON.parse(await page.evaluate(() => window.__scrapRig.getBlueprintJson())).parts).toEqual(JSON.parse(json).parts);
 });

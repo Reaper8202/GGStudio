@@ -5,7 +5,9 @@ import type { Page } from '@playwright/test';
 declare global {
   interface Window {
     __scrapRig: {
-      mode(): 'editor' | 'chamber' | 'survival';
+      mode(): 'title' | 'editor' | 'chamber' | 'survival';
+      newGame(): boolean;
+      continueGame(): boolean;
       getBlueprintJson(): string;
       loadBlueprintJson(json: string): void;
       place(
@@ -94,7 +96,20 @@ export async function boot(page: Page): Promise<void> {
   await page.waitForFunction(() => window.__scrapRig !== undefined, null, {
     timeout: 20000,
   });
+  await advanceToEditor(page);
   await page.waitForTimeout(400);
+}
+
+/** Advance an already-loaded debug title screen using the available save. */
+export async function advanceToEditor(page: Page): Promise<void> {
+  const continued = await page.evaluate(() => window.__scrapRig.continueGame());
+  if (!continued) {
+    const started = await page.evaluate(() => window.__scrapRig.newGame());
+    if (!started) {
+      throw new Error('New Game unexpectedly requires confirmation');
+    }
+  }
+  await page.waitForFunction(() => window.__scrapRig.mode() === 'editor');
 }
 
 /** Replace the starter blueprint with an empty one and build via seam. */

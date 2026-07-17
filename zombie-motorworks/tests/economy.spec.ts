@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { boot, newBlueprint, place } from './seam.ts';
+import { advanceToEditor, boot, newBlueprint, place } from './seam.ts';
 
 interface BlueprintPart {
   id: string;
@@ -23,6 +23,7 @@ async function reloadDebugApp(page: Page): Promise<void> {
   await page.waitForFunction(() => window.__scrapRig !== undefined, null, {
     timeout: 20_000,
   });
+  await advanceToEditor(page);
 }
 
 test('placement, upgrade, and sale apply exact wallet deltas', async ({

@@ -1,6 +1,6 @@
 /**
- * Application shell: owns the WebGL renderer and switches between the editor,
- * test chamber, and survival mode. RAPIER.init() runs exactly once at boot.
+ * Application shell: owns the WebGL renderer and switches between the title,
+ * editor, test chamber, and survival modes. RAPIER.init() runs once at boot.
  * Runtime modes deep-clone the blueprint; returning restores the editor with
  * the original untouched.
  */
@@ -32,19 +32,21 @@ import { ChamberMode, type ScenarioName } from '../chamber/ChamberMode.ts';
 import type { VehicleControls } from '../runtime/vehicle.ts';
 import { SurvivalMode } from '../survival/SurvivalMode.ts';
 import type { RunState } from '../core/economy.ts';
-import { profileStore } from './profileStore.ts';
+import { defaultProfile, type PlayerProfile } from '../core/profile.ts';
+import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
+import { TitleScreen } from './TitleScreen.ts';
 
 export class App {
   private renderer!: THREE.WebGLRenderer;
   private editor: EditorMode | null = null;
   private chamber: ChamberMode | null = null;
   private survival: SurvivalMode | null = null;
+  private title: TitleScreen | null = null;
   private bp: VehicleBlueprint = createEmptyBlueprint('starter-rig');
-  private readonly profile = profileStore.load();
+  private readonly profile: PlayerProfile;
+  private readonly saveExistedAtBoot: boolean;
   /** Survive editor <-> runtime-mode round trips: undo history and camera/layer. */
-  private readonly history = new CommandHistory((moneyDelta) =>
-    this.changeMoney(moneyDelta, true),
-  );
+  private readonly history: CommandHistory;
   private savedView: EditorViewState | undefined;
   private activeRun: RunState | null = null;
   private inBuildPhase = false;
@@ -53,7 +55,16 @@ export class App {
     | { wavesSurvived: number; moneyEarned: number }
     | undefined;
 
-  constructor(private readonly root: HTMLElement) {}
+  constructor(private readonly root: HTMLElement) {
+    // Raw-key detection must happen before profile loading can synthesize an
+    // in-memory default. Loading currently does not persist it, but this order
+    // keeps title-screen availability independent of that implementation detail.
+    this.saveExistedAtBoot = this.hasStoredSave();
+    this.profile = profileStore.load();
+    this.history = new CommandHistory((moneyDelta) =>
+      this.changeMoney(moneyDelta, true),
+    );
+  }
 
   async start(): Promise<void> {
     await RAPIER.init();
@@ -69,8 +80,7 @@ export class App {
       this.survival?.resize(this.root.clientWidth, this.root.clientHeight);
     });
 
-    this.bp = this.loadCurrentBlueprint() ?? buildStarterBlueprint();
-    this.openEditor();
+    this.showTitle(this.saveExistedAtBoot);
 
     const loop = (): void => {
       requestAnimationFrame(loop);
@@ -82,6 +92,7 @@ export class App {
   }
 
   private openEditor(): void {
+    this.disposeTitle();
     this.chamber?.dispose();
     this.chamber = null;
     this.survival?.dispose();
@@ -97,12 +108,86 @@ export class App {
         view: this.savedView,
         profile: this.profile,
         persistProfile: () => profileStore.save(this.profile),
+        onMenu: () => this.returnToTitle(),
         runContext:
           this.activeRun && this.inBuildPhase ? this.activeRun : undefined,
         runSummary: this.runSummary,
       },
     );
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
+  }
+
+  private showTitle(hasSave = this.hasStoredSave()): void {
+    if (this.activeRun && this.inBuildPhase) return;
+    this.disposeTitle();
+    this.title = new TitleScreen(this.root, hasSave, {
+      onNewGame: () => this.beginNewGame(),
+      onContinue: () => this.beginContinueGame(),
+    });
+  }
+
+  private returnToTitle(): void {
+    if (!this.editor || (this.activeRun && this.inBuildPhase)) return;
+    this.bp = this.editor.blueprint();
+    this.editor.save();
+    this.editor.dispose();
+    this.editor = null;
+    this.showTitle();
+  }
+
+  private beginNewGame(): void {
+    this.disposeTitle();
+    this.clearStoredSave();
+    const fresh = defaultProfile();
+    this.profile.schemaVersion = fresh.schemaVersion;
+    this.profile.money = fresh.money;
+    this.profile.unlockedDefIds = [...fresh.unlockedDefIds];
+    delete this.profile.currentBlueprintName;
+    this.resetSessionState();
+    this.bp = buildStarterBlueprint();
+    this.openEditor();
+  }
+
+  private beginContinueGame(): void {
+    this.disposeTitle();
+    this.resetSessionState();
+    this.bp = this.loadCurrentBlueprint() ?? buildStarterBlueprint();
+    this.openEditor();
+  }
+
+  private resetSessionState(): void {
+    this.history.clear();
+    this.savedView = undefined;
+    this.activeRun = null;
+    this.inBuildPhase = false;
+    this.runMoneyEarned = 0;
+    this.runSummary = undefined;
+  }
+
+  private disposeTitle(): void {
+    this.title?.dispose();
+    this.title = null;
+  }
+
+  private hasStoredSave(): boolean {
+    try {
+      return (
+        localStorage.getItem(PROFILE_STORAGE_KEY) !== null ||
+        localStorage.getItem(BLUEPRINT_STORAGE_KEY) !== null
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private clearStoredSave(): void {
+    for (const key of [PROFILE_STORAGE_KEY, BLUEPRINT_STORAGE_KEY]) {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // Keep the fresh in-memory game usable if persistence is unavailable.
+      }
+    }
   }
 
   private enterChamber(bp: VehicleBlueprint): void {
@@ -228,7 +313,15 @@ export class App {
       },
       composeOrient: (a: number, b: number) => composeOrientations(a, b),
       mode: () =>
-        this.survival ? 'survival' : this.chamber ? 'chamber' : 'editor',
+        this.title
+          ? 'title'
+          : this.survival
+            ? 'survival'
+            : this.chamber
+              ? 'chamber'
+              : 'editor',
+      newGame: () => this.title?.requestNewGame() ?? false,
+      continueGame: () => this.title?.continueGame() ?? false,
       getBlueprintJson: () =>
         serializeBlueprint(this.editor?.blueprint() ?? this.bp),
       loadBlueprintJson: (json: string) =>
@@ -263,7 +356,7 @@ export class App {
       },
       backToEditor: () => {
         if (this.survival && this.activeRun) this.finishRun(this.activeRun);
-        else if (!this.editor) this.openEditor();
+        else if (!this.editor && !this.title) this.openEditor();
       },
       setControls: (c: Partial<VehicleControls>) => {
         this.chamber?.debugSetControls(c);

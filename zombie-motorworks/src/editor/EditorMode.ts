@@ -71,6 +71,7 @@ export interface EditorModeContext {
   view?: EditorViewState;
   profile: PlayerProfile;
   persistProfile(): void;
+  onMenu(): void;
   runContext?: RunState;
   runSummary?: { wavesSurvived: number; moneyEarned: number };
 }
@@ -159,6 +160,7 @@ export class EditorMode {
       onSave: () => this.save(),
       onLoad: (slot) => this.load(slot),
       onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
+      onMenu: context.onMenu,
       onRename: (name) => {
         this.exec(
           replaceBlueprintCommand({ ...this.bp, name }, 0, 'Rename build'),

@@ -10,6 +10,7 @@ export interface EditorUIHandlers {
   onSave(): void;
   onLoad(slot: string): void;
   onNew(): void;
+  onMenu(): void;
   onRename(name: string): void;
   onUndo(): void;
   onRedo(): void;
@@ -86,12 +87,14 @@ export function buildEditorUI(
   nameInput.addEventListener('change', () => handlers.onRename(nameInput.value));
   const slotSelect = document.createElement('select');
   slotSelect.title = 'Saved builds';
+  const menuBtn = btn('Menu', handlers.onMenu);
   top.append(
     nameInput,
     slotSelect,
     btn('Save', handlers.onSave),
     btn('Load', () => handlers.onLoad(slotSelect.value)),
     btn('New', handlers.onNew),
+    menuBtn,
   );
   const undoBtn = btn('↩ Undo', handlers.onUndo, 'Ctrl+Z');
   const redoBtn = btn('↪ Redo', handlers.onRedo, 'Ctrl+Shift+Z');
@@ -326,6 +329,7 @@ export function buildEditorUI(
       }
     },
     setRunContext: (wave, summary) => {
+      menuBtn.style.display = wave === undefined ? '' : 'none';
       if (wave !== undefined) {
         runBanner.textContent = `Wave ${wave} cleared — rebuild! Next: Wave ${wave + 1}`;
         runBanner.style.display = 'block';

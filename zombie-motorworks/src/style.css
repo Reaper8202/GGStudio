@@ -25,6 +25,96 @@ body,
   position: relative;
 }
 
+.title-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(102, 126, 61, 0.16), transparent 34%),
+    linear-gradient(rgba(7, 9, 12, 0.9), rgba(12, 14, 18, 0.98));
+}
+
+.title-screen [hidden] {
+  display: none !important;
+}
+
+.title-panel {
+  width: min(560px, 94vw);
+  padding: clamp(28px, 6vw, 52px);
+  border-color: #59634b;
+  background: rgba(17, 21, 25, 0.96);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.55),
+    inset 0 1px rgba(255, 255, 255, 0.04);
+  text-align: center;
+}
+
+.title-kicker {
+  margin-bottom: 10px;
+  color: #9db46f;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+}
+
+.title-panel h1 {
+  color: #f1eee2;
+  font-size: clamp(34px, 8vw, 58px);
+  line-height: 0.94;
+  letter-spacing: 0.04em;
+  text-shadow: 0 3px 0 #4b2b28;
+}
+
+.title-subtitle {
+  margin: 16px 0 28px;
+  color: #aab2bc;
+  font-size: 16px;
+}
+
+.title-actions {
+  display: grid;
+  gap: 10px;
+  width: min(340px, 100%);
+  margin: 0 auto;
+}
+
+.title-action {
+  min-height: 54px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.title-confirm {
+  width: min(420px, 100%);
+  margin: 22px auto 0;
+  padding-top: 18px;
+  border-top: 1px solid #48536a;
+  color: #ffc6be;
+  line-height: 1.45;
+}
+
+.title-confirm-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+button.danger {
+  background: #742f35;
+  border-color: #a84952;
+  color: #fff1ef;
+}
+
+button.danger:hover {
+  background: #9b3e47;
+  border-color: #df6570;
+}
+
 canvas.viewport {
   position: absolute;
   inset: 0;
