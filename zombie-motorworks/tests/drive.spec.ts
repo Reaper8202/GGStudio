@@ -43,7 +43,7 @@ test('added mass demonstrably hurts ramp climbing', async ({ page }) => {
   await boot(page);
   await buildBasicRig(page);
 
-  const yLight = await climbRamp(page);
+  const lightSamples = await climbRamp(page);
 
   await page.evaluate(() => window.__scrapRig.backToEditor());
   await buildBasicRig(page);
@@ -66,23 +66,34 @@ test('added mass demonstrably hurts ramp climbing', async ({ page }) => {
     }
   }
 
-  const yHeavy = await climbRamp(page);
+  const heavySamples = await climbRamp(page);
 
-  expect(yLight).toBeGreaterThan(yHeavy + 1.5);
-  expect(yHeavy).toBeLessThan(3.9);
+  const crestIndex = (ys: number[]) => {
+    const i = ys.findIndex((y) => y >= 3.9);
+    return i === -1 ? ys.length : i;
+  };
+  // Mass must not help, and must demonstrably slow the climb.
+  expect(crestIndex(lightSamples)).toBeLessThan(crestIndex(heavySamples));
 });
 
+// Samples height once per sim-second under full throttle. Sampled (not final)
+// heights matter: a fast rig crests the ramp and falls off the far edge, so
+// its final y reads low; the crest-crossing sample index is the honest metric.
 async function climbRamp(
   page: import('@playwright/test').Page,
-): Promise<number> {
+): Promise<number[]> {
   expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(true);
-  return page.evaluate(() => {
+  return await page.evaluate(() => {
     window.__scrapRig.setScenario('ramp');
     window.__scrapRig.setSimPaused(true);
     window.__scrapRig.stepSim(120);
     window.__scrapRig.setControls({ throttle: 1 });
-    window.__scrapRig.stepSim(480);
-    return window.__scrapRig.telemetry().position.y;
+    const samples: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      window.__scrapRig.stepSim(60);
+      samples.push(window.__scrapRig.telemetry().position.y);
+    }
+    return samples;
   });
 }
 
