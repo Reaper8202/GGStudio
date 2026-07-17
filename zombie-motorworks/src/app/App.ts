@@ -7,7 +7,12 @@
 
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import type { PartConfig, PlacedPart, Vec3i, VehicleBlueprint } from '../core/types.ts';
+import type {
+  PartConfig,
+  PlacedPart,
+  Vec3i,
+  VehicleBlueprint,
+} from '../core/types.ts';
 import { createEmptyBlueprint } from '../core/blueprint.ts';
 import { serializeBlueprint, deserializeBlueprint } from '../core/serialize.ts';
 import { validateBlueprint } from '../core/placement.ts';
@@ -82,7 +87,9 @@ export class App {
     this.savedView = this.editor?.viewState();
     this.editor?.dispose();
     this.editor = null;
-    this.chamber = new ChamberMode(this.root, this.renderer, bp, () => this.openEditor());
+    this.chamber = new ChamberMode(this.root, this.renderer, bp, () =>
+      this.openEditor(),
+    );
     this.chamber.resize(this.root.clientWidth, this.root.clientHeight);
   }
 
@@ -110,18 +117,24 @@ export class App {
         rollX90: orientationFromSteps(1, 0, 0),
       },
       composeOrient: (a: number, b: number) => composeOrientations(a, b),
-      mode: () => (this.survival ? 'survival' : this.chamber ? 'chamber' : 'editor'),
-      getBlueprintJson: () => serializeBlueprint(this.editor?.blueprint() ?? this.bp),
-      loadBlueprintJson: (json: string) => this.editor?.replaceBlueprint(deserializeBlueprint(json)),
+      mode: () =>
+        this.survival ? 'survival' : this.chamber ? 'chamber' : 'editor',
+      getBlueprintJson: () =>
+        serializeBlueprint(this.editor?.blueprint() ?? this.bp),
+      loadBlueprintJson: (json: string) =>
+        this.editor?.replaceBlueprint(deserializeBlueprint(json)),
       place: (defId: string, pos: Vec3i, orient = 0, config: PartConfig = {}) =>
         this.editor?.debugPlace(defId, pos, orient, config),
       startTutorial: () => this.editor?.startTutorial(),
       tutorialState: () => this.editor?.debugTutorialState(),
-      configureAt: (pos: Vec3i, config: PartConfig) => this.editor?.debugConfigure(pos, config),
+      configureAt: (pos: Vec3i, config: PartConfig) =>
+        this.editor?.debugConfigure(pos, config),
       undo: () => this.editor?.debugUndo(),
       redo: () => this.editor?.debugRedo(),
-      validate: () => validateBlueprint(this.editor?.blueprint() ?? this.bp, getPartDef),
-      analyze: () => analyzeVehicle(this.editor?.blueprint() ?? this.bp, getPartDef),
+      validate: () =>
+        validateBlueprint(this.editor?.blueprint() ?? this.bp, getPartDef),
+      analyze: () =>
+        analyzeVehicle(this.editor?.blueprint() ?? this.bp, getPartDef),
       enterTest: () => {
         const bp = this.editor?.blueprint();
         if (!bp) return false;
@@ -147,6 +160,8 @@ export class App {
       },
       telemetry: () => this.chamber?.debugTelemetry(),
       survivalTelemetry: () => this.survival?.debugTelemetry() ?? null,
+      debugStartWave: (wave: number) => this.survival?.debugStartWave(wave),
+      debugKillAllZombies: () => this.survival?.debugKillAllZombies(),
       setScenario: (s: ScenarioName) => this.chamber?.debugSetScenario(s),
       resetVehicle: () => this.chamber?.reset(),
     };
@@ -157,7 +172,12 @@ export class App {
 export function buildStarterBlueprint(): VehicleBlueprint {
   const yaw180 = orientationFromSteps(0, 2, 0);
   let n = 0;
-  const part = (defId: string, pos: Vec3i, orient = 0, config: PartConfig = {}): PlacedPart => ({
+  const part = (
+    defId: string,
+    pos: Vec3i,
+    orient = 0,
+    config: PartConfig = {},
+  ): PlacedPart => ({
     id: `p${++n}`,
     defId,
     pos,

@@ -15,8 +15,12 @@ declare global {
         config?: Record<string, unknown>,
       ): { ok: boolean; issues: string[] };
       startTutorial(): void;
-      tutorialState(): { active: boolean; stepIndex: number; total: number } | undefined;
-      configureAt(pos: { x: number; y: number; z: number }, config: Record<string, unknown>): boolean;
+      tutorialState():
+        { active: boolean; stepIndex: number; total: number } | undefined;
+      configureAt(
+        pos: { x: number; y: number; z: number },
+        config: Record<string, unknown>,
+      ): boolean;
       undo(): void;
       redo(): void;
       validate(): { errors: { code: string }[]; warnings: unknown[] };
@@ -40,10 +44,14 @@ declare global {
       survivalTelemetry(): {
         mode: 'survival';
         kills: number;
+        wave: number;
         zombiesAlive: number;
+        runMoney: number;
         integrityPct: number;
         vehiclePos: [number, number, number];
       } | null;
+      debugStartWave(wave: number): void;
+      debugKillAllZombies(): void;
       setScenario(s: string): void;
       resetVehicle(): void;
       orient: { yaw90: number; yaw180: number; rollX90: number };
@@ -52,13 +60,18 @@ declare global {
   }
 }
 
-export async function orientOf(page: Page, name: 'yaw90' | 'yaw180' | 'rollX90'): Promise<number> {
+export async function orientOf(
+  page: Page,
+  name: 'yaw90' | 'yaw180' | 'rollX90',
+): Promise<number> {
   return page.evaluate((n) => window.__scrapRig.orient[n as 'yaw90'], name);
 }
 
 export async function boot(page: Page): Promise<void> {
   await page.goto('/?debug=1');
-  await page.waitForFunction(() => window.__scrapRig !== undefined, null, { timeout: 20000 });
+  await page.waitForFunction(() => window.__scrapRig !== undefined, null, {
+    timeout: 20000,
+  });
   await page.waitForTimeout(400);
 }
 
@@ -81,7 +94,13 @@ export async function place(
   config: Record<string, unknown> = {},
 ): Promise<{ ok: boolean; issues: string[] }> {
   return page.evaluate(
-    ([d, p, o, c]) => window.__scrapRig.place(d as string, p as P, o as number, c as Record<string, unknown>),
+    ([d, p, o, c]) =>
+      window.__scrapRig.place(
+        d as string,
+        p as P,
+        o as number,
+        c as Record<string, unknown>,
+      ),
     [defId, pos, orient, config] as const,
   );
 }
@@ -111,7 +130,10 @@ export async function buildBasicRig(page: Page): Promise<void> {
   ];
   for (const [d, p, o] of steps) {
     const r = await place(page, d, p, o ?? 0);
-    if (!r.ok) throw new Error(`place ${d} at ${JSON.stringify(p)} failed: ${r.issues.join(', ')}`);
+    if (!r.ok)
+      throw new Error(
+        `place ${d} at ${JSON.stringify(p)} failed: ${r.issues.join(', ')}`,
+      );
   }
   // Wheels: right side (x>0) needs yaw-180 so its inner socket faces the mount.
   const yaw180 = await orientOf(page, 'yaw180');
@@ -123,7 +145,10 @@ export async function buildBasicRig(page: Page): Promise<void> {
   ];
   for (const [p, o] of wheels) {
     const r = await place(page, 'wheel-standard', p, o);
-    if (!r.ok) throw new Error(`wheel at ${JSON.stringify(p)} failed: ${r.issues.join(', ')}`);
+    if (!r.ok)
+      throw new Error(
+        `wheel at ${JSON.stringify(p)} failed: ${r.issues.join(', ')}`,
+      );
   }
 }
 

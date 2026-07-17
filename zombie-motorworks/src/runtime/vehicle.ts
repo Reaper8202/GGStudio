@@ -79,7 +79,11 @@ export class RuntimeVehicle {
   private ammo = 0;
   private power = 0;
   private powerCapacity = 0;
-  private lastWheelTelemetry: WheelTelemetry = { groundedCount: 0, meanDrivenOmega: 0, overloadedWheels: [] };
+  private lastWheelTelemetry: WheelTelemetry = {
+    groundedCount: 0,
+    meanDrivenOmega: 0,
+    overloadedWheels: [],
+  };
   private lastShots: TracerShot[] = [];
   private lastRpm = 0;
   private lastGear = 0;
@@ -90,15 +94,24 @@ export class RuntimeVehicle {
     bp: VehicleBlueprint,
     getDef: GetDef,
     connections: StructuralConnection[],
-    spawn: { translation: { x: number; y: number; z: number }; yawRad?: number },
+    spawn: {
+      translation: { x: number; y: number; z: number };
+      yawRad?: number;
+    },
   ) {
     this.assembled = assembleVehicle(world, bp, getDef, connections, spawn);
     for (const [id, part] of this.assembled.parts) {
       for (const h of part.colliderHandles) this.colliderToPart.set(h, id);
       if (part.def.engine) {
-        this.engines.push({ partId: id, def: part.def.engine, gearbox: { gear: 0, shiftCooldown: 0 }, rpm: part.def.engine.idleRpm });
+        this.engines.push({
+          partId: id,
+          def: part.def.engine,
+          gearbox: { gear: 0, shiftCooldown: 0 },
+          rpm: part.def.engine.idleRpm,
+        });
       }
-      if (part.def.weapon) this.weapons.push(createWeapon(part.placed, part.def.weapon));
+      if (part.def.weapon)
+        this.weapons.push(createWeapon(part.placed, part.def.weapon));
       this.fuelCapacity += part.def.fuelCapacity ?? 0;
       this.powerCapacity += part.def.batteryCapacity ?? 0;
       this.ammo += part.def.ammoCapacity ?? 0;
@@ -186,7 +199,8 @@ export class RuntimeVehicle {
 
   private attachedAliveIds(): Set<string> {
     const out = new Set<string>();
-    for (const [id, p] of this.assembled.parts) if (p.alive && !p.detached) out.add(id);
+    for (const [id, p] of this.assembled.parts)
+      if (p.alive && !p.detached) out.add(id);
     return out;
   }
 
@@ -197,7 +211,11 @@ export class RuntimeVehicle {
     return false;
   }
 
-  preStep(dt: number, controls: VehicleControls, surfaceOf: (colliderHandle: number) => SurfaceKind): void {
+  preStep(
+    dt: number,
+    controls: VehicleControls,
+    surfaceOf: (colliderHandle: number) => SurfaceKind,
+  ): void {
     const attached = this.attachedAliveIds();
     const controllable = this.hasControl(attached);
     const throttle = controllable ? controls.throttle : 0;
@@ -205,13 +223,23 @@ export class RuntimeVehicle {
     const steer = controllable ? controls.steer : 0;
 
     // Live drivetrain: engines attached+alive with fuel; wheels attached+driven.
-    const liveEngines = this.engines.filter((e) => attached.has(e.partId) && this.fuel > 0);
-    const drivenWheels = this.assembled.wheels.filter((w) => !w.broken && attached.has(w.partId) && w.driven);
+    const liveEngines = this.engines.filter(
+      (e) => attached.has(e.partId) && this.fuel > 0,
+    );
+    const drivenWheels = this.assembled.wheels.filter(
+      (w) => !w.broken && attached.has(w.partId) && w.driven,
+    );
 
     let totalTorque = 0;
     let rpmDisplay = 0;
     for (const eng of liveEngines) {
-      const out: EngineOutput = engineStep(eng.def, eng.gearbox, throttle, this.lastWheelTelemetry.meanDrivenOmega, dt);
+      const out: EngineOutput = engineStep(
+        eng.def,
+        eng.gearbox,
+        throttle,
+        this.lastWheelTelemetry.meanDrivenOmega,
+        dt,
+      );
       eng.gearbox = updateGearbox(eng.gearbox, out.rpm, eng.def, dt);
       eng.rpm = out.rpm;
       totalTorque += drivenWheels.length > 0 ? out.wheelTorqueTotal : 0;
@@ -221,7 +249,10 @@ export class RuntimeVehicle {
     this.lastRpm = rpmDisplay;
     this.lastGear = liveEngines[0]?.gearbox.gear ?? 0;
 
-    const torques = distributeTorque(totalTorque, drivenWheels.map((w) => w.wheelDef.driveTorqueLimit));
+    const torques = distributeTorque(
+      totalTorque,
+      drivenWheels.map((w) => w.wheelDef.driveTorqueLimit),
+    );
     const driveTorques = new Map<string, number>();
     drivenWheels.forEach((w, i) => driveTorques.set(w.partId, torques[i]));
 
@@ -236,14 +267,21 @@ export class RuntimeVehicle {
     );
 
     // Battery recharges while an engine runs.
-    if (liveEngines.length > 0) this.power = Math.min(this.powerCapacity, this.power + POWER_RECHARGE_PER_S * dt);
+    if (liveEngines.length > 0)
+      this.power = Math.min(
+        this.powerCapacity,
+        this.power + POWER_RECHARGE_PER_S * dt,
+      );
 
     const weaponResult = stepWeapons(
       this.world,
       this.assembled,
       this.weapons,
       attached,
-      { fire: controllable && controls.fire, aimYawWorld: controls.aimYawWorld },
+      {
+        fire: controllable && controls.fire,
+        aimYawWorld: controls.aimYawWorld,
+      },
       this.ammo,
       this.power,
       dt,
@@ -254,12 +292,21 @@ export class RuntimeVehicle {
   }
 
   onContactForce(colliderHandle: number, forceMagnitude: number): void {
-    applyImpactDamage(this.assembled, this.colliderToPart, colliderHandle, forceMagnitude);
+    applyImpactDamage(
+      this.assembled,
+      this.colliderToPart,
+      colliderHandle,
+      forceMagnitude,
+    );
   }
 
   /** After event drain: resolve deaths/splits; returns new islands this step. */
   finishStep(): DetachedIsland[] {
-    const events = resolveStructure(this.world, this.assembled, this.colliderToPart);
+    const events = resolveStructure(
+      this.world,
+      this.assembled,
+      this.colliderToPart,
+    );
     if (events.detachedIslands.length > 0) {
       this.islands.push(...events.detachedIslands);
     }
@@ -293,6 +340,11 @@ export class RuntimeVehicle {
 
   weaponStates(): RuntimeWeapon[] {
     return this.weapons;
+  }
+
+  /** Reused hitscan results from the most recent preStep, without telemetry allocation. */
+  shotsThisStep(): readonly TracerShot[] {
+    return this.lastShots;
   }
 
   telemetry(): VehicleTelemetry {

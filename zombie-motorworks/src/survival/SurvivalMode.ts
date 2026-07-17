@@ -1,28 +1,30 @@
 /**
- * Minimal zombie-survival tracer bullet: a flat Rapier arena, the editor's
- * blueprint vehicle, a continuous zombie trickle, HUD, and chase camera.
- *
- * Vehicle visual synchronisation intentionally mirrors ChamberMode for this
- * phase. Extracting the duplicated mesh/island sync into a shared renderer is
- * deferred until another runtime mode needs it.
+ * Survival runtime: the editor blueprint vehicle, the graveyard world,
+ * pooled zombie AI, wave pacing, HUD, and the existing fixed-step damage path.
  */
 
-import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import type { VehicleBlueprint } from '../core/types.ts';
+import * as THREE from 'three';
 import { getPartDef } from '../core/parts.ts';
 import { deriveConnections } from '../core/structural.ts';
+import type { VehicleBlueprint } from '../core/types.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
-import { lowestPointM, GROUP_TERRAIN } from '../runtime/assembler.ts';
+import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
 import { RuntimeVehicle, type VehicleControls } from '../runtime/vehicle.ts';
 import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
-import { SurvivalZombies } from './SurvivalZombies.ts';
+import { FollowCamera } from './FollowCamera.ts';
+import { Graveyard } from './Graveyard.ts';
+import { WaveManager } from './WaveManager.ts';
+import { ZombieSystem } from './zombies/ZombieSystem.ts';
+import { BASE_ZOMBIE_STATS } from './zombies/zombieConfig.ts';
 
 const FIXED_DT = 1 / 60;
 const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
-const GROUND_HALF_SIZE = 500;
+const GROUND_HALF_SIZE = 35;
+const COUNTDOWN_SECONDS = 3;
+const TRACER_POOL_SIZE = 32;
 
 export interface SurvivalCallbacks {
   onExit(): void;
@@ -32,15 +34,34 @@ export interface SurvivalCallbacks {
 export interface SurvivalTelemetry {
   mode: 'survival';
   kills: number;
+  wave: number;
   zombiesAlive: number;
+  runMoney: number;
   integrityPct: number;
   vehiclePos: [number, number, number];
 }
 
 interface TracerVisual {
   line: THREE.Line;
+  positionAttribute: THREE.BufferAttribute;
   ttl: number;
 }
+
+interface SurvivalUi {
+  root: HTMLDivElement;
+  integrityValue: HTMLSpanElement;
+  waveValue: HTMLSpanElement;
+  remainingValue: HTMLSpanElement;
+  moneyValue: HTMLSpanElement;
+  countdownOverlay: HTMLDivElement;
+  countdownValue: HTMLDivElement;
+  waveClearOverlay: HTMLDivElement;
+  waveClearText: HTMLDivElement;
+  gameOverOverlay: HTMLDivElement;
+  gameOverSummary: HTMLDivElement;
+}
+
+type SurvivalPhase = 'countdown' | 'active' | 'cleared' | 'gameOver';
 
 export class SurvivalMode {
   private readonly scene = new THREE.Scene();
@@ -48,10 +69,14 @@ export class SurvivalMode {
   private readonly world: RAPIER.World;
   private readonly eventQueue: RAPIER.EventQueue;
   private readonly surfaceByCollider = new Map<number, SurfaceKind>();
+  private readonly graveyard: Graveyard;
   private readonly vehicle: RuntimeVehicle;
-  private readonly zombies: SurvivalZombies;
+  private readonly zombies: ZombieSystem;
+  private readonly waves: WaveManager;
+  private readonly followCamera: FollowCamera;
   private readonly vehicleGroup = new THREE.Group();
   private readonly wheelMeshes = new Map<string, THREE.Group>();
+  private readonly wheelSpin = new Map<string, number>();
   private readonly islandGroups = new Map<number, THREE.Group>();
   private readonly keys = new Set<string>();
   private readonly controls: VehicleControls = {
@@ -61,28 +86,54 @@ export class SurvivalMode {
     fire: false,
     aimYawWorld: 0,
   };
+  private readonly tracers: TracerVisual[] = [];
+  private readonly tracerMaterial = new THREE.LineBasicMaterial({
+    color: 0xffd76e,
+  });
+  private readonly wheelSteerQuaternion = new THREE.Quaternion();
+  private readonly wheelSteerAxis = new THREE.Vector3(0, 1, 0);
+  private readonly pointerNdc = new THREE.Vector2();
+  private readonly aimRaycaster = new THREE.Raycaster();
+  private readonly aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private readonly aimPoint = new THREE.Vector3();
+  private readonly shotDirection = new THREE.Vector3();
+  private readonly stoppedVelocity = { x: 0, y: 0, z: 0 };
   private readonly ui: HTMLDivElement;
-  private readonly hud: HTMLDivElement;
+  private readonly integrityValue: HTMLSpanElement;
+  private readonly waveValue: HTMLSpanElement;
+  private readonly remainingValue: HTMLSpanElement;
+  private readonly moneyValue: HTMLSpanElement;
+  private readonly countdownOverlay: HTMLDivElement;
+  private readonly countdownValue: HTMLDivElement;
+  private readonly waveClearOverlay: HTMLDivElement;
+  private readonly waveClearText: HTMLDivElement;
   private readonly gameOverOverlay: HTMLDivElement;
-  private readonly gameOverKills: HTMLDivElement;
-  private tracers: TracerVisual[] = [];
-  private pendingShots: TracerShot[] = [];
+  private readonly gameOverSummary: HTMLDivElement;
+
   private accumulator = 0;
   private lastTime = performance.now();
   private kills = 0;
-  private gameOver = false;
+  private runMoney = 0;
+  private currentWave = 1;
+  private zombiesRemaining = 0;
+  private countdownRemaining = COUNTDOWN_SECONDS;
+  private phase: SurvivalPhase = 'countdown';
   private pointerFiring = false;
   private disposed = false;
+  private lastHudIntegrity = -1;
+  private lastHudWave = -1;
+  private lastHudRemaining = -1;
+  private lastHudMoney = -1;
+  private lastCountdownSecond = -1;
+  private tracerCursor = 0;
 
   private readonly keydown = (event: KeyboardEvent): void => {
-    if (this.gameOver) return;
-    const key = event.key.toLowerCase();
-    this.keys.add(key);
+    if (this.phase === 'gameOver') return;
+    this.keys.add(event.key.toLowerCase());
   };
 
   private readonly keyup = (event: KeyboardEvent): void => {
-    const key = event.key.toLowerCase();
-    this.keys.delete(key);
+    this.keys.delete(event.key.toLowerCase());
   };
 
   private readonly blur = (): void => {
@@ -97,34 +148,51 @@ export class SurvivalMode {
     bp: VehicleBlueprint,
     private readonly callbacks: SurvivalCallbacks,
   ) {
-    this.scene.background = new THREE.Color(0x171b1d);
-    this.scene.fog = new THREE.Fog(0x171b1d, 65, 170);
-    this.scene.add(new THREE.HemisphereLight(0xc8d3d8, 0x29231d, 1.05));
-    const sun = new THREE.DirectionalLight(0xffe4bc, 1.7);
-    sun.position.set(24, 34, 16);
-    this.scene.add(sun);
-
     this.camera = new THREE.PerspectiveCamera(
-      60,
+      55,
       container.clientWidth / container.clientHeight,
       0.1,
       320,
     );
-    this.camera.position.set(0, 3, -7);
-
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.eventQueue = new RAPIER.EventQueue(true);
     this.buildGround();
+    this.graveyard = new Graveyard(this.scene, this.world);
     this.vehicle = this.spawnVehicle(bp);
-    const vehiclePos = this.vehicle.body.translation();
-    this.zombies = new SurvivalZombies(this.world, this.scene, vehiclePos);
+    this.followCamera = new FollowCamera(
+      this.camera,
+      this.vehicle,
+      this.graveyard.bounds,
+    );
+    this.zombies = new ZombieSystem(
+      this.world,
+      this.scene,
+      this.graveyard.spawnPoints,
+      this.vehicle,
+      this.handleZombieKilled,
+    );
+    this.waves = new WaveManager(this.zombies, {
+      onRemainingChanged: (remaining) => {
+        this.zombiesRemaining = remaining;
+      },
+      onWaveComplete: (wave, reward) => this.onWaveComplete(wave, reward),
+    });
+    this.buildTracerPool();
 
     const builtUi = this.buildUI();
-    this.ui = builtUi.ui;
-    this.hud = builtUi.hud;
+    this.ui = builtUi.root;
+    this.integrityValue = builtUi.integrityValue;
+    this.waveValue = builtUi.waveValue;
+    this.remainingValue = builtUi.remainingValue;
+    this.moneyValue = builtUi.moneyValue;
+    this.countdownOverlay = builtUi.countdownOverlay;
+    this.countdownValue = builtUi.countdownValue;
+    this.waveClearOverlay = builtUi.waveClearOverlay;
+    this.waveClearText = builtUi.waveClearText;
     this.gameOverOverlay = builtUi.gameOverOverlay;
-    this.gameOverKills = builtUi.gameOverKills;
+    this.gameOverSummary = builtUi.gameOverSummary;
 
+    this.beginCountdown(1);
     window.addEventListener('keydown', this.keydown);
     window.addEventListener('keyup', this.keyup);
     window.addEventListener('blur', this.blur);
@@ -145,22 +213,21 @@ export class SurvivalMode {
       body,
     );
     this.surfaceByCollider.set(collider.handle, 'asphalt');
-
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(GROUND_HALF_SIZE * 2, 1, GROUND_HALF_SIZE * 2),
-      new THREE.MeshLambertMaterial({ color: 0x34393e }),
-    );
-    mesh.position.set(0, -0.5, 0);
-    this.scene.add(mesh);
   }
 
   private spawnVehicle(bp: VehicleBlueprint): RuntimeVehicle {
     const clone = JSON.parse(JSON.stringify(bp)) as VehicleBlueprint;
     const connections = deriveConnections(clone, getPartDef);
     const spawnY = -lowestPointM(clone, getPartDef) + 0.32;
-    const vehicle = new RuntimeVehicle(this.world, clone, getPartDef, connections, {
-      translation: { x: 0, y: spawnY, z: 0 },
-    });
+    const vehicle = new RuntimeVehicle(
+      this.world,
+      clone,
+      getPartDef,
+      connections,
+      {
+        translation: { x: 0, y: spawnY, z: 0 },
+      },
+    );
 
     for (const [id, part] of vehicle.assembled.parts) {
       const mesh = buildPartMesh(part.def, part.placed);
@@ -171,6 +238,7 @@ export class SurvivalMode {
           spin.position.set(0, 0, 0);
         }
         this.wheelMeshes.set(id, mesh);
+        this.wheelSpin.set(id, 0);
         this.scene.add(mesh);
       } else {
         mesh.name = `part:${id}`;
@@ -181,72 +249,135 @@ export class SurvivalMode {
     return vehicle;
   }
 
-  private buildUI(): {
-    ui: HTMLDivElement;
-    hud: HTMLDivElement;
-    gameOverOverlay: HTMLDivElement;
-    gameOverKills: HTMLDivElement;
-  } {
-    const ui = document.createElement('div');
-    ui.className = 'ui-layer';
-    this.container.appendChild(ui);
+  private buildTracerPool(): void {
+    for (let i = 0; i < TRACER_POOL_SIZE; i++) {
+      const positionAttribute = new THREE.BufferAttribute(
+        new Float32Array(6),
+        3,
+      );
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', positionAttribute);
+      const line = new THREE.Line(geometry, this.tracerMaterial);
+      line.frustumCulled = false;
+      line.visible = false;
+      this.scene.add(line);
+      this.tracers.push({ line, positionAttribute, ttl: 0 });
+    }
+  }
+
+  private buildUI(): SurvivalUi {
+    const root = document.createElement('div');
+    root.className = 'ui-layer';
+    this.container.appendChild(root);
 
     const top = document.createElement('div');
     top.className = 'topbar';
-    ui.appendChild(top);
+    root.appendChild(top);
 
     const back = document.createElement('button');
     back.className = 'primary';
     back.textContent = 'Back to Garage';
     back.addEventListener('click', () => this.callbacks.onExit());
-    top.appendChild(back);
 
     const title = document.createElement('div');
     title.className = 'panel';
     title.textContent = 'ZOMBIE SURVIVAL';
-    title.style.cssText = 'padding:7px 12px;font-weight:800;letter-spacing:.08em;color:#ffb44d';
-    top.appendChild(title);
+    title.style.cssText =
+      'padding:7px 12px;font-weight:800;letter-spacing:.08em;color:#ffb44d';
+    top.append(back, title);
 
     const hud = document.createElement('div');
     hud.className = 'panel';
-    hud.style.cssText = 'position:absolute;left:8px;bottom:8px;min-width:230px';
-    ui.appendChild(hud);
+    hud.style.cssText = 'position:absolute;left:8px;bottom:8px;min-width:245px';
+    const integrityValue = addStatRow(hud, 'Vehicle integrity');
+    const waveValue = addStatRow(hud, 'Wave');
+    const remainingValue = addStatRow(hud, 'Zombies remaining');
+    const moneyValue = addStatRow(hud, 'Run money');
+    root.appendChild(hud);
 
     const help = document.createElement('div');
     help.className = 'hud-note';
-    help.textContent = 'W/S drive + brake · A/D steer · Space brake · F or click fire · mouse aim';
-    ui.appendChild(help);
+    help.textContent =
+      'W/S drive + brake · A/D steer · Space brake · F or click fire · mouse aim';
+    root.appendChild(help);
 
-    const gameOverOverlay = document.createElement('div');
-    gameOverOverlay.className = 'panel';
-    gameOverOverlay.style.cssText =
-      'display:none;position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);min-width:280px;padding:24px;text-align:center;z-index:20';
+    const countdownOverlay = overlayPanel();
+    countdownOverlay.style.pointerEvents = 'none';
+    const countdownLabel = document.createElement('div');
+    countdownLabel.textContent = 'WAVE STARTING';
+    countdownLabel.style.cssText =
+      'font-size:15px;font-weight:800;letter-spacing:.12em;color:#ffb44d';
+    const countdownValue = document.createElement('div');
+    countdownValue.style.cssText =
+      'font-size:54px;font-weight:900;line-height:1.1';
+    countdownOverlay.append(countdownLabel, countdownValue);
+    root.appendChild(countdownOverlay);
+
+    const waveClearOverlay = overlayPanel();
+    waveClearOverlay.style.display = 'none';
+    const waveClearText = document.createElement('div');
+    waveClearText.style.cssText =
+      'font-size:22px;font-weight:900;color:#9bd76e;margin-bottom:14px';
+    const nextWave = document.createElement('button');
+    nextWave.className = 'primary';
+    nextWave.textContent = 'Next Wave';
+    nextWave.addEventListener('click', () => {
+      if (this.phase === 'cleared') this.beginCountdown(this.currentWave + 1);
+    });
+    waveClearOverlay.append(waveClearText, nextWave);
+    root.appendChild(waveClearOverlay);
+
+    const gameOverOverlay = overlayPanel();
+    gameOverOverlay.style.display = 'none';
     const gameOverTitle = document.createElement('div');
     gameOverTitle.textContent = 'VEHICLE DESTROYED';
-    gameOverTitle.style.cssText = 'font-size:24px;font-weight:900;color:#ff7b63;margin-bottom:10px';
-    const gameOverKills = document.createElement('div');
-    gameOverKills.style.cssText = 'font-size:17px;margin-bottom:16px';
+    gameOverTitle.style.cssText =
+      'font-size:24px;font-weight:900;color:#ff7b63;margin-bottom:10px';
+    const gameOverSummary = document.createElement('div');
+    gameOverSummary.style.cssText =
+      'font-size:17px;line-height:1.5;margin-bottom:16px';
     const returnButton = document.createElement('button');
     returnButton.className = 'primary';
     returnButton.textContent = 'Return to Garage';
     returnButton.addEventListener('click', () => this.callbacks.onGameOver());
-    gameOverOverlay.append(gameOverTitle, gameOverKills, returnButton);
-    ui.appendChild(gameOverOverlay);
+    gameOverOverlay.append(gameOverTitle, gameOverSummary, returnButton);
+    root.appendChild(gameOverOverlay);
 
-    return { ui, hud, gameOverOverlay, gameOverKills };
+    return {
+      root,
+      integrityValue,
+      waveValue,
+      remainingValue,
+      moneyValue,
+      countdownOverlay,
+      countdownValue,
+      waveClearOverlay,
+      waveClearText,
+      gameOverOverlay,
+      gameOverSummary,
+    };
   }
 
   private readonly onAim = (event: PointerEvent): void => {
-    if (this.gameOver) return;
+    if (this.phase !== 'active') return;
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const normalizedX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const cameraDirection = this.camera.getWorldDirection(new THREE.Vector3());
-    const cameraYaw = Math.atan2(cameraDirection.x, cameraDirection.z);
-    this.controls.aimYawWorld = cameraYaw - normalizedX * 1.2;
+    this.pointerNdc.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.aimRaycaster.setFromCamera(this.pointerNdc, this.camera);
+    if (!this.aimRaycaster.ray.intersectPlane(this.aimPlane, this.aimPoint))
+      return;
+    const position = this.vehicle.body.translation();
+    this.controls.aimYawWorld = Math.atan2(
+      this.aimPoint.x - position.x,
+      this.aimPoint.z - position.z,
+    );
   };
 
   private readonly onFireDown = (event: PointerEvent): void => {
-    if (!this.gameOver && event.button === 0) this.pointerFiring = true;
+    if (this.phase === 'active' && event.button === 0)
+      this.pointerFiring = true;
   };
 
   private readonly onFireUp = (): void => {
@@ -256,60 +387,90 @@ export class SurvivalMode {
   update(dtMs?: number): void {
     if (this.disposed) return;
     const now = performance.now();
-    let frameDt = dtMs === undefined ? (now - this.lastTime) / 1000 : dtMs / 1000;
+    let frameDt =
+      dtMs === undefined ? (now - this.lastTime) / 1000 : dtMs / 1000;
     this.lastTime = now;
     frameDt = Math.min(Math.max(frameDt, 0), 0.1);
     this.accumulator += frameDt;
 
     while (this.accumulator >= FIXED_DT) {
       this.accumulator -= FIXED_DT;
-      if (!this.gameOver) this.stepPhysics();
+      if (this.phase === 'countdown') {
+        this.countdownRemaining -= FIXED_DT;
+        if (this.countdownRemaining <= 0) this.startCurrentWave();
+      } else if (this.phase === 'active') {
+        this.stepPhysics();
+      }
     }
     this.syncView(frameDt);
     this.renderer.render(this.scene, this.camera);
   }
 
   private stepPhysics(): void {
-    const forward = this.keys.has('w') || this.keys.has('arrowup') ? 1 : 0;
-    const reverse = this.keys.has('s') || this.keys.has('arrowdown') ? 1 : 0;
-    const movingForward = this.vehicle.telemetry().speedKmh > 2;
-    this.controls.throttle = forward;
-    this.controls.brake = this.keys.has(' ') ? 1 : reverse && movingForward ? 1 : 0;
-    this.controls.steer =
-      (this.keys.has('a') || this.keys.has('arrowleft') ? -1 : 0) +
-      (this.keys.has('d') || this.keys.has('arrowright') ? 1 : 0);
-    this.controls.fire = this.keys.has('f') || this.pointerFiring;
-
+    this.updateControls();
     this.vehicle.preStep(
       FIXED_DT,
       this.controls,
-      (colliderHandle) => this.surfaceByCollider.get(colliderHandle) ?? 'asphalt',
+      (colliderHandle) =>
+        this.surfaceByCollider.get(colliderHandle) ?? 'asphalt',
     );
-    this.kills += this.zombies.step(FIXED_DT, this.vehicle);
-    this.world.step(this.eventQueue);
 
+    this.waves.fixedUpdate(FIXED_DT);
+    this.zombies.step(FIXED_DT);
+
+    this.world.step(this.eventQueue);
     this.eventQueue.drainContactForceEvents((event) => {
       const force = event.totalForceMagnitude();
       this.vehicle.onContactForce(event.collider1(), force);
       this.vehicle.onContactForce(event.collider2(), force);
     });
 
-    const shots = this.vehicle.telemetry().shotsThisStep;
-    this.pendingShots.push(...shots);
+    const shots = this.vehicle.shotsThisStep();
     for (const shot of shots) {
-      if (
-        shot.hitZombieHandle !== null &&
-        this.zombies.hitZombieHandle(shot.hitZombieHandle, shot.damage)
-      ) {
-        this.kills++;
-      }
+      this.showTracer(shot);
+      if (shot.hitZombieHandle === null) continue;
+      this.shotDirection.set(
+        shot.to.x - shot.from.x,
+        shot.to.y - shot.from.y,
+        shot.to.z - shot.from.z,
+      );
+      if (this.shotDirection.lengthSq() > 1e-8) this.shotDirection.normalize();
+      this.zombies.hitZombieHandle(
+        shot.hitZombieHandle,
+        shot.damage,
+        this.shotDirection,
+      );
     }
 
     this.attachNewIslands(this.vehicle.finishStep());
     if (this.vehicle.isDestroyed()) this.showGameOver();
+    else if (this.phase === 'cleared') this.stopVehicleMotion();
   }
 
-  private attachNewIslands(islands: ReturnType<RuntimeVehicle['finishStep']>): void {
+  private updateControls(): void {
+    if (this.phase !== 'active') {
+      this.controls.throttle = 0;
+      this.controls.brake = 1;
+      this.controls.steer = 0;
+      this.controls.fire = false;
+      return;
+    }
+
+    const forward = this.keys.has('w') || this.keys.has('arrowup') ? 1 : 0;
+    const reverse = this.keys.has('s') || this.keys.has('arrowdown') ? 1 : 0;
+    const velocity = this.vehicle.body.linvel();
+    const moving = Math.hypot(velocity.x, velocity.y, velocity.z) > 0.56;
+    this.controls.throttle = forward;
+    this.controls.brake = this.keys.has(' ') ? 1 : reverse && moving ? 1 : 0;
+    this.controls.steer =
+      (this.keys.has('a') || this.keys.has('arrowleft') ? -1 : 0) +
+      (this.keys.has('d') || this.keys.has('arrowright') ? 1 : 0);
+    this.controls.fire = this.keys.has('f') || this.pointerFiring;
+  }
+
+  private attachNewIslands(
+    islands: ReturnType<RuntimeVehicle['finishStep']>,
+  ): void {
     for (const island of islands) {
       const group = new THREE.Group();
       const position = island.body.translation();
@@ -327,6 +488,7 @@ export class SurvivalMode {
         const wheelMesh = this.wheelMeshes.get(partId);
         if (wheelMesh) {
           this.wheelMeshes.delete(partId);
+          this.wheelSpin.delete(partId);
           group.attach(wheelMesh);
         }
       }
@@ -334,16 +496,73 @@ export class SurvivalMode {
     }
   }
 
+  private beginCountdown(wave: number): void {
+    this.currentWave = Math.max(1, Math.floor(wave));
+    this.phase = 'countdown';
+    this.countdownRemaining = COUNTDOWN_SECONDS;
+    this.lastCountdownSecond = -1;
+    this.zombiesRemaining = 0;
+    this.pointerFiring = false;
+    this.keys.clear();
+    this.waveClearOverlay.style.display = 'none';
+    this.gameOverOverlay.style.display = 'none';
+    this.countdownOverlay.style.display = 'block';
+  }
+
+  private startCurrentWave(): void {
+    this.phase = 'active';
+    this.countdownOverlay.style.display = 'none';
+    this.waves.startWave(this.currentWave);
+  }
+
+  private readonly handleZombieKilled = (reward: number): void => {
+    this.kills++;
+    this.runMoney += reward;
+    this.waves.recordZombieKilled();
+  };
+
+  private onWaveComplete(wave: number, reward: number): void {
+    if (this.phase === 'gameOver') return;
+    this.currentWave = wave;
+    this.runMoney += reward;
+    this.phase = 'cleared';
+    this.pointerFiring = false;
+    this.keys.clear();
+    this.countdownOverlay.style.display = 'none';
+    this.waveClearText.textContent = `Wave ${wave} cleared`;
+    this.waveClearOverlay.style.display = 'block';
+    this.stopVehicleMotion();
+    // TODO(Phase 5): hand the repaired/pruned blueprint and run state to onBuildPhase.
+  }
+
+  private stopVehicleMotion(): void {
+    this.vehicle.body.setLinvel(this.stoppedVelocity, false);
+    this.vehicle.body.setAngvel(this.stoppedVelocity, false);
+    this.vehicle.body.resetForces(false);
+    this.vehicle.body.resetTorques(false);
+    for (const island of this.vehicle.islands) {
+      island.body.setLinvel(this.stoppedVelocity, false);
+      island.body.setAngvel(this.stoppedVelocity, false);
+      island.body.resetForces(false);
+      island.body.resetTorques(false);
+    }
+    for (const wheel of this.vehicle.wheels()) wheel.omega = 0;
+  }
+
   private showGameOver(): void {
-    if (this.gameOver) return;
-    this.gameOver = true;
+    if (this.phase === 'gameOver') return;
+    this.phase = 'gameOver';
     this.controls.throttle = 0;
     this.controls.brake = 1;
     this.controls.steer = 0;
     this.controls.fire = false;
     this.pointerFiring = false;
     this.keys.clear();
-    this.gameOverKills.textContent = `${this.kills} zombie${this.kills === 1 ? '' : 's'} destroyed`;
+    this.countdownOverlay.style.display = 'none';
+    this.waveClearOverlay.style.display = 'none';
+    this.gameOverSummary.textContent =
+      `Wave ${this.currentWave} reached · $${this.runMoney} earned · ` +
+      `${this.kills} zombie${this.kills === 1 ? '' : 's'} destroyed`;
     this.gameOverOverlay.style.display = 'block';
   }
 
@@ -351,7 +570,12 @@ export class SurvivalMode {
     const position = this.vehicle.body.translation();
     const rotation = this.vehicle.body.rotation();
     this.vehicleGroup.position.set(position.x, position.y, position.z);
-    this.vehicleGroup.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    this.vehicleGroup.quaternion.set(
+      rotation.x,
+      rotation.y,
+      rotation.z,
+      rotation.w,
+    );
 
     for (const [id, part] of this.vehicle.assembled.parts) {
       if (part.alive) continue;
@@ -367,17 +591,21 @@ export class SurvivalMode {
       const centre = wheelVisualCentre(this.vehicle.body, wheel);
       mesh.position.set(centre.x, centre.y, centre.z);
       mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
-      const state = wheel as unknown as { visualSpin?: number };
-      state.visualSpin = (state.visualSpin ?? 0) + wheel.omega * frameDt;
+      const visualSpin =
+        (this.wheelSpin.get(wheel.partId) ?? 0) + wheel.omega * frameDt;
+      this.wheelSpin.set(wheel.partId, visualSpin);
       const spin = mesh.getObjectByName('wheel-spin');
-      const baseQuaternion = spin?.userData.baseQuat as THREE.Quaternion | undefined;
+      const baseQuaternion = spin?.userData.baseQuat as
+        THREE.Quaternion | undefined;
       if (spin && baseQuaternion) {
-        const steerQuaternion = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(0, 1, 0),
+        this.wheelSteerQuaternion.setFromAxisAngle(
+          this.wheelSteerAxis,
           -wheel.steerAngle,
         );
-        spin.quaternion.copy(steerQuaternion).multiply(baseQuaternion);
-        spin.rotateY(state.visualSpin ?? 0);
+        spin.quaternion
+          .copy(this.wheelSteerQuaternion)
+          .multiply(baseQuaternion);
+        spin.rotateY(visualSpin);
       }
     }
 
@@ -395,59 +623,70 @@ export class SurvivalMode {
       );
     }
 
-    this.zombies.syncVisuals();
+    this.zombies.updateVisuals(frameDt);
     this.syncTracers(frameDt);
+    this.followCamera.update(frameDt);
+    this.graveyard.follow(this.vehicleGroup);
+    this.syncHud();
+  }
 
-    const bodyQuaternion = new THREE.Quaternion(
-      rotation.x,
-      rotation.y,
-      rotation.z,
-      rotation.w,
-    );
-    const behind = new THREE.Vector3(0, 2.6, -6.5).applyQuaternion(bodyQuaternion);
-    const target = new THREE.Vector3(position.x, position.y, position.z);
-    const desired = target.clone().add(behind);
-    desired.y = Math.max(desired.y, 1.2);
-    this.camera.position.lerp(desired, Math.min(1, frameDt * 4));
-    this.camera.lookAt(target);
-
-    const integrity = this.vehicle.integrityPct();
-    this.hud.innerHTML = [
-      `<div class="stat-row"><span>Vehicle integrity</span><span>${integrity.toFixed(0)}%</span></div>`,
-      `<div class="stat-row"><span>Kills</span><span>${this.kills}</span></div>`,
-      `<div class="stat-row"><span>Zombies alive</span><span>${this.zombies.aliveCount()}</span></div>`,
-    ].join('');
+  private syncHud(): void {
+    const integrity = Math.round(this.vehicle.integrityPct());
+    if (integrity !== this.lastHudIntegrity) {
+      this.lastHudIntegrity = integrity;
+      this.integrityValue.textContent = `${integrity}%`;
+    }
+    if (this.currentWave !== this.lastHudWave) {
+      this.lastHudWave = this.currentWave;
+      this.waveValue.textContent = String(this.currentWave);
+    }
+    if (this.zombiesRemaining !== this.lastHudRemaining) {
+      this.lastHudRemaining = this.zombiesRemaining;
+      this.remainingValue.textContent = String(this.zombiesRemaining);
+    }
+    if (this.runMoney !== this.lastHudMoney) {
+      this.lastHudMoney = this.runMoney;
+      this.moneyValue.textContent = `$${this.runMoney}`;
+    }
+    if (this.phase === 'countdown') {
+      const second = Math.max(1, Math.ceil(this.countdownRemaining));
+      if (second !== this.lastCountdownSecond) {
+        this.lastCountdownSecond = second;
+        this.countdownValue.textContent = String(second);
+      }
+    }
   }
 
   private syncTracers(frameDt: number): void {
-    this.tracers = this.tracers.filter((tracer) => {
+    for (const tracer of this.tracers) {
+      if (!tracer.line.visible) continue;
       tracer.ttl -= frameDt;
-      if (tracer.ttl > 0) return true;
-      this.scene.remove(tracer.line);
-      tracer.line.geometry.dispose();
-      disposeMaterial(tracer.line.material);
-      return false;
-    });
-
-    for (const shot of this.pendingShots) {
-      const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(shot.from.x, shot.from.y, shot.from.z),
-        new THREE.Vector3(shot.to.x, shot.to.y, shot.to.z),
-      ]);
-      const line = new THREE.Line(
-        geometry,
-        new THREE.LineBasicMaterial({ color: 0xffd76e }),
-      );
-      this.scene.add(line);
-      this.tracers.push({ line, ttl: 0.08 });
+      if (tracer.ttl > 0) continue;
+      tracer.line.visible = false;
+      tracer.ttl = 0;
     }
-    this.pendingShots = [];
+  }
+
+  private showTracer(shot: TracerShot): void {
+    const tracer = this.tracers[this.tracerCursor];
+    this.tracerCursor = (this.tracerCursor + 1) % this.tracers.length;
+    const positions = tracer.positionAttribute.array as Float32Array;
+    positions[0] = shot.from.x;
+    positions[1] = shot.from.y;
+    positions[2] = shot.from.z;
+    positions[3] = shot.to.x;
+    positions[4] = shot.to.y;
+    positions[5] = shot.to.z;
+    tracer.positionAttribute.needsUpdate = true;
+    tracer.ttl = 0.08;
+    tracer.line.visible = true;
   }
 
   /** Debug seam control injection, matching ChamberMode's key-backed path. */
   debugSetControls(controls: Partial<VehicleControls>): void {
     Object.assign(this.controls, controls);
-    if (controls.throttle !== undefined && controls.throttle > 0) this.keys.add('w');
+    if (controls.throttle !== undefined && controls.throttle > 0)
+      this.keys.add('w');
     if (controls.throttle === 0) this.keys.delete('w');
     if (controls.steer !== undefined) {
       this.keys.delete('a');
@@ -465,6 +704,33 @@ export class SurvivalMode {
     }
   }
 
+  debugStartWave(wave: number): void {
+    if (this.disposed || this.phase === 'gameOver') return;
+    this.zombies.reset();
+    this.waves.reset();
+    this.currentWave = Math.max(
+      1,
+      Math.floor(Number.isFinite(wave) ? wave : 1),
+    );
+    this.zombiesRemaining = 0;
+    this.phase = 'active';
+    this.pointerFiring = false;
+    this.keys.clear();
+    this.countdownOverlay.style.display = 'none';
+    this.waveClearOverlay.style.display = 'none';
+    this.gameOverOverlay.style.display = 'none';
+    this.waves.startWave(this.currentWave);
+  }
+
+  debugKillAllZombies(): void {
+    if (this.disposed || this.phase !== 'active') return;
+    const unspawnedKills = this.waves.prepareDebugKillAll();
+    this.kills += unspawnedKills;
+    this.runMoney += unspawnedKills * BASE_ZOMBIE_STATS.reward;
+    this.zombies.forceKillAll();
+    this.waves.fixedUpdate(0);
+  }
+
   resize(width: number, height: number): void {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
@@ -475,7 +741,9 @@ export class SurvivalMode {
     return {
       mode: 'survival',
       kills: this.kills,
-      zombiesAlive: this.zombies.aliveCount(),
+      wave: this.currentWave,
+      zombiesAlive: this.zombies.getActiveCount(),
+      runMoney: this.runMoney,
       integrityPct: this.vehicle.integrityPct(),
       vehiclePos: [position.x, position.y, position.z],
     };
@@ -490,37 +758,61 @@ export class SurvivalMode {
     window.removeEventListener('pointerup', this.onFireUp);
     window.removeEventListener('pointercancel', this.onFireUp);
     this.renderer.domElement.removeEventListener('pointermove', this.onAim);
-    this.renderer.domElement.removeEventListener('pointerdown', this.onFireDown);
+    this.renderer.domElement.removeEventListener(
+      'pointerdown',
+      this.onFireDown,
+    );
     this.zombies.dispose();
+    this.graveyard.dispose();
     this.vehicle.dispose();
     this.eventQueue.free();
     this.world.free();
     this.ui.remove();
     disposeObject(this.scene);
     this.scene.clear();
+    this.tracerMaterial.dispose();
     this.wheelMeshes.clear();
+    this.wheelSpin.clear();
     this.islandGroups.clear();
     this.surfaceByCollider.clear();
-    this.tracers = [];
-    this.pendingShots = [];
+    this.tracers.length = 0;
   }
+}
+
+function addStatRow(parent: HTMLElement, label: string): HTMLSpanElement {
+  const row = document.createElement('div');
+  row.className = 'stat-row';
+  const name = document.createElement('span');
+  name.textContent = label;
+  const value = document.createElement('span');
+  row.append(name, value);
+  parent.appendChild(row);
+  return value;
+}
+
+function overlayPanel(): HTMLDivElement {
+  const overlay = document.createElement('div');
+  overlay.className = 'panel';
+  overlay.style.cssText =
+    'position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);' +
+    'min-width:290px;padding:24px;text-align:center;z-index:20';
+  return overlay;
 }
 
 function disposeObject(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
   root.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    const line = object as THREE.Line;
-    if (!mesh.isMesh && !line.isLine) return;
-    const renderable = object as THREE.Mesh;
-    renderable.geometry.dispose();
-    disposeMaterial(renderable.material);
+    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line))
+      return;
+    const renderable = object as THREE.Mesh | THREE.Line;
+    geometries.add(renderable.geometry);
+    if (Array.isArray(renderable.material)) {
+      for (const material of renderable.material) materials.add(material);
+    } else {
+      materials.add(renderable.material);
+    }
   });
-}
-
-function disposeMaterial(material: THREE.Material | THREE.Material[]): void {
-  if (Array.isArray(material)) {
-    for (const item of material) item.dispose();
-  } else {
-    material.dispose();
-  }
+  for (const geometry of geometries) geometry.dispose();
+  for (const material of materials) material.dispose();
 }
