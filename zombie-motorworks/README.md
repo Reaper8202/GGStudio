@@ -1,251 +1,75 @@
-# Scrap Rig — Zombie Motorworks
+# Zombie Motorworks
 
-A 3D modular vehicle construction game: build a zombie-apocalypse rig block by
-block in a 3D grid, then drive it in a physics test chamber where bad designs
-fail for real, physical reasons — not scripted ones.
+**Zombie Motorworks** is a Bad Piggies-style 3D vehicle workshop crossed with zombie-wave survival. Build a rig from grid-snapped parts, validate its balance and structure, then take that exact blueprint into a Rapier-powered graveyard and try to keep its chassis and driver alive.
 
-Three.js rendering + Rapier (WASM) rigid-body physics. No game engine, no
-server, CrazyGames-ready static build.
+The game is a static Three.js + Rapier web build: no game engine and no server.
 
-## Run
+## Player flow
 
-Requires Node.js 20.19+.
+1. Start in the garage with a valid starter rig, or build a new one around its required **Chassis Core**.
+2. Place, rotate, paint, sell, and upgrade parts. The editor checks placement and shows structural/stability analysis; hard validation errors prevent driving.
+3. Use **TEST DRIVE** to try the current blueprint in the physics chamber. This is a safe sandbox: returning to the garage does not change the blueprint.
+4. Use **Fight Zombies** to begin a run. After a three-second countdown, drive the same blueprint through a graveyard wave.
+5. Kills pay money immediately; clearing a wave pays its wave bonus. Surviving parts are retained and destroyed or detached parts are removed before the **Build Phase**.
+6. In the Build Phase, spend the shared wallet to buy, sell, unlock, or upgrade parts, then choose **Start Wave N+1**.
+7. The run ends when the Chassis Core is lost or no attached control part remains. The garage shows the run summary; previously cleared-wave damage remains part of the current blueprint.
+
+## Controls
+
+### Garage
+
+- Click a palette part, hover a valid green placement ghost, then click to place. `Esc` cancels the active tool.
+- Click a placed part to select it. `R` turns it; `F` flips it; use the palette swatches to paint it.
+- Right-click, the erase tool, `Delete`, or `Backspace` sells selected non-root parts. `Ctrl/Cmd+Z` undoes and `Ctrl/Cmd+Shift+Z` or `Ctrl/Cmd+Y` redoes.
+- Drag to orbit, scroll to zoom, and use `1`–`5` for 3D, front, rear, side, and top views. **Build both sides** mirrors placements. The build-height slider hides upper layers for editing.
+
+### Test chamber and survival
+
+- `W` / `S` — throttle / brake
+- `A` / `D` — steer
+- `Space` — brake
+- Mouse — aim manual weapons
+- Mouse click or `F` — fire manual weapons
+- Auto turrets find and fire at live zombies on their own. The Heavy Cannon is manual.
+
+## Build rules
+
+Every part must stay within the grid and connect to the Chassis Core through face-to-face structural sockets. The editor tracks a 24-orientation integer grid, so rotations and mirrored builds remain exact. Wheels are normalized as driven and braking; wheels ahead of the axle midpoint steer. The play gate requires a root chassis, a control part, an engine, and one connected structure; analysis warns about poor wheel setups.
+
+The build card reports weight, rollover risk, validation errors, and analysis warnings. Warnings are advice; errors block **TEST DRIVE** and **Fight Zombies**.
+
+## Development quickstart
+
+Requires Node.js 20.19 or later.
 
 ```sh
 npm install
 npm run dev
+npm run build
+npm run test:unit
+npm test
 ```
 
-Open the printed URL. The **editor** loads with a drivable starter rig.
+`npm run dev` prints the local URL. `npm test` runs the Playwright browser suite. Add `?debug=1` to expose the browser-test seam during development.
 
----
+## Project layout
 
-## How to use the editor
+| Path | Responsibility |
+| --- | --- |
+| `src/core/` | Pure blueprint model, grid/orientations, catalog, validation, analysis, commands, serialization, upgrades, and economy rules. |
+| `src/runtime/` | Rapier vehicle assembly, raycast wheels, drivetrain, damage/island detachment, and weapons. |
+| `src/editor/` | Three.js garage, editor UI, meshes, overlays, save slots, and tutorial. |
+| `src/chamber/` | Isolated physics test chamber and scenarios. |
+| `src/survival/` | Graveyard, follow camera, zombie pool/AI, auto-aim, wave director, and survival mode. |
+| `src/app/` | Renderer boot, profile storage, and editor/chamber/survival lifecycle. |
+| `unit/` | Vitest coverage for core rules and integration-facing helpers. |
+| `tests/` | Playwright coverage, fixtures, and debug seam. |
+| `docs/` | Architecture, integration status, and editor reference. |
 
-The editor is deliberately a single, simple mode — think **Bad Piggies, but in
-3D**. There are no mounts, no config panels, and no "advanced" toggle
-anywhere; every part just snaps to the right kind of surface and configures
-itself.
+## Documentation
 
-### The three rules
-
-1. **Everything snaps together face-to-face.** No floating parts. Your build
-   grows outward from the orange **Truck Heart** (the root block — it can't be
-   deleted or moved).
-2. **Wheels snap onto the side of any block. Engines and the Zombie Blaster
-   snap on top of a block.** Wheels need empty space directly underneath them
-   — they hang below the truck, they don't sit inside it.
-3. That's it. Wheels configure themselves the instant they're placed: all
-   wheels drive and brake, front-axle wheels steer, left/right pairs mirror
-   automatically. There is nothing to tune.
-
-### Placing and removing parts
-
-- Click a part in the left palette to arm the placement ghost, move the
-  mouse over the grid, and click to place it. The ghost is **green** when the
-  spot is legal and **red** with a short reason when it isn't (e.g. "needs a
-  block to attach to", "space is already occupied"). **Esc** cancels
-  placement.
-- **Right-click any part to erase it instantly** — no mode switch needed. The
-  red **🧽 Erase** tool in the palette does the same thing for click-and-drag
-  removal of several parts in a row. The Truck Heart is protected.
-- Click a placed part (with nothing armed) to **select** it. A small toolbar
-  appears: **Turn** and **Flip** rotate it in place, six **paint swatches**
-  recolour it, and **Delete** removes it.
-- **Ctrl+Z / Ctrl+Shift+Z** undo and redo every placement, deletion, rotation,
-  and paint change. **Build both sides** mirrors whatever you place across
-  the truck's centreline, so a symmetric vehicle only takes half the clicks.
-- Drag to orbit the camera, scroll to zoom, and use the view buttons (or keys
-  `1`–`5`) to snap to front/side/top/perspective views. The **Build height**
-  slider hides everything above a Y level so you can see and click inside a
-  tall build.
-
-### The build card
-
-The top-right card shows just three things: **Weight**, a **Stability** face
-(😀 solid → 🛑 will tip in a hard corner), and one build tip at a time.
-Warnings never block you from driving — only real problems (no driver seat,
-no engine, a part not connected to the rest of the truck) disable
-**▶ TEST DRIVE**, and the button explains exactly what's missing.
-
-A wide, low truck with heavy parts kept low and central handles great. A
-tall, narrow one tips over in corners — because the physics engine actually
-computes that, not because a rule says so.
-
-### First time? Press 🎓 Tutorial
-
-The guided tutorial walks a new player through placing a symmetric frame,
-four wheels, a driver seat, an engine, and a fuel tank — checking real
-progress against the blueprint after every placement, not a scripted click
-sequence. It can be restarted from the top bar at any time.
-
-### Test driving
-
-**▶ TEST DRIVE** enters the physics chamber:
-
-- `W` / `S` — throttle / brake, `A` / `D` — steer, `Space` — handbrake
-- Mouse aims the Zombie Blaster turret, `F` or click fires
-- Scenario buttons: flat ground (with mud and dirt friction strips), a ramp,
-  a side slope, a bumps course, a zombie horde, and a drop test
-
-A correctly built truck shrugs off jumps, ramps, and drops without losing a
-single part. Crashes only do real damage from wall-speed impacts or from
-building something structurally wobbly (see the damage model below).
-**← Back to editor** always restores your blueprint exactly as you left it —
-the chamber never mutates your saved design.
-
----
-
-## The logic behind it
-
-### The grid
-
-The world is a grid of 0.5 m cubic cells (`CELL_SIZE`, `src/core/types.ts`),
-bounded to a build volume of 13×9×17 cells (`GRID_MIN`/`GRID_MAX`). Every part
-occupies one or more integer grid cells plus an orientation: one of the
-**24 axis-aligned rotations** of a cube, generated by BFS over 90° turns
-about X/Y/Z and stored as a lookup table (`src/core/grid.ts`). Rotating or
-mirroring a part is just composing/conjugating a 3×3 integer matrix — no
-floating-point drift, no gimbal issues, and mirroring across the vehicle's
-centreline is a single matrix conjugation (`mirrorOrientationX`) plus
-negating the X cell coordinate.
-
-### Sockets and connections (why placement rules exist)
-
-Every part definition (`src/core/parts.ts`) lists **structural sockets**: a
-cell + face + type. Most blocks expose a plain `'frame'` socket on every
-face that isn't already covered by another cell of the same part. Wheels
-only expose one socket, on their attach face; engines and the turret expose
-one on the face they mount to (`ny` for engines = "needs a block above it";
-`ny` for the turret too, meaning "sits on top"). Placement validity
-(`src/core/placement.ts`) is just: does the new part's socket line up,
-face-to-face, with a compatible socket already in the world? There is
-currently exactly one compatible pair, `frame ↔ frame`
-(`SOCKET_COMPAT` in `src/core/structural.ts`), which is what makes the rules
-in the editor so simple — there's no separate mount type to reason about.
-
-Each matched socket pair becomes a **structural connection** with a
-strength (`CONNECTION_STRENGTH['frame-frame']`: 120,000 N / 32,000 N·m),
-scaled by the weaker of the two parts' `reinforcement` multiplier (Frame Box
-= 1, Reinforced Frame = 2, Truck Heart = 1.5). The whole vehicle is one
-connected graph rooted at the Truck Heart; a union-find over that graph
-(`computeIslands`) is what the analyzer uses to reject "floating parts" and
-what the damage system uses at runtime to figure out what falls off.
-
-### Physics body
-
-The vehicle is simulated as **one compound Rapier rigid body**: every part
-contributes its own cuboid collider (sized to its cell footprint) and mass
-at its correct offset, so the combined mass, centre of mass, and rotational
-inertia all fall out of the actual part layout — a truck with a heavy engine
-up front really is nose-heavy in the simulation, not just in a stat readout.
-
-Wheels are **not** physics-engine wheel joints; they're raycast suspension
-(`src/runtime/wheels.ts`): each wheel casts a ray along its suspension
-direction, and a spring/damper (per-wheel `stiffness`/`damping`, clamped so
-the damper force can't exceed the spring force and the bump-stop can't
-exceed 2.5× the spring's max, which is what stops hard braking from
-launching the truck airborne) turns compression into a suspension force.
-Each wheel also tracks its own spin state ω (moment of inertia
-`0.6·mass·radius²`) with a slip-saturating tire friction model for
-longitudinal (drive/brake) and lateral (cornering) grip, and a no-reversal
-clamp on braking torque so brakes slow a wheel to a stop instead of spinning
-it backward. Steering pairs are detected automatically by finding wheels
-that mirror across the centreline plane (which sits at X = 0.25 m, not X = 0,
-because grid cells are indexed as `(i + 0.5)·0.5 m`) and are front of the
-axle midpoint.
-
-### Damage model (why ramps are safe but walls aren't)
-
-Damage is driven by **contact impulse, not speed**. Rapier reports the
-contact force at each collider on frames where it crosses a threshold
-(100,000 N, `SAFE_IMPACT_FORCE_N` in `src/runtime/damage.ts`); anything below
-that is treated as normal driving — landing from a jump, rolling over bumps,
-a controlled ramp launch — and does zero damage, regardless of how dramatic
-it looks. Above that threshold, the excess force is converted to an impulse
-(`force × 1/60s`) and split between:
-
-- the **part's own health**, at `1/65` HP per N·s over the threshold, and
-- every **live structural connection** the part currently has, at
-  `1/5,000` connection-health per N·s (scaled by a 120,000 N reference force),
-  split evenly across however many connections are still attached to that
-  part in that instant.
-
-That second half is why a flimsy single-block neck between two heavy
-sections snaps under a hit that a wide, well-braced chassis shrugs off —
-the same impulse is divided among fewer connections, so each one takes more
-damage. When a part's health hits zero its colliders are removed; when
-enough connections fail that the structural graph (the same union-find used
-for placement validation) splits into more than one island, everything not
-connected to the Truck Heart becomes its own separate rigid body — with its
-point velocity computed from the original body's linear *and* angular
-velocity (`v + ω×r`), so debris flies off looking like it inherited real
-momentum from the crash, not just a copy-pasted velocity.
-
-This is also why the tutorial/starter truck is guaranteed safe on ramps,
-drops, and bumps: those scenarios are tuned to stay under the 100 kN
-threshold for a competently built vehicle, while a 60 km/h wall impact is
-not — by design, the "physics only really punishes you if you built it
-wrong" behaviour you get is a property of the force math, not a special
-case for the tutorial car.
-
-### Data model and saving
-
-A vehicle is a `VehicleBlueprint`: a flat list of `{ id, defId, pos, orient,
-config }` parts plus a `paint` colour per part, versioned
-(`BLUEPRINT_SCHEMA_VERSION = 3`, `src/core/serialize.ts`). Older saves
-(from before mounts were removed) migrate forward automatically — old
-mount/light/battery/ammo/cargo parts become Frame Boxes, the old big engine
-becomes the small engine, the old fixed gun becomes the turret — so nothing
-saved earlier is ever lost, it just re-appears built from today's simplified
-part set. Save/Load round-trips through `localStorage`.
-
----
-
-## Parts
-
-| Part | What it does |
-|---|---|
-| 🟧 Truck Heart | Root block every build grows from. Fixed, can't be deleted. |
-| 🧱 Block | Basic structural block. |
-| 🛡️ Strong Block | Heavier, much tougher, stronger connections. |
-| 🛞 Wheel | Fast on roads. |
-| 🛞 Monster Wheel | Bigger, more grip, climbs rough ground. |
-| 💺 Driver Seat | Someone has to drive — required to test drive. |
-| ⚙️ Engine | Makes it go — snaps on top of a block, required to test drive. |
-| ⛽ Fuel Tank | Engines are thirsty. |
-| 💥 Zombie Blaster | Spins and shoots, ammo included — snaps on top of a block. |
-
-## Verification
-
-```sh
-npm run typecheck && npm run lint && npm run test:unit && npm run build && npm test
-```
-
-Unit tests (Vitest) cover the pure core: grid math, catalog, placement rules,
-structural graph, damage model, analyzer, serialization/migration, and
-undo/redo. Browser tests (Playwright) drive the real app: stacking parts,
-right-click delete, placement validation, save/load, the guided tutorial,
-driving, steering, braking, rollover of tall rigs, sideways-wheel failure,
-weapons, ramp/drop/bumps zero-damage acceptance, and blueprint integrity
-across the editor ↔ chamber loop.
-
-`?debug=1` exposes the test seam (`window.__scrapRig`); production URLs hide
-it.
-
-## Architecture
-
-- `src/core/` — engine-independent model: types, 3D grid/orientations, part
-  catalog, blueprint, structural graph, placement validation, analyzer,
-  reversible commands, versioned serialization, tutorial state machine.
-  Fully unit-tested, no Three.js or Rapier imports.
-- `src/runtime/` — the Rapier side: compound-body assembler, raycast
-  suspension + slip tire model, engine/gearbox/torque distribution, impulse
-  damage + structural island splitting, weapons.
-- `src/editor/` — Three.js editor (cameras, placement ghost, part meshes,
-  overlays, DOM UI).
-- `src/chamber/` — test chamber scenarios, HUD, zombies, chase camera.
-- `docs/vehicle_editor/` — architecture, physics model, data model, UX, and
-  acceptance-criteria docs written during original design.
-- `docs/HOW_TO_BUILD.md` — the short in-game-style walkthrough (this README
-  covers the same ground in more depth).
+- [Architecture](docs/ARCHITECTURE.md)
+- [Integration status and implementation contract](docs/INTEGRATION_SPEC.md)
+- [Vehicle editor data model](docs/vehicle_editor/DATA_MODEL.md)
+- [Editor architecture](docs/vehicle_editor/ARCHITECTURE.md)
+- [How to build](docs/HOW_TO_BUILD.md)
