@@ -11,6 +11,8 @@ import type {
 import { CELL_SIZE, SUSPENSION_PRESET_MULTIPLIERS } from './types.ts';
 import { ALL_FACES, FACE_VECTORS, addVec, cellKey, rotateFace, rotateVec, worldCells } from './grid.ts';
 import { cellCentreM, placedCellMasses } from './mass.ts';
+import { getPartDef } from './parts.ts';
+import { effectivePartDef, getEffectiveDef } from './upgrades.ts';
 
 type Point2 = { x: number; z: number };
 
@@ -134,7 +136,12 @@ function exposedCellsForSensitivePart(entry: PartEntry, occupied: Map<string, st
 }
 
 export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => PartDefinition): VehicleAnalysisReport {
-  const entries: PartEntry[] = bp.parts.map((part) => ({ part, def: getDef(part.defId) }));
+  const entries: PartEntry[] = bp.parts.map((part) => ({
+    part,
+    def: getDef === getPartDef
+      ? getEffectiveDef(part)
+      : effectivePartDef(getDef(part.defId), part.config.level ?? 1),
+  }));
   const cellMasses = entries.flatMap(({ part, def }) => placedCellMasses(def, part, faceMountOffset(def, part)));
   const totalMassKg = cellMasses.reduce((sum, mass) => sum + mass.massKg, 0);
   const centreOfMass: Vec3 =

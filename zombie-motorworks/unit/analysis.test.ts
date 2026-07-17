@@ -88,6 +88,21 @@ describe('analyzeVehicle mass properties', () => {
     expect(report.centreOfMass.y).toBeCloseTo(expected.y, 8);
     expect(report.centreOfMass.z).toBeCloseTo(expected.z, 8);
   });
+
+  it('uses a placed part upgrade level when resolving engine performance', () => {
+    const base = analyzeVehicle(
+      blueprint([part('engine', 'engine-small', 0, 0, 0)]),
+      getPartDef,
+    );
+    const upgraded = analyzeVehicle(
+      blueprint([part('engine', 'engine-small', 0, 0, 0, 0, { level: 2 })]),
+      getPartDef,
+    );
+
+    expect(upgraded.powerToWeightKwPerT).toBeCloseTo(
+      base.powerToWeightKwPerT * 1.1,
+    );
+  });
 });
 
 describe('analyzeVehicle wheels and stability', () => {

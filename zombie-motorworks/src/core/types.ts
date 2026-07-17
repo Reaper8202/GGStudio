@@ -25,7 +25,8 @@ export type Face = 'px' | 'nx' | 'py' | 'ny' | 'pz' | 'nz';
 /** Index into the canonical table of 24 axis-aligned orientations (0 = identity). */
 export type OrientationIndex = number;
 
-export type PartCategory = 'structural' | 'functional' | 'movement' | 'protection' | 'weapon';
+export type PartCategory =
+  'structural' | 'functional' | 'movement' | 'protection' | 'weapon';
 
 /**
  * Socket types. Compatibility is defined centrally in the placement service.
@@ -35,7 +36,8 @@ export type PartCategory = 'structural' | 'functional' | 'movement' | 'protectio
  * - hardpoint: provided by weapon hardpoints, required by weapons
  * - armour: provided by any structural face, consumed by face-mounted armour/shell
  */
-export type SocketType = 'frame' | 'wheel-mount' | 'engine-mount' | 'hardpoint' | 'armour';
+export type SocketType =
+  'frame' | 'wheel-mount' | 'engine-mount' | 'hardpoint' | 'armour';
 
 export interface StructuralSocket {
   /** Unique within the part definition. */
@@ -103,6 +105,8 @@ export type WeaponMountType = 'fixed' | 'turret';
 
 export interface WeaponDefinition {
   mountType: WeaponMountType;
+  /** Auto weapons acquire targets; manual weapons follow player aim input. */
+  aimMode: 'auto' | 'manual';
   /** Horizontal firing arc in degrees (centered on part forward; 360 for turrets). */
   arcDeg: number;
   damage: number;
@@ -119,6 +123,15 @@ export interface ArmourDefinition {
   faceMounted: boolean;
   protection: number; // flat damage absorbed while intact
   cosmetic: boolean; // cosmetic shell: negligible protection
+}
+
+export interface UpgradeDefinition {
+  /** Highest purchasable level; level 1 is the catalog base definition. */
+  maxLevel: number;
+  /** Price to move from level 1 to level 2. */
+  basePrice: number;
+  /** Multiplier applied to each successive upgrade price. */
+  priceGrowth: number;
 }
 
 export interface PartDefinition {
@@ -144,6 +157,10 @@ export interface PartDefinition {
   massKg: number;
   health: number;
   cost: number;
+  /** Per-level stat and health scaling metadata. Undefined means not upgradeable. */
+  upgrade?: UpgradeDefinition;
+  /** One-time price to unlock a catalog part; absent means already available. */
+  unlockCost?: number;
   /** Multiplier on the strength of structural connections into this part. */
   reinforcement: number;
   /** Only one instance allowed per vehicle (root chassis, driver seat). */
@@ -176,6 +193,8 @@ export const PAINT_COLORS = {
 export type PaintColor = keyof typeof PAINT_COLORS;
 
 export interface PartConfig {
+  /** Upgrade level; omitted means the catalog base level (1). */
+  level?: number;
   driven?: boolean;
   steering?: boolean;
   /** Invert steering direction (rear-steer axles). */
@@ -283,4 +302,4 @@ export const GRID_MAX: Vec3i = { x: 6, y: 8, z: 8 };
 /** World metres per grid cell. */
 export const CELL_SIZE = 0.5;
 
-export const BLUEPRINT_SCHEMA_VERSION = 3;
+export const BLUEPRINT_SCHEMA_VERSION = 4;

@@ -58,6 +58,10 @@ function singleSocket(
 
 const oneCell = [ORIGIN];
 
+function upgrade(maxLevel: number, cost: number) {
+  return { maxLevel, basePrice: Math.round(cost * 0.6), priceGrowth: 1.6 };
+}
+
 export function wheelAxleWorld(orient: OrientationIndex): Vec3i {
   return rotateVec(orient, WHEEL_AXLE_LOCAL);
 }
@@ -78,6 +82,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 60,
     health: 400,
     cost: 0,
+    upgrade: upgrade(3, 0),
     reinforcement: 1.5,
     unique: true,
     isRoot: true,
@@ -93,6 +98,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 25,
     health: 150,
     cost: 10,
+    upgrade: upgrade(3, 10),
     reinforcement: 1,
   },
   'frame-reinforced': {
@@ -106,6 +112,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 45,
     health: 320,
     cost: 25,
+    upgrade: upgrade(3, 25),
+    unlockCost: 150,
     reinforcement: 2,
   },
   'wheel-standard': {
@@ -119,6 +127,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 28,
     health: 90,
     cost: 18,
+    upgrade: upgrade(5, 18),
     reinforcement: 1,
     wheel: {
       radius: 0.3,
@@ -151,6 +160,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 44,
     health: 130,
     cost: 32,
+    upgrade: upgrade(5, 32),
+    unlockCost: 250,
     reinforcement: 1,
     wheel: {
       radius: 0.42,
@@ -183,6 +194,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 30,
     health: 80,
     cost: 0,
+    upgrade: upgrade(3, 0),
     reinforcement: 1,
     unique: true,
     providesControl: true,
@@ -200,6 +212,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 120,
     health: 120,
     cost: 60,
+    upgrade: upgrade(5, 60),
     reinforcement: 1,
     engine: {
       torqueCurve: [
@@ -225,6 +238,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 55,
     health: 80,
     cost: 20,
+    upgrade: upgrade(3, 20),
     reinforcement: 1,
     fuelCapacity: 40,
   },
@@ -239,11 +253,13 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 85,
     health: 140,
     cost: 90,
+    upgrade: upgrade(5, 90),
     reinforcement: 1,
     ammoCapacity: 200,
     batteryCapacity: 500,
     weapon: {
       mountType: 'turret',
+      aimMode: 'auto',
       arcDeg: 360,
       damage: 9,
       fireRate: 8,
@@ -252,6 +268,55 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       recoilImpulse: 60,
       projectileSpeed: 140,
       rangeM: 70,
+    },
+  },
+  'armour-plate': {
+    id: 'armour-plate',
+    name: 'Armour Plate',
+    category: 'protection',
+    description: 'Heavy reinforced plate that strengthens an exposed section.',
+    cells: oneCell,
+    clearanceCells: [],
+    sockets: frameSockets(oneCell),
+    massKg: 60,
+    health: 220,
+    cost: 120,
+    upgrade: upgrade(5, 120),
+    unlockCost: 200,
+    reinforcement: 2.5,
+    armour: {
+      faceMounted: false,
+      protection: 24,
+      cosmetic: false,
+    },
+  },
+  'cannon-heavy': {
+    id: 'cannon-heavy',
+    name: 'Heavy Cannon',
+    category: 'weapon',
+    description: 'Slow, powerful manually aimed cannon with a long barrel.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 140,
+    health: 160,
+    cost: 260,
+    upgrade: upgrade(5, 260),
+    unlockCost: 500,
+    reinforcement: 1.25,
+    ammoCapacity: 40,
+    batteryCapacity: 600,
+    weapon: {
+      mountType: 'turret',
+      aimMode: 'manual',
+      arcDeg: 120,
+      damage: 55,
+      fireRate: 0.8,
+      ammoPerShot: 1,
+      powerPerShot: 12,
+      recoilImpulse: 520,
+      projectileSpeed: 260,
+      rangeM: 40,
     },
   },
 };
