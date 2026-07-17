@@ -55,6 +55,10 @@ export interface SurvivalTelemetry {
     aimMode: 'auto' | 'manual';
     shotsFired: number;
   }[];
+  wheels: {
+    partId: string;
+    worldCentre: [number, number, number];
+  }[];
 }
 
 interface TracerVisual {
@@ -819,6 +823,20 @@ export class SurvivalMode {
         aimMode: weapon.def.aimMode,
         shotsFired: weapon.shotsFired,
       })),
+      wheels: this.vehicle
+        .wheels()
+        .filter((wheel) => !wheel.broken)
+        .map((wheel) => {
+          const centre = wheelVisualCentre(this.vehicle.body, wheel);
+          return {
+            partId: wheel.partId,
+            worldCentre: [centre.x, centre.y, centre.z] as [
+              number,
+              number,
+              number,
+            ],
+          };
+        }),
     };
   }
 

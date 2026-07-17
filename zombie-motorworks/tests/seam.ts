@@ -59,6 +59,10 @@ declare global {
           aimMode: 'auto' | 'manual';
           shotsFired: number;
         }[];
+        wheels: {
+          partId: string;
+          worldCentre: [number, number, number];
+        }[];
       } | null;
       profile(): { money: number; unlocks: string[] };
       grantMoney(amount: number): boolean;

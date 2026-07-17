@@ -143,6 +143,7 @@ export function buildEditorUI(
     if (!def) continue;
     const partButton = document.createElement('button');
     partButton.className = 'part-btn';
+    partButton.dataset.partId = id;
     const name = document.createElement('strong');
     name.textContent = KID_LABELS[id]?.name ?? def.name;
     const blurb = document.createElement('small');

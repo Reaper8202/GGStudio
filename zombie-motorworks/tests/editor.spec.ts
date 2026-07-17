@@ -40,7 +40,7 @@ test('blocks can stack through the placement seam and UI placement', async ({ pa
     parts: [{ id: 'p1', defId: 'chassis-core', pos: { x: 0, y: 1, z: 0 }, orient: 0, config: {} }],
   })));
   const before = await page.evaluate(() => JSON.parse(window.__scrapRig.getBlueprintJson()).parts.length);
-  await page.getByRole('button', { name: /Block/ }).first().click();
+  await page.locator('.part-btn[data-part-id="frame-box"]').click();
   const box = await page.locator('canvas.viewport').boundingBox();
   if (!box) throw new Error('missing editor canvas');
   // Canvas centre is the ray to (0,1,0) — the CORNER of the root cube (a

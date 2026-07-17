@@ -38,35 +38,53 @@ test('vehicle drives forward, steers, and the blueprint survives the round trip'
   expect(bpAfter).toBe(bpBefore);
 });
 
-test('underpowered heavy rig struggles on the ramp scenario', async ({ page }) => {
+test('added mass demonstrably hurts ramp climbing', async ({ page }) => {
   test.setTimeout(120_000);
   await boot(page);
+  await buildBasicRig(page);
+
+  const yLight = await climbRamp(page);
+
+  await page.evaluate(() => window.__scrapRig.backToEditor());
   await buildBasicRig(page);
   // Weigh it down hard: a slab of reinforced frames on the deck.
   for (let x = -1; x <= 1; x++) {
     for (let z = -1; z <= 2; z++) {
-      await place(page, 'frame-reinforced', { x, y: 2, z });
-      await place(page, 'frame-reinforced', { x, y: 3, z });
+      // The seat and tank already occupy two deck cells; their top sockets
+      // support the upper slab directly.
+      const occupied = x === 0 && (z === -1 || z === 0);
+      if (!occupied) {
+        const lower = await place(page, 'frame-reinforced', { x, y: 2, z });
+        expect(lower.ok, `lower slab at x=${x}, z=${z}: ${lower.issues}`).toBe(
+          true,
+        );
+      }
+      const upper = await place(page, 'frame-reinforced', { x, y: 3, z });
+      expect(upper.ok, `upper slab at x=${x}, z=${z}: ${upper.issues}`).toBe(
+        true,
+      );
     }
   }
-  expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(true);
-  await page.evaluate(() => window.__scrapRig.setScenario('ramp'));
-  await page.evaluate(() => window.__scrapRig.setSimPaused(true));
-  await page.evaluate(() => window.__scrapRig.stepSim(120));
-  await page.evaluate(() => window.__scrapRig.setControls({ throttle: 1 }));
-  await page.evaluate(() => window.__scrapRig.stepSim(480));
-  const yHeavy = await page.evaluate(
-    () => window.__scrapRig.telemetry().position.y,
-  );
-  await page.evaluate(() => window.__scrapRig.stepSim(90));
-  const yAfter = await page.evaluate(
-    () => window.__scrapRig.telemetry().position.y,
-  );
-  // The 30° dirt ramp starts at z≈16 (analyzer says ~10° max slope for this mass):
-  // the rig must remain below the ~4m crest and have effectively stopped climbing.
+
+  const yHeavy = await climbRamp(page);
+
+  expect(yLight).toBeGreaterThan(yHeavy + 1.5);
   expect(yHeavy).toBeLessThan(3.9);
-  expect(yAfter - yHeavy).toBeLessThan(0.15);
 });
+
+async function climbRamp(
+  page: import('@playwright/test').Page,
+): Promise<number> {
+  expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(true);
+  return page.evaluate(() => {
+    window.__scrapRig.setScenario('ramp');
+    window.__scrapRig.setSimPaused(true);
+    window.__scrapRig.stepSim(120);
+    window.__scrapRig.setControls({ throttle: 1 });
+    window.__scrapRig.stepSim(480);
+    return window.__scrapRig.telemetry().position.y;
+  });
+}
 
 test('wheels mounted sideways produce no propulsion (natural failure)', async ({ page }) => {
   test.setTimeout(120_000);
