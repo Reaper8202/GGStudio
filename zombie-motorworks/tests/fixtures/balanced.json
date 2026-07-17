@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 4,
+  "id": "fixture-balanced",
+  "name": "Balanced Starter Rig",
+  "parts": [
+    { "id": "core", "defId": "chassis-core", "pos": { "x": 0, "y": 1, "z": 0 }, "orient": 0, "config": {} },
+    { "id": "seat", "defId": "driver-seat", "pos": { "x": 0, "y": 2, "z": 0 }, "orient": 0, "config": {} },
+    { "id": "frame-n2-l", "defId": "frame-box", "pos": { "x": -1, "y": 1, "z": -2 }, "orient": 0, "config": {} },
+    { "id": "frame-n2-c", "defId": "frame-box", "pos": { "x": 0, "y": 1, "z": -2 }, "orient": 0, "config": {} },
+    { "id": "frame-n2-r", "defId": "frame-box", "pos": { "x": 1, "y": 1, "z": -2 }, "orient": 0, "config": {} },
+    { "id": "frame-n1-l", "defId": "frame-box", "pos": { "x": -1, "y": 1, "z": -1 }, "orient": 0, "config": {} },
+    { "id": "frame-n1-c", "defId": "frame-box", "pos": { "x": 0, "y": 1, "z": -1 }, "orient": 0, "config": {} },
+    { "id": "frame-n1-r", "defId": "frame-box", "pos": { "x": 1, "y": 1, "z": -1 }, "orient": 0, "config": {} },
+    { "id": "frame-z0-l", "defId": "frame-box", "pos": { "x": -1, "y": 1, "z": 0 }, "orient": 0, "config": {} },
+    { "id": "frame-z0-r", "defId": "frame-box", "pos": { "x": 1, "y": 1, "z": 0 }, "orient": 0, "config": {} },
+    { "id": "frame-p1-l", "defId": "frame-box", "pos": { "x": -1, "y": 1, "z": 1 }, "orient": 0, "config": {} },
+    { "id": "frame-p1-c", "defId": "frame-box", "pos": { "x": 0, "y": 1, "z": 1 }, "orient": 0, "config": {} },
+    { "id": "frame-p1-r", "defId": "frame-box", "pos": { "x": 1, "y": 1, "z": 1 }, "orient": 0, "config": {} },
+    { "id": "frame-p2-l", "defId": "frame-box", "pos": { "x": -1, "y": 1, "z": 2 }, "orient": 0, "config": {} },
+    { "id": "frame-p2-c", "defId": "frame-box", "pos": { "x": 0, "y": 1, "z": 2 }, "orient": 0, "config": {} },
+    { "id": "frame-p2-r", "defId": "frame-box", "pos": { "x": 1, "y": 1, "z": 2 }, "orient": 0, "config": {} },
+    { "id": "wheel-front-left", "defId": "wheel-standard", "pos": { "x": -2, "y": 1, "z": 2 }, "orient": 0, "config": { "driven": true, "steering": true, "braking": true } },
+    { "id": "wheel-front-right", "defId": "wheel-standard", "pos": { "x": 2, "y": 1, "z": 2 }, "orient": 4, "config": { "driven": true, "steering": true, "braking": true } },
+    { "id": "wheel-rear-left", "defId": "wheel-standard", "pos": { "x": -2, "y": 1, "z": -2 }, "orient": 0, "config": { "driven": true, "braking": true } },
+    { "id": "wheel-rear-right", "defId": "wheel-standard", "pos": { "x": 2, "y": 1, "z": -2 }, "orient": 4, "config": { "driven": true, "braking": true } },
+    { "id": "engine", "defId": "engine-small", "pos": { "x": 0, "y": 2, "z": -2 }, "orient": 0, "config": {} },
+    { "id": "fuel", "defId": "fuel-tank", "pos": { "x": 0, "y": 2, "z": -1 }, "orient": 0, "config": {} },
+    { "id": "turret", "defId": "turret", "pos": { "x": 0, "y": 2, "z": 1 }, "orient": 0, "config": {} }
+  ]
+}
