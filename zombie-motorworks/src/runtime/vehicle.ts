@@ -6,7 +6,12 @@
  */
 
 import RAPIER from '@dimforge/rapier3d-compat';
-import type { PartDefinition, StructuralConnection, VehicleBlueprint } from '../core/types.ts';
+import type {
+  PartDefinition,
+  StructuralConnection,
+  Vec3,
+  VehicleBlueprint,
+} from '../core/types.ts';
 import type { AssembledVehicle, GetDef, RuntimeWheel } from './assembler.ts';
 import { assembleVehicle } from './assembler.ts';
 import type { AckermannGeometry, WheelTelemetry } from './wheels.ts';
@@ -15,8 +20,14 @@ import type { EngineOutput, GearboxState } from './drivetrain.ts';
 import { distributeTorque, engineStep, updateGearbox } from './drivetrain.ts';
 import type { RuntimeWeapon, TracerShot } from './weapons.ts';
 import { createWeapon, stepWeapons } from './weapons.ts';
-import { applyImpactDamage, resolveStructure, type DetachedIsland } from './damage.ts';
+import {
+  applyDirectDamage as damagePart,
+  applyImpactDamage,
+  resolveStructure,
+  type DetachedIsland,
+} from './damage.ts';
 import type { SurfaceKind } from './surfaces.ts';
+import { rotateByQuat } from './vec.ts';
 
 export interface VehicleControls {
   throttle: number; // 0..1
@@ -40,6 +51,12 @@ export interface VehicleTelemetry {
   aliveParts: number;
   detachedParts: number;
   shotsThisStep: TracerShot[];
+}
+
+export interface RuntimePartTarget {
+  partId: string;
+  position: Vec3;
+  distance: number;
 }
 
 interface RuntimeEngine {
@@ -93,6 +110,78 @@ export class RuntimeVehicle {
 
   get body(): RAPIER.RigidBody {
     return this.assembled.body;
+  }
+
+  applyDirectDamage(partId: string, amount: number): void {
+    damagePart(this.assembled, partId, amount);
+  }
+
+  /** Find the closest attached, living part by its collider-centre centroid. */
+  nearestLivePart(point: Vec3): RuntimePartTarget | null {
+    const bodyPos = this.body.translation();
+    const bodyRot = this.body.rotation();
+    let nearest: RuntimePartTarget | null = null;
+    let nearestDistanceSq = Infinity;
+
+    for (const [id, part] of this.assembled.parts) {
+      if (
+        !part.alive ||
+        part.health <= 0 ||
+        part.detached ||
+        part.colliderCentresM.length === 0
+      )
+        continue;
+
+      const localCentre = part.colliderCentresM.reduce(
+        (sum, centre) => ({
+          x: sum.x + centre.x,
+          y: sum.y + centre.y,
+          z: sum.z + centre.z,
+        }),
+        { x: 0, y: 0, z: 0 },
+      );
+      const count = part.colliderCentresM.length;
+      localCentre.x /= count;
+      localCentre.y /= count;
+      localCentre.z /= count;
+
+      const rotated = rotateByQuat(bodyRot, localCentre);
+      const position = {
+        x: bodyPos.x + rotated.x,
+        y: bodyPos.y + rotated.y,
+        z: bodyPos.z + rotated.z,
+      };
+      const dx = position.x - point.x;
+      const dy = position.y - point.y;
+      const dz = position.z - point.z;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq < nearestDistanceSq) {
+        nearestDistanceSq = distanceSq;
+        nearest = { partId: id, position, distance: Math.sqrt(distanceSq) };
+      }
+    }
+
+    return nearest;
+  }
+
+  /** Attached vehicle health as a percentage of the original total. */
+  integrityPct(): number {
+    let currentHealth = 0;
+    let maxHealth = 0;
+    for (const [, part] of this.assembled.parts) {
+      maxHealth += part.def.health;
+      if (part.alive && !part.detached) {
+        currentHealth += Math.min(part.def.health, Math.max(0, part.health));
+      }
+    }
+    return maxHealth > 0 ? (currentHealth / maxHealth) * 100 : 0;
+  }
+
+  /** Root loss or loss of every attached control provider ends the run. */
+  isDestroyed(): boolean {
+    const root = this.assembled.parts.get(this.assembled.rootPartId);
+    if (!root || !root.alive || root.detached) return true;
+    return !this.hasControl(this.attachedAliveIds());
   }
 
   private attachedAliveIds(): Set<string> {
@@ -173,6 +262,8 @@ export class RuntimeVehicle {
     const events = resolveStructure(this.world, this.assembled, this.colliderToPart);
     if (events.detachedIslands.length > 0) {
       this.islands.push(...events.detachedIslands);
+    }
+    if (events.destroyedParts.length > 0 || events.detachedIslands.length > 0) {
       // Losing tanks/ammo/batteries shrinks capacity (and clamps stock).
       this.recomputeResources();
     }

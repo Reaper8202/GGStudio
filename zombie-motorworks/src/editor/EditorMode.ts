@@ -48,7 +48,7 @@ interface GhostState {
   orient: number;
 }
 
-/** Camera/layer state preserved across editor <-> chamber round trips. */
+/** Camera/layer state preserved across editor <-> runtime-mode round trips. */
 export interface EditorViewState {
   cameraPos: { x: number; y: number; z: number };
   target: { x: number; y: number; z: number };
@@ -88,6 +88,7 @@ export class EditorMode {
     private readonly renderer: THREE.WebGLRenderer,
     initial: VehicleBlueprint,
     private readonly onTestDrive: (bp: VehicleBlueprint) => void,
+    private readonly onFightZombies: (bp: VehicleBlueprint) => void,
     restore?: { history?: CommandHistory; view?: EditorViewState },
   ) {
     this.bp = initial;
@@ -152,6 +153,16 @@ export class EditorMode {
             this.stopTutorial();
           }
           this.onTestDrive(this.bp);
+        }
+      },
+      onFightZombies: () => {
+        const report = validateBlueprint(this.bp, getPartDef);
+        if (report.errors.length === 0) {
+          if (this.tutorialActive) {
+            localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+            this.stopTutorial();
+          }
+          this.onFightZombies(this.bp);
         }
       },
       onStartTutorial: () => this.startTutorial(),
@@ -736,7 +747,7 @@ export class EditorMode {
     }
   }
 
-  private save(): void {
+  save(): void {
     const all = this.slots();
     all[this.bp.name] = serializeBlueprint(this.bp);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));

@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
 declare global {
   interface Window {
     __scrapRig: {
-      mode(): 'editor' | 'chamber';
+      mode(): 'editor' | 'chamber' | 'survival';
       getBlueprintJson(): string;
       loadBlueprintJson(json: string): void;
       place(
@@ -22,6 +22,7 @@ declare global {
       validate(): { errors: { code: string }[]; warnings: unknown[] };
       analyze(): Record<string, unknown> & { warnings: { code: string }[] };
       enterTest(): boolean;
+      enterSurvival(): boolean;
       backToEditor(): void;
       setControls(c: Record<string, unknown>): void;
       telemetry(): {
@@ -36,6 +37,13 @@ declare global {
         position: { x: number; y: number; z: number };
         rotation: { x: number; y: number; z: number; w: number };
       };
+      survivalTelemetry(): {
+        mode: 'survival';
+        kills: number;
+        zombiesAlive: number;
+        integrityPct: number;
+        vehiclePos: [number, number, number];
+      } | null;
       setScenario(s: string): void;
       resetVehicle(): void;
       orient: { yaw90: number; yaw180: number; rollX90: number };

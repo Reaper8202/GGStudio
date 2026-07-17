@@ -17,6 +17,7 @@ export interface EditorUIHandlers {
   onView(view: 'persp' | 'front' | 'rear' | 'side' | 'top'): void;
   onLayerChange(layer: number): void;
   onTestDrive(): void;
+  onFightZombies(): void;
   onStartTutorial(): void;
   onConfigChange(partId: string, key: string, value: boolean | string): void;
   onDeleteSelected(): void;
@@ -93,7 +94,9 @@ export function buildEditorUI(
   top.append(viewSelect, btn('🎓 Tutorial', handlers.onStartTutorial), btn('? Help', () => toggleHelp()));
   const testBtn = btn('▶ TEST DRIVE', handlers.onTestDrive);
   testBtn.className = 'primary';
-  top.appendChild(testBtn);
+  const fightBtn = btn('Fight Zombies', handlers.onFightZombies);
+  fightBtn.className = 'primary';
+  top.append(testBtn, fightBtn);
 
   const palette = document.createElement('div');
   palette.className = 'palette panel';
@@ -219,7 +222,13 @@ export function buildEditorUI(
         }
       }
     },
-    setTestDriveEnabled: (enabled, blockedBy) => { testBtn.disabled = !enabled; testBtn.title = enabled ? 'Enter the test chamber' : `Blocked: ${blockedBy.join('; ')}`; },
+    setTestDriveEnabled: (enabled, blockedBy) => {
+      const blockedTitle = `Blocked: ${blockedBy.join('; ')}`;
+      testBtn.disabled = !enabled;
+      testBtn.title = enabled ? 'Enter the test chamber' : blockedTitle;
+      fightBtn.disabled = !enabled;
+      fightBtn.title = enabled ? 'Fight zombies' : blockedTitle;
+    },
     setSelectedPart: (def, partId) => {
       selectedToolbar.replaceChildren();
       if (!def || !partId) { selectedToolbar.style.display = 'none'; return; }

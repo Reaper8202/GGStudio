@@ -114,6 +114,13 @@ export function resolveStructure(
       for (const ci of vehicle.connectionsByPart.get(id) ?? []) {
         vehicle.connections[ci].health = 0;
       }
+      const wheel = vehicle.wheels.find((candidate) => candidate.partId === id);
+      if (wheel) {
+        wheel.broken = true;
+        wheel.grounded = false;
+        wheel.contactPointW = null;
+        wheel.loadN = 0;
+      }
     }
   }
 

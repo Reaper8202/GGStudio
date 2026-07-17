@@ -25,6 +25,7 @@ export interface TracerShot {
   from: Vec3;
   to: Vec3;
   hitZombieHandle: number | null;
+  damage: number;
 }
 
 export function createWeapon(placed: PlacedPart, def: WeaponDefinition): RuntimeWeapon {
@@ -105,7 +106,12 @@ export function stepWeapons(
       const groups = hit.collider.collisionGroups() >>> 16;
       if ((groups & GROUP_ZOMBIE) !== 0) zombieHandle = hit.collider.handle;
     }
-    shots.push({ from: muzzle, to: end, hitZombieHandle: zombieHandle });
+    shots.push({
+      from: muzzle,
+      to: end,
+      hitZombieHandle: zombieHandle,
+      damage: wpn.def.damage,
+    });
 
     // Recoil at the mount, opposite fire direction.
     body.applyImpulseAtPoint(scale(fireDir, -wpn.def.recoilImpulse), mountW, true);

@@ -1,7 +1,7 @@
 /**
- * Application shell: owns the WebGL renderer and switches between the editor
- * and the test chamber. RAPIER.init() runs exactly once at boot. Entering the
- * chamber passes a deep-cloned blueprint; returning restores the editor with
+ * Application shell: owns the WebGL renderer and switches between the editor,
+ * test chamber, and survival mode. RAPIER.init() runs exactly once at boot.
+ * Runtime modes deep-clone the blueprint; returning restores the editor with
  * the original untouched.
  */
 
@@ -18,13 +18,15 @@ import { EditorMode, type EditorViewState } from '../editor/EditorMode.ts';
 import { CommandHistory } from '../core/commands.ts';
 import { ChamberMode, type ScenarioName } from '../chamber/ChamberMode.ts';
 import type { VehicleControls } from '../runtime/vehicle.ts';
+import { SurvivalMode } from '../survival/SurvivalMode.ts';
 
 export class App {
   private renderer!: THREE.WebGLRenderer;
   private editor: EditorMode | null = null;
   private chamber: ChamberMode | null = null;
+  private survival: SurvivalMode | null = null;
   private bp: VehicleBlueprint = createEmptyBlueprint('starter-rig');
-  /** Survive editor <-> chamber round trips: undo history and camera/layer. */
+  /** Survive editor <-> runtime-mode round trips: undo history and camera/layer. */
   private readonly history = new CommandHistory();
   private savedView: EditorViewState | undefined;
 
@@ -41,6 +43,7 @@ export class App {
       this.renderer.setSize(this.root.clientWidth, this.root.clientHeight);
       this.editor?.resize(this.root.clientWidth, this.root.clientHeight);
       this.chamber?.resize(this.root.clientWidth, this.root.clientHeight);
+      this.survival?.resize(this.root.clientWidth, this.root.clientHeight);
     });
 
     this.bp = buildStarterBlueprint();
@@ -50,6 +53,7 @@ export class App {
       requestAnimationFrame(loop);
       this.editor?.update();
       this.chamber?.update();
+      this.survival?.update();
     };
     loop();
   }
@@ -57,10 +61,19 @@ export class App {
   private openEditor(): void {
     this.chamber?.dispose();
     this.chamber = null;
-    this.editor = new EditorMode(this.root, this.renderer, this.bp, (bp) => this.enterChamber(bp), {
-      history: this.history,
-      view: this.savedView,
-    });
+    this.survival?.dispose();
+    this.survival = null;
+    this.editor = new EditorMode(
+      this.root,
+      this.renderer,
+      this.bp,
+      (bp) => this.enterChamber(bp),
+      (bp) => this.enterSurvival(bp),
+      {
+        history: this.history,
+        view: this.savedView,
+      },
+    );
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
   }
 
@@ -73,6 +86,22 @@ export class App {
     this.chamber.resize(this.root.clientWidth, this.root.clientHeight);
   }
 
+  private enterSurvival(bp: VehicleBlueprint): void {
+    this.editor?.save();
+    this.bp = bp;
+    this.savedView = this.editor?.viewState();
+    this.editor?.dispose();
+    this.editor = null;
+    this.chamber?.dispose();
+    this.chamber = null;
+    this.survival?.dispose();
+    this.survival = new SurvivalMode(this.root, this.renderer, bp, {
+      onExit: () => this.openEditor(),
+      onGameOver: () => this.openEditor(),
+    });
+    this.survival.resize(this.root.clientWidth, this.root.clientHeight);
+  }
+
   debugSeam(): Record<string, unknown> {
     return {
       orient: {
@@ -81,7 +110,7 @@ export class App {
         rollX90: orientationFromSteps(1, 0, 0),
       },
       composeOrient: (a: number, b: number) => composeOrientations(a, b),
-      mode: () => (this.chamber ? 'chamber' : 'editor'),
+      mode: () => (this.survival ? 'survival' : this.chamber ? 'chamber' : 'editor'),
       getBlueprintJson: () => serializeBlueprint(this.editor?.blueprint() ?? this.bp),
       loadBlueprintJson: (json: string) => this.editor?.replaceBlueprint(deserializeBlueprint(json)),
       place: (defId: string, pos: Vec3i, orient = 0, config: PartConfig = {}) =>
@@ -101,9 +130,23 @@ export class App {
         this.enterChamber(bp);
         return true;
       },
-      backToEditor: () => this.openEditor(),
-      setControls: (c: Partial<VehicleControls>) => this.chamber?.debugSetControls(c),
+      enterSurvival: () => {
+        const bp = this.editor?.blueprint();
+        if (!bp) return false;
+        const v = validateBlueprint(bp, getPartDef);
+        if (v.errors.length > 0) return false;
+        this.enterSurvival(bp);
+        return true;
+      },
+      backToEditor: () => {
+        if (!this.editor) this.openEditor();
+      },
+      setControls: (c: Partial<VehicleControls>) => {
+        this.chamber?.debugSetControls(c);
+        this.survival?.debugSetControls(c);
+      },
       telemetry: () => this.chamber?.debugTelemetry(),
+      survivalTelemetry: () => this.survival?.debugTelemetry() ?? null,
       setScenario: (s: ScenarioName) => this.chamber?.debugSetScenario(s),
       resetVehicle: () => this.chamber?.reset(),
     };
