@@ -119,6 +119,7 @@ export class SurvivalMode {
 
   private accumulator = 0;
   private lastTime = performance.now();
+  private debugPaused = false;
   private kills = 0;
   private runMoney = 0;
   private currentWave = 1;
@@ -398,20 +399,28 @@ export class SurvivalMode {
     let frameDt =
       dtMs === undefined ? (now - this.lastTime) / 1000 : dtMs / 1000;
     this.lastTime = now;
+    if (this.debugPaused) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     frameDt = Math.min(Math.max(frameDt, 0), 0.1);
     this.accumulator += frameDt;
 
     while (this.accumulator >= FIXED_DT) {
       this.accumulator -= FIXED_DT;
-      if (this.phase === 'countdown') {
-        this.countdownRemaining -= FIXED_DT;
-        if (this.countdownRemaining <= 0) this.startCurrentWave();
-      } else if (this.phase === 'active') {
-        this.stepPhysics();
-      }
+      this.stepFixed();
     }
     this.syncView(frameDt);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private stepFixed(): void {
+    if (this.phase === 'countdown') {
+      this.countdownRemaining -= FIXED_DT;
+      if (this.countdownRemaining <= 0) this.startCurrentWave();
+    } else if (this.phase === 'active') {
+      this.stepPhysics();
+    }
   }
 
   private stepPhysics(): void {
@@ -692,6 +701,23 @@ export class SurvivalMode {
   }
 
   /** Debug seam control injection, matching ChamberMode's key-backed path. */
+  debugSetSimPaused(paused: boolean): void {
+    this.debugPaused = paused;
+    this.accumulator = 0;
+    this.lastTime = performance.now();
+  }
+
+  debugStepSim(steps: number): void {
+    if (this.disposed) return;
+    const count = Math.max(
+      0,
+      Math.floor(Number.isFinite(steps) ? steps : 0),
+    );
+    for (let i = 0; i < count; i++) this.stepFixed();
+    this.syncView(count * FIXED_DT);
+    this.renderer.render(this.scene, this.camera);
+  }
+
   debugSetControls(controls: Partial<VehicleControls>): void {
     Object.assign(this.controls, controls);
     if (controls.throttle !== undefined && controls.throttle > 0)

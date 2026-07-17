@@ -158,6 +158,14 @@ export class App {
         this.chamber?.debugSetControls(c);
         this.survival?.debugSetControls(c);
       },
+      stepSim: (steps: number) => {
+        this.chamber?.debugStepSim(steps);
+        this.survival?.debugStepSim(steps);
+      },
+      setSimPaused: (paused: boolean) => {
+        this.chamber?.debugSetSimPaused(paused);
+        this.survival?.debugSetSimPaused(paused);
+      },
       telemetry: () => this.chamber?.debugTelemetry(),
       survivalTelemetry: () => this.survival?.debugTelemetry() ?? null,
       zombiePositions: () => this.survival?.debugZombiePositions() ?? [],

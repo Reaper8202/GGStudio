@@ -29,6 +29,8 @@ declare global {
       enterSurvival(): boolean;
       backToEditor(): void;
       setControls(c: Record<string, unknown>): void;
+      stepSim(steps: number): void;
+      setSimPaused(paused: boolean): void;
       telemetry(): {
         speedKmh: number;
         rpm: number;

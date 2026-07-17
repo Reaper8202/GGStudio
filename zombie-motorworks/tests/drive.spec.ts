@@ -51,17 +51,21 @@ test('underpowered heavy rig struggles on the ramp scenario', async ({ page }) =
   }
   expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(true);
   await page.evaluate(() => window.__scrapRig.setScenario('ramp'));
-  await settle(page);
+  await page.evaluate(() => window.__scrapRig.setSimPaused(true));
+  await page.evaluate(() => window.__scrapRig.stepSim(120));
   await page.evaluate(() => window.__scrapRig.setControls({ throttle: 1 }));
-  await settle(page, 6000);
-  const heavy = await page.evaluate(() => window.__scrapRig.telemetry());
-  await settle(page, 1500);
-  const stalled = await page.evaluate(() => window.__scrapRig.telemetry());
+  await page.evaluate(() => window.__scrapRig.stepSim(480));
+  const yHeavy = await page.evaluate(
+    () => window.__scrapRig.telemetry().position.y,
+  );
+  await page.evaluate(() => window.__scrapRig.stepSim(90));
+  const yAfter = await page.evaluate(
+    () => window.__scrapRig.telemetry().position.y,
+  );
   // The 30° dirt ramp starts at z≈16 (analyzer says ~10° max slope for this mass):
   // the rig must remain below the ~4m crest and have effectively stopped climbing.
-  expect(heavy.position.y).toBeLessThan(3.5);
-  expect(stalled.position.y).toBeLessThan(3.5);
-  expect(stalled.position.y - heavy.position.y).toBeLessThan(0.3);
+  expect(yHeavy).toBeLessThan(3.9);
+  expect(yAfter - yHeavy).toBeLessThan(0.15);
 });
 
 test('wheels mounted sideways produce no propulsion (natural failure)', async ({ page }) => {

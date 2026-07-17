@@ -51,6 +51,7 @@ export class ChamberMode {
   private keys = new Set<string>();
   private accumulator = 0;
   private lastTime = performance.now();
+  private debugPaused = false;
   private hud!: HTMLDivElement;
   private banner!: HTMLDivElement;
   private failTimers = { flipped: 0, noTraction: 0, airborne: 0 };
@@ -314,6 +315,10 @@ export class ChamberMode {
     const now = performance.now();
     let frameDt = (now - this.lastTime) / 1000;
     this.lastTime = now;
+    if (this.debugPaused) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     frameDt = Math.min(frameDt, 0.1);
     this.accumulator += frameDt;
 
@@ -538,6 +543,23 @@ export class ChamberMode {
   }
 
   /** Debug seam. */
+  debugSetSimPaused(paused: boolean): void {
+    this.debugPaused = paused;
+    this.accumulator = 0;
+    this.lastTime = performance.now();
+  }
+
+  debugStepSim(steps: number): void {
+    if (this.disposed) return;
+    const count = Math.max(
+      0,
+      Math.floor(Number.isFinite(steps) ? steps : 0),
+    );
+    for (let i = 0; i < count; i++) this.stepPhysics();
+    this.syncView(count * FIXED_DT);
+    this.renderer.render(this.scene, this.camera);
+  }
+
   debugSetControls(c: Partial<VehicleControls>): void {
     Object.assign(this.controls, c);
     if (c.throttle !== undefined && c.throttle > 0) this.keys.add('w');
