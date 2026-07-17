@@ -1,24 +1,20 @@
 import { expect, test } from '@playwright/test';
 import { boot, buildBasicRig, place, settle } from './seam.ts';
 
-test('wheel configuration is restored automatically after a blueprint change', async ({ page }) => {
+test('fresh wheels are auto-configured; explicit wheel choices are preserved', async ({ page }) => {
   await boot(page);
   await buildBasicRig(page);
-  // Attempts to un-drive wheels are normalized by the editor refresh.
-  for (const p of [
-    { x: 2, y: 1, z: 2 },
-    { x: -2, y: 1, z: 2 },
-    { x: 2, y: 1, z: -2 },
-    { x: -2, y: 1, z: -2 },
-  ]) {
-    expect(
-      await page.evaluate((pos) => window.__scrapRig.configureAt(pos, { driven: false }), p),
-    ).toBe(true);
-  }
+  // Fresh wheels get sensible defaults filled in (driven + braking + preset).
   const wheels = await page.evaluate(() => JSON.parse(window.__scrapRig.getBlueprintJson()).parts.filter((p: { defId: string }) => p.defId === 'wheel-standard'));
-  expect(wheels.every((wheel: { config: { driven: boolean; braking: boolean; suspensionPreset: string; steerInverted: boolean } }) =>
-    wheel.config.driven && wheel.config.braking && wheel.config.suspensionPreset === 'standard' && !wheel.config.steerInverted,
+  expect(wheels.every((wheel: { config: { driven: boolean; braking: boolean; suspensionPreset: string } }) =>
+    wheel.config.driven && wheel.config.braking && wheel.config.suspensionPreset === 'standard',
   )).toBe(true);
+  // An explicit player choice must survive editor refreshes (not be stomped).
+  expect(
+    await page.evaluate(() => window.__scrapRig.configureAt({ x: 2, y: 1, z: 2 }, { driven: false })),
+  ).toBe(true);
+  const after = await page.evaluate(() => JSON.parse(window.__scrapRig.getBlueprintJson()).parts.find((p: { pos: { x: number; z: number } }) => p.pos.x === 2 && p.pos.z === 2));
+  expect(after.config.driven).toBe(false);
 });
 
 test('tall narrow rigs warn about rollover and actually roll in a hard turn', async ({ page }) => {

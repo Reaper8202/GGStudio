@@ -154,25 +154,29 @@ describe('blueprint serialization', () => {
         ],
       }),
     ],
-    [
-      'upgrade level beyond the catalog maximum',
-      JSON.stringify({
-        schemaVersion: CURRENT_SCHEMA_VERSION,
-        id: 'bp',
-        name: 'bad',
-        parts: [
-          {
-            id: 'p1',
-            defId: 'wheel-standard',
-            pos: { x: 0, y: 0, z: 0 },
-            orient: 0,
-            config: { level: 6 },
-          },
-        ],
-      }),
-    ],
   ])('throws BlueprintFormatError for %s', (_name, json) => {
     expect(() => deserializeBlueprint(json)).toThrow(BlueprintFormatError);
+  });
+
+  it('clamps future upgrade levels and strips invalid or unknown config fields', () => {
+    const result = deserializeBlueprint(JSON.stringify({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      id: 'bp',
+      name: 'sanitized',
+      parts: [{
+        id: 'p1', defId: 'wheel-standard', pos: { x: 0, y: 0, z: 0 }, orient: 0,
+        config: {
+          level: 99, driven: true, steering: 'yes', braking: false,
+          suspensionPreset: 'space', paint: 'invisible', injected: 'nope',
+        },
+      }],
+    }));
+
+    expect(result.parts[0].config).toEqual({
+      level: 5,
+      driven: true,
+      braking: false,
+    });
   });
 
   it('migrates v1 type and rotation fields to v2 defId and orient', () => {

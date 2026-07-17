@@ -76,7 +76,7 @@ describe('profile store', () => {
     expect(storage.writes).toBe(1);
   });
 
-  it('never throws when storage reads or writes fail', () => {
+  it('keeps failed writes observable so callers can roll back', () => {
     const storage: ProfileStorage = {
       getItem() {
         throw new Error('read denied');
@@ -88,7 +88,7 @@ describe('profile store', () => {
     const store = new ProfileStore(storage);
 
     expect(store.load()).toEqual(defaultProfile());
-    expect(() => store.save(defaultProfile())).not.toThrow();
+    expect(() => store.save(defaultProfile())).toThrow('write denied');
     expect(store.load()).toEqual(defaultProfile());
   });
 });

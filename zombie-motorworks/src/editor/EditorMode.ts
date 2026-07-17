@@ -72,6 +72,7 @@ export interface EditorModeContext {
   profile: PlayerProfile;
   persistProfile(): void;
   onMenu(): void;
+  notice?: string;
   runContext?: RunState;
   runSummary?: { wavesSurvived: number; moneyEarned: number };
 }
@@ -102,6 +103,7 @@ export class EditorMode {
   private lastPointer: { x: number; y: number } | null = null;
   private eraseArmed = false;
   private disposed = false;
+  private explicitRenamePending = false;
   private readonly profile: PlayerProfile;
   private readonly persistProfile: () => void;
   private readonly runContext: RunState | undefined;
@@ -162,9 +164,11 @@ export class EditorMode {
       onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
       onMenu: context.onMenu,
       onRename: (name) => {
-        this.exec(
+        const pendingBefore = this.explicitRenamePending;
+        this.explicitRenamePending ||= name !== this.bp.name;
+        if (!this.exec(
           replaceBlueprintCommand({ ...this.bp, name }, 0, 'Rename build'),
-        );
+        )) this.explicitRenamePending = pendingBefore;
       },
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
@@ -219,6 +223,7 @@ export class EditorMode {
     this.ui.setRunContext(this.runContext?.wave, this.runSummary);
     this.refreshSlots();
     this.refresh();
+    if (context.notice) this.ui.setNotice(context.notice);
   }
 
   viewState(): EditorViewState {
@@ -255,6 +260,9 @@ export class EditorMode {
     window.removeEventListener('keydown', this.keyHandler);
     this.controls.dispose();
     this.tutorialOverlay?.dispose();
+    disposeObjectResources(this.scene);
+    this.scene.clear();
+    this.ghostMesh = null;
     this.ui.root.remove();
   }
 
@@ -267,6 +275,11 @@ export class EditorMode {
     this.selected.clear();
     this.history.clear();
     this.refresh();
+  }
+
+  /** A non-blocking editor banner for application-level persistence warnings. */
+  showNotice(text: string): void {
+    this.ui.setNotice(text);
   }
 
   private createNewBlueprint(): VehicleBlueprint {
@@ -361,7 +374,18 @@ export class EditorMode {
       return false;
     }
     try {
-      this.bp = this.history.execute(this.bp, cmd);
+      const preview = cmd.apply(this.bp);
+      const command = wheelPositionsChanged(this.bp, preview)
+        ? batchCommand(cmd.label, [
+            cmd,
+            replaceBlueprintCommand(
+              withDefaultWheelConfigs(preview),
+              0,
+              'Configure new wheels',
+            ),
+          ])
+        : cmd;
+      this.bp = this.history.execute(this.bp, command);
       this.refresh();
       this.autosave();
       return true;
@@ -582,6 +606,7 @@ export class EditorMode {
     this.ui.setArmedPart(null);
     if (this.ghostMesh) {
       this.scene.remove(this.ghostMesh);
+      disposeObjectResources(this.ghostMesh);
       this.ghostMesh = null;
     }
     this.ghostMeshKey = null;
@@ -664,7 +689,10 @@ export class EditorMode {
 
     const meshKey = `${this.ghost.defId}:${orient}:${result.ok}`;
     if (!this.ghostMesh || this.ghostMeshKey !== meshKey) {
-      if (this.ghostMesh) this.scene.remove(this.ghostMesh);
+      if (this.ghostMesh) {
+        this.scene.remove(this.ghostMesh);
+        disposeObjectResources(this.ghostMesh);
+      }
       const placed: PlacedPart = { id: '__ghost', defId: this.ghost.defId, pos: { x: 0, y: 0, z: 0 }, orient, config: {} };
       this.ghostMesh = buildPartMesh(def, placed, 0.55);
       this.ghostMesh.traverse((o) => {
@@ -974,12 +1002,17 @@ export class EditorMode {
       const all = this.slots();
       const previousName = this.profile.currentBlueprintName;
       all[this.bp.name] = serializeBlueprint(this.bp);
-      if (previousName !== undefined && previousName !== this.bp.name) {
+      if (
+        this.explicitRenamePending &&
+        previousName !== undefined &&
+        previousName !== this.bp.name
+      ) {
         delete all[previousName];
       }
       localStorage.setItem(BLUEPRINT_STORAGE_KEY, JSON.stringify(all));
       this.profile.currentBlueprintName = this.bp.name;
       this.persistProfile();
+      this.explicitRenamePending = false;
       this.refreshSlots();
       return true;
     } catch (err) {
@@ -1023,7 +1056,6 @@ export class EditorMode {
   // ---------- refresh ----------
 
   private refresh(): void {
-    this.normalizeWheels();
     this.rebuildMeshes();
     this.refreshAnalysis();
     this.ui.setBlueprintName(this.bp.name);
@@ -1040,6 +1072,7 @@ export class EditorMode {
   }
 
   private rebuildMeshes(): void {
+    disposeObjectResources(this.partsGroup);
     this.partsGroup.clear();
     for (const part of this.bp.parts) {
       const def = getPartDef(part.defId);
@@ -1082,33 +1115,6 @@ export class EditorMode {
       validation.errors.map((e) => e.message),
     );
     this.refreshOverlays();
-  }
-
-  private normalizeWheels(): void {
-    const wheels = this.bp.parts.filter((part) => getPartDef(part.defId).wheel);
-    if (wheels.length === 0) return;
-    const minZ = Math.min(...wheels.map((wheel) => wheel.pos.z));
-    const maxZ = Math.max(...wheels.map((wheel) => wheel.pos.z));
-    const midpoint = (minZ + maxZ) / 2;
-    const allSteer = minZ === maxZ;
-    let changed = false;
-    const parts = this.bp.parts.map((part) => {
-      if (!getPartDef(part.defId).wheel) return part;
-      const config: PartConfig = {
-        ...part.config,
-        driven: true,
-        braking: true,
-        steerInverted: false,
-        suspensionPreset: 'standard',
-        steering: allSteer || part.pos.z > midpoint,
-      };
-      const differs = Object.keys(config).some((key) => config[key as keyof PartConfig] !== part.config[key as keyof PartConfig]) ||
-        Object.keys(part.config).some((key) => !(key in config));
-      if (!differs) return part;
-      changed = true;
-      return { ...part, config };
-    });
-    if (changed) this.bp = { ...this.bp, parts };
   }
 
   private refreshOverlays(): void {
@@ -1178,4 +1184,65 @@ export class EditorMode {
   debugUnlockPart(defId: string): boolean {
     return this.unlockPart(defId);
   }
+}
+
+/** Fill only absent wheel defaults, preserving every player-selected value. */
+function withDefaultWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
+  const wheels = bp.parts.filter((part) => getPartDef(part.defId).wheel);
+  if (wheels.length === 0) return bp;
+  const minZ = Math.min(...wheels.map((wheel) => wheel.pos.z));
+  const maxZ = Math.max(...wheels.map((wheel) => wheel.pos.z));
+  const midpoint = (minZ + maxZ) / 2;
+  const allSteer = minZ === maxZ;
+  let changed = false;
+  const parts = bp.parts.map((part) => {
+    if (!getPartDef(part.defId).wheel) return part;
+    const config = { ...part.config };
+    if (config.driven === undefined) config.driven = true;
+    if (config.braking === undefined) config.braking = true;
+    if (config.steerInverted === undefined) config.steerInverted = false;
+    if (config.suspensionPreset === undefined) config.suspensionPreset = 'standard';
+    if (config.steering === undefined) {
+      config.steering = allSteer || part.pos.z > midpoint;
+    }
+    if (Object.keys(config).every((key) => config[key as keyof PartConfig] === part.config[key as keyof PartConfig])) {
+      return part;
+    }
+    changed = true;
+    return { ...part, config };
+  });
+  return changed ? { ...bp, parts } : bp;
+}
+
+function wheelPositionsChanged(
+  before: VehicleBlueprint,
+  after: VehicleBlueprint,
+): boolean {
+  const beforeById = new Map(before.parts.map((part) => [part.id, part]));
+  return after.parts.some((part) => {
+    if (!getPartDef(part.defId).wheel) return false;
+    const previous = beforeById.get(part.id);
+    return (
+      previous === undefined ||
+      previous.pos.x !== part.pos.x ||
+      previous.pos.y !== part.pos.y ||
+      previous.pos.z !== part.pos.z
+    );
+  });
+}
+
+function disposeObjectResources(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line)) return;
+    const renderable = object as THREE.Mesh | THREE.Line;
+    geometries.add(renderable.geometry);
+    const renderableMaterials = Array.isArray(renderable.material)
+      ? renderable.material
+      : [renderable.material];
+    for (const material of renderableMaterials) materials.add(material);
+  });
+  for (const geometry of geometries) geometry.dispose();
+  for (const material of materials) material.dispose();
 }

@@ -193,7 +193,7 @@ export class SurvivalMode {
       this.vehicle,
       this.handleZombieKilled,
     );
-    this.autoAim = new AutoAim(this.vehicle, this.zombies);
+    this.autoAim = new AutoAim(this.vehicle, this.zombies, this.world);
     this.waves = new WaveManager(this.zombies, {
       onRemainingChanged: (remaining) => {
         this.zombiesRemaining = remaining;

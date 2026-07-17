@@ -56,6 +56,7 @@ export interface EditorUI {
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
   setStatus(text: string): void;
+  setNotice(text: string): void;
   deny(text: string): void;
   ghostTip: HTMLDivElement;
 }
@@ -130,6 +131,10 @@ export function buildEditorUI(
   runBanner.className = 'panel run-banner';
   runBanner.style.display = 'none';
   root.appendChild(runBanner);
+  const noticeBanner = document.createElement('div');
+  noticeBanner.className = 'panel editor-notice';
+  noticeBanner.style.display = 'none';
+  root.appendChild(noticeBanner);
 
   const palette = document.createElement('div');
   palette.className = 'palette panel';
@@ -315,13 +320,20 @@ export function buildEditorUI(
       for (const [id, partButton] of partButtons) {
         const def = catalog[id];
         const locked = (def.unlockCost ?? 0) > 0 && !unlocked.has(def.id);
+        const unaffordable = !locked && def.cost > money;
         partButton.classList.toggle('locked', locked);
+        partButton.classList.toggle('unaffordable', unaffordable);
+        partButton.disabled = locked || unaffordable;
         partButton.setAttribute('aria-label', locked
           ? `${def.name}, locked, unlock for $${def.unlockCost ?? 0}`
-          : `${def.name}, costs $${def.cost}`);
+          : unaffordable
+            ? `${def.name}, costs $${def.cost}, not enough money`
+            : `${def.name}, costs $${def.cost}`);
         partButton.title = locked
           ? `Unlock ${def.name} for $${def.unlockCost ?? 0}`
-          : `${def.description} · Buy $${def.cost}`;
+          : unaffordable
+            ? `Need $${def.cost - money} more · Buy ${def.name} for $${def.cost}`
+            : `${def.description} · Buy $${def.cost}`;
         const price = partPriceLabels.get(id);
         if (price) price.textContent = locked
           ? `🔒 Unlock $${def.unlockCost ?? 0}`
@@ -359,6 +371,10 @@ export function buildEditorUI(
       if (highlighted) partButtons.get(highlighted)?.classList.add('tutorial-glow');
     },
     setStatus: (text) => { status.textContent = text; },
+    setNotice: (text) => {
+      noticeBanner.textContent = text;
+      noticeBanner.style.display = 'block';
+    },
     deny: (text) => {
       status.textContent = text;
       moneyReadout.classList.remove('deny-shake');

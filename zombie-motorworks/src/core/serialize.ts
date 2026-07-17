@@ -1,4 +1,7 @@
-import type {
+import {
+  PAINT_COLORS,
+  SUSPENSION_PRESET_MULTIPLIERS,
+  type
   PartConfig,
   PlacedPart,
   Vec3i,
@@ -202,18 +205,27 @@ function validateConfig(
 ): PartConfig {
   if (raw === undefined) return {};
   const config = requireRecord(raw, path);
+  const sanitized: PartConfig = {};
   const level = config.level;
   if (level !== undefined) {
     if (typeof level !== 'number' || !Number.isInteger(level) || level < 1) {
       throw new BlueprintFormatError(`${path}.level must be an integer >= 1`);
     }
-    if (def.upgrade !== undefined && level > def.upgrade.maxLevel) {
-      throw new BlueprintFormatError(
-        `${path}.level exceeds max level ${def.upgrade.maxLevel}`,
-      );
-    }
+    sanitized.level = Math.min(level, def.upgrade?.maxLevel ?? 1);
   }
-  return { ...config } as PartConfig;
+  for (const key of ['driven', 'steering', 'steerInverted', 'braking'] as const) {
+    if (typeof config[key] === 'boolean') sanitized[key] = config[key];
+  }
+  if (
+    typeof config.suspensionPreset === 'string' &&
+    config.suspensionPreset in SUSPENSION_PRESET_MULTIPLIERS
+  ) {
+    sanitized.suspensionPreset = config.suspensionPreset as PartConfig['suspensionPreset'];
+  }
+  if (typeof config.paint === 'string' && config.paint in PAINT_COLORS) {
+    sanitized.paint = config.paint as PartConfig['paint'];
+  }
+  return sanitized;
 }
 
 function requireSchemaVersion(raw: unknown): number {

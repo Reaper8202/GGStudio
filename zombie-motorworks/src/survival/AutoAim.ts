@@ -1,5 +1,11 @@
+import RAPIER from '@dimforge/rapier3d-compat';
 import type { RuntimeVehicle } from '../runtime/vehicle.ts';
 import type { RuntimeWeapon, WeaponAimInput } from '../runtime/weapons.ts';
+import {
+  GROUP_DEBRIS,
+  GROUP_TERRAIN,
+  GROUP_ZOMBIE,
+} from '../runtime/assembler.ts';
 import type { ZombieSystem } from './zombies/ZombieSystem.ts';
 
 export type AutoAimEntry = WeaponAimInput;
@@ -16,10 +22,18 @@ interface AutoWeapon {
 export class AutoAim {
   private readonly weaponAim = new Map<string, AutoAimEntry>();
   private readonly autoWeapons: AutoWeapon[] = [];
+  private readonly candidateTargets: (ReturnType<ZombieSystem['getAliveTargets']>[number] | null)[] =
+    [null, null, null, null];
+  private readonly candidateDistances = new Float64Array(4);
+  private readonly losRay = new RAPIER.Ray(
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 0, z: 1 },
+  );
 
   constructor(
     private readonly vehicle: RuntimeVehicle,
     private readonly zombies: ZombieSystem,
+    private readonly world: Pick<RAPIER.World, 'castRay'>,
   ) {
     const rotation = vehicle.body.rotation();
     for (const weapon of vehicle.weaponStates()) {
@@ -37,6 +51,7 @@ export class AutoAim {
         entry: {
           aimYawWorld: Math.atan2(forwardX, forwardZ) + weapon.yaw,
           fire: false,
+          aimPoint: { x: 0, y: 0, z: 0 },
         },
       });
     }
@@ -90,33 +105,86 @@ export class AutoAim {
         vehicleRotation.x * ty -
         vehicleRotation.y * tx;
 
-      let nearestDistanceSq = weapon.def.rangeM * weapon.def.rangeM;
+      const candidateCount = this.collectNearestCandidates(
+        targets,
+        mountX,
+        mountY,
+        mountZ,
+        weapon.def.rangeM,
+      );
       let acquired = false;
-      let targetX = 0;
-      let targetZ = 0;
 
-      for (const zombie of targets) {
-        // Rapier is authoritative here. The render position can trail physics
-        // and is not precise enough for a 0.32 m-radius hitscan target.
+      for (let candidateIndex = 0; candidateIndex < candidateCount; candidateIndex++) {
+        const zombie = this.candidateTargets[candidateIndex];
+        if (!zombie) continue;
         const target = zombie.body.translation();
         const dx = target.x - mountX;
         const dy = target.y - mountY;
         const dz = target.z - mountZ;
         const distanceSq = dx * dx + dy * dy + dz * dz;
-        if (distanceSq > nearestDistanceSq) continue;
-        nearestDistanceSq = distanceSq;
-        targetX = target.x;
-        targetZ = target.z;
+        const distance = Math.sqrt(distanceSq);
+        if (distance <= 1e-6) continue;
+        this.losRay.origin.x = mountX + (dx / distance) * 0.4;
+        this.losRay.origin.y = mountY + (dy / distance) * 0.4;
+        this.losRay.origin.z = mountZ + (dz / distance) * 0.4;
+        this.losRay.dir.x = dx / distance;
+        this.losRay.dir.y = dy / distance;
+        this.losRay.dir.z = dz / distance;
+        const hit = this.world.castRay(
+          this.losRay,
+          Math.max(0, distance - 0.4),
+          true,
+          undefined,
+          (0xffff << 16) | (GROUP_TERRAIN | GROUP_DEBRIS | GROUP_ZOMBIE),
+        );
+        if (!hit || hit.collider.handle !== zombie.collider.handle) continue;
+        entry.aimYawWorld = Math.atan2(dx, dz);
+        entry.aimPoint!.x = target.x;
+        entry.aimPoint!.y = target.y;
+        entry.aimPoint!.z = target.z;
         acquired = true;
+        break;
       }
 
-      if (acquired) {
-        entry.aimYawWorld = Math.atan2(targetX - mountX, targetZ - mountZ);
-      }
       entry.fire = acquired;
       this.weaponAim.set(weapon.partId, entry);
     }
 
     return this.weaponAim;
+  }
+
+  /** Insert the closest bounded set without allocating or sorting each step. */
+  private collectNearestCandidates(
+    targets: ReturnType<ZombieSystem['getAliveTargets']>,
+    mountX: number,
+    mountY: number,
+    mountZ: number,
+    rangeM: number,
+  ): number {
+    let count = 0;
+    const rangeSq = rangeM * rangeM;
+    for (const zombie of targets) {
+      // Rapier is authoritative here. The render position can trail physics
+      // and is not precise enough for a 0.32 m-radius hitscan target.
+      const target = zombie.body.translation();
+      const dx = target.x - mountX;
+      const dy = target.y - mountY;
+      const dz = target.z - mountZ;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq > rangeSq) continue;
+      let index = count;
+      while (index > 0 && distanceSq < this.candidateDistances[index - 1]) {
+        if (index < this.candidateTargets.length) {
+          this.candidateTargets[index] = this.candidateTargets[index - 1];
+          this.candidateDistances[index] = this.candidateDistances[index - 1];
+        }
+        index--;
+      }
+      if (index >= this.candidateTargets.length) continue;
+      this.candidateTargets[index] = zombie;
+      this.candidateDistances[index] = distanceSq;
+      if (count < this.candidateTargets.length) count++;
+    }
+    return count;
   }
 }

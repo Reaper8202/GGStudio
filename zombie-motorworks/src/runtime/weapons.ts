@@ -75,6 +75,8 @@ export interface WeaponStepResult {
 export interface WeaponAimInput {
   aimYawWorld: number;
   fire: boolean;
+  /** World-space target centre for automatic weapons. Manual aim remains yaw-only. */
+  aimPoint?: Vec3;
 }
 
 export interface WeaponStepInput extends WeaponAimInput {
@@ -135,7 +137,7 @@ export function stepWeapons(
     if (ammoAvailable - ammoUsed < wpn.def.ammoPerShot) continue;
     if (powerAvailable - powerUsed < wpn.def.powerPerShot) continue;
 
-    const fireDir =
+    const yawDir =
       wpn.yaw !== 0
         ? norm(rotateAroundAxis(mountedFwdW, up, wpn.yaw))
         : mountedFwdW;
@@ -143,6 +145,9 @@ export function stepWeapons(
       v3(pos.x, pos.y, pos.z),
       rotateByQuat(rot, wpn.mountLocal),
     );
+    const fireDir = wpn.def.aimMode === 'auto' && weaponInput.aimPoint
+      ? pitchedDirection(yawDir, up, mountW, weaponInput.aimPoint)
+      : yawDir;
     const muzzle = add(mountW, scale(fireDir, 0.4));
 
     const ray = new RAPIER.Ray(muzzle, fireDir);
@@ -183,6 +188,47 @@ export function stepWeapons(
     wpn.shotsFired++;
   }
   return { shots, ammoUsed, powerUsed };
+}
+
+const MAX_AUTO_PITCH = (35 * Math.PI) / 180;
+
+/**
+ * Preserve the yaw slew result while aiming vertically at an automatic
+ * weapon's target. The pitch limit prevents elevated turrets from firing
+ * back through their own vehicle deck.
+ */
+function pitchedDirection(
+  yawDir: Vec3,
+  up: Vec3,
+  mount: Vec3,
+  target: Vec3,
+): Vec3 {
+  const targetOffset = {
+    x: target.x - mount.x,
+    y: target.y - mount.y,
+    z: target.z - mount.z,
+  };
+  const vertical =
+    targetOffset.x * up.x + targetOffset.y * up.y + targetOffset.z * up.z;
+  const horizontal = {
+    x: yawDir.x - up.x * (yawDir.x * up.x + yawDir.y * up.y + yawDir.z * up.z),
+    y: yawDir.y - up.y * (yawDir.x * up.x + yawDir.y * up.y + yawDir.z * up.z),
+    z: yawDir.z - up.z * (yawDir.x * up.x + yawDir.y * up.y + yawDir.z * up.z),
+  };
+  const horizontalLength = Math.hypot(horizontal.x, horizontal.y, horizontal.z);
+  if (horizontalLength < 1e-6) return yawDir;
+  const horizontalDir = scale(horizontal, 1 / horizontalLength);
+  const targetHorizontal = Math.hypot(
+    targetOffset.x - up.x * vertical,
+    targetOffset.y - up.y * vertical,
+    targetOffset.z - up.z * vertical,
+  );
+  const pitch = clamp(
+    Math.atan2(vertical, targetHorizontal),
+    -MAX_AUTO_PITCH,
+    MAX_AUTO_PITCH,
+  );
+  return norm(add(scale(horizontalDir, Math.cos(pitch)), scale(up, Math.sin(pitch))));
 }
 
 function halfArc(def: WeaponDefinition): number {

@@ -101,6 +101,28 @@ describe('runtime upgrade resolution', () => {
     world.free();
   });
 
+  it('defaults an unknown persisted suspension preset to standard', () => {
+    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    const wheel = {
+      ...part('wheel', 'wheel-standard'),
+      config: { suspensionPreset: 'unknown' } as never,
+    };
+    const assembled = assembleVehicle(
+      world,
+      blueprint([wheel]),
+      getPartDef,
+      [],
+      { translation: { x: 0, y: 1, z: 0 } },
+    );
+
+    expect(assembled.wheels[0].suspension).toEqual(
+      getPartDef('wheel-standard').wheel!.suspension,
+    );
+
+    world.removeRigidBody(assembled.body);
+    world.free();
+  });
+
   it('creates a level-three weapon with scaled damage for catalog and injected definitions', () => {
     const turret = part('turret', 'turret', 3);
     const runtime = createWeapon(turret);
@@ -160,6 +182,40 @@ describe('hybrid weapon input', () => {
     expect(global.yaw).toBeCloseTo(-0.32);
     expect(global.shotsFired).toBe(1);
     expect(result.shots).toHaveLength(1);
+
+    world.removeRigidBody(assembled.body);
+    world.free();
+  });
+
+  it('pitches an elevated automatic turret down toward its target centre', () => {
+    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    const elevated = {
+      ...part('elevated', 'turret'),
+      pos: { x: 0, y: 3, z: 0 },
+    };
+    const assembled = assembleVehicle(
+      world,
+      blueprint([elevated]),
+      getPartDef,
+      [],
+      { translation: { x: 0, y: 0, z: 0 } },
+    );
+    const weapon = createWeapon(elevated);
+
+    const result = stepWeapons(
+      world,
+      assembled,
+      [weapon],
+      new Set([weapon.partId]),
+      { aimYawWorld: 0, fire: true, aimPoint: { x: 0, y: 0.9, z: 10 } },
+      100,
+      1_000,
+      1,
+    );
+
+    expect(result.shots).toHaveLength(1);
+    expect(result.shots[0].to.y).toBeLessThan(result.shots[0].from.y);
+    expect(result.shots[0].to.y - result.shots[0].from.y).toBeLessThan(-1);
 
     world.removeRigidBody(assembled.body);
     world.free();

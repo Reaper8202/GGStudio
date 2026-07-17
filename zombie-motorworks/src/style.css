@@ -175,6 +175,18 @@ canvas.viewport {
   color: #ffca72;
 }
 
+.editor-notice {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  z-index: 11;
+  max-width: min(680px, calc(100% - 32px));
+  transform: translateX(-50%);
+  color: #ffca72;
+  font-weight: 700;
+  text-align: center;
+}
+
 .palette {
   position: absolute;
   left: 8px;
@@ -289,6 +301,18 @@ button:disabled {
 
 .part-btn.locked .part-price {
   color: #b8a06d !important;
+}
+
+.part-btn.unaffordable {
+  background: #2b2b31;
+  border-color: #51414a;
+  color: #a1959b;
+  filter: grayscale(0.45);
+  opacity: 0.78;
+}
+
+.part-btn.unaffordable .part-price {
+  color: #d69d72 !important;
 }
 
 .erase-btn {

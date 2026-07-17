@@ -182,7 +182,11 @@ export function assembleVehicle(
       entry.colliderHandles.push(col.handle);
       entry.colliderCentresM.push(centre);
 
-      const preset = placed.config.suspensionPreset ?? 'standard';
+      const requestedPreset = placed.config.suspensionPreset;
+      const preset =
+        requestedPreset && requestedPreset in SUSPENSION_PRESET_MULTIPLIERS
+          ? requestedPreset
+          : 'standard';
       // Normalize axle handedness: a mirrored wheel is physically the same
       // wheel (the differential spins each side opposite so both roll the
       // vehicle forward). If the wheel's rolling direction opposes vehicle

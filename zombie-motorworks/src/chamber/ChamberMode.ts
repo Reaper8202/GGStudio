@@ -88,7 +88,10 @@ export class ChamberMode {
   // ---------- world/scenario ----------
 
   private resetWorld(): void {
+    if (this.eventQueue) this.eventQueue.free();
     if (this.world) this.world.free();
+    disposeSceneAssets(this.scene);
+    this.tracers.length = 0;
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.eventQueue = new RAPIER.EventQueue(true);
     this.surfaceByCollider.clear();
@@ -479,6 +482,12 @@ export class ChamberMode {
       t.ttl -= frameDt;
       if (t.ttl <= 0) {
         this.scene.remove(t.line);
+        t.line.geometry.dispose();
+        if (Array.isArray(t.line.material)) {
+          for (const material of t.line.material) material.dispose();
+        } else {
+          t.line.material.dispose();
+        }
         return false;
       }
       return true;
@@ -538,7 +547,13 @@ export class ChamberMode {
     this.renderer.domElement.removeEventListener('pointerdown', this.onFireDown);
     this.renderer.domElement.removeEventListener('pointerup', this.onFireUp);
     this.vehicle?.dispose();
+    this.eventQueue?.free();
     this.world?.free();
+    disposeSceneAssets(this.scene);
+    this.scene.clear();
+    this.tracers.length = 0;
+    this.wheelMeshes.clear();
+    this.islandGroups.clear();
     this.ui.remove();
   }
 
@@ -592,4 +607,20 @@ export class ChamberMode {
     this.scenario = s;
     this.reset();
   }
+}
+
+function disposeSceneAssets(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line)) return;
+    const renderable = object as THREE.Mesh | THREE.Line;
+    geometries.add(renderable.geometry);
+    const renderableMaterials = Array.isArray(renderable.material)
+      ? renderable.material
+      : [renderable.material];
+    for (const material of renderableMaterials) materials.add(material);
+  });
+  for (const geometry of geometries) geometry.dispose();
+  for (const material of materials) material.dispose();
 }

@@ -54,6 +54,10 @@ export class App {
   private runSummary:
     | { wavesSurvived: number; moneyEarned: number }
     | undefined;
+  private profileDirty = false;
+  private profileFlushTimer: number | undefined;
+  private saveFailureNotified = false;
+  private pendingEditorNotice: string | undefined;
 
   constructor(private readonly root: HTMLElement) {
     // Raw-key detection must happen before profile loading can synthesize an
@@ -64,6 +68,8 @@ export class App {
     this.history = new CommandHistory((moneyDelta) =>
       this.changeMoney(moneyDelta, true),
     );
+    window.addEventListener('pagehide', this.flushDirtyProfile);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   async start(): Promise<void> {
@@ -107,13 +113,15 @@ export class App {
         history: this.history,
         view: this.savedView,
         profile: this.profile,
-        persistProfile: () => profileStore.save(this.profile),
+        persistProfile: () => this.saveProfileOrThrow(),
         onMenu: () => this.returnToTitle(),
         runContext:
           this.activeRun && this.inBuildPhase ? this.activeRun : undefined,
         runSummary: this.runSummary,
+        notice: this.pendingEditorNotice,
       },
     );
+    this.pendingEditorNotice = undefined;
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
   }
 
@@ -151,7 +159,16 @@ export class App {
   private beginContinueGame(): void {
     this.disposeTitle();
     this.resetSessionState();
-    this.bp = this.loadCurrentBlueprint() ?? buildStarterBlueprint();
+    const loaded = this.loadCurrentBlueprint();
+    if (loaded.kind === 'loaded') {
+      this.bp = loaded.blueprint;
+    } else {
+      this.bp = buildStarterBlueprint();
+      if (loaded.kind === 'failed') {
+        this.pendingEditorNotice =
+          `Saved vehicle could not be loaded — it has been preserved as ${loaded.name}`;
+      }
+    }
     this.openEditor();
   }
 
@@ -248,7 +265,7 @@ export class App {
     run: RunState,
     survivingPartIds: readonly string[],
   ): void {
-    profileStore.save(this.profile);
+    this.flushProfile();
     this.bp = pruneBlueprintToSurvivors(this.bp, survivingPartIds);
     this.history.clear();
     this.activeRun = { wave: run.wave };
@@ -261,7 +278,7 @@ export class App {
   }
 
   private finishRun(run: RunState): void {
-    profileStore.save(this.profile);
+    this.flushProfile();
     this.runSummary = {
       wavesSurvived: Math.max(0, run.wave - 1),
       moneyEarned: this.runMoneyEarned,
@@ -287,21 +304,83 @@ export class App {
       throw new Error('Insufficient funds');
     }
     this.profile.money = next;
-    if (persist) profileStore.save(this.profile);
+    if (persist) {
+      try {
+        this.saveProfileOrThrow();
+      } catch (error) {
+        this.profile.money -= moneyDelta;
+        throw error;
+      }
+    } else {
+      this.markProfileDirty();
+    }
   }
 
-  private loadCurrentBlueprint(): VehicleBlueprint | null {
+  private loadCurrentBlueprint():
+    | { kind: 'missing' }
+    | { kind: 'loaded'; blueprint: VehicleBlueprint }
+    | { kind: 'failed'; name: string } {
     const name = this.profile.currentBlueprintName;
-    if (!name) return null;
+    if (!name) return { kind: 'missing' };
     try {
       const slots = JSON.parse(
         localStorage.getItem(BLUEPRINT_STORAGE_KEY) ?? '{}',
       ) as Record<string, unknown>;
       const json = slots[name];
-      return typeof json === 'string' ? deserializeBlueprint(json) : null;
+      if (typeof json !== 'string') return { kind: 'missing' };
+      return { kind: 'loaded', blueprint: deserializeBlueprint(json) };
     } catch {
-      return null;
+      return { kind: 'failed', name };
     }
+  }
+
+  private markProfileDirty(): void {
+    this.profileDirty = true;
+    if (this.profileFlushTimer !== undefined) return;
+    this.profileFlushTimer = window.setTimeout(() => {
+      this.profileFlushTimer = undefined;
+      this.flushProfile();
+    }, 2_000);
+  }
+
+  private readonly flushDirtyProfile = (): void => {
+    if (this.profileFlushTimer !== undefined) {
+      window.clearTimeout(this.profileFlushTimer);
+      this.profileFlushTimer = undefined;
+    }
+    this.flushProfile();
+  };
+
+  private readonly onVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') this.flushDirtyProfile();
+  };
+
+  private flushProfile(): void {
+    if (!this.profileDirty) return;
+    try {
+      profileStore.save(this.profile);
+      this.profileDirty = false;
+    } catch {
+      this.notifySaveFailure();
+    }
+  }
+
+  private saveProfileOrThrow(): void {
+    try {
+      profileStore.save(this.profile);
+      this.profileDirty = false;
+    } catch (error) {
+      this.notifySaveFailure();
+      throw error;
+    }
+  }
+
+  private notifySaveFailure(): void {
+    if (this.saveFailureNotified) return;
+    this.saveFailureNotified = true;
+    const notice = 'Progress could not be saved';
+    if (this.editor) this.editor.showNotice(notice);
+    else this.pendingEditorNotice = notice;
   }
 
   debugSeam(): Record<string, unknown> {
@@ -447,14 +526,24 @@ export function buildStarterBlueprint(): VehicleBlueprint {
     part('frame-box', { x: -1, y: 1, z: 2 }),
     part('frame-box', { x: 1, y: 1, z: -2 }),
     part('frame-box', { x: -1, y: 1, z: -2 }),
-    part('wheel-standard', { x: 2, y: 1, z: 2 }, yaw180),
-    part('wheel-standard', { x: -2, y: 1, z: 2 }),
-    part('wheel-standard', { x: 2, y: 1, z: -2 }, yaw180),
-    part('wheel-standard', { x: -2, y: 1, z: -2 }),
+    part('wheel-standard', { x: 2, y: 1, z: 2 }, yaw180, defaultWheelConfig(true)),
+    part('wheel-standard', { x: -2, y: 1, z: 2 }, 0, defaultWheelConfig(true)),
+    part('wheel-standard', { x: 2, y: 1, z: -2 }, yaw180, defaultWheelConfig(false)),
+    part('wheel-standard', { x: -2, y: 1, z: -2 }, 0, defaultWheelConfig(false)),
     part('frame-box', { x: 0, y: 1, z: -2 }),
     part('engine-small', { x: 0, y: 2, z: -2 }),
     part('fuel-tank', { x: 0, y: 2, z: -1 }),
     part('turret', { x: 0, y: 2, z: 1 }),
   ];
   return { ...createEmptyBlueprint('starter-rig'), parts };
+}
+
+function defaultWheelConfig(steering: boolean): PartConfig {
+  return {
+    driven: true,
+    braking: true,
+    steering,
+    steerInverted: false,
+    suspensionPreset: 'standard',
+  };
 }

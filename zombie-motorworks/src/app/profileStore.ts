@@ -19,7 +19,7 @@ function browserStorage(): ProfileStorage | null {
   }
 }
 
-/** Cached, exception-safe profile persistence at the application boundary. */
+/** Cached profile persistence at the application boundary. */
 export class ProfileStore {
   private cached: PlayerProfile | undefined;
 
@@ -39,22 +39,18 @@ export class ProfileStore {
   }
 
   save(profile: PlayerProfile): void {
-    try {
-      const normalized = decodeProfile(encodeProfile(profile));
-      profile.schemaVersion = normalized.schemaVersion;
-      profile.money = normalized.money;
-      profile.unlockedDefIds = [...normalized.unlockedDefIds];
-      if (normalized.currentBlueprintName === undefined) {
-        delete profile.currentBlueprintName;
-      } else {
-        profile.currentBlueprintName = normalized.currentBlueprintName;
-      }
-      this.cached = profile;
-      this.storage?.setItem(PROFILE_STORAGE_KEY, encodeProfile(profile));
-    } catch {
-      // Keep the caller's in-memory profile usable when persistence is unavailable.
-      this.cached = profile;
+    const normalized = decodeProfile(encodeProfile(profile));
+    profile.schemaVersion = normalized.schemaVersion;
+    profile.money = normalized.money;
+    profile.unlockedDefIds = [...normalized.unlockedDefIds];
+    if (normalized.currentBlueprintName === undefined) {
+      delete profile.currentBlueprintName;
+    } else {
+      profile.currentBlueprintName = normalized.currentBlueprintName;
     }
+    if (this.storage === null) throw new Error('Profile storage unavailable');
+    this.storage.setItem(PROFILE_STORAGE_KEY, encodeProfile(profile));
+    this.cached = profile;
   }
 }
 
