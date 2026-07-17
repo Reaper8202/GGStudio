@@ -20,8 +20,20 @@ export interface EditorUIHandlers {
   onFightZombies(): void;
   onStartTutorial(): void;
   onConfigChange(partId: string, key: string, value: boolean | string): void;
+  onUpgradePart(partId: string): void;
   onDeleteSelected(): void;
   onRotateSelected(axis: 'y' | 'x'): void;
+}
+
+export interface SelectedPartEconomy {
+  nextUpgradePrice: number | null;
+  canUpgrade: boolean;
+  sellRefund: number;
+}
+
+export interface RunSummary {
+  wavesSurvived: number;
+  moneyEarned: number;
 }
 
 export interface EditorUI {
@@ -36,10 +48,14 @@ export interface EditorUI {
     partId?: string,
     level?: number,
     effectiveDef?: PartDefinition,
+    economy?: SelectedPartEconomy,
   ): void;
+  setEconomy(money: number, unlockedDefIds: readonly string[]): void;
+  setRunContext(wave?: number, summary?: RunSummary): void;
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
   setStatus(text: string): void;
+  deny(text: string): void;
   ghostTip: HTMLDivElement;
 }
 
@@ -101,7 +117,16 @@ export function buildEditorUI(
   testBtn.className = 'primary';
   const fightBtn = btn('Fight Zombies', handlers.onFightZombies);
   fightBtn.className = 'primary';
-  top.append(testBtn, fightBtn);
+  const moneyReadout = document.createElement('span');
+  moneyReadout.className = 'panel money-readout';
+  moneyReadout.textContent = '$0';
+  moneyReadout.addEventListener('animationend', () => moneyReadout.classList.remove('deny-shake'));
+  top.append(testBtn, fightBtn, moneyReadout);
+
+  const runBanner = document.createElement('div');
+  runBanner.className = 'panel run-banner';
+  runBanner.style.display = 'none';
+  root.appendChild(runBanner);
 
   const palette = document.createElement('div');
   palette.className = 'palette panel';
@@ -110,6 +135,7 @@ export function buildEditorUI(
   paletteContent.className = 'palette-content';
   palette.appendChild(paletteContent);
   const partButtons = new Map<string, HTMLButtonElement>();
+  const partPriceLabels = new Map<string, HTMLElement>();
   let armed: string | null = null;
   let highlighted: string | null = null;
   for (const id of SIMPLE_PART_IDS) {
@@ -121,11 +147,14 @@ export function buildEditorUI(
     name.textContent = KID_LABELS[id]?.name ?? def.name;
     const blurb = document.createElement('small');
     blurb.textContent = KID_LABELS[id]?.blurb ?? def.description;
-    partButton.append(name, blurb);
+    const price = document.createElement('small');
+    price.className = 'part-price';
+    partButton.append(name, blurb, price);
     partButton.title = def.description;
     partButton.addEventListener('click', () => armed === id ? handlers.onCancelTool() : handlers.onArmPart(id));
     paletteContent.appendChild(partButton);
     partButtons.set(id, partButton);
+    partPriceLabels.set(id, price);
   }
   const eraseButton = btn('🧽 Erase', handlers.onToggleErase, 'Delete a part with the next click');
   eraseButton.className = 'erase-btn';
@@ -234,7 +263,7 @@ export function buildEditorUI(
       fightBtn.disabled = !enabled;
       fightBtn.title = enabled ? 'Fight zombies' : blockedTitle;
     },
-    setSelectedPart: (def, partId, level = 1, effectiveDef = def ?? undefined) => {
+    setSelectedPart: (def, partId, level = 1, effectiveDef = def ?? undefined, economy) => {
       selectedToolbar.replaceChildren();
       if (!def || !partId) { selectedToolbar.style.display = 'none'; return; }
       selectedToolbar.style.display = 'flex';
@@ -252,6 +281,14 @@ export function buildEditorUI(
         : [];
       levelAndStats.textContent = [levelLabel, ...stats].join(' · ');
       selectedToolbar.appendChild(levelAndStats);
+      const nextPrice = economy?.nextUpgradePrice ?? null;
+      const upgradeButton = btn(
+        nextPrice === null ? 'Max Level' : `Upgrade $${nextPrice}`,
+        () => handlers.onUpgradePart(partId),
+      );
+      upgradeButton.disabled = nextPrice === null || economy?.canUpgrade !== true;
+      if (nextPrice !== null && economy?.canUpgrade === false) upgradeButton.title = 'Not enough money';
+      selectedToolbar.appendChild(upgradeButton);
       if (!def.isRoot) {
         selectedToolbar.append(btn('Turn', () => handlers.onRotateSelected('y'), 'R'), btn('Flip', () => handlers.onRotateSelected('x'), 'F'));
       }
@@ -266,7 +303,44 @@ export function buildEditorUI(
         swatches.appendChild(swatch);
       }
       selectedToolbar.appendChild(swatches);
-      if (!def.isRoot) selectedToolbar.appendChild(btn('Delete', handlers.onDeleteSelected, 'Del'));
+      if (!def.isRoot) selectedToolbar.appendChild(btn(`Sell +$${economy?.sellRefund ?? 0}`, handlers.onDeleteSelected, 'Del'));
+    },
+    setEconomy: (money, unlockedDefIds) => {
+      moneyReadout.textContent = `$${money}`;
+      const unlocked = new Set(unlockedDefIds);
+      for (const [id, partButton] of partButtons) {
+        const def = catalog[id];
+        const locked = (def.unlockCost ?? 0) > 0 && !unlocked.has(def.id);
+        partButton.classList.toggle('locked', locked);
+        partButton.setAttribute('aria-label', locked
+          ? `${def.name}, locked, unlock for $${def.unlockCost ?? 0}`
+          : `${def.name}, costs $${def.cost}`);
+        partButton.title = locked
+          ? `Unlock ${def.name} for $${def.unlockCost ?? 0}`
+          : `${def.description} · Buy $${def.cost}`;
+        const price = partPriceLabels.get(id);
+        if (price) price.textContent = locked
+          ? `🔒 Unlock $${def.unlockCost ?? 0}`
+          : `Buy $${def.cost}`;
+      }
+    },
+    setRunContext: (wave, summary) => {
+      if (wave !== undefined) {
+        runBanner.textContent = `Wave ${wave} cleared — rebuild! Next: Wave ${wave + 1}`;
+        runBanner.style.display = 'block';
+        runBanner.classList.remove('run-summary');
+        fightBtn.textContent = `Start Wave ${wave + 1}`;
+        return;
+      }
+      fightBtn.textContent = 'Fight Zombies';
+      if (summary) {
+        runBanner.textContent = `Run complete — ${summary.wavesSurvived} wave${summary.wavesSurvived === 1 ? '' : 's'} survived · $${summary.moneyEarned} earned`;
+        runBanner.style.display = 'block';
+        runBanner.classList.add('run-summary');
+      } else {
+        runBanner.style.display = 'none';
+        runBanner.classList.remove('run-summary');
+      }
     },
     setArmedPart: (defId) => {
       if (armed) (armed === 'erase' ? eraseButton : partButtons.get(armed))?.classList.remove('active');
@@ -280,6 +354,12 @@ export function buildEditorUI(
       if (highlighted) partButtons.get(highlighted)?.classList.add('tutorial-glow');
     },
     setStatus: (text) => { status.textContent = text; },
+    deny: (text) => {
+      status.textContent = text;
+      moneyReadout.classList.remove('deny-shake');
+      void moneyReadout.offsetWidth;
+      moneyReadout.classList.add('deny-shake');
+    },
   };
 }
 

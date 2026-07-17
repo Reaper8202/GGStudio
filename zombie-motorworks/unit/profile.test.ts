@@ -46,7 +46,7 @@ describe('player profile codec', () => {
     ]);
   });
 
-  it('clamps negative and non-finite money to a safe profile value', () => {
+  it('clamps negatives and rejects non-integer or unsafe balances', () => {
     expect(
       decodeProfile(
         JSON.stringify({ schemaVersion: 1, money: -35, unlockedDefIds: [] }),
@@ -55,6 +55,20 @@ describe('player profile codec', () => {
     expect(
       decodeProfile(
         JSON.stringify({ schemaVersion: 1, money: Number.NaN, unlockedDefIds: [] }),
+      ).money,
+    ).toBe(DEFAULT_MONEY);
+    expect(
+      decodeProfile(
+        JSON.stringify({ schemaVersion: 1, money: 10.5, unlockedDefIds: [] }),
+      ).money,
+    ).toBe(DEFAULT_MONEY);
+    expect(
+      decodeProfile(
+        JSON.stringify({
+          schemaVersion: 1,
+          money: Number.MAX_SAFE_INTEGER + 1,
+          unlockedDefIds: [],
+        }),
       ).money,
     ).toBe(DEFAULT_MONEY);
   });

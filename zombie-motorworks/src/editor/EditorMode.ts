@@ -22,6 +22,7 @@ import {
   mirrorCommand,
   placeCommand,
   removeCommand,
+  replaceBlueprintCommand,
   rotateCommand,
   updateConfigCommand,
   type EditorCommand,
@@ -40,8 +41,17 @@ import { buildEditorUI, type EditorUI } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
+import {
+  canAfford,
+  nextUpgrade,
+  placeCost,
+  sellRefund,
+  unlockCost,
+  type RunState,
+} from '../core/economy.ts';
+import type { PlayerProfile } from '../core/profile.ts';
 
-const STORAGE_KEY = 'scraprig.blueprints.v1';
+export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
 
 interface GhostState {
@@ -54,6 +64,15 @@ export interface EditorViewState {
   cameraPos: { x: number; y: number; z: number };
   target: { x: number; y: number; z: number };
   layer: number;
+}
+
+export interface EditorModeContext {
+  history?: CommandHistory;
+  view?: EditorViewState;
+  profile: PlayerProfile;
+  persistProfile(): void;
+  runContext?: RunState;
+  runSummary?: { wavesSurvived: number; moneyEarned: number };
 }
 
 export class EditorMode {
@@ -82,6 +101,10 @@ export class EditorMode {
   private lastPointer: { x: number; y: number } | null = null;
   private eraseArmed = false;
   private disposed = false;
+  private readonly profile: PlayerProfile;
+  private readonly persistProfile: () => void;
+  private readonly runContext: RunState | undefined;
+  private readonly runSummary: { wavesSurvived: number; moneyEarned: number } | undefined;
   private readonly keyHandler = (e: KeyboardEvent) => this.onKey(e);
 
   constructor(
@@ -90,10 +113,14 @@ export class EditorMode {
     initial: VehicleBlueprint,
     private readonly onTestDrive: (bp: VehicleBlueprint) => void,
     private readonly onFightZombies: (bp: VehicleBlueprint) => void,
-    restore?: { history?: CommandHistory; view?: EditorViewState },
+    context: EditorModeContext,
   ) {
     this.bp = initial;
-    this.history = restore?.history ?? new CommandHistory();
+    this.profile = context.profile;
+    this.persistProfile = context.persistProfile;
+    this.runContext = context.runContext;
+    this.runSummary = context.runSummary;
+    this.history = context.history ?? new CommandHistory((moneyDelta) => this.mutateMoney(moneyDelta));
     this.scene.background = new THREE.Color(0x1a1e26);
     this.scene.add(new THREE.HemisphereLight(0xcfd8e8, 0x2a2620, 1.05));
     const dir = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -131,10 +158,11 @@ export class EditorMode {
       onArmPart: (defId) => this.armGhost(defId),
       onSave: () => this.save(),
       onLoad: (slot) => this.load(slot),
-      onNew: () => this.replaceBlueprint(this.createNewBlueprint()),
+      onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
       onRename: (name) => {
-        this.bp = { ...this.bp, name };
-        this.refresh();
+        this.exec(
+          replaceBlueprintCommand({ ...this.bp, name }, 0, 'Rename build'),
+        );
       },
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
@@ -168,6 +196,7 @@ export class EditorMode {
       },
       onStartTutorial: () => this.startTutorial(),
       onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
+      onUpgradePart: (partId) => this.buyUpgrade(partId),
       onDeleteSelected: () => this.deleteSelected(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onToggleErase: () => this.toggleErase(),
@@ -180,11 +209,12 @@ export class EditorMode {
     renderer.domElement.addEventListener('contextmenu', this.onContextMenu);
     window.addEventListener('keydown', this.keyHandler);
 
-    if (restore?.view) {
-      this.persp.position.set(restore.view.cameraPos.x, restore.view.cameraPos.y, restore.view.cameraPos.z);
-      this.controls.target.set(restore.view.target.x, restore.view.target.y, restore.view.target.z);
-      this.layer = restore.view.layer;
+    if (context.view) {
+      this.persp.position.set(context.view.cameraPos.x, context.view.cameraPos.y, context.view.cameraPos.z);
+      this.controls.target.set(context.view.target.x, context.view.target.y, context.view.target.z);
+      this.layer = context.view.layer;
     }
+    this.ui.setRunContext(this.runContext?.wave, this.runSummary);
     this.refreshSlots();
     this.refresh();
   }
@@ -245,12 +275,33 @@ export class EditorMode {
     };
   }
 
+  private resetBlueprint(next: VehicleBlueprint, label: string): boolean {
+    const refund = this.bp.parts.reduce(
+      (total, part) =>
+        total + (getPartDef(part.defId).isRoot ? 0 : sellRefund(part)),
+      0,
+    );
+    const previousSelection = [...this.selected];
+    this.selected.clear();
+    if (!this.exec(replaceBlueprintCommand(next, refund, label))) {
+      for (const partId of previousSelection) this.selected.add(partId);
+      this.refreshSelectionUI();
+      return false;
+    }
+    this.ui.setStatus(
+      refund > 0 ? `Started a new build · sold old parts +$${refund}` : label,
+    );
+    return true;
+  }
+
   /** Start the guided build with its own fresh blueprint. */
   startTutorial(): void {
     this.tutorialOverlay?.dispose();
     this.tutorialOverlay = null;
+    this.tutorialActive = false;
+    if (!this.resetBlueprint(createTutorialBlueprint(), 'Start tutorial build'))
+      return;
     this.tutorialActive = true;
-    this.replaceBlueprint(createTutorialBlueprint());
     this.tutorialOverlay = new TutorialOverlay(this.ui.root, this.ui, () => this.stopTutorial());
     this.tutorialOverlay.update(this.bp, getPartDef);
   }
@@ -301,35 +352,82 @@ export class EditorMode {
   // ---------- blueprint changes ----------
 
   private exec(cmd: EditorCommand): boolean {
+    if (!this.canApplyMoneyDelta(cmd.moneyDelta)) {
+      this.deny(cmd.moneyDelta < 0
+        ? `Not enough money — need $${-cmd.moneyDelta}`
+        : 'That transaction would make the wallet invalid');
+      return false;
+    }
     try {
       this.bp = this.history.execute(this.bp, cmd);
       this.refresh();
+      this.autosave();
       return true;
     } catch (err) {
-      this.ui.setStatus(String(err));
+      this.deny(this.errorMessage(err));
       return false;
     }
   }
 
   private undo(): void {
-    const prev = this.history.undo(this.bp);
-    if (prev) {
-      this.bp = prev;
-      this.selected.clear();
-      this.refresh();
+    try {
+      const prev = this.history.undo(this.bp);
+      if (prev) {
+        this.bp = prev;
+        this.selected.clear();
+        this.refresh();
+        this.autosave();
+      }
+    } catch (err) {
+      this.deny(this.errorMessage(err));
     }
   }
 
   private redo(): void {
-    const next = this.history.redo(this.bp);
-    if (next) {
-      this.bp = next;
-      this.selected.clear();
-      this.refresh();
+    try {
+      const next = this.history.redo(this.bp);
+      if (next) {
+        this.bp = next;
+        this.selected.clear();
+        this.refresh();
+        this.autosave();
+      }
+    } catch (err) {
+      this.deny(this.errorMessage(err));
     }
   }
 
+  private canApplyMoneyDelta(moneyDelta: number): boolean {
+    if (!Number.isSafeInteger(moneyDelta)) return false;
+    if (moneyDelta < 0) return canAfford(this.profile.money, -moneyDelta);
+    return Number.isSafeInteger(this.profile.money + moneyDelta);
+  }
+
+  private mutateMoney(moneyDelta: number): void {
+    if (!this.canApplyMoneyDelta(moneyDelta)) throw new Error('Insufficient funds');
+    const previousMoney = this.profile.money;
+    this.profile.money += moneyDelta;
+    try {
+      this.persistProfile();
+    } catch (error) {
+      this.profile.money = previousMoney;
+      throw error;
+    }
+  }
+
+  private deny(message: string): void {
+    this.ui.deny(message);
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
   private changeConfig(partId: string, key: string, value: boolean | string): void {
+    if (key === 'level') {
+      this.deny('Use Upgrade to increase a part level');
+      return;
+    }
     const part = getPart(this.bp, partId);
     if (!part) return;
     const config: PartConfig = { ...part.config, [key]: value };
@@ -338,11 +436,10 @@ export class EditorMode {
   }
 
   private deleteSelected(): void {
-    const ids = [...this.selected].filter((id) => {
-      const p = getPart(this.bp, id);
-      return p && !getPartDef(p.defId).isRoot;
-    });
-    if (ids.length === 0) {
+    const parts = [...this.selected]
+      .map((id) => getPart(this.bp, id))
+      .filter((part): part is PlacedPart => part !== undefined && !getPartDef(part.defId).isRoot);
+    if (parts.length === 0) {
       if ([...this.selected].some((id) => {
         const part = getPart(this.bp, id);
         return part ? getPartDef(part.defId).isRoot : false;
@@ -351,9 +448,59 @@ export class EditorMode {
       }
       return;
     }
-    this.exec(batchCommand('delete selection', ids.map((id) => removeCommand(id))));
-    this.selected.clear();
-    this.refresh();
+    const refund = parts.reduce((total, part) => total + sellRefund(part), 0);
+    const sold = this.exec(batchCommand(
+      'sell selection',
+      parts.map((part) => removeCommand(part.id, sellRefund(part))),
+    ));
+    if (sold) {
+      this.selected.clear();
+      this.refresh();
+      this.ui.setStatus(`Sold ${parts.length} part${parts.length === 1 ? '' : 's'} +$${refund}`);
+    }
+  }
+
+  private buyUpgrade(partId: string): boolean {
+    const part = getPart(this.bp, partId);
+    if (!part) {
+      this.deny(`Unknown part: ${partId}`);
+      return false;
+    }
+    const upgrade = nextUpgrade(part);
+    if (!upgrade) {
+      this.deny('This part is already at maximum level');
+      return false;
+    }
+    const upgraded = this.exec(updateConfigCommand(
+      part.id,
+      { ...part.config, level: upgrade.targetLevel },
+      -upgrade.price,
+    ));
+    if (upgraded) {
+      this.selectOnly(part.id);
+      this.ui.setStatus(`${getPartDef(part.defId).name} upgraded to level ${upgrade.targetLevel} (-$${upgrade.price})`);
+    }
+    return upgraded;
+  }
+
+  private sellPart(partId: string): boolean {
+    const part = getPart(this.bp, partId);
+    if (!part) {
+      this.deny(`Unknown part: ${partId}`);
+      return false;
+    }
+    const def = getPartDef(part.defId);
+    if (def.isRoot) {
+      this.deny("Truck Heart can't be sold");
+      return false;
+    }
+    const refund = sellRefund(part);
+    if (!this.exec(removeCommand(part.id, refund))) return false;
+    this.selected.delete(part.id);
+    this.refreshSelectionUI();
+    this.rebuildMeshes();
+    this.ui.setStatus(`Sold ${def.name} +$${refund}`);
+    return true;
   }
 
   private rotateSelected(axis: 'y' | 'x'): void {
@@ -378,11 +525,53 @@ export class EditorMode {
   // ---------- ghost placement ----------
 
   private armGhost(defId: string): void {
+    if (!this.isUnlocked(defId)) {
+      const def = getPartDef(defId);
+      const price = unlockCost(defId);
+      const confirmed = window.confirm(`Unlock ${def.name} for $${price}? This is a one-time purchase.`);
+      if (!confirmed || !this.unlockPart(defId)) return;
+    }
     this.eraseArmed = false;
     this.ghost = { defId, orient: 0 };
     this.ui.setArmedPart(defId);
     this.selected.clear();
     this.refreshSelectionUI();
+  }
+
+  private isUnlocked(defId: string): boolean {
+    return unlockCost(defId) === 0 || this.profile.unlockedDefIds.includes(defId);
+  }
+
+  private unlockPart(defId: string): boolean {
+    let def: ReturnType<typeof getPartDef>;
+    try {
+      def = getPartDef(defId);
+    } catch {
+      this.deny(`Unknown catalog part: ${defId}`);
+      return false;
+    }
+    if (this.isUnlocked(defId)) return true;
+    const price = unlockCost(defId);
+    if (!canAfford(this.profile.money, price)) {
+      this.deny(`Not enough money to unlock ${def.name} — need $${price}`);
+      return false;
+    }
+
+    const previousMoney = this.profile.money;
+    const previousUnlocks = [...this.profile.unlockedDefIds];
+    this.profile.money -= price;
+    this.profile.unlockedDefIds.push(defId);
+    try {
+      this.persistProfile();
+    } catch (err) {
+      this.profile.money = previousMoney;
+      this.profile.unlockedDefIds.splice(0, this.profile.unlockedDefIds.length, ...previousUnlocks);
+      this.deny(`Unlock could not be saved: ${this.errorMessage(err)}`);
+      return false;
+    }
+    this.refreshProfile();
+    this.ui.setStatus(`Unlocked ${def.name} (-$${price})`);
+    return true;
   }
 
   private disarmGhost(): void {
@@ -522,6 +711,10 @@ export class EditorMode {
   private placeGhost(): void {
     this.refreshGhostAtLastPointer();
     if (!this.ghost || !this.ghostTarget) return;
+    if (!this.isUnlocked(this.ghost.defId)) {
+      this.deny('That catalog part is locked');
+      return;
+    }
     const { pos } = this.ghostTarget;
     const def = getPartDef(this.ghost.defId);
     const placement = canPlacePart(this.bp, getPartDef, this.ghost.defId, pos, this.ghost.orient, {});
@@ -533,13 +726,14 @@ export class EditorMode {
     const id = nextPartId(this.bp);
     const config: PartConfig = {};
     const part: PlacedPart = { id, defId: this.ghost.defId, pos, orient: this.ghost.orient, config };
-    const cmds: EditorCommand[] = [placeCommand(part)];
+    const cost = placeCost(part.defId);
+    const cmds: EditorCommand[] = [placeCommand(part, -cost)];
 
     if (this.symmetry && !def.unique) {
       const mPos = mirrorCellX(pos);
       if (mPos.x !== pos.x || def.cells.length === 0) {
         const after = cmds[0].apply(this.bp);
-        const mirror = mirrorCommand(id, nextPartId(after));
+        const mirror = mirrorCommand(id, nextPartId(after), -cost);
         // Validate the mirrored placement before batching.
         try {
           const test = mirror.apply(after);
@@ -625,7 +819,20 @@ export class EditorMode {
       def.upgrade?.maxLevel ?? 1,
       Math.max(1, Math.floor(part.config.level ?? 1)),
     );
-    this.ui.setSelectedPart(def, part.id, level, getEffectiveDef(part));
+    const upgrade = nextUpgrade(part);
+    const selectedParts = [...this.selected]
+      .map((id) => getPart(this.bp, id))
+      .filter((selectedPart): selectedPart is PlacedPart =>
+        selectedPart !== undefined && !getPartDef(selectedPart.defId).isRoot);
+    const selectionRefund = selectedParts.reduce(
+      (total, selectedPart) => total + sellRefund(selectedPart),
+      0,
+    );
+    this.ui.setSelectedPart(def, part.id, level, getEffectiveDef(part), {
+      nextUpgradePrice: upgrade?.price ?? null,
+      canUpgrade: upgrade !== null && canAfford(this.profile.money, upgrade.price),
+      sellRefund: selectionRefund,
+    });
     this.refreshOverlays();
   }
 
@@ -663,15 +870,7 @@ export class EditorMode {
     if (!id) return;
     const part = getPart(this.bp, id);
     if (!part) return;
-    if (getPartDef(part.defId).isRoot) {
-      this.ui.setStatus("🔒 Truck Heart can't be deleted");
-      return;
-    }
-    if (this.exec(removeCommand(id))) {
-      this.selected.delete(id);
-      this.refreshSelectionUI();
-      this.rebuildMeshes();
-    }
+    this.sellPart(id);
   }
 
   private onKey(e: KeyboardEvent): void {
@@ -746,26 +945,62 @@ export class EditorMode {
 
   private slots(): Record<string, string> {
     try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, string>;
+      const parsed: unknown = JSON.parse(
+        localStorage.getItem(BLUEPRINT_STORAGE_KEY) ?? '{}',
+      );
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+        return {};
+      return Object.fromEntries(
+        Object.entries(parsed).filter((entry): entry is [string, string] =>
+          typeof entry[1] === 'string'),
+      );
     } catch {
       return {};
     }
   }
 
   save(): void {
-    const all = this.slots();
-    all[this.bp.name] = serializeBlueprint(this.bp);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
-    this.refreshSlots();
-    this.ui.setStatus(`Saved "${this.bp.name}"`);
+    if (this.writeCurrentSlot()) this.ui.setStatus(`Saved "${this.bp.name}"`);
+  }
+
+  private autosave(): void {
+    this.writeCurrentSlot();
+  }
+
+  private writeCurrentSlot(): boolean {
+    try {
+      const all = this.slots();
+      const previousName = this.profile.currentBlueprintName;
+      all[this.bp.name] = serializeBlueprint(this.bp);
+      if (previousName !== undefined && previousName !== this.bp.name) {
+        delete all[previousName];
+      }
+      localStorage.setItem(BLUEPRINT_STORAGE_KEY, JSON.stringify(all));
+      this.profile.currentBlueprintName = this.bp.name;
+      this.persistProfile();
+      this.refreshSlots();
+      return true;
+    } catch (err) {
+      this.ui.setStatus(`Autosave failed: ${this.errorMessage(err)}`);
+      return false;
+    }
   }
 
   private load(slot: string): void {
+    const currentName = this.profile.currentBlueprintName;
+    if (currentName !== undefined && slot !== currentName) {
+      this.deny(
+        'Persistent economy keeps one active build; finish or rename the current build instead',
+      );
+      return;
+    }
     const all = this.slots();
     const json = all[slot];
     if (!json) return;
     try {
       this.replaceBlueprint(deserializeBlueprint(json));
+      this.profile.currentBlueprintName = slot;
+      this.persistProfile();
       this.ui.setStatus(`Loaded "${slot}"`);
     } catch (err) {
       this.ui.setStatus(`Load failed: ${String(err)}`);
@@ -773,7 +1008,14 @@ export class EditorMode {
   }
 
   private refreshSlots(): void {
-    this.ui.setSlots(Object.keys(this.slots()), this.bp.name);
+    const slotNames = Object.keys(this.slots());
+    const currentName = this.profile.currentBlueprintName;
+    this.ui.setSlots(
+      currentName !== undefined && slotNames.includes(currentName)
+        ? [currentName]
+        : slotNames,
+      this.bp.name,
+    );
   }
 
   // ---------- refresh ----------
@@ -784,8 +1026,15 @@ export class EditorMode {
     this.refreshAnalysis();
     this.ui.setBlueprintName(this.bp.name);
     this.ui.setUndoRedo(this.history.canUndo, this.history.canRedo);
+    this.ui.setEconomy(this.profile.money, this.profile.unlockedDefIds);
     this.refreshSelectionUI();
     if (this.tutorialActive) this.tutorialOverlay?.update(this.bp, getPartDef);
+  }
+
+  /** Refresh profile-backed UI after an App-side reward or debug grant. */
+  refreshProfile(): void {
+    this.ui.setEconomy(this.profile.money, this.profile.unlockedDefIds);
+    this.refreshSelectionUI();
   }
 
   private rebuildMeshes(): void {
@@ -868,12 +1117,31 @@ export class EditorMode {
 
   /** Debug seam helpers (used by Playwright). */
   debugPlace(defId: string, pos: Vec3i, orient = 0, config: PartConfig = {}): { ok: boolean; issues: string[] } {
-    const result = canPlacePart(this.bp, getPartDef, defId, pos, orient, config);
-    if (result.ok) {
-      const part: PlacedPart = { id: nextPartId(this.bp), defId, pos, orient, config };
-      this.exec(placeCommand(part));
+    let cost: number;
+    try {
+      cost = placeCost(defId);
+    } catch {
+      return { ok: false, issues: [`UNKNOWN_PART: ${defId}`] };
     }
-    return { ok: result.ok, issues: result.issues.map((i) => `${i.code}: ${i.message}`) };
+    if (!this.isUnlocked(defId)) {
+      this.deny(`${getPartDef(defId).name} is locked`);
+      return { ok: false, issues: [`LOCKED_PART: ${defId}`] };
+    }
+    const baseConfig = { ...config };
+    delete baseConfig.level;
+    const result = canPlacePart(this.bp, getPartDef, defId, pos, orient, baseConfig);
+    if (!result.ok) {
+      return { ok: false, issues: result.issues.map((issue) => `${issue.code}: ${issue.message}`) };
+    }
+    if (!canAfford(this.profile.money, cost)) {
+      this.deny(`Not enough money — need $${cost}`);
+      return { ok: false, issues: [`INSUFFICIENT_FUNDS: need $${cost}`] };
+    }
+    const part: PlacedPart = { id: nextPartId(this.bp), defId, pos, orient, config: baseConfig };
+    if (!this.exec(placeCommand(part, -cost))) {
+      return { ok: false, issues: ['ECONOMY_DENIED: purchase failed'] };
+    }
+    return { ok: true, issues: [] };
   }
 
   debugConfigure(pos: Vec3i, config: PartConfig): boolean {
@@ -882,8 +1150,11 @@ export class EditorMode {
     if (!id) return false;
     const part = getPart(this.bp, id);
     if (!part) return false;
-    this.exec(updateConfigCommand(id, { ...part.config, ...config }));
-    return true;
+    if (config.level !== undefined) {
+      this.deny('Use buyUpgrade(partId) to increase a part level');
+      return false;
+    }
+    return this.exec(updateConfigCommand(id, { ...part.config, ...config }));
   }
 
   debugUndo(): void {
@@ -892,5 +1163,17 @@ export class EditorMode {
 
   debugRedo(): void {
     this.redo();
+  }
+
+  debugBuyUpgrade(partId: string): boolean {
+    return this.buyUpgrade(partId);
+  }
+
+  debugSellPart(partId: string): boolean {
+    return this.sellPart(partId);
+  }
+
+  debugUnlockPart(defId: string): boolean {
+    return this.unlockPart(defId);
   }
 }

@@ -1,0 +1,61 @@
+import {
+  decodeProfile,
+  encodeProfile,
+  type PlayerProfile,
+} from '../core/profile.ts';
+
+export const PROFILE_STORAGE_KEY = 'scraprig.profile.v1';
+
+export interface ProfileStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+function browserStorage(): ProfileStorage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Cached, exception-safe profile persistence at the application boundary. */
+export class ProfileStore {
+  private cached: PlayerProfile | undefined;
+
+  constructor(private readonly storage: ProfileStorage | null = browserStorage()) {}
+
+  load(): PlayerProfile {
+    if (this.cached !== undefined) return this.cached;
+
+    let json: string | null = null;
+    try {
+      json = this.storage?.getItem(PROFILE_STORAGE_KEY) ?? null;
+    } catch {
+      // Storage access can fail in privacy mode or under a restrictive origin.
+    }
+    this.cached = decodeProfile(json);
+    return this.cached;
+  }
+
+  save(profile: PlayerProfile): void {
+    try {
+      const normalized = decodeProfile(encodeProfile(profile));
+      profile.schemaVersion = normalized.schemaVersion;
+      profile.money = normalized.money;
+      profile.unlockedDefIds = [...normalized.unlockedDefIds];
+      if (normalized.currentBlueprintName === undefined) {
+        delete profile.currentBlueprintName;
+      } else {
+        profile.currentBlueprintName = normalized.currentBlueprintName;
+      }
+      this.cached = profile;
+      this.storage?.setItem(PROFILE_STORAGE_KEY, encodeProfile(profile));
+    } catch {
+      // Keep the caller's in-memory profile usable when persistence is unavailable.
+      this.cached = profile;
+    }
+  }
+}
+
+export const profileStore = new ProfileStore();

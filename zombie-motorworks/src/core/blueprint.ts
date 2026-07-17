@@ -32,6 +32,24 @@ export function withPartRemoved(bp: VehicleBlueprint, id: string): VehicleBluepr
   return { ...bp, parts: bp.parts.filter((part) => part.id !== id) };
 }
 
+/** Keeps only parts reported as surviving a runtime wave. */
+export function pruneBlueprintToSurvivors(
+  bp: VehicleBlueprint,
+  survivingPartIds: Iterable<string>,
+): VehicleBlueprint {
+  const survivors = new Set(survivingPartIds);
+  return {
+    ...bp,
+    parts: bp.parts
+      .filter((part) => survivors.has(part.id))
+      .map((part) => ({
+        ...part,
+        pos: { ...part.pos },
+        config: { ...part.config },
+      })),
+  };
+}
+
 export function withPartUpdated(
   bp: VehicleBlueprint,
   id: string,

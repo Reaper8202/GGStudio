@@ -7,6 +7,7 @@ import {
   moveCommand,
   placeCommand,
   removeCommand,
+  replaceBlueprintCommand,
   rotateCommand,
   updateConfigCommand,
 } from '../src/core/commands.ts';
@@ -161,13 +162,108 @@ describe('editor commands', () => {
     expect(history.redo(original)).toEqual(applied);
   });
 
-  it('throws for an unknown removal without changing history', () => {
-    const history = new CommandHistory();
+  it('keeps place money consistent across undo and redo', () => {
+    let money = 200;
+    const history = new CommandHistory((delta) => {
+      money += delta;
+    });
+    const original = blueprint();
+    const placed = history.execute(
+      original,
+      placeCommand(part('p1', 'frame-box', 0), -25),
+    );
+
+    expect(money).toBe(175);
+    const undone = history.undo(placed)!;
+    expect(undone).toEqual(original);
+    expect(money).toBe(200);
+
+    expect(history.redo(undone)).toEqual(placed);
+    expect(money).toBe(175);
+  });
+
+  it('re-charges a sale refund when removal is undone', () => {
+    let money = 100;
+    const history = new CommandHistory((delta) => {
+      money += delta;
+    });
+    const original = blueprint([part('p1', 'frame-box', 0)]);
+    const removed = history.execute(original, removeCommand('p1', 12));
+
+    expect(money).toBe(112);
+    expect(history.undo(removed)).toEqual(original);
+    expect(money).toBe(100);
+    expect(history.redo(original)).toEqual(removed);
+    expect(money).toBe(112);
+  });
+
+  it('reverses a whole-build reset and its sale refund', () => {
+    let money = 100;
+    const history = new CommandHistory((delta) => {
+      money += delta;
+    });
+    const original = blueprint([part('p1', 'frame-box', 0)]);
+    const replacement = {
+      ...blueprint([part('root', 'chassis-core', 0)]),
+      name: 'new-rig',
+    };
+    const reset = history.execute(
+      original,
+      replaceBlueprintCommand(replacement, 5, 'Start new build'),
+    );
+
+    expect(reset).toEqual(replacement);
+    expect(money).toBe(105);
+    const restored = history.undo(reset)!;
+    expect(restored).toEqual(original);
+    expect(money).toBe(100);
+    expect(history.redo(restored)).toEqual(replacement);
+    expect(money).toBe(105);
+  });
+
+  it('sums batch money deltas and negates them for the inverse', () => {
+    const original = blueprint();
+    const command = batchCommand('place pair', [
+      placeCommand(part('p1', 'frame-box', 0), -10),
+      placeCommand(part('p2', 'frame-box', 1), -15),
+    ]);
+
+    expect(command.moneyDelta).toBe(-25);
+    expect(command.invert(original).moneyDelta).toBe(25);
+  });
+
+  it('leaves blueprint, money, and history untouched when the wallet rejects a command', () => {
+    let money = 5;
+    const history = new CommandHistory((delta) => {
+      const next = money + delta;
+      if (next < 0) throw new Error('Insufficient funds');
+      money = next;
+    });
     const original = blueprint();
 
-    expect(() => history.execute(original, removeCommand('missing'))).toThrow(
-      'unknown part id: missing',
-    );
+    expect(() =>
+      history.execute(
+        original,
+        placeCommand(part('p1', 'frame-box', 0), -10),
+      ),
+    ).toThrow('Insufficient funds');
+    expect(original.parts).toEqual([]);
+    expect(money).toBe(5);
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
+  });
+
+  it('throws for an unknown removal without changing history', () => {
+    let money = 50;
+    const history = new CommandHistory((delta) => {
+      money += delta;
+    });
+    const original = blueprint();
+
+    expect(() =>
+      history.execute(original, removeCommand('missing', 20)),
+    ).toThrow('unknown part id: missing');
+    expect(money).toBe(50);
     expect(history.canUndo).toBe(false);
     expect(history.canRedo).toBe(false);
     expect(history.undo(original)).toBeNull();

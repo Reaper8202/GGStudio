@@ -13,17 +13,26 @@ import type {
   Vec3i,
   VehicleBlueprint,
 } from '../core/types.ts';
-import { createEmptyBlueprint } from '../core/blueprint.ts';
+import {
+  createEmptyBlueprint,
+  pruneBlueprintToSurvivors,
+} from '../core/blueprint.ts';
 import { serializeBlueprint, deserializeBlueprint } from '../core/serialize.ts';
 import { validateBlueprint } from '../core/placement.ts';
 import { analyzeVehicle } from '../core/analysis.ts';
 import { getPartDef } from '../core/parts.ts';
 import { composeOrientations, orientationFromSteps } from '../core/grid.ts';
-import { EditorMode, type EditorViewState } from '../editor/EditorMode.ts';
+import {
+  BLUEPRINT_STORAGE_KEY,
+  EditorMode,
+  type EditorViewState,
+} from '../editor/EditorMode.ts';
 import { CommandHistory } from '../core/commands.ts';
 import { ChamberMode, type ScenarioName } from '../chamber/ChamberMode.ts';
 import type { VehicleControls } from '../runtime/vehicle.ts';
 import { SurvivalMode } from '../survival/SurvivalMode.ts';
+import type { RunState } from '../core/economy.ts';
+import { profileStore } from './profileStore.ts';
 
 export class App {
   private renderer!: THREE.WebGLRenderer;
@@ -31,9 +40,18 @@ export class App {
   private chamber: ChamberMode | null = null;
   private survival: SurvivalMode | null = null;
   private bp: VehicleBlueprint = createEmptyBlueprint('starter-rig');
+  private readonly profile = profileStore.load();
   /** Survive editor <-> runtime-mode round trips: undo history and camera/layer. */
-  private readonly history = new CommandHistory();
+  private readonly history = new CommandHistory((moneyDelta) =>
+    this.changeMoney(moneyDelta, true),
+  );
   private savedView: EditorViewState | undefined;
+  private activeRun: RunState | null = null;
+  private inBuildPhase = false;
+  private runMoneyEarned = 0;
+  private runSummary:
+    | { wavesSurvived: number; moneyEarned: number }
+    | undefined;
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -51,7 +69,7 @@ export class App {
       this.survival?.resize(this.root.clientWidth, this.root.clientHeight);
     });
 
-    this.bp = buildStarterBlueprint();
+    this.bp = this.loadCurrentBlueprint() ?? buildStarterBlueprint();
     this.openEditor();
 
     const loop = (): void => {
@@ -73,10 +91,15 @@ export class App {
       this.renderer,
       this.bp,
       (bp) => this.enterChamber(bp),
-      (bp) => this.enterSurvival(bp),
+      (bp) => this.startOrResumeRun(bp),
       {
         history: this.history,
         view: this.savedView,
+        profile: this.profile,
+        persistProfile: () => profileStore.save(this.profile),
+        runContext:
+          this.activeRun && this.inBuildPhase ? this.activeRun : undefined,
+        runSummary: this.runSummary,
       },
     );
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
@@ -93,7 +116,29 @@ export class App {
     this.chamber.resize(this.root.clientWidth, this.root.clientHeight);
   }
 
-  private enterSurvival(bp: VehicleBlueprint): void {
+  private startOrResumeRun(bp: VehicleBlueprint): void {
+    if (this.activeRun && this.inBuildPhase) {
+      this.resumeRun(bp, this.activeRun);
+    } else {
+      this.startRun(bp);
+    }
+  }
+
+  private startRun(bp: VehicleBlueprint): void {
+    this.runMoneyEarned = 0;
+    this.runSummary = undefined;
+    this.activeRun = { wave: 1 };
+    this.inBuildPhase = false;
+    this.enterSurvival(bp, this.activeRun);
+  }
+
+  private resumeRun(bp: VehicleBlueprint, run: RunState): void {
+    this.activeRun = { wave: run.wave + 1 };
+    this.inBuildPhase = false;
+    this.enterSurvival(bp, this.activeRun);
+  }
+
+  private enterSurvival(bp: VehicleBlueprint, run: RunState): void {
     this.editor?.save();
     this.bp = bp;
     this.savedView = this.editor?.viewState();
@@ -102,11 +147,76 @@ export class App {
     this.chamber?.dispose();
     this.chamber = null;
     this.survival?.dispose();
-    this.survival = new SurvivalMode(this.root, this.renderer, bp, {
-      onExit: () => this.openEditor(),
-      onGameOver: () => this.openEditor(),
+    this.survival = new SurvivalMode(this.root, this.renderer, bp, run, {
+      profileMoney: () => this.profile.money,
+      runEarnings: () => this.runMoneyEarned,
+      onReward: (amount) => this.creditRunReward(amount),
+      onExit: (state) => this.finishRun(state),
+      onBuildPhase: (state, survivingPartIds) =>
+        this.enterBuildPhase(state, survivingPartIds),
+      onGameOver: (state) => this.finishRun(state),
     });
     this.survival.resize(this.root.clientWidth, this.root.clientHeight);
+  }
+
+  private enterBuildPhase(
+    run: RunState,
+    survivingPartIds: readonly string[],
+  ): void {
+    profileStore.save(this.profile);
+    this.bp = pruneBlueprintToSurvivors(this.bp, survivingPartIds);
+    this.history.clear();
+    this.activeRun = { wave: run.wave };
+    this.inBuildPhase = true;
+    this.runSummary = undefined;
+    this.openEditor();
+    // Persist permanent wave damage immediately; the history was intentionally
+    // cleared because its pre-wave commands can reference parts that are gone.
+    this.editor?.save();
+  }
+
+  private finishRun(run: RunState): void {
+    profileStore.save(this.profile);
+    this.runSummary = {
+      wavesSurvived: Math.max(0, run.wave - 1),
+      moneyEarned: this.runMoneyEarned,
+    };
+    this.activeRun = null;
+    this.inBuildPhase = false;
+    this.openEditor();
+  }
+
+  private creditRunReward(amount: number): void {
+    const credited = Math.min(amount, Number.MAX_SAFE_INTEGER - this.profile.money);
+    if (credited <= 0) return;
+    this.changeMoney(credited, false);
+    this.runMoneyEarned += credited;
+  }
+
+  private changeMoney(moneyDelta: number, persist: boolean): void {
+    if (!Number.isSafeInteger(moneyDelta)) {
+      throw new Error('Money change must be a safe integer');
+    }
+    const next = this.profile.money + moneyDelta;
+    if (!Number.isSafeInteger(next) || next < 0) {
+      throw new Error('Insufficient funds');
+    }
+    this.profile.money = next;
+    if (persist) profileStore.save(this.profile);
+  }
+
+  private loadCurrentBlueprint(): VehicleBlueprint | null {
+    const name = this.profile.currentBlueprintName;
+    if (!name) return null;
+    try {
+      const slots = JSON.parse(
+        localStorage.getItem(BLUEPRINT_STORAGE_KEY) ?? '{}',
+      ) as Record<string, unknown>;
+      const json = slots[name];
+      return typeof json === 'string' ? deserializeBlueprint(json) : null;
+    } catch {
+      return null;
+    }
   }
 
   debugSeam(): Record<string, unknown> {
@@ -148,11 +258,12 @@ export class App {
         if (!bp) return false;
         const v = validateBlueprint(bp, getPartDef);
         if (v.errors.length > 0) return false;
-        this.enterSurvival(bp);
+        this.startOrResumeRun(bp);
         return true;
       },
       backToEditor: () => {
-        if (!this.editor) this.openEditor();
+        if (this.survival && this.activeRun) this.finishRun(this.activeRun);
+        else if (!this.editor) this.openEditor();
       },
       setControls: (c: Partial<VehicleControls>) => {
         this.chamber?.debugSetControls(c);
@@ -168,9 +279,42 @@ export class App {
       },
       telemetry: () => this.chamber?.debugTelemetry(),
       survivalTelemetry: () => this.survival?.debugTelemetry() ?? null,
+      profile: () => ({
+        money: this.profile.money,
+        unlocks: [...this.profile.unlockedDefIds],
+      }),
+      grantMoney: (amount: number) => {
+        if (!Number.isSafeInteger(amount) || amount < 0) return false;
+        try {
+          this.changeMoney(amount, true);
+          this.editor?.refreshProfile();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      buyUpgrade: (partId: string) =>
+        this.editor?.debugBuyUpgrade(partId) ?? false,
+      sellPart: (partId: string) =>
+        this.editor?.debugSellPart(partId) ?? false,
+      unlockPart: (defId: string) =>
+        this.editor?.debugUnlockPart(defId) ?? false,
+      runState: () =>
+        this.activeRun
+          ? { wave: this.activeRun.wave, inBuildPhase: this.inBuildPhase }
+          : null,
       zombiePositions: () => this.survival?.debugZombiePositions() ?? [],
-      debugStartWave: (wave: number) => this.survival?.debugStartWave(wave),
+      debugStartWave: (wave: number) => {
+        if (!this.survival) return;
+        const sanitizedWave = Math.max(
+          1,
+          Math.floor(Number.isFinite(wave) ? wave : 1),
+        );
+        this.activeRun = { wave: sanitizedWave };
+        this.survival.debugStartWave(sanitizedWave);
+      },
       debugKillAllZombies: () => this.survival?.debugKillAllZombies(),
+      forceWaveComplete: () => this.survival?.debugForceWaveComplete(),
       setScenario: (s: ScenarioName) => this.chamber?.debugSetScenario(s),
       resetVehicle: () => this.chamber?.reset(),
     };

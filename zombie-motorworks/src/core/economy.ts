@@ -3,6 +3,11 @@ import { STARTER_UNLOCKS } from './profile.ts';
 import { getEffectiveDef, upgradePrice } from './upgrades.ts';
 import type { PartDefinition, PlacedPart } from './types.ts';
 
+/** Persistent run progress. Spendable money belongs only to PlayerProfile. */
+export interface RunState {
+  wave: number;
+}
+
 function placedLevel(placed: PlacedPart): number {
   const configuredLevel = placed.config.level ?? 1;
   if (!Number.isFinite(configuredLevel)) return 1;

@@ -3,6 +3,7 @@ import { buildStarterBlueprint } from '../src/app/App.ts';
 import { createEmptyBlueprint } from '../src/core/blueprint.ts';
 import { getPartDef } from '../src/core/parts.ts';
 import { canPlacePart, validateBlueprint } from '../src/core/placement.ts';
+import { STARTER_UNLOCKS } from '../src/core/profile.ts';
 
 describe('starter blueprint', () => {
   it('includes a deck turret and remains valid', () => {
@@ -16,6 +17,13 @@ describe('starter blueprint', () => {
       }),
     );
     expect(validateBlueprint(blueprint, getPartDef).errors).toEqual([]);
+    expect(
+      blueprint.parts.every((part) =>
+        STARTER_UNLOCKS.includes(
+          part.defId as (typeof STARTER_UNLOCKS)[number],
+        ),
+      ),
+    ).toBe(true);
   });
 
   it('allows both new palette parts to mount on the chassis', () => {

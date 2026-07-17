@@ -5,6 +5,7 @@
 
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import type { RunState } from '../core/economy.ts';
 import { getPartDef } from '../core/parts.ts';
 import { deriveConnections } from '../core/structural.ts';
 import type { VehicleBlueprint } from '../core/types.ts';
@@ -28,16 +29,25 @@ const COUNTDOWN_SECONDS = 3;
 const TRACER_POOL_SIZE = 32;
 
 export interface SurvivalCallbacks {
-  onExit(): void;
-  onGameOver(): void;
+  profileMoney(): number;
+  runEarnings(): number;
+  onReward(amount: number): void;
+  onExit(run: RunState): void;
+  onBuildPhase(run: RunState, survivingPartIds: readonly string[]): void;
+  onGameOver(run: RunState): void;
 }
+
+export type SurvivalPhase = 'countdown' | 'active' | 'cleared' | 'gameOver';
 
 export interface SurvivalTelemetry {
   mode: 'survival';
   kills: number;
   wave: number;
   zombiesAlive: number;
+  money: number;
   runMoney: number;
+  phase: SurvivalPhase;
+  partHp: Record<string, number>;
   integrityPct: number;
   vehiclePos: [number, number, number];
   weapons: {
@@ -61,13 +71,15 @@ interface SurvivalUi {
   moneyValue: HTMLSpanElement;
   countdownOverlay: HTMLDivElement;
   countdownValue: HTMLDivElement;
-  waveClearOverlay: HTMLDivElement;
-  waveClearText: HTMLDivElement;
-  gameOverOverlay: HTMLDivElement;
-  gameOverSummary: HTMLDivElement;
 }
 
-type SurvivalPhase = 'countdown' | 'active' | 'cleared' | 'gameOver';
+type PendingTransition =
+  | {
+      kind: 'buildPhase';
+      run: RunState;
+      survivingPartIds: string[];
+    }
+  | { kind: 'gameOver'; run: RunState };
 
 export class SurvivalMode {
   private readonly scene = new THREE.Scene();
@@ -112,16 +124,11 @@ export class SurvivalMode {
   private readonly moneyValue: HTMLSpanElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly countdownValue: HTMLDivElement;
-  private readonly waveClearOverlay: HTMLDivElement;
-  private readonly waveClearText: HTMLDivElement;
-  private readonly gameOverOverlay: HTMLDivElement;
-  private readonly gameOverSummary: HTMLDivElement;
 
   private accumulator = 0;
   private lastTime = performance.now();
   private debugPaused = false;
   private kills = 0;
-  private runMoney = 0;
   private currentWave = 1;
   private zombiesRemaining = 0;
   private countdownRemaining = COUNTDOWN_SECONDS;
@@ -134,6 +141,8 @@ export class SurvivalMode {
   private lastHudMoney = -1;
   private lastCountdownSecond = -1;
   private tracerCursor = 0;
+  private pendingWaveReward = 0;
+  private pendingTransition: PendingTransition | null = null;
 
   private readonly keydown = (event: KeyboardEvent): void => {
     if (this.phase === 'gameOver') return;
@@ -154,6 +163,7 @@ export class SurvivalMode {
     private readonly container: HTMLElement,
     private readonly renderer: THREE.WebGLRenderer,
     bp: VehicleBlueprint,
+    run: RunState,
     private readonly callbacks: SurvivalCallbacks,
   ) {
     this.camera = new THREE.PerspectiveCamera(
@@ -196,12 +206,8 @@ export class SurvivalMode {
     this.moneyValue = builtUi.moneyValue;
     this.countdownOverlay = builtUi.countdownOverlay;
     this.countdownValue = builtUi.countdownValue;
-    this.waveClearOverlay = builtUi.waveClearOverlay;
-    this.waveClearText = builtUi.waveClearText;
-    this.gameOverOverlay = builtUi.gameOverOverlay;
-    this.gameOverSummary = builtUi.gameOverSummary;
 
-    this.beginCountdown(1);
+    this.beginCountdown(run.wave);
     window.addEventListener('keydown', this.keydown);
     window.addEventListener('keyup', this.keyup);
     window.addEventListener('blur', this.blur);
@@ -286,7 +292,9 @@ export class SurvivalMode {
     const back = document.createElement('button');
     back.className = 'primary';
     back.textContent = 'Back to Garage';
-    back.addEventListener('click', () => this.callbacks.onExit());
+    back.addEventListener('click', () =>
+      this.callbacks.onExit(this.currentRunState()),
+    );
 
     const title = document.createElement('div');
     title.className = 'panel';
@@ -301,7 +309,7 @@ export class SurvivalMode {
     const integrityValue = addStatRow(hud, 'Vehicle integrity');
     const waveValue = addStatRow(hud, 'Wave');
     const remainingValue = addStatRow(hud, 'Zombies remaining');
-    const moneyValue = addStatRow(hud, 'Run money');
+    const moneyValue = addStatRow(hud, 'Money');
     root.appendChild(hud);
 
     const help = document.createElement('div');
@@ -322,36 +330,6 @@ export class SurvivalMode {
     countdownOverlay.append(countdownLabel, countdownValue);
     root.appendChild(countdownOverlay);
 
-    const waveClearOverlay = overlayPanel();
-    waveClearOverlay.style.display = 'none';
-    const waveClearText = document.createElement('div');
-    waveClearText.style.cssText =
-      'font-size:22px;font-weight:900;color:#9bd76e;margin-bottom:14px';
-    const nextWave = document.createElement('button');
-    nextWave.className = 'primary';
-    nextWave.textContent = 'Next Wave';
-    nextWave.addEventListener('click', () => {
-      if (this.phase === 'cleared') this.beginCountdown(this.currentWave + 1);
-    });
-    waveClearOverlay.append(waveClearText, nextWave);
-    root.appendChild(waveClearOverlay);
-
-    const gameOverOverlay = overlayPanel();
-    gameOverOverlay.style.display = 'none';
-    const gameOverTitle = document.createElement('div');
-    gameOverTitle.textContent = 'VEHICLE DESTROYED';
-    gameOverTitle.style.cssText =
-      'font-size:24px;font-weight:900;color:#ff7b63;margin-bottom:10px';
-    const gameOverSummary = document.createElement('div');
-    gameOverSummary.style.cssText =
-      'font-size:17px;line-height:1.5;margin-bottom:16px';
-    const returnButton = document.createElement('button');
-    returnButton.className = 'primary';
-    returnButton.textContent = 'Return to Garage';
-    returnButton.addEventListener('click', () => this.callbacks.onGameOver());
-    gameOverOverlay.append(gameOverTitle, gameOverSummary, returnButton);
-    root.appendChild(gameOverOverlay);
-
     return {
       root,
       integrityValue,
@@ -360,10 +338,6 @@ export class SurvivalMode {
       moneyValue,
       countdownOverlay,
       countdownValue,
-      waveClearOverlay,
-      waveClearText,
-      gameOverOverlay,
-      gameOverSummary,
     };
   }
 
@@ -409,9 +383,11 @@ export class SurvivalMode {
     while (this.accumulator >= FIXED_DT) {
       this.accumulator -= FIXED_DT;
       this.stepFixed();
+      if (this.pendingTransition !== null) break;
     }
     this.syncView(frameDt);
     this.renderer.render(this.scene, this.camera);
+    this.flushPendingTransition();
   }
 
   private stepFixed(): void {
@@ -461,8 +437,7 @@ export class SurvivalMode {
     }
 
     this.attachNewIslands(this.vehicle.finishStep());
-    if (this.vehicle.isDestroyed()) this.showGameOver();
-    else if (this.phase === 'cleared') this.stopVehicleMotion();
+    this.queueCompletedStepTransition();
   }
 
   private updateControls(): void {
@@ -515,15 +490,17 @@ export class SurvivalMode {
   }
 
   private beginCountdown(wave: number): void {
-    this.currentWave = Math.max(1, Math.floor(wave));
+    this.currentWave = Math.max(
+      1,
+      Math.floor(Number.isFinite(wave) ? wave : 1),
+    );
     this.phase = 'countdown';
     this.countdownRemaining = COUNTDOWN_SECONDS;
     this.lastCountdownSecond = -1;
     this.zombiesRemaining = 0;
     this.pointerFiring = false;
+    this.pendingWaveReward = 0;
     this.keys.clear();
-    this.waveClearOverlay.style.display = 'none';
-    this.gameOverOverlay.style.display = 'none';
     this.countdownOverlay.style.display = 'block';
   }
 
@@ -535,22 +512,75 @@ export class SurvivalMode {
 
   private readonly handleZombieKilled = (reward: number): void => {
     this.kills++;
-    this.runMoney += reward;
+    this.creditReward(reward);
     this.waves.recordZombieKilled();
   };
 
   private onWaveComplete(wave: number, reward: number): void {
     if (this.phase === 'gameOver') return;
     this.currentWave = wave;
-    this.runMoney += reward;
+    // Resolve the completed physics step before paying the clear bonus. If the
+    // final zombie and vehicle die together, destruction wins consistently and
+    // the uncleared wave is neither counted nor rewarded.
+    this.pendingWaveReward = reward;
     this.phase = 'cleared';
     this.pointerFiring = false;
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
-    this.waveClearText.textContent = `Wave ${wave} cleared`;
-    this.waveClearOverlay.style.display = 'block';
+  }
+
+  private creditReward(amount: number): void {
+    if (!Number.isSafeInteger(amount) || amount <= 0) return;
+    this.callbacks.onReward(amount);
+  }
+
+  private currentRunState(): RunState {
+    return { wave: this.currentWave };
+  }
+
+  private queueCompletedStepTransition(): void {
+    if (this.pendingTransition !== null) return;
+    if (this.vehicle.isDestroyed()) {
+      this.pendingWaveReward = 0;
+      this.queueGameOver();
+    } else if (this.phase === 'cleared') {
+      this.creditReward(this.pendingWaveReward);
+      this.pendingWaveReward = 0;
+      this.stopVehicleMotion();
+      this.pendingTransition = {
+        kind: 'buildPhase',
+        run: this.currentRunState(),
+        survivingPartIds: this.vehicle.survivingPartIds(),
+      };
+    }
+  }
+
+  private queueGameOver(): void {
+    if (this.pendingTransition !== null || this.phase === 'gameOver') return;
+    this.phase = 'gameOver';
+    this.controls.throttle = 0;
+    this.controls.brake = 1;
+    this.controls.steer = 0;
+    this.controls.fire = false;
+    this.pointerFiring = false;
+    this.keys.clear();
+    this.countdownOverlay.style.display = 'none';
     this.stopVehicleMotion();
-    // TODO(Phase 5): hand the repaired/pruned blueprint and run state to onBuildPhase.
+    this.pendingTransition = {
+      kind: 'gameOver',
+      run: this.currentRunState(),
+    };
+  }
+
+  private flushPendingTransition(): void {
+    const pending = this.pendingTransition;
+    if (pending === null) return;
+    this.pendingTransition = null;
+    if (pending.kind === 'buildPhase') {
+      this.callbacks.onBuildPhase(pending.run, pending.survivingPartIds);
+    } else {
+      this.callbacks.onGameOver(pending.run);
+    }
   }
 
   private stopVehicleMotion(): void {
@@ -565,23 +595,6 @@ export class SurvivalMode {
       island.body.resetTorques(false);
     }
     for (const wheel of this.vehicle.wheels()) wheel.omega = 0;
-  }
-
-  private showGameOver(): void {
-    if (this.phase === 'gameOver') return;
-    this.phase = 'gameOver';
-    this.controls.throttle = 0;
-    this.controls.brake = 1;
-    this.controls.steer = 0;
-    this.controls.fire = false;
-    this.pointerFiring = false;
-    this.keys.clear();
-    this.countdownOverlay.style.display = 'none';
-    this.waveClearOverlay.style.display = 'none';
-    this.gameOverSummary.textContent =
-      `Wave ${this.currentWave} reached · $${this.runMoney} earned · ` +
-      `${this.kills} zombie${this.kills === 1 ? '' : 's'} destroyed`;
-    this.gameOverOverlay.style.display = 'block';
   }
 
   private syncView(frameDt: number): void {
@@ -662,9 +675,10 @@ export class SurvivalMode {
       this.lastHudRemaining = this.zombiesRemaining;
       this.remainingValue.textContent = String(this.zombiesRemaining);
     }
-    if (this.runMoney !== this.lastHudMoney) {
-      this.lastHudMoney = this.runMoney;
-      this.moneyValue.textContent = `$${this.runMoney}`;
+    const money = this.callbacks.profileMoney();
+    if (money !== this.lastHudMoney) {
+      this.lastHudMoney = money;
+      this.moneyValue.textContent = `$${money}`;
     }
     if (this.phase === 'countdown') {
       const second = Math.max(1, Math.ceil(this.countdownRemaining));
@@ -709,13 +723,18 @@ export class SurvivalMode {
 
   debugStepSim(steps: number): void {
     if (this.disposed) return;
-    const count = Math.max(
-      0,
-      Math.floor(Number.isFinite(steps) ? steps : 0),
-    );
-    for (let i = 0; i < count; i++) this.stepFixed();
-    this.syncView(count * FIXED_DT);
+    const count = Math.max(0, Math.floor(Number.isFinite(steps) ? steps : 0));
+    let stepped = 0;
+    for (; stepped < count; stepped++) {
+      this.stepFixed();
+      if (this.pendingTransition !== null) {
+        stepped++;
+        break;
+      }
+    }
+    this.syncView(stepped * FIXED_DT);
     this.renderer.render(this.scene, this.camera);
+    this.flushPendingTransition();
   }
 
   debugSetControls(controls: Partial<VehicleControls>): void {
@@ -749,11 +768,11 @@ export class SurvivalMode {
     );
     this.zombiesRemaining = 0;
     this.phase = 'active';
+    this.pendingWaveReward = 0;
+    this.pendingTransition = null;
     this.pointerFiring = false;
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
-    this.waveClearOverlay.style.display = 'none';
-    this.gameOverOverlay.style.display = 'none';
     this.waves.startWave(this.currentWave);
   }
 
@@ -761,9 +780,20 @@ export class SurvivalMode {
     if (this.disposed || this.phase !== 'active') return;
     const unspawnedKills = this.waves.prepareDebugKillAll();
     this.kills += unspawnedKills;
-    this.runMoney += unspawnedKills * BASE_ZOMBIE_STATS.reward;
+    this.creditReward(unspawnedKills * BASE_ZOMBIE_STATS.reward);
     this.zombies.forceKillAll();
     this.waves.fixedUpdate(0);
+    this.attachNewIslands(this.vehicle.finishStep());
+    this.queueCompletedStepTransition();
+    this.syncView(0);
+    this.renderer.render(this.scene, this.camera);
+    this.flushPendingTransition();
+  }
+
+  debugForceWaveComplete(): void {
+    if (this.disposed || this.pendingTransition !== null) return;
+    if (this.phase === 'countdown') this.startCurrentWave();
+    this.debugKillAllZombies();
   }
 
   resize(width: number, height: number): void {
@@ -778,7 +808,10 @@ export class SurvivalMode {
       kills: this.kills,
       wave: this.currentWave,
       zombiesAlive: this.zombies.getActiveCount(),
-      runMoney: this.runMoney,
+      money: this.callbacks.profileMoney(),
+      runMoney: this.callbacks.runEarnings(),
+      phase: this.phase,
+      partHp: this.vehicle.partHpSnapshot(),
       integrityPct: this.vehicle.integrityPct(),
       vehiclePos: [position.x, position.y, position.z],
       weapons: this.vehicle.weaponStates().map((weapon) => ({

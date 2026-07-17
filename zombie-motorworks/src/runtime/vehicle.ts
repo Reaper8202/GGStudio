@@ -212,6 +212,20 @@ export class RuntimeVehicle {
     return false;
   }
 
+  /** Stable blueprint IDs for every living part still attached to the root body. */
+  survivingPartIds(): string[] {
+    return [...this.attachedAliveIds()];
+  }
+
+  /** Serializable current HP for every original blueprint part. */
+  partHpSnapshot(): Record<string, number> {
+    const snapshot: Record<string, number> = {};
+    for (const [id, part] of this.assembled.parts) {
+      snapshot[id] = part.alive ? Math.max(0, part.health) : 0;
+    }
+    return snapshot;
+  }
+
   preStep(
     dt: number,
     controls: VehicleControls,

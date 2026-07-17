@@ -58,7 +58,7 @@ export function decodeProfile(json: string | null | undefined): PlayerProfile {
     return defaultProfile();
   }
 
-  if (!hasValidShape(parsed) || !Number.isFinite(parsed.money)) {
+  if (!hasValidShape(parsed) || !Number.isSafeInteger(parsed.money)) {
     return defaultProfile();
   }
 

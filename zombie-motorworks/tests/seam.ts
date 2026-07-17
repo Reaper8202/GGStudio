@@ -49,6 +49,9 @@ declare global {
         wave: number;
         zombiesAlive: number;
         runMoney: number;
+        money: number;
+        phase: 'countdown' | 'active' | 'cleared' | 'gameOver';
+        partHp: Record<string, number>;
         integrityPct: number;
         vehiclePos: [number, number, number];
         weapons: {
@@ -57,9 +60,16 @@ declare global {
           shotsFired: number;
         }[];
       } | null;
+      profile(): { money: number; unlocks: string[] };
+      grantMoney(amount: number): boolean;
+      buyUpgrade(partId: string): boolean;
+      sellPart(partId: string): boolean;
+      unlockPart(defId: string): boolean;
+      runState(): { wave: number; inBuildPhase: boolean } | null;
       zombiePositions(): [number, number, number][];
       debugStartWave(wave: number): void;
       debugKillAllZombies(): void;
+      forceWaveComplete(): void;
       setScenario(s: string): void;
       resetVehicle(): void;
       orient: { yaw90: number; yaw180: number; rollX90: number };
@@ -115,6 +125,10 @@ export async function place(
 
 /** A minimal valid drivable rig (mirrors the starter layout, fewer frames). */
 export async function buildBasicRig(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.__scrapRig.grantMoney(5_000);
+    window.__scrapRig.unlockPart('frame-reinforced');
+  });
   await newBlueprint(page);
   const steps: [string, P, number?][] = [
     ['chassis-core', { x: 0, y: 1, z: 0 }],
