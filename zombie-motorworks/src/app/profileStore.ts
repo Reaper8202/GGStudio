@@ -43,6 +43,7 @@ export class ProfileStore {
     profile.schemaVersion = normalized.schemaVersion;
     profile.money = normalized.money;
     profile.unlockedDefIds = [...normalized.unlockedDefIds];
+    profile.inventory = { ...normalized.inventory };
     if (normalized.currentBlueprintName === undefined) {
       delete profile.currentBlueprintName;
     } else {

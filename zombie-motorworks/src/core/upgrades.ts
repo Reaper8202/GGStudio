@@ -25,15 +25,26 @@ export function effectivePartDef(
   };
 
   if (base.engine !== undefined) {
-    const multiplier = 1 + 0.1 * steps;
+    // Engine levels must change the actual driving feel. Torque improves
+    // launch and pull in every gear; the wider RPM range raises real gearing-
+    // limited top speed instead of only increasing a UI power number.
+    const torqueMultiplier = 1 + 0.08 * steps;
+    const rpmMultiplier = 1 + 0.14 * steps;
     effective = {
       ...effective,
       engine: {
         ...base.engine,
-        maxPowerKw: base.engine.maxPowerKw * multiplier,
+        maxPowerKw:
+          base.engine.maxPowerKw * torqueMultiplier * rpmMultiplier,
+        maxRpm: base.engine.maxRpm * rpmMultiplier,
         torqueCurve: base.engine.torqueCurve.map(
-          ([rpm, torque]): [number, number] => [rpm, torque * multiplier],
+          ([rpm, torque]): [number, number] => [
+            rpm * rpmMultiplier,
+            torque * torqueMultiplier,
+          ],
         ),
+        fuelPerSecondAtFull:
+          base.engine.fuelPerSecondAtFull * (1 + 0.06 * steps),
       },
     };
   }

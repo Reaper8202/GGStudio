@@ -25,7 +25,7 @@ export class TutorialOverlay {
 
     if (stepIndex === TUTORIAL_STEPS.length) {
       const message = document.createElement('div');
-      message.textContent = '🎉 You built a truck! Press the green TEST DRIVE button!';
+      message.textContent = 'You built a truck. Press the green TEST DRIVE button.';
       this.panel.appendChild(message);
       this.ui.highlightPaletteButton(null);
       return;
@@ -40,7 +40,7 @@ export class TutorialOverlay {
     const text = document.createElement('div');
     text.textContent = step.text;
     const skip = document.createElement('button');
-    skip.textContent = 'Skip tutorial ✕';
+    skip.textContent = 'Skip Tutorial';
     skip.addEventListener('click', this.onExit);
     this.panel.append(count, title, text, skip);
     this.ui.highlightPaletteButton(step.paletteDefId ?? null);

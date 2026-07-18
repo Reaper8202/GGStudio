@@ -348,6 +348,7 @@ export class ChamberMode {
     this.vehicle.preStep(FIXED_DT, this.controls, (h) => this.surfaceByCollider.get(h) ?? 'asphalt');
     this.stepZombies();
     this.world.step(this.eventQueue);
+    this.vehicle.postStepStability(FIXED_DT);
 
     // Damage from contact forces on vehicle colliders.
     this.eventQueue.drainContactForceEvents((ev) => {
@@ -529,7 +530,7 @@ export class ChamberMode {
       `<div class="stat-row"><span>Ammo</span><span>${t.ammo}</span></div>`,
       `<div class="stat-row"><span>Wheels grounded</span><span>${t.groundedWheels}/${t.totalWheels}</span></div>`,
       `<div class="stat-row"><span>Parts</span><span>${t.aliveParts} alive · ${t.detachedParts} lost</span></div>`,
-      t.overloadedWheels.length > 0 ? `<div class="issue-warning">⚠ suspension overloaded</div>` : '',
+      t.overloadedWheels.length > 0 ? `<div class="issue-warning">Wheel load exceeded</div>` : '',
     ].join('');
   }
 

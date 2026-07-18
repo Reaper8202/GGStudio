@@ -288,6 +288,10 @@ export interface VehicleAnalysisReport {
   wheelbaseM: number;
   groundClearanceM: number;
   powerToWeightKwPerT: number;
+  /** Combined sustained weapon damage per second before ammo constraints. */
+  totalDps: number;
+  /** Gear-limited road-speed estimate from engine RPM and driven wheel radius. */
+  estimatedTopSpeedKph: number;
   drivenWheelLoadFraction: number; // share of static load on driven wheels
   estimatedMaxSlopeDeg: number;
   fuelCapacityL: number;

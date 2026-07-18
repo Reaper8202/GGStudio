@@ -28,6 +28,10 @@ import {
 } from './damage.ts';
 import type { SurfaceKind } from './surfaces.ts';
 import { rotateByQuat } from './vec.ts';
+import {
+  VEHICLE_PERFORMANCE_REFERENCE_MASS_KG,
+  vehicleMassPerformanceFactor,
+} from '../core/mass.ts';
 
 export interface VehicleControls {
   throttle: number; // 0..1
@@ -81,11 +85,31 @@ const POWER_RECHARGE_PER_S = 15;
 const YAW_RATE_SOFT_LIMIT = 3.5; // rad/s
 const YAW_RATE_PULLDOWN_PER_S = 6; // exponential decay rate while above the limit
 
+// Vehicle stability and energy guards. Downforce is applied as an impulse so
+// systems that rebuild external forces later in the step cannot erase it.
+const BASE_DOWNFORCE_ACCEL = 2.25; // m/s^2, in addition to gravity
+const SPEED_DOWNFORCE_COEFFICIENT = 0.0032; // m/s^2 per horizontal (m/s)^2
+const MAX_DOWNFORCE_ACCEL = 6;
+const AERO_DRAG_COEFFICIENT = 0.0025;
+const HEAVY_BUILD_DRAG_COEFFICIENT = 0.05;
+const LATERAL_STABILITY_RATE_PER_S = 4.2;
+const MAX_LATERAL_CORRECTION_MPS_PER_STEP = 0.45;
+const GROUNDED_ROLL_PITCH_DAMPING_PER_S = 3.2;
+const TURN_ROLL_PITCH_DAMPING_BONUS_PER_S = 2.4;
+const MAX_POST_SOLVE_SPEED_MPS = 38;
+const MAX_POST_SOLVE_SPEED_GAIN_MPS = 1.25;
+const MAX_POST_SOLVE_ANGULAR_SPEED = 8;
+const MAX_POST_SOLVE_ANGULAR_GAIN = 1.5;
+
 // Reverse: engages only below this forward speed (S is a brake above it),
 // locks the gearbox to first gear with the torque negated, and stops pushing
 // once reverse speed reaches the cap.
 const REVERSE_ENGAGE_MAX_FORWARD_MPS = 0.6;
 const REVERSE_MAX_SPEED_MPS = 5;
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 export class RuntimeVehicle {
   readonly assembled: AssembledVehicle;
@@ -106,6 +130,9 @@ export class RuntimeVehicle {
   private lastShots: TracerShot[] = [];
   private lastRpm = 0;
   private lastGear = 0;
+  private readonly velocityBeforeSolve = { x: 0, y: 0, z: 0 };
+  private readonly angularVelocityBeforeSolve = { x: 0, y: 0, z: 0 };
+  private readonly stabilityImpulse = { x: 0, y: 0, z: 0 };
   islands: DetachedIsland[] = [];
 
   constructor(
@@ -255,6 +282,16 @@ export class RuntimeVehicle {
     controls: VehicleControls,
     surfaceOf: (colliderHandle: number) => SurfaceKind,
   ): void {
+    const body = this.assembled.body;
+    const velocityAtStart = body.linvel();
+    const angularVelocityAtStart = body.angvel();
+    this.velocityBeforeSolve.x = velocityAtStart.x;
+    this.velocityBeforeSolve.y = velocityAtStart.y;
+    this.velocityBeforeSolve.z = velocityAtStart.z;
+    this.angularVelocityBeforeSolve.x = angularVelocityAtStart.x;
+    this.angularVelocityBeforeSolve.y = angularVelocityAtStart.y;
+    this.angularVelocityBeforeSolve.z = angularVelocityAtStart.z;
+
     const attached = this.attachedAliveIds();
     const controllable = this.hasControl(attached);
     const throttle = controllable ? controls.throttle : 0;
@@ -306,6 +343,10 @@ export class RuntimeVehicle {
     this.lastRpm = rpmDisplay;
     this.lastGear = liveEngines[0]?.gearbox.gear ?? 0;
 
+    const mass = Math.max(1, body.mass());
+    const massPerformance = vehicleMassPerformanceFactor(mass);
+    totalTorque *= massPerformance;
+
     const torques = distributeTorque(
       totalTorque,
       drivenWheels.map((w) => w.wheelDef.driveTorqueLimit),
@@ -322,6 +363,8 @@ export class RuntimeVehicle {
       dt,
       surfaceOf,
     );
+
+    this.applyStabilityForces(dt, mass, steer);
 
     // Battery recharges while an engine runs.
     if (liveEngines.length > 0)
@@ -348,21 +391,217 @@ export class RuntimeVehicle {
     this.power -= weaponResult.powerUsed;
     this.lastShots = weaponResult.shots;
 
-    const angvel = this.assembled.body.angvel();
-    const yawAbs = Math.abs(angvel.y);
-    if (yawAbs > YAW_RATE_SOFT_LIMIT) {
-      const excess =
-        (yawAbs - YAW_RATE_SOFT_LIMIT) *
-        Math.exp(-YAW_RATE_PULLDOWN_PER_S * dt);
-      this.assembled.body.setAngvel(
+  }
+
+  /**
+   * Clear stored tire energy before an assisted recovery. A wheel that
+   * free-spun while inverted must not dump that energy into the ground as
+   * soon as the chassis is put upright again.
+   */
+  resetRecoveryState(): void {
+    this.assembled.body.resetForces(true);
+    this.assembled.body.resetTorques(true);
+    for (const wheel of this.assembled.wheels) {
+      wheel.omega = 0;
+      wheel.steerAngle = 0;
+      wheel.compression = 0;
+      wheel.grounded = false;
+      wheel.contactPointW = null;
+      wheel.loadN = 0;
+    }
+    this.lastWheelTelemetry = {
+      groundedCount: 0,
+      meanDrivenOmega: 0,
+      overloadedWheels: [],
+    };
+    for (const engine of this.engines) {
+      engine.rpm = engine.def.idleRpm;
+      engine.gearbox = { gear: 0, shiftCooldown: 0 };
+    }
+    this.lastRpm = 0;
+    this.lastGear = 0;
+  }
+
+  /**
+   * Called immediately after world.step(). Contact solvers may legitimately
+   * remove any amount of velocity, but they are not allowed to manufacture a
+   * large burst of linear or angular energy when a block catches an edge.
+   */
+  postStepStability(dt: number): void {
+    const body = this.assembled.body;
+    const velocity = body.linvel();
+    let correctedX = velocity.x;
+    let correctedY = velocity.y;
+    let correctedZ = velocity.z;
+    let velocityCorrected = false;
+    const horizontalSpeed = Math.hypot(correctedX, correctedZ);
+    const horizontalSpeedBefore = Math.hypot(
+      this.velocityBeforeSolve.x,
+      this.velocityBeforeSolve.z,
+    );
+    const allowedHorizontalSpeed = Math.min(
+      MAX_POST_SOLVE_SPEED_MPS,
+      horizontalSpeedBefore + MAX_POST_SOLVE_SPEED_GAIN_MPS,
+    );
+    if (horizontalSpeed > allowedHorizontalSpeed && horizontalSpeed > 1e-6) {
+      const scale = allowedHorizontalSpeed / horizontalSpeed;
+      correctedX *= scale;
+      correctedZ *= scale;
+      velocityCorrected = true;
+    }
+
+    // Keep vertical impact energy from being converted into a sideways launch,
+    // then retain a second overall cap for pure linear solver explosions.
+    const speed = Math.hypot(correctedX, correctedY, correctedZ);
+    const speedBefore = Math.hypot(
+      this.velocityBeforeSolve.x,
+      this.velocityBeforeSolve.y,
+      this.velocityBeforeSolve.z,
+    );
+    const allowedSpeed = Math.min(
+      MAX_POST_SOLVE_SPEED_MPS,
+      speedBefore + MAX_POST_SOLVE_SPEED_GAIN_MPS,
+    );
+    if (speed > allowedSpeed && speed > 1e-6) {
+      const scale = allowedSpeed / speed;
+      correctedX *= scale;
+      correctedY *= scale;
+      correctedZ *= scale;
+      velocityCorrected = true;
+    }
+    if (velocityCorrected) {
+      body.setLinvel(
         {
-          x: angvel.x,
-          y: Math.sign(angvel.y) * (YAW_RATE_SOFT_LIMIT + excess),
-          z: angvel.z,
+          x: correctedX,
+          y: correctedY,
+          z: correctedZ,
         },
         true,
       );
     }
+
+    const angularVelocity = body.angvel();
+    const angularSpeed = Math.hypot(
+      angularVelocity.x,
+      angularVelocity.y,
+      angularVelocity.z,
+    );
+    const angularSpeedBefore = Math.hypot(
+      this.angularVelocityBeforeSolve.x,
+      this.angularVelocityBeforeSolve.y,
+      this.angularVelocityBeforeSolve.z,
+    );
+    const allowedAngularSpeed = Math.min(
+      MAX_POST_SOLVE_ANGULAR_SPEED,
+      angularSpeedBefore + MAX_POST_SOLVE_ANGULAR_GAIN,
+    );
+    if (angularSpeed > allowedAngularSpeed && angularSpeed > 1e-6) {
+      const scale = allowedAngularSpeed / angularSpeed;
+      body.setAngvel(
+        {
+          x: angularVelocity.x * scale,
+          y: angularVelocity.y * scale,
+          z: angularVelocity.z * scale,
+        },
+        true,
+      );
+      return;
+    }
+
+    // Retain the lower yaw-specific soft limit for ordinary corner impacts.
+    const yawAbs = Math.abs(angularVelocity.y);
+    if (yawAbs > YAW_RATE_SOFT_LIMIT) {
+      const excess =
+        (yawAbs - YAW_RATE_SOFT_LIMIT) *
+        Math.exp(-YAW_RATE_PULLDOWN_PER_S * dt);
+      body.setAngvel(
+        {
+          x: angularVelocity.x,
+          y: Math.sign(angularVelocity.y) * (YAW_RATE_SOFT_LIMIT + excess),
+          z: angularVelocity.z,
+        },
+        true,
+      );
+    }
+  }
+
+  private applyStabilityForces(
+    dt: number,
+    mass: number,
+    steerInput: number,
+  ): void {
+    const body = this.assembled.body;
+    const velocity = body.linvel();
+    const horizontalSpeed = Math.hypot(velocity.x, velocity.z);
+    const downforceAccel = Math.min(
+      MAX_DOWNFORCE_ACCEL,
+      BASE_DOWNFORCE_ACCEL +
+        horizontalSpeed * horizontalSpeed * SPEED_DOWNFORCE_COEFFICIENT,
+    );
+
+    const massRatio = mass / VEHICLE_PERFORMANCE_REFERENCE_MASS_KG;
+    const heavyBuildDrag =
+      Math.max(0, massRatio - 1) *
+      HEAVY_BUILD_DRAG_COEFFICIENT *
+      horizontalSpeed;
+    const aeroDrag =
+      horizontalSpeed * horizontalSpeed * AERO_DRAG_COEFFICIENT;
+    const dragDeltaVelocity = Math.min(
+      horizontalSpeed,
+      (heavyBuildDrag + aeroDrag) * dt,
+    );
+
+    this.stabilityImpulse.x =
+      horizontalSpeed > 1e-6
+        ? -(velocity.x / horizontalSpeed) * mass * dragDeltaVelocity
+        : 0;
+    this.stabilityImpulse.y = -mass * downforceAccel * dt;
+    this.stabilityImpulse.z =
+      horizontalSpeed > 1e-6
+        ? -(velocity.z / horizontalSpeed) * mass * dragDeltaVelocity
+        : 0;
+    body.applyImpulse(this.stabilityImpulse, true);
+
+    // Mild stability control removes chassis sideslip while at least two tires
+    // are loaded. It relaxes during intentional turns and leaves mud and
+    // airborne motion to the regular tire/rigid-body physics.
+    if (this.lastWheelTelemetry.groundedCount < 2) return;
+    const rotation = body.rotation();
+    const up = rotateByQuat(rotation, { x: 0, y: 1, z: 0 });
+    if (up.y < 0.55) return;
+    const right = rotateByQuat(rotation, { x: 1, y: 0, z: 0 });
+    const lateralSpeed =
+      velocity.x * right.x + velocity.y * right.y + velocity.z * right.z;
+    // Relax stability control while the player is intentionally cornering;
+    // otherwise it counters the desired lateral motion and scrubs speed.
+    const correctionRate =
+      LATERAL_STABILITY_RATE_PER_S *
+      (1 - Math.abs(steerInput) * 0.65);
+    const lateralDeltaVelocity = clampNumber(
+      -lateralSpeed * correctionRate * dt,
+      -MAX_LATERAL_CORRECTION_MPS_PER_STEP,
+      MAX_LATERAL_CORRECTION_MPS_PER_STEP,
+    );
+    this.stabilityImpulse.x = right.x * mass * lateralDeltaVelocity;
+    this.stabilityImpulse.y = right.y * mass * lateralDeltaVelocity;
+    this.stabilityImpulse.z = right.z * mass * lateralDeltaVelocity;
+    body.applyImpulse(this.stabilityImpulse, true);
+
+    // Turn bracing without suspension impulses: damp only chassis roll and
+    // pitch while grounded, leaving yaw free for responsive steering.
+    const angularVelocity = body.angvel();
+    const angularDamping =
+      GROUNDED_ROLL_PITCH_DAMPING_PER_S +
+      Math.abs(steerInput) * TURN_ROLL_PITCH_DAMPING_BONUS_PER_S;
+    const angularFactor = Math.exp(-angularDamping * dt);
+    body.setAngvel(
+      {
+        x: angularVelocity.x * angularFactor,
+        y: angularVelocity.y,
+        z: angularVelocity.z * angularFactor,
+      },
+      true,
+    );
   }
 
   onContactForce(colliderHandle: number, forceMagnitude: number): void {

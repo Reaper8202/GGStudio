@@ -9,6 +9,27 @@ import type { PartDefinition, PlacedPart, Vec3, Vec3i } from './types.ts';
 import { CELL_SIZE } from './types.ts';
 import { addVec, rotateVec } from './grid.ts';
 
+/**
+ * The starter vehicle sits close to this mass. Above it, extra structure is
+ * deliberately felt twice: Rapier already has more mass to accelerate, and
+ * the drivetrain loses additional output to the heavier build.
+ */
+export const VEHICLE_PERFORMANCE_REFERENCE_MASS_KG = 800;
+const VEHICLE_MIN_PERFORMANCE_FACTOR = 0.35;
+const VEHICLE_MASS_PENALTY_EXPONENT = 0.72;
+
+export function vehicleMassPerformanceFactor(massKg: number): number {
+  if (!Number.isFinite(massKg) || massKg <= 0) return 1;
+  if (massKg <= VEHICLE_PERFORMANCE_REFERENCE_MASS_KG) return 1;
+  return Math.max(
+    VEHICLE_MIN_PERFORMANCE_FACTOR,
+    Math.pow(
+      VEHICLE_PERFORMANCE_REFERENCE_MASS_KG / massKg,
+      VEHICLE_MASS_PENALTY_EXPONENT,
+    ),
+  );
+}
+
 export interface CellMass {
   /** World grid cell. */
   cell: Vec3i;

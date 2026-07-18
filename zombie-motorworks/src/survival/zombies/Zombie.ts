@@ -24,6 +24,14 @@ import {
   SPAWN_RISE_DURATION,
   STUCK_SPEED_THRESHOLD,
   STUCK_TIME_THRESHOLD,
+  THROWER_ATTACK_EXIT_MARGIN,
+  THROWER_ATTACK_INTERVAL,
+  THROWER_ATTACK_RANGE,
+  THROWER_HEALTH_MULTIPLIER,
+  THROWER_POOL_STRIDE,
+  THROWER_REWARD,
+  THROWER_SPEED_MULTIPLIER,
+  THROWER_VISUAL_HEIGHT,
   WALK_BOB_AMPLITUDE,
   WALK_BOB_FREQUENCY,
   ZOMBIE_ATTACK_EXIT_MARGIN,
@@ -67,6 +75,8 @@ export enum ZombieState {
 
 export type ZombieKilledCallback = (reward: number, zombie: Zombie) => void;
 
+export type ZombieKind = 'walker' | 'thrower';
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -87,6 +97,9 @@ export class Zombie {
 
   state = ZombieState.Dead;
   active = false;
+  /** Set by ZombieSystem; fired when a thrower's attack timer elapses. */
+  onThrow: ((zombie: Zombie) => void) | null = null;
+  readonly kind: ZombieKind;
 
   private readonly visualRoot = new THREE.Group();
   private readonly fallbackMaterial: THREE.MeshLambertMaterial;
@@ -126,6 +139,10 @@ export class Zombie {
     fallbackGeometry: THREE.CapsuleGeometry,
     private readonly onKilled: ZombieKilledCallback,
   ) {
+    this.kind =
+      index % THROWER_POOL_STRIDE === THROWER_POOL_STRIDE - 1
+        ? 'thrower'
+        : 'walker';
     this.baseScale =
       BASE_VISUAL_SCALE + (Math.random() - 0.5) * SCALE_VARIATION;
     const tint = new THREE.Color(
@@ -206,11 +223,20 @@ export class Zombie {
     if (this.disposed) return;
     this.active = true;
     this.state = ZombieState.Spawning;
-    this.health = BASE_ZOMBIE_STATS.health * healthMultiplier;
-    this.moveSpeed = BASE_ZOMBIE_STATS.speed * speedMultiplier;
+    const thrower = this.kind === 'thrower';
+    this.health =
+      BASE_ZOMBIE_STATS.health *
+      healthMultiplier *
+      (thrower ? THROWER_HEALTH_MULTIPLIER : 1);
+    this.moveSpeed =
+      BASE_ZOMBIE_STATS.speed *
+      speedMultiplier *
+      (thrower ? THROWER_SPEED_MULTIPLIER : 1);
     this.attackDamage = BASE_ZOMBIE_STATS.attackDamage;
-    this.attackInterval = BASE_ZOMBIE_STATS.attackInterval;
-    this.reward = BASE_ZOMBIE_STATS.reward;
+    this.attackInterval = thrower
+      ? THROWER_ATTACK_INTERVAL
+      : BASE_ZOMBIE_STATS.attackInterval;
+    this.reward = thrower ? THROWER_REWARD : BASE_ZOMBIE_STATS.reward;
 
     this.spawnTimer = SPAWN_RISE_DURATION;
     this.attackTimer = 0;
@@ -430,9 +456,15 @@ export class Zombie {
     const dx = target.x - this.position.x;
     const dz = target.z - this.position.z;
     const horizontalDistance = Math.hypot(dx, dz);
-    if (target.distance <= ZOMBIE_ATTACK_RANGE) {
+    const attackRange =
+      this.kind === 'thrower' ? THROWER_ATTACK_RANGE : ZOMBIE_ATTACK_RANGE;
+    if (target.distance <= attackRange) {
       this.state = ZombieState.Attacking;
-      this.attackTimer = this.attackInterval;
+      // Throwers wind up quickly on arrival instead of a full idle interval.
+      this.attackTimer =
+        this.kind === 'thrower'
+          ? this.attackInterval * 0.5
+          : this.attackInterval;
       this.zeroHorizontalVelocity();
       return;
     }
@@ -479,10 +511,11 @@ export class Zombie {
   private stepAttacking(dt: number, vehicle: RuntimeVehicle): void {
     this.zeroHorizontalVelocity();
     const target = this.vehicleTarget;
-    if (
-      target.partId === null ||
-      target.distance > ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN
-    ) {
+    const exitRange =
+      this.kind === 'thrower'
+        ? THROWER_ATTACK_RANGE + THROWER_ATTACK_EXIT_MARGIN
+        : ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN;
+    if (target.partId === null || target.distance > exitRange) {
       this.state = ZombieState.Chasing;
       return;
     }
@@ -491,7 +524,11 @@ export class Zombie {
     this.attackTimer -= dt;
     if (this.attackTimer <= 0) {
       this.attackTimer = this.attackInterval;
-      vehicle.applyDirectDamage(target.partId, this.attackDamage);
+      if (this.kind === 'thrower') {
+        this.onThrow?.(this);
+      } else {
+        vehicle.applyDirectDamage(target.partId, this.attackDamage);
+      }
       this.lungeTimer = LUNGE_DURATION;
     }
   }
@@ -583,14 +620,26 @@ export class Zombie {
   }
 
   private loadVoxelVisual(): void {
-    const variant = (this.index % 6) + 1;
-    void instantiateVoxelAsset(`${ZOMBIE_ASSET_ROOT}/Zed_${variant}`, true)
+    const thrower = this.kind === 'thrower';
+    const variant = thrower ? 0 : (this.index % 6) + 1;
+    const url = thrower
+      ? `${ZOMBIE_ASSET_ROOT}/zombie_city`
+      : `${ZOMBIE_ASSET_ROOT}/Zed_${variant}`;
+    void instantiateVoxelAsset(url, true)
       .then((model) => {
         if (this.disposed) {
           disposeModelMaterials(model);
           return;
         }
-        model.scale.setScalar(0.23);
+        if (thrower) {
+          // The thrower model's voxel grid differs from the Zed exports;
+          // scale by bounds to match the walkers' world height.
+          const bounds = new THREE.Box3().setFromObject(model);
+          const height = Math.max(1e-3, bounds.max.y - bounds.min.y);
+          model.scale.setScalar(THROWER_VISUAL_HEIGHT / height);
+        } else {
+          model.scale.setScalar(0.23);
+        }
         model.position.y = -(ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS);
         this.loadedMaterials.length = 0;
         model.traverse((child) => {

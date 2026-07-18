@@ -4,6 +4,8 @@ export interface PlayerProfile {
   schemaVersion: 1;
   money: number;
   unlockedDefIds: string[];
+  /** Purchased, unplaced garage parts keyed by catalog definition id. */
+  inventory?: Record<string, number>;
   currentBlueprintName?: string;
 }
 
@@ -24,6 +26,13 @@ export function defaultProfile(): PlayerProfile {
     schemaVersion: 1,
     money: DEFAULT_MONEY,
     unlockedDefIds: [...STARTER_UNLOCKS],
+    inventory: {
+      'frame-box': 4,
+      'wheel-standard': 4,
+      'driver-seat': 1,
+      'engine-small': 1,
+      'fuel-tank': 1,
+    },
   };
 }
 
@@ -35,12 +44,14 @@ function hasValidShape(value: unknown): value is {
   schemaVersion: 1;
   money: number;
   unlockedDefIds: string[];
+  inventory?: Record<string, unknown>;
   currentBlueprintName?: string;
 } {
   if (!isRecord(value)) return false;
   if (value.schemaVersion !== 1 || typeof value.money !== 'number') return false;
   if (!Array.isArray(value.unlockedDefIds)) return false;
   if (!value.unlockedDefIds.every((id) => typeof id === 'string')) return false;
+  if (value.inventory !== undefined && !isRecord(value.inventory)) return false;
   return (
     value.currentBlueprintName === undefined ||
     typeof value.currentBlueprintName === 'string'
@@ -71,6 +82,15 @@ export function decodeProfile(json: string | null | undefined): PlayerProfile {
         ...parsed.unlockedDefIds.filter((id) => PART_CATALOG[id] !== undefined),
       ]),
     ],
+    inventory: Object.fromEntries(
+      Object.entries(parsed.inventory ?? {}).filter(
+        ([id, count]) =>
+          PART_CATALOG[id] !== undefined &&
+          typeof count === 'number' &&
+          Number.isSafeInteger(count) &&
+          count > 0,
+      ),
+    ) as Record<string, number>,
   };
   if (parsed.currentBlueprintName !== undefined) {
     profile.currentBlueprintName = parsed.currentBlueprintName;
@@ -84,6 +104,7 @@ export function encodeProfile(profile: PlayerProfile): string {
     schemaVersion: profile.schemaVersion,
     money: profile.money,
     unlockedDefIds: profile.unlockedDefIds,
+    inventory: profile.inventory ?? {},
     ...(profile.currentBlueprintName === undefined
       ? {}
       : { currentBlueprintName: profile.currentBlueprintName }),

@@ -8,12 +8,16 @@ import {
   type Vector3Like,
   type ZombieKilledCallback,
 } from './Zombie.ts';
+import { ThrowerProjectiles } from './ThrowerProjectiles.ts';
 import {
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
   MAXIMUM_SWARM_DRAG,
   MIN_IMPACT_SPEED,
   MIN_SPAWN_DISTANCE_FROM_VEHICLE,
+  PROJECTILE_DAMAGE,
+  PROJECTILE_HIT_RADIUS,
+  PROJECTILE_LAUNCH_HEIGHT,
   SEPARATION_RADIUS,
   SEPARATION_STRENGTH,
   STUCK_TELEPORT_DISPLACEMENT,
@@ -54,6 +58,25 @@ export class ZombieSystem {
   private readonly spawnScratch = new THREE.Vector3();
   private readonly swarmForce = { x: 0, y: 0, z: 0 };
   private readonly fallbackGeometry: THREE.CapsuleGeometry;
+  private readonly projectiles: ThrowerProjectiles;
+  private readonly tryProjectileImpact = (
+    x: number,
+    y: number,
+    z: number,
+  ): boolean => {
+    const radiusSq = PROJECTILE_HIT_RADIUS * PROJECTILE_HIT_RADIUS;
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      const dx = anchor.worldX - x;
+      const dy = anchor.worldY - y;
+      const dz = anchor.worldZ - z;
+      if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
+      this.vehicle.applyDirectDamage(anchor.partId, PROJECTILE_DAMAGE);
+      return true;
+    }
+    return false;
+  };
   private healthMultiplier = 1;
   private speedMultiplier = 1;
   private disposed = false;
@@ -71,6 +94,7 @@ export class ZombieSystem {
       4,
       8,
     );
+    this.projectiles = new ThrowerProjectiles(scene);
     for (let i = 0; i < ZOMBIE_POOL_SIZE; i++) {
       const zombie = new Zombie(
         world,
@@ -79,6 +103,7 @@ export class ZombieSystem {
         this.fallbackGeometry,
         onKilled,
       );
+      zombie.onThrow = (thrower) => this.launchProjectileFrom(thrower);
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -170,7 +195,21 @@ export class ZombieSystem {
     }
 
     this.processVehicleContacts(this.activeScratch, dt);
+    this.projectiles.update(dt, this.tryProjectileImpact);
     this.rebuildAliveTargets();
+  }
+
+  private launchProjectileFrom(zombie: Zombie): void {
+    const target = zombie.vehicleTarget;
+    if (target.partId === null) return;
+    this.projectiles.launch(
+      zombie.position.x,
+      zombie.position.y + PROJECTILE_LAUNCH_HEIGHT,
+      zombie.position.z,
+      target.x,
+      target.y,
+      target.z,
+    );
   }
 
   /** Advance render-rate feedback after physics has moved the bodies. */
@@ -214,6 +253,7 @@ export class ZombieSystem {
 
   reset(): void {
     if (this.disposed) return;
+    this.projectiles.despawnAll();
     for (const zombie of this.pool) zombie.forceReturnToPool();
     this.healthMultiplier = 1;
     this.speedMultiplier = 1;
@@ -227,6 +267,7 @@ export class ZombieSystem {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.projectiles.dispose();
     for (const zombie of this.pool) zombie.dispose();
     this.pool.length = 0;
     this.colliderToZombie.clear();

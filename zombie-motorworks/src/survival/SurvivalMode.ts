@@ -27,6 +27,9 @@ const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
 const GROUND_HALF_SIZE = 35;
 const COUNTDOWN_SECONDS = 3;
 const TRACER_POOL_SIZE = 32;
+const STUCK_PROMPT_SECONDS = 1.6;
+const RECOVERY_COOLDOWN_SECONDS = 2.25;
+const RECOVERY_SETTLE_SECONDS = 0.42;
 
 export interface SurvivalCallbacks {
   profileMoney(): number;
@@ -77,10 +80,13 @@ interface TracerVisual {
 
 interface SurvivalUi {
   root: HTMLDivElement;
+  speedValue: HTMLSpanElement;
   integrityValue: HTMLSpanElement;
+  integrityFill: HTMLSpanElement;
   waveValue: HTMLSpanElement;
   remainingValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
+  stuckPrompt: HTMLDivElement;
   countdownOverlay: HTMLDivElement;
   countdownValue: HTMLDivElement;
 }
@@ -130,10 +136,13 @@ export class SurvivalMode {
   private readonly shotDirection = new THREE.Vector3();
   private readonly stoppedVelocity = { x: 0, y: 0, z: 0 };
   private readonly ui: HTMLDivElement;
+  private readonly speedValue: HTMLSpanElement;
   private readonly integrityValue: HTMLSpanElement;
+  private readonly integrityFill: HTMLSpanElement;
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
+  private readonly stuckPrompt: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly countdownValue: HTMLDivElement;
 
@@ -142,12 +151,12 @@ export class SurvivalMode {
   private debugPaused = false;
   private kills = 0;
   private currentWave = 1;
-  private zombiesRemaining = 0;
   private countdownRemaining = COUNTDOWN_SECONDS;
   private phase: SurvivalPhase = 'countdown';
   private pointerFiring = false;
   private disposed = false;
   private lastHudIntegrity = -1;
+  private lastHudSpeed = -1;
   private lastHudWave = -1;
   private lastHudRemaining = -1;
   private lastHudMoney = -1;
@@ -155,10 +164,27 @@ export class SurvivalMode {
   private tracerCursor = 0;
   private pendingWaveReward = 0;
   private pendingTransition: PendingTransition | null = null;
+  private stuckSeconds = 0;
+  private recoveryCooldown = 0;
+  private recoverySettleSeconds = 0;
+  private recoveryRequested = false;
+  private readonly recoveryImpulse = { x: 0, y: 0, z: 0 };
+  private readonly recoveryTranslation = { x: 0, y: 0, z: 0 };
+  private readonly recoveryVelocity = { x: 0, y: 0, z: 0 };
+  private readonly recoveryAngularVelocity = { x: 0, y: 0, z: 0 };
+  private readonly recoveryForward = new THREE.Vector3();
+  private readonly recoveryQuaternion = new THREE.Quaternion();
+  private readonly recoveryTargetQuaternion = new THREE.Quaternion();
 
   private readonly keydown = (event: KeyboardEvent): void => {
     if (this.phase === 'gameOver') return;
-    this.keys.add(event.key.toLowerCase());
+    const key = event.key.toLowerCase();
+    if (key === 'j') {
+      if (!event.repeat) this.recoveryRequested = true;
+      event.preventDefault();
+      return;
+    }
+    this.keys.add(key);
   };
 
   private readonly keyup = (event: KeyboardEvent): void => {
@@ -203,8 +229,8 @@ export class SurvivalMode {
     );
     this.autoAim = new AutoAim(this.vehicle, this.zombies, this.world);
     this.waves = new WaveManager(this.zombies, {
-      onRemainingChanged: (remaining) => {
-        this.zombiesRemaining = remaining;
+      onRemainingChanged: () => {
+        this.lastHudRemaining = -1;
       },
       onWaveComplete: (wave, reward) => this.onWaveComplete(wave, reward),
     });
@@ -212,10 +238,13 @@ export class SurvivalMode {
 
     const builtUi = this.buildUI();
     this.ui = builtUi.root;
+    this.speedValue = builtUi.speedValue;
     this.integrityValue = builtUi.integrityValue;
+    this.integrityFill = builtUi.integrityFill;
     this.waveValue = builtUi.waveValue;
     this.remainingValue = builtUi.remainingValue;
     this.moneyValue = builtUi.moneyValue;
+    this.stuckPrompt = builtUi.stuckPrompt;
     this.countdownOverlay = builtUi.countdownOverlay;
     this.countdownValue = builtUi.countdownValue;
 
@@ -294,41 +323,79 @@ export class SurvivalMode {
 
   private buildUI(): SurvivalUi {
     const root = document.createElement('div');
-    root.className = 'ui-layer';
+    root.className = 'ui-layer survival-ui';
     this.container.appendChild(root);
 
-    const top = document.createElement('div');
-    top.className = 'topbar';
-    root.appendChild(top);
-
-    const back = document.createElement('button');
-    back.className = 'primary';
-    back.textContent = 'Back to Garage';
-    back.addEventListener('click', () =>
-      this.callbacks.onExit(this.currentRunState()),
-    );
-
-    const title = document.createElement('div');
-    title.className = 'panel';
-    title.textContent = 'ZOMBIE SURVIVAL';
-    title.style.cssText =
-      'padding:7px 12px;font-weight:800;letter-spacing:.08em;color:#ffb44d';
-    top.append(back, title);
+    const waveHud = document.createElement('section');
+    waveHud.className = 'panel survival-wave-hud';
+    const waveBlock = document.createElement('div');
+    const waveLabel = document.createElement('span');
+    waveLabel.textContent = 'Wave';
+    const waveValue = document.createElement('strong');
+    waveBlock.append(waveLabel, waveValue);
+    const divider = document.createElement('span');
+    divider.className = 'survival-wave-hud__divider';
+    const zombieBlock = document.createElement('div');
+    const zombieLabel = document.createElement('span');
+    zombieLabel.textContent = 'Zombies on Field';
+    const remainingValue = document.createElement('strong');
+    zombieBlock.append(zombieLabel, remainingValue);
+    waveHud.append(waveBlock, divider, zombieBlock);
+    root.appendChild(waveHud);
 
     const hud = document.createElement('div');
-    hud.className = 'panel';
-    hud.style.cssText = 'position:absolute;left:8px;bottom:8px;min-width:245px';
-    const integrityValue = addStatRow(hud, 'Vehicle integrity');
-    const waveValue = addStatRow(hud, 'Wave');
-    const remainingValue = addStatRow(hud, 'Zombies remaining');
-    const moneyValue = addStatRow(hud, 'Money');
+    hud.className = 'panel survival-driver-hud';
+    const speedRow = document.createElement('div');
+    speedRow.className = 'survival-speed';
+    const speedLabel = document.createElement('span');
+    speedLabel.textContent = 'Speed';
+    const speedReadout = document.createElement('div');
+    const speedValue = document.createElement('span');
+    speedValue.textContent = '0';
+    const speedUnit = document.createElement('small');
+    speedUnit.textContent = 'KM/H';
+    speedReadout.append(speedValue, speedUnit);
+    speedRow.append(speedLabel, speedReadout);
+    const health = document.createElement('div');
+    health.className = 'survival-health';
+    const healthHeader = document.createElement('div');
+    const healthLabel = document.createElement('span');
+    healthLabel.textContent = 'Vehicle Health';
+    const integrityValue = document.createElement('span');
+    healthHeader.append(healthLabel, integrityValue);
+    const healthTrack = document.createElement('div');
+    healthTrack.className = 'survival-health__track';
+    healthTrack.setAttribute('role', 'progressbar');
+    healthTrack.setAttribute('aria-label', 'Vehicle health');
+    healthTrack.setAttribute('aria-valuemin', '0');
+    healthTrack.setAttribute('aria-valuemax', '100');
+    const integrityFill = document.createElement('span');
+    integrityFill.className = 'survival-health__fill';
+    healthTrack.appendChild(integrityFill);
+    health.append(healthHeader, healthTrack);
+    const moneyRow = document.createElement('div');
+    moneyRow.className = 'survival-earned';
+    const moneyLabel = document.createElement('span');
+    moneyLabel.textContent = 'Money Earned';
+    const moneyValue = document.createElement('span');
+    moneyRow.append(moneyLabel, moneyValue);
+    hud.append(speedRow, health, moneyRow);
     root.appendChild(hud);
 
-    const help = document.createElement('div');
-    help.className = 'hud-note';
-    help.textContent =
-      'W/S drive + brake · A/D steer · Space brake · turrets auto-fire · heavy weapons: mouse aim + click/F';
-    root.appendChild(help);
+    const stuckPrompt = document.createElement('div');
+    stuckPrompt.className = 'panel survival-stuck-prompt';
+    stuckPrompt.setAttribute('role', 'status');
+    const stuckIcon = document.createElement('span');
+    stuckIcon.className = 'survival-stuck-prompt__icon';
+    stuckIcon.setAttribute('aria-hidden', 'true');
+    const stuckCopy = document.createElement('div');
+    const stuckTitle = document.createElement('strong');
+    stuckTitle.textContent = 'Vehicle Stuck';
+    const stuckAction = document.createElement('span');
+    stuckAction.textContent = 'Press J to Jump';
+    stuckCopy.append(stuckTitle, stuckAction);
+    stuckPrompt.append(stuckIcon, stuckCopy);
+    root.appendChild(stuckPrompt);
 
     const countdownOverlay = overlayPanel();
     countdownOverlay.style.pointerEvents = 'none';
@@ -344,10 +411,13 @@ export class SurvivalMode {
 
     return {
       root,
+      speedValue,
       integrityValue,
+      integrityFill,
       waveValue,
       remainingValue,
       moneyValue,
+      stuckPrompt,
       countdownOverlay,
       countdownValue,
     };
@@ -413,6 +483,7 @@ export class SurvivalMode {
 
   private stepPhysics(): void {
     this.updateControls();
+    this.updateRecoveryAssist(FIXED_DT);
     this.controls.weaponAim = this.autoAim.step();
     this.vehicle.preStep(
       FIXED_DT,
@@ -425,6 +496,7 @@ export class SurvivalMode {
     this.zombies.step(FIXED_DT);
 
     this.world.step(this.eventQueue);
+    this.vehicle.postStepStability(FIXED_DT);
     this.eventQueue.drainContactForceEvents((event) => {
       const force = event.totalForceMagnitude();
       this.vehicle.onContactForce(event.collider1(), force);
@@ -450,6 +522,107 @@ export class SurvivalMode {
 
     this.attachNewIslands(this.vehicle.finishStep());
     this.queueCompletedStepTransition();
+  }
+
+  private updateRecoveryAssist(dt: number): void {
+    this.recoveryCooldown = Math.max(0, this.recoveryCooldown - dt);
+    this.recoverySettleSeconds = Math.max(
+      0,
+      this.recoverySettleSeconds - dt,
+    );
+    const telemetry = this.vehicle.telemetry();
+    const rotation = this.vehicle.body.rotation();
+    const upright = 1 - 2 * (rotation.x * rotation.x + rotation.z * rotation.z);
+    const tryingToMove =
+      this.controls.throttle > 0 || (this.controls.reverse ?? 0) > 0;
+    const stalled =
+      tryingToMove &&
+      telemetry.speedKmh < 3 &&
+      telemetry.groundedWheels > 0;
+    const tipped = upright < 0.35;
+    if (stalled || tipped) this.stuckSeconds += dt;
+    else this.stuckSeconds = Math.max(0, this.stuckSeconds - dt * 2);
+
+    const canRecover =
+      this.stuckSeconds >= STUCK_PROMPT_SECONDS &&
+      this.recoveryCooldown <= 0;
+    this.stuckPrompt.classList.toggle('is-visible', canRecover);
+    if (this.recoverySettleSeconds > 0) this.applyRecoveryControlLock();
+    if (!this.recoveryRequested) return;
+    this.recoveryRequested = false;
+    if (!canRecover) return;
+    this.performRecoveryJump();
+  }
+
+  private performRecoveryJump(): void {
+    const body = this.vehicle.body;
+    this.vehicle.resetRecoveryState();
+    const mass = Math.max(1, body.mass());
+    const rotation = body.rotation();
+    this.recoveryQuaternion.set(
+      rotation.x,
+      rotation.y,
+      rotation.z,
+      rotation.w,
+    );
+
+    // Preserve the car's heading while rotating most of the way back toward
+    // world-up. The jump finishes the reset physically instead of adding spin
+    // to whatever roll/pitch momentum the crash left behind.
+    this.recoveryForward
+      .set(0, 0, 1)
+      .applyQuaternion(this.recoveryQuaternion);
+    this.recoveryForward.y = 0;
+    if (this.recoveryForward.lengthSq() < 1e-5) {
+      this.recoveryForward.set(0, 0, 1);
+    } else {
+      this.recoveryForward.normalize();
+    }
+    this.recoveryTargetQuaternion.setFromAxisAngle(
+      this.wheelSteerAxis,
+      Math.atan2(this.recoveryForward.x, this.recoveryForward.z),
+    );
+    this.recoveryQuaternion.slerp(this.recoveryTargetQuaternion, 0.9);
+    const translation = body.translation();
+    this.recoveryTranslation.x = translation.x;
+    this.recoveryTranslation.y = translation.y + 0.75;
+    this.recoveryTranslation.z = translation.z;
+    body.setTranslation(this.recoveryTranslation, true);
+    body.setRotation(
+      {
+        x: this.recoveryQuaternion.x,
+        y: this.recoveryQuaternion.y,
+        z: this.recoveryQuaternion.z,
+        w: this.recoveryQuaternion.w,
+      },
+      true,
+    );
+
+    this.recoveryVelocity.x = 0;
+    this.recoveryVelocity.y = 0;
+    this.recoveryVelocity.z = 0;
+    body.setLinvel(this.recoveryVelocity, true);
+    this.recoveryAngularVelocity.x = 0;
+    this.recoveryAngularVelocity.y = 0;
+    this.recoveryAngularVelocity.z = 0;
+    body.setAngvel(this.recoveryAngularVelocity, true);
+
+    this.recoveryImpulse.x = 0;
+    this.recoveryImpulse.y = mass * 5.25;
+    this.recoveryImpulse.z = 0;
+    body.applyImpulse(this.recoveryImpulse, true);
+    this.recoverySettleSeconds = RECOVERY_SETTLE_SECONDS;
+    this.applyRecoveryControlLock();
+    this.stuckSeconds = 0;
+    this.recoveryCooldown = RECOVERY_COOLDOWN_SECONDS;
+    this.stuckPrompt.classList.remove('is-visible');
+  }
+
+  private applyRecoveryControlLock(): void {
+    this.controls.throttle = 0;
+    this.controls.reverse = 0;
+    this.controls.brake = 1;
+    this.controls.steer = 0;
   }
 
   private updateControls(): void {
@@ -512,10 +685,13 @@ export class SurvivalMode {
     this.phase = 'countdown';
     this.countdownRemaining = COUNTDOWN_SECONDS;
     this.lastCountdownSecond = -1;
-    this.zombiesRemaining = 0;
     this.pointerFiring = false;
     this.pendingWaveReward = 0;
     this.keys.clear();
+    this.stuckSeconds = 0;
+    this.recoverySettleSeconds = 0;
+    this.recoveryRequested = false;
+    this.stuckPrompt.classList.remove('is-visible');
     this.countdownOverlay.style.display = 'block';
   }
 
@@ -542,6 +718,7 @@ export class SurvivalMode {
     this.pointerFiring = false;
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
+    this.stuckPrompt.classList.remove('is-visible');
   }
 
   private creditReward(amount: number): void {
@@ -580,6 +757,7 @@ export class SurvivalMode {
     this.pointerFiring = false;
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
+    this.stuckPrompt.classList.remove('is-visible');
     this.stopVehicleMotion();
     this.pendingTransition = {
       kind: 'gameOver',
@@ -677,20 +855,33 @@ export class SurvivalMode {
   }
 
   private syncHud(): void {
+    const telemetry = this.vehicle.telemetry();
+    const speed = Math.round(telemetry.speedKmh);
+    if (speed !== this.lastHudSpeed) {
+      this.lastHudSpeed = speed;
+      this.speedValue.textContent = String(speed);
+    }
     const integrity = Math.round(this.vehicle.integrityPct());
     if (integrity !== this.lastHudIntegrity) {
       this.lastHudIntegrity = integrity;
       this.integrityValue.textContent = `${integrity}%`;
+      this.integrityFill.style.width = `${integrity}%`;
+      this.integrityFill.parentElement?.setAttribute(
+        'aria-valuenow',
+        String(integrity),
+      );
+      this.integrityFill.classList.toggle('is-critical', integrity <= 30);
     }
     if (this.currentWave !== this.lastHudWave) {
       this.lastHudWave = this.currentWave;
       this.waveValue.textContent = String(this.currentWave);
     }
-    if (this.zombiesRemaining !== this.lastHudRemaining) {
-      this.lastHudRemaining = this.zombiesRemaining;
-      this.remainingValue.textContent = String(this.zombiesRemaining);
+    const zombiesOnField = this.zombies.getActiveCount();
+    if (zombiesOnField !== this.lastHudRemaining) {
+      this.lastHudRemaining = zombiesOnField;
+      this.remainingValue.textContent = String(zombiesOnField);
     }
-    const money = this.callbacks.profileMoney();
+    const money = this.callbacks.runEarnings();
     if (money !== this.lastHudMoney) {
       this.lastHudMoney = money;
       this.moneyValue.textContent = `$${money}`;
@@ -785,7 +976,6 @@ export class SurvivalMode {
       1,
       Math.floor(Number.isFinite(wave) ? wave : 1),
     );
-    this.zombiesRemaining = 0;
     this.phase = 'active';
     this.pendingWaveReward = 0;
     this.pendingTransition = null;
@@ -893,17 +1083,6 @@ export class SurvivalMode {
     this.surfaceByCollider.clear();
     this.tracers.length = 0;
   }
-}
-
-function addStatRow(parent: HTMLElement, label: string): HTMLSpanElement {
-  const row = document.createElement('div');
-  row.className = 'stat-row';
-  const name = document.createElement('span');
-  name.textContent = label;
-  const value = document.createElement('span');
-  row.append(name, value);
-  parent.appendChild(row);
-  return value;
 }
 
 function overlayPanel(): HTMLDivElement {

@@ -8,11 +8,16 @@ import type {
   VehicleBlueprint,
   WheelContactEstimate,
 } from './types.ts';
-import { CELL_SIZE, SUSPENSION_PRESET_MULTIPLIERS } from './types.ts';
+import { CELL_SIZE } from './types.ts';
 import { ALL_FACES, FACE_VECTORS, addVec, cellKey, rotateFace, rotateVec, worldCells } from './grid.ts';
-import { cellCentreM, placedCellMasses } from './mass.ts';
+import {
+  cellCentreM,
+  placedCellMasses,
+  vehicleMassPerformanceFactor,
+} from './mass.ts';
 import { getPartDef } from './parts.ts';
 import { effectivePartDef, getEffectiveDef } from './upgrades.ts';
+import { deriveAutomaticWheelLayout } from './wheelLayout.ts';
 
 type Point2 = { x: number; z: number };
 
@@ -233,13 +238,33 @@ export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => Par
   const engineDefs = engineEntries.map((entry) => entry.def);
   const totalPowerKw = engineDefs.reduce((sum, def) => sum + def.engine!.maxPowerKw, 0);
   const powerToWeightKwPerT = totalMassKg > 0 ? totalPowerKw / (totalMassKg / 1000) : 0;
-  const drivenWheels = wheelEntries.filter((wheel) => wheel.part.config.driven === true);
+  const totalDps = entries.reduce(
+    (sum, entry) =>
+      sum + (entry.def.weapon === undefined
+        ? 0
+        : entry.def.weapon.damage * entry.def.weapon.fireRate),
+    0,
+  );
+  const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
+  const drivenWheels = wheelEntries.filter((wheel) =>
+    wheelLayout.drivenPartIds.has(wheel.part.id),
+  );
   const groundedDrivenWheels = drivenWheels.filter((wheel) => wheel.contact.grounded);
   const drivenWheelLoad = groundedDrivenWheels.reduce((sum, wheel) => sum + wheel.contact.load, 0);
   const drivenWheelLoadFraction = totalWeightN > 0 ? drivenWheelLoad / totalWeightN : 0;
   const meanDrivenWheelRadius =
     groundedDrivenWheels.length > 0 ? groundedDrivenWheels.reduce((sum, wheel) => sum + wheel.radius, 0) / groundedDrivenWheels.length : 0;
-  const tractiveForce = meanDrivenWheelRadius > 0 ? (peakTorque(engineDefs) * 3.6 * 3.9 * 0.85) / meanDrivenWheelRadius : 0;
+  const maxEngineRpm = engineDefs.reduce(
+    (maximum, def) => Math.max(maximum, def.engine?.maxRpm ?? 0),
+    0,
+  );
+  const massPerformance = vehicleMassPerformanceFactor(totalMassKg);
+  const estimatedTopSpeedKph =
+    meanDrivenWheelRadius > 0 && maxEngineRpm > 0
+      ? (((maxEngineRpm / (3.6 * 3.9)) * (2 * Math.PI * meanDrivenWheelRadius) * 60) / 1000) *
+        massPerformance
+      : 0;
+  const tractiveForce = meanDrivenWheelRadius > 0 ? (peakTorque(engineDefs) * 3.6 * 3.9 * 0.85 * massPerformance) / meanDrivenWheelRadius : 0;
   const tractionSlope = Math.atan(0.9 * drivenWheelLoadFraction);
   const torqueSlope = totalWeightN > 0 ? Math.asin(clamp(tractiveForce / totalWeightN)) : 0;
   const estimatedMaxSlopeDeg =
@@ -263,7 +288,7 @@ export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => Par
   }
   const ungroundedWheels = wheelEntries.filter((wheel) => !wheel.contact.grounded);
   if (wheelEntries.length > 0 && ungroundedWheels.length > 0) {
-    addIssue(issue('WHEELS_NOT_GROUNDED', 'Some wheels are not expected to touch the ground.', ungroundedWheels.map((wheel) => wheel.part.id), [], 'Lower the wheels or rotate suspension downward.'));
+    addIssue(issue('WHEELS_NOT_GROUNDED', 'Some wheels are not expected to touch the ground.', ungroundedWheels.map((wheel) => wheel.part.id), [], 'Lower the wheels or rotate the fixed wheel mount downward.'));
   }
   const badOrientation = wheelEntries.filter(({ part, def }) => {
     const axle = rotateVec(part.orient, def.wheel!.axleAxis);
@@ -271,12 +296,14 @@ export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => Par
     return axle.y !== 0 || susp.y !== -1;
   });
   if (badOrientation.length > 0) {
-    addIssue(issue('WHEEL_AXLE_ORIENTATION', 'Some wheels have vertical axles or non-downward suspension.', badOrientation.map((wheel) => wheel.part.id), [], 'Rotate wheels so axles are horizontal and suspension points down.'));
+    addIssue(issue('WHEEL_AXLE_ORIENTATION', 'Some wheels have vertical axles or upward-facing mounts.', badOrientation.map((wheel) => wheel.part.id), [], 'Rotate wheels so axles are horizontal and mounts point down.'));
   }
   if (wheelEntries.length > 0 && drivenWheels.length === 0) {
     addIssue(issue('NO_DRIVEN_WHEELS', 'No wheels are configured as driven.', wheelEntries.map((wheel) => wheel.part.id), [], 'Mark at least one grounded wheel as driven.'));
   }
-  const steeringWheels = wheelEntries.filter((wheel) => wheel.part.config.steering === true);
+  const steeringWheels = wheelEntries.filter((wheel) =>
+    wheelLayout.steeringPartIds.has(wheel.part.id),
+  );
   if (wheelEntries.length > 0 && steeringWheels.length === 0) {
     addIssue(issue('NO_STEERING_WHEELS', 'No wheels are configured for steering.', wheelEntries.map((wheel) => wheel.part.id), [], 'Mark at least one wheel as steering.'));
   }
@@ -298,13 +325,11 @@ export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => Par
   if (frontMassFraction < 0.25 || frontMassFraction > 0.75) {
     addIssue(issue('LONGITUDINAL_IMBALANCE', 'Front-rear mass distribution is imbalanced.', [], [], 'Move heavy parts between the axles.'));
   }
-  const overloaded = groundedWheels.filter(({ part, def, contact }) => {
-    const preset = part.config.suspensionPreset ?? 'standard';
-    const suspensionMaxLoad = def.wheel!.suspension.maxLoad * SUSPENSION_PRESET_MULTIPLIERS[preset].maxLoad;
-    return contact.load > suspensionMaxLoad || contact.load > def.wheel!.maxLoad;
+  const overloaded = groundedWheels.filter(({ def, contact }) => {
+    return contact.load > def.wheel!.maxLoad;
   });
   if (overloaded.length > 0) {
-    addIssue(issue('SUSPENSION_OVERLOAD', 'Static load exceeds a wheel or suspension rating.', overloaded.map((wheel) => wheel.part.id), [], 'Use stronger wheels, a heavier suspension preset, or reduce mass.'));
+    addIssue(issue('WHEEL_OVERLOAD', 'Static load exceeds a wheel rating.', overloaded.map((wheel) => wheel.part.id), [], 'Use stronger wheels, add more wheels, or reduce mass.'));
   }
   if (engineDefs.length > 0 && powerToWeightKwPerT < 25) {
     addIssue(issue('LOW_POWER', 'Power-to-weight ratio is low.', engineEntries.map((entry) => entry.part.id), [], 'Add power or reduce vehicle mass.'));
@@ -340,6 +365,8 @@ export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => Par
     wheelbaseM,
     groundClearanceM,
     powerToWeightKwPerT,
+    totalDps,
+    estimatedTopSpeedKph,
     drivenWheelLoadFraction,
     estimatedMaxSlopeDeg,
     fuelCapacityL,

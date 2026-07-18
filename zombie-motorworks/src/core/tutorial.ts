@@ -10,7 +10,7 @@ import { validateBlueprint } from './placement.ts';
 
 export type GetDef = (defId: string) => PartDefinition;
 
-/** Palette entries shown in the editor, in this order. */
+/** Store and inventory entries shown in the garage, in this order. */
 export const SIMPLE_PART_IDS: readonly string[] = [
   'frame-box',
   'frame-reinforced',
@@ -58,7 +58,7 @@ export const KID_LABELS: Record<string, PartLabel> = {
 
 export interface TutorialStep {
   id: string;
-  /** Short title, may contain an emoji. */
+  /** Short instructional title. */
   title: string;
   /** Short instruction telling the player exactly what to do. */
   text: string;
@@ -75,7 +75,7 @@ function countOf(bp: VehicleBlueprint, defId: string): number {
 const BUILD_STEPS: readonly TutorialStep[] = [
   {
     id: 'frame',
-    title: '🧱 Build the frame',
+    title: 'Build the frame',
     text: 'Add 4 Blocks around the orange Truck Heart. Right-click a mistake to erase.',
     paletteDefId: 'frame-box',
     isComplete: (bp) =>
@@ -83,7 +83,7 @@ const BUILD_STEPS: readonly TutorialStep[] = [
   },
   {
     id: 'wheels',
-    title: '🛞 Wheels on!',
+    title: 'Wheels on',
     text: 'Put 4 Wheels straight onto the outside Blocks. Wheels set themselves up.',
     paletteDefId: 'wheel-standard',
     isComplete: (bp) =>
@@ -91,21 +91,21 @@ const BUILD_STEPS: readonly TutorialStep[] = [
   },
   {
     id: 'driver',
-    title: '🧑‍✈️ The driver',
+    title: 'Add the driver',
     text: 'Put the Driver Seat on top.',
     paletteDefId: 'driver-seat',
     isComplete: (bp) => countOf(bp, 'driver-seat') >= 1,
   },
   {
     id: 'engine',
-    title: '⚙️ Engine time',
+    title: 'Engine time',
     text: 'Snap on an Engine.',
     paletteDefId: 'engine-small',
     isComplete: (bp) => countOf(bp, 'engine-small') >= 1,
   },
   {
     id: 'fuel',
-    title: '⛽ Fuel it up',
+    title: 'Fuel it up',
     text: 'Add a Fuel Tank.',
     paletteDefId: 'fuel-tank',
     isComplete: (bp) => countOf(bp, 'fuel-tank') >= 1,
@@ -116,7 +116,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   ...BUILD_STEPS,
   {
     id: 'drive',
-    title: '🏁 Ready to roll!',
+    title: 'Ready to roll',
     text: 'Press TEST DRIVE!',
     isComplete: (bp, getDef) =>
       validateBlueprint(bp, getDef).errors.length === 0 &&

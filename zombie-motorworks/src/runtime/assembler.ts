@@ -25,6 +25,7 @@ import {
 import { cellCentreM, placedCellMasses } from '../core/mass.ts';
 import { getPartDef } from '../core/parts.ts';
 import { effectivePartDef, getEffectiveDef } from '../core/upgrades.ts';
+import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
 
 export type GetDef = (defId: string) => PartDefinition;
 
@@ -37,7 +38,7 @@ export const GROUP_ZOMBIE = 0x0010;
 
 export const VEHICLE_GROUPS =
   (GROUP_VEHICLE << 16) | (GROUP_TERRAIN | GROUP_DEBRIS | GROUP_ZOMBIE);
-export const ATTACHED_WHEEL_GROUPS = GROUP_WHEEL << 16; // filter 0: mass only
+export const ATTACHED_WHEEL_GROUPS = GROUP_WHEEL << 16; // mass only; ray suspension supports the chassis
 export const DEBRIS_GROUPS =
   (GROUP_DEBRIS << 16) |
   (GROUP_TERRAIN | GROUP_DEBRIS | GROUP_ZOMBIE | GROUP_VEHICLE);
@@ -58,12 +59,13 @@ export interface RuntimePart {
 export interface RuntimeWheel {
   partId: string;
   wheelDef: WheelDefinition;
-  suspension: SuspensionParams; // preset-scaled
   driven: boolean;
   steering: boolean;
   steerInverted: boolean;
   braking: boolean;
   anchorLocal: Vec3; // vehicle-local metres (cell centre)
+  mountOffset: number; // fixed distance from mount to wheel centre
+  suspension: SuspensionParams; // preset-scaled
   axleLocal: Vec3; // unit, rotated by placement
   suspDirLocal: Vec3; // unit, rotated by placement
   radius: number;
@@ -71,7 +73,7 @@ export interface RuntimeWheel {
   // mutable state
   omega: number; // rad/s
   steerAngle: number; // rad, current
-  compression: number; // m, previous step
+  compression: number; // current ray suspension compression, m
   grounded: boolean;
   contactPointW: Vec3 | null;
   loadN: number;
@@ -88,20 +90,15 @@ export interface AssembledVehicle {
   rootPartId: string;
 }
 
-/** Resolve catalog and injected definitions through the same level rules. */
-export function resolvePlacedDef(
-  placed: PlacedPart,
-  getDef: GetDef,
-): PartDefinition {
-  return getDef === getPartDef
-    ? getEffectiveDef(placed)
-    : effectivePartDef(getDef(placed.defId), placed.config.level ?? 1);
-}
-
+/** Preset-scaled suspension; unknown persisted presets fall back to standard. */
 function suspensionScaled(
   base: SuspensionParams,
-  preset: keyof typeof SUSPENSION_PRESET_MULTIPLIERS,
+  requestedPreset: string | undefined,
 ): SuspensionParams {
+  const preset =
+    requestedPreset && requestedPreset in SUSPENSION_PRESET_MULTIPLIERS
+      ? (requestedPreset as keyof typeof SUSPENSION_PRESET_MULTIPLIERS)
+      : 'standard';
   const m = SUSPENSION_PRESET_MULTIPLIERS[preset];
   return {
     restLength: base.restLength,
@@ -110,6 +107,16 @@ function suspensionScaled(
     damping: base.damping * m.damping,
     maxLoad: base.maxLoad * m.maxLoad,
   };
+}
+
+/** Resolve catalog and injected definitions through the same level rules. */
+export function resolvePlacedDef(
+  placed: PlacedPart,
+  getDef: GetDef,
+): PartDefinition {
+  return getDef === getPartDef
+    ? getEffectiveDef(placed)
+    : effectivePartDef(getDef(placed.defId), placed.config.level ?? 1);
 }
 
 /** Lowest solid point (vehicle-local metres, Y) so spawns can clear the ground. */
@@ -149,13 +156,16 @@ export function assembleVehicle(
     )
     .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
     .setCanSleep(false)
+    // Continuous collision detection keeps a fast-moving corner from
+    // penetrating terrain and being explosively corrected on the next solve.
+    .setCcdEnabled(true)
     // Modest angular damping: the compound body is a rigid stack of cuboid
     // colliders with no natural rotational drag, so corner impacts against
     // walls/terrain can otherwise pump energy into spin indefinitely (no
     // tire lateral force while airborne to bleed it off). Kept low so it
-    // doesn't fight legitimate rollover dynamics (RuntimeVehicle.preStep
-    // adds a yaw-specific limiter on top for the worst spikes).
-    .setAngularDamping(0.2);
+    // doesn't fight legitimate rollover dynamics (RuntimeVehicle adds
+    // post-solve energy guards for the worst contact spikes).
+    .setAngularDamping(0.38);
   const body = world.createRigidBody(bodyDesc);
 
   const parts = new Map<string, RuntimePart>();
@@ -177,30 +187,31 @@ export function assembleVehicle(
     };
 
     if (def.wheel) {
-      // Wheels: collider carries mass but collides with nothing while attached
-      // (suspension raycast does the ground work; box collider would fight it).
       const centre = cellCentreM(placed.pos);
       const w = def.wheel;
-      const desc = RAPIER.ColliderDesc.cuboid(half, half, half)
-        .setTranslation(centre.x, centre.y, centre.z)
+      const suspLocal = rotateVec(placed.orient, w.suspensionDir);
+      const wheelCentre = {
+        x: centre.x + suspLocal.x * w.suspension.restLength,
+        y: centre.y + suspLocal.y * w.suspension.restLength,
+        z: centre.z + suspLocal.z * w.suspension.restLength,
+      };
+      // Wheel colliders contribute mass only. All terrain support comes from
+      // per-wheel ray-suspension spring forces applied at each wheel anchor.
+      const desc = RAPIER.ColliderDesc.ball(w.radius)
+        .setTranslation(wheelCentre.x, wheelCentre.y, wheelCentre.z)
         .setMass(def.massKg)
+        .setFriction(0)
+        .setRestitution(0)
         .setCollisionGroups(ATTACHED_WHEEL_GROUPS);
       const col = world.createCollider(desc, body);
       entry.colliderHandles.push(col.handle);
-      entry.colliderCentresM.push(centre);
-
-      const requestedPreset = placed.config.suspensionPreset;
-      const preset =
-        requestedPreset && requestedPreset in SUSPENSION_PRESET_MULTIPLIERS
-          ? requestedPreset
-          : 'standard';
+      entry.colliderCentresM.push(wheelCentre);
       // Normalize axle handedness: a mirrored wheel is physically the same
       // wheel (the differential spins each side opposite so both roll the
       // vehicle forward). If the wheel's rolling direction opposes vehicle
       // forward (+Z), flip the axle. Genuinely wrong mounts (axle along Z or
       // vertical) have |forward.z| ≈ 0 and are left broken on purpose.
       let axleLocal = rotateVec(placed.orient, w.axleAxis);
-      const suspLocal = rotateVec(placed.orient, w.suspensionDir);
       const upL = { x: -suspLocal.x, y: -suspLocal.y, z: -suspLocal.z };
       const rollFwdZ = axleLocal.x * upL.y - axleLocal.y * upL.x; // (axle × up).z
       if (rollFwdZ < -0.5) {
@@ -209,12 +220,16 @@ export function assembleVehicle(
       wheels.push({
         partId: placed.id,
         wheelDef: w,
-        suspension: suspensionScaled(w.suspension, preset),
-        driven: placed.config.driven ?? false,
-        steering: placed.config.steering ?? false,
+        driven: false,
+        steering: false,
         steerInverted: placed.config.steerInverted ?? false,
         braking: placed.config.braking ?? true,
         anchorLocal: centre,
+        mountOffset: w.suspension.restLength,
+        suspension: suspensionScaled(
+          w.suspension,
+          placed.config.suspensionPreset,
+        ),
         axleLocal,
         suspDirLocal: suspLocal,
         radius: w.radius,
@@ -266,6 +281,12 @@ export function assembleVehicle(
       }
     }
     parts.set(placed.id, entry);
+  }
+
+  const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
+  for (const wheel of wheels) {
+    wheel.steering = wheelLayout.steeringPartIds.has(wheel.partId);
+    wheel.driven = wheelLayout.drivenPartIds.has(wheel.partId);
   }
 
   const live = connections.map((c) => ({ ...c }));

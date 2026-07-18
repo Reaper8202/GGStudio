@@ -1,14 +1,19 @@
-/** DOM overlay UI for the editor: build palette, build card, and toolbars. */
+/** Garage DOM UI: store, inventory, vehicle stats, and selected-part inspector. */
 
 import { KID_LABELS, SIMPLE_PART_IDS } from '../core/tutorial.ts';
-import { PAINT_COLORS, type PartDefinition, type ValidationIssue } from '../core/types.ts';
+import {
+  PAINT_COLORS,
+  type PartDefinition,
+  type PartConfig,
+  type ValidationIssue,
+  type VehicleAnalysisReport,
+} from '../core/types.ts';
 
 export interface EditorUIHandlers {
+  onBuyPart(defId: string): void;
   onArmPart(defId: string): void;
   onToggleErase(): void;
   onCancelTool(): void;
-  onSave(): void;
-  onLoad(slot: string): void;
   onNew(): void;
   onMenu(): void;
   onRename(name: string): void;
@@ -40,9 +45,12 @@ export interface RunSummary {
 export interface EditorUI {
   root: HTMLElement;
   setBlueprintName(name: string): void;
-  setSlots(slots: string[], current: string | null): void;
   setUndoRedo(canUndo: boolean, canRedo: boolean): void;
-  setBuildSummary(weightKg: number, rolloverRisk: string, errors: ValidationIssue[], warnings: ValidationIssue[]): void;
+  setBuildSummary(
+    report: VehicleAnalysisReport,
+    errors: ValidationIssue[],
+    warnings: ValidationIssue[],
+  ): void;
   setTestDriveEnabled(enabled: boolean, blockedBy: string[]): void;
   setSelectedPart(
     def: PartDefinition | null,
@@ -50,8 +58,14 @@ export interface EditorUI {
     level?: number,
     effectiveDef?: PartDefinition,
     economy?: SelectedPartEconomy,
+    config?: PartConfig,
   ): void;
-  setEconomy(money: number, unlockedDefIds: readonly string[]): void;
+  setEconomy(
+    money: number,
+    unlockedDefIds: readonly string[],
+    inventory: Readonly<Record<string, number>>,
+    installedDefIds: readonly string[],
+  ): void;
   setRunContext(wave?: number, summary?: RunSummary): void;
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
@@ -61,21 +75,148 @@ export interface EditorUI {
   ghostTip: HTMLDivElement;
 }
 
+interface CollapsiblePanel {
+  panel: HTMLElement;
+  body: HTMLElement;
+}
+
+function buildCollapsiblePanel(titleText: string, className: string): CollapsiblePanel {
+  const panel = document.createElement('section');
+  panel.className = `panel dock-panel ${className}`;
+  const header = document.createElement('header');
+  header.className = 'dock-panel__header';
+  const title = document.createElement('h2');
+  title.textContent = titleText;
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'dock-panel__toggle';
+  toggle.setAttribute('aria-label', `Collapse ${titleText}`);
+  toggle.setAttribute('aria-expanded', 'true');
+  const body = document.createElement('div');
+  body.className = 'dock-panel__body';
+  toggle.addEventListener('click', () => {
+    const collapsed = panel.classList.toggle('is-collapsed');
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} ${titleText}`);
+  });
+  header.append(title, toggle);
+  panel.append(header, body);
+  return { panel, body };
+}
+
+function buildMetric(
+  labelText: string,
+  valueText: string,
+  value: number,
+  max: number,
+  intent = 'neutral',
+): HTMLElement {
+  const metric = document.createElement('div');
+  metric.className = `garage-stat garage-stat--${intent}`;
+  const header = document.createElement('div');
+  header.className = 'garage-stat__header';
+  const label = document.createElement('span');
+  label.textContent = labelText;
+  const output = document.createElement('strong');
+  output.textContent = valueText;
+  header.append(label, output);
+  const track = document.createElement('div');
+  track.className = 'garage-stat__track';
+  track.setAttribute('role', 'progressbar');
+  track.setAttribute('aria-label', labelText);
+  track.setAttribute('aria-valuemin', '0');
+  track.setAttribute('aria-valuemax', String(max));
+  track.setAttribute('aria-valuenow', String(Math.round(value)));
+  const fill = document.createElement('span');
+  fill.className = 'garage-stat__fill';
+  fill.style.setProperty('--garage-stat-value', `${Math.min(100, Math.max(0, (value / max) * 100))}%`);
+  track.appendChild(fill);
+  metric.append(header, track);
+  return metric;
+}
+
+function partThumbnail(def: PartDefinition): HTMLImageElement {
+  const common = `
+    <path d="M16 24 32 15 48 24 32 33Z" fill="#59604f"/>
+    <path d="M16 24 32 33 32 50 16 41Z" fill="#363b32"/>
+    <path d="M32 33 48 24 48 41 32 50Z" fill="#242923"/>
+    <path d="M16 24 32 15 48 24" fill="none" stroke="#737b67" stroke-width="2"/>
+  `;
+  const drawings: Record<string, string> = {
+    'frame-box': common,
+    'frame-reinforced': `
+      ${common}
+      <path d="M20 27 32 34 44 27M22 39 32 45 42 39" fill="none" stroke="#8a5035" stroke-width="3"/>
+    `,
+    'wheel-standard': `
+      <ellipse cx="32" cy="34" rx="15" ry="20" fill="#171a17" stroke="#555b50" stroke-width="5"/>
+      <ellipse cx="32" cy="34" rx="6" ry="9" fill="#89995a"/>
+      <path d="M32 16V52M18 34H46" stroke="#080a08" stroke-width="3"/>
+    `,
+    'wheel-offroad': `
+      <path d="M18 14H26V19H38V14H46V22H50V46H46V54H38V49H26V54H18V46H14V22H18Z" fill="#1a1d19"/>
+      <ellipse cx="32" cy="34" rx="13" ry="17" fill="#343a31" stroke="#070807" stroke-width="4"/>
+      <rect x="27" y="27" width="10" height="14" fill="#89995a"/>
+    `,
+    'driver-seat': `
+      <path d="M22 14H42V36H22Z" fill="#3d4339"/>
+      <path d="M18 35H44V47H36V53H24V47H18Z" fill="#242923"/>
+      <path d="M25 18H39V32H25Z" fill="#59604f"/>
+    `,
+    'engine-small': `
+      ${common}
+      <path d="M21 20 29 16V25L21 29ZM35 16 43 20V29L35 25Z" fill="#8a5035"/>
+      <path d="M22 38H42" stroke="#89995a" stroke-width="3"/>
+    `,
+    'fuel-tank': `
+      <path d="M20 18H44V50H20Z" fill="#3b4137"/>
+      <path d="M24 14H34V20H24Z" fill="#59604f"/>
+      <path d="M20 28H44M20 42H44" stroke="#20241f" stroke-width="4"/>
+      <path d="M26 34H38" stroke="#8a5035" stroke-width="3"/>
+    `,
+    turret: `
+      ${common}
+      <path d="M24 17 32 12 40 17V28L32 32 24 28Z" fill="#4b5245"/>
+      <path d="M34 16H55V21H34Z" fill="#8a5035"/>
+    `,
+    'armour-plate': `
+      <path d="M15 20 32 12 49 20V46L32 54 15 46Z" fill="#3e4439"/>
+      <path d="M20 23 32 17 44 23V43L32 49 20 43Z" fill="#59604f"/>
+      <path d="M22 25 42 41M42 25 22 41" stroke="#242923" stroke-width="3"/>
+    `,
+    'cannon-heavy': `
+      ${common}
+      <path d="M22 18 34 12 43 18V28L32 34 22 28Z" fill="#4a5044"/>
+      <path d="M34 14H58V21H34Z" fill="#8a5035"/>
+      <path d="M53 12H61V23H53Z" fill="#2a2e28"/>
+    `,
+  };
+  const drawing = drawings[def.id] ?? common;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" shape-rendering="crispEdges"><rect width="64" height="64" fill="#090b09"/>${drawing}</svg>`;
+  const image = document.createElement('img');
+  image.className = 'part-thumbnail';
+  image.alt = '';
+  image.draggable = false;
+  image.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  return image;
+}
+
 export function buildEditorUI(
   container: HTMLElement,
   catalog: Record<string, PartDefinition>,
   handlers: EditorUIHandlers,
 ): EditorUI {
   const root = document.createElement('div');
-  root.className = 'ui-layer';
+  root.className = 'ui-layer garage-ui';
   container.appendChild(root);
 
   const btn = (label: string, fn: () => void, title = ''): HTMLButtonElement => {
-    const b = document.createElement('button');
-    b.textContent = label;
-    b.title = title;
-    b.addEventListener('click', fn);
-    return b;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.title = title;
+    button.addEventListener('click', fn);
+    return button;
   };
 
   const top = document.createElement('div');
@@ -83,41 +224,36 @@ export function buildEditorUI(
   root.appendChild(top);
   const nameInput = document.createElement('input');
   nameInput.type = 'text';
-  nameInput.style.width = '140px';
-  nameInput.title = 'Build name';
+  nameInput.className = 'garage-name';
+  nameInput.title = 'Vehicle name';
   nameInput.addEventListener('change', () => handlers.onRename(nameInput.value));
-  const slotSelect = document.createElement('select');
-  slotSelect.title = 'Saved builds';
   const menuBtn = btn('Menu', handlers.onMenu);
-  top.append(
-    nameInput,
-    slotSelect,
-    btn('Save', handlers.onSave),
-    btn('Load', () => handlers.onLoad(slotSelect.value)),
-    btn('New', handlers.onNew),
-    menuBtn,
-  );
-  const undoBtn = btn('↩ Undo', handlers.onUndo, 'Ctrl+Z');
-  const redoBtn = btn('↪ Redo', handlers.onRedo, 'Ctrl+Shift+Z');
+  top.append(nameInput, btn('New Garage', handlers.onNew), menuBtn);
+  const undoBtn = btn('Undo', handlers.onUndo, 'Ctrl+Z');
+  const redoBtn = btn('Redo', handlers.onRedo, 'Ctrl+Shift+Z');
   top.append(undoBtn, redoBtn);
   let symmetry = false;
-  const symmetryBtn = btn('Build both sides', () => {
+  const symmetryBtn = btn('Mirror Build', () => {
     symmetry = !symmetry;
     symmetryBtn.classList.toggle('active', symmetry);
+    symmetryBtn.setAttribute('aria-pressed', String(symmetry));
     handlers.onSymmetryToggle(symmetry);
   });
+  symmetryBtn.setAttribute('aria-pressed', 'false');
   top.appendChild(symmetryBtn);
   const viewSelect = document.createElement('select');
-  viewSelect.title = 'View (keys 1–5)';
+  viewSelect.title = 'View (keys 1-5)';
   for (const [label, value] of [['3D', 'persp'], ['Front', 'front'], ['Rear', 'rear'], ['Side', 'side'], ['Top', 'top']] as const) {
     const option = document.createElement('option');
     option.value = value;
     option.textContent = label;
     viewSelect.appendChild(option);
   }
-  viewSelect.addEventListener('change', () => handlers.onView(viewSelect.value as 'persp' | 'front' | 'rear' | 'side' | 'top'));
-  top.append(viewSelect, btn('🎓 Tutorial', handlers.onStartTutorial), btn('? Help', () => toggleHelp()));
-  const testBtn = btn('▶ TEST DRIVE', handlers.onTestDrive);
+  viewSelect.addEventListener('change', () =>
+    handlers.onView(viewSelect.value as 'persp' | 'front' | 'rear' | 'side' | 'top'),
+  );
+  top.append(viewSelect, btn('Tutorial', handlers.onStartTutorial), btn('Help', () => toggleHelp()));
+  const testBtn = btn('Test Drive', handlers.onTestDrive);
   testBtn.className = 'primary btn-hero btn-hero-first';
   const fightBtn = btn('Fight Zombies', handlers.onFightZombies);
   fightBtn.className = 'primary btn-hero btn-hero-fight';
@@ -136,51 +272,149 @@ export function buildEditorUI(
   noticeBanner.style.display = 'none';
   root.appendChild(noticeBanner);
 
-  const palette = document.createElement('div');
-  palette.className = 'palette panel';
-  root.appendChild(palette);
-  const paletteContent = document.createElement('div');
-  paletteContent.className = 'palette-content';
-  palette.appendChild(paletteContent);
-  const partButtons = new Map<string, HTMLButtonElement>();
-  const partPriceLabels = new Map<string, HTMLElement>();
+  const garageDock = document.createElement('aside');
+  garageDock.className = 'garage-dock';
+  root.appendChild(garageDock);
+
+  const store = buildCollapsiblePanel('Store', 'store-panel');
+  const storeFilters = document.createElement('div');
+  storeFilters.className = 'store-filters';
+  const essentialsFilter = document.createElement('button');
+  essentialsFilter.type = 'button';
+  essentialsFilter.textContent = 'Essentials';
+  essentialsFilter.className = 'active';
+  essentialsFilter.setAttribute('aria-pressed', 'true');
+  const weaponsFilter = document.createElement('button');
+  weaponsFilter.type = 'button';
+  weaponsFilter.textContent = 'Weapons';
+  weaponsFilter.setAttribute('aria-pressed', 'false');
+  storeFilters.append(essentialsFilter, weaponsFilter);
+  const storeContent = document.createElement('div');
+  storeContent.className = 'dock-list store-list';
+  store.body.append(storeFilters, storeContent);
+  const inventory = buildCollapsiblePanel('Inventory', 'inventory-panel');
+  const inventoryContent = document.createElement('div');
+  inventoryContent.className = 'dock-list inventory-list';
+  const inventoryEmpty = document.createElement('p');
+  inventoryEmpty.className = 'inventory-empty';
+  inventoryEmpty.textContent = 'No loose parts. Buy stock from the Store.';
+  inventory.body.append(inventoryContent, inventoryEmpty);
+  garageDock.append(store.panel, inventory.panel);
+
+  const storeButtons = new Map<string, HTMLButtonElement>();
+  const storePriceLabels = new Map<string, HTMLElement>();
+  const inventoryButtons = new Map<string, HTMLButtonElement>();
+  const inventoryCountLabels = new Map<string, HTMLElement>();
   let armed: string | null = null;
   let highlighted: string | null = null;
+
   for (const id of SIMPLE_PART_IDS) {
     const def = catalog[id];
     if (!def) continue;
-    const partButton = document.createElement('button');
-    partButton.className = 'part-btn';
-    partButton.dataset.partId = id;
-    const name = document.createElement('strong');
-    name.textContent = KID_LABELS[id]?.name ?? def.name;
-    const blurb = document.createElement('small');
-    blurb.textContent = KID_LABELS[id]?.blurb ?? def.description;
+    const displayName = KID_LABELS[id]?.name ?? def.name;
+    const description = KID_LABELS[id]?.blurb ?? def.description;
+
+    const storeButton = document.createElement('button');
+    storeButton.className = 'part-btn store-item';
+    storeButton.dataset.partId = id;
+    storeButton.dataset.storeGroup = def.category === 'weapon' ? 'weapons' : 'essentials';
+    const storeName = document.createElement('strong');
+    storeName.textContent = displayName;
+    const storePreview = partThumbnail(def);
+    const storeBlurb = document.createElement('small');
+    storeBlurb.className = 'part-description';
+    storeBlurb.textContent = description;
     const price = document.createElement('small');
     price.className = 'part-price';
-    partButton.append(name, blurb, price);
-    partButton.title = def.description;
-    partButton.addEventListener('click', () => armed === id ? handlers.onCancelTool() : handlers.onArmPart(id));
-    paletteContent.appendChild(partButton);
-    partButtons.set(id, partButton);
-    partPriceLabels.set(id, price);
+    storeButton.append(storeName, storePreview, storeBlurb, price);
+    storeButton.addEventListener('click', () => handlers.onBuyPart(id));
+    storeContent.appendChild(storeButton);
+    storeButtons.set(id, storeButton);
+    storePriceLabels.set(id, price);
+
+    const inventoryButton = document.createElement('button');
+    inventoryButton.className = 'part-btn inventory-item';
+    inventoryButton.dataset.partId = id;
+    const inventoryName = document.createElement('strong');
+    inventoryName.textContent = displayName;
+    const inventoryPreview = partThumbnail(def);
+    const inventoryBlurb = document.createElement('small');
+    inventoryBlurb.className = 'part-description';
+    inventoryBlurb.textContent = description;
+    const count = document.createElement('small');
+    count.className = 'inventory-count';
+    count.textContent = '0';
+    inventoryButton.append(inventoryName, inventoryPreview, inventoryBlurb, count);
+    inventoryButton.addEventListener('click', () =>
+      armed === id ? handlers.onCancelTool() : handlers.onArmPart(id),
+    );
+    inventoryContent.appendChild(inventoryButton);
+    inventoryButtons.set(id, inventoryButton);
+    inventoryCountLabels.set(id, count);
   }
-  const eraseButton = btn('🧽 Erase', handlers.onToggleErase, 'Delete a part with the next click');
+
+  const setStoreFilter = (group: 'essentials' | 'weapons'): void => {
+    const essentialsActive = group === 'essentials';
+    essentialsFilter.classList.toggle('active', essentialsActive);
+    weaponsFilter.classList.toggle('active', !essentialsActive);
+    essentialsFilter.setAttribute('aria-pressed', String(essentialsActive));
+    weaponsFilter.setAttribute('aria-pressed', String(!essentialsActive));
+    for (const button of storeButtons.values()) {
+      button.hidden = button.dataset.storeGroup !== group;
+    }
+  };
+  essentialsFilter.addEventListener('click', () => setStoreFilter('essentials'));
+  weaponsFilter.addEventListener('click', () => setStoreFilter('weapons'));
+  setStoreFilter('essentials');
+
+  const inventoryTools = document.createElement('div');
+  inventoryTools.className = 'inventory-tools';
+  const eraseButton = btn('Erase Part', handlers.onToggleErase, 'Delete a part with the next click');
   eraseButton.className = 'erase-btn';
-  palette.appendChild(eraseButton);
-  const cancelButton = btn('× Cancel', handlers.onCancelTool);
+  const cancelButton = btn('Cancel Tool', handlers.onCancelTool);
   cancelButton.className = 'cancel-tool';
   cancelButton.style.display = 'none';
-  palette.appendChild(cancelButton);
+  inventoryTools.append(eraseButton, cancelButton);
+  inventory.body.appendChild(inventoryTools);
 
-  const buildCard = document.createElement('div');
-  buildCard.className = 'panel build-card';
-  root.appendChild(buildCard);
+  const selectedPanel = document.createElement('aside');
+  selectedPanel.className = 'panel selected-panel';
+  const selectedHeader = document.createElement('header');
+  selectedHeader.className = 'selected-panel__header';
+  const selectedEyebrow = document.createElement('span');
+  selectedEyebrow.textContent = 'Model Selection';
+  const selectedHeading = document.createElement('h2');
+  selectedHeading.textContent = 'Selected Part';
+  selectedHeader.append(selectedEyebrow, selectedHeading);
+  const selectedContent = document.createElement('div');
+  selectedContent.className = 'selected-panel__content';
+  selectedPanel.append(selectedHeader, selectedContent);
+  root.appendChild(selectedPanel);
 
-  const selectedToolbar = document.createElement('div');
-  selectedToolbar.className = 'panel selected-toolbar';
-  selectedToolbar.style.display = 'none';
-  root.appendChild(selectedToolbar);
+  const vehicleStats = document.createElement('section');
+  vehicleStats.className = 'panel vehicle-stats';
+  const vehicleStatsHeader = document.createElement('header');
+  vehicleStatsHeader.className = 'vehicle-stats__header';
+  const vehicleStatsTitle = document.createElement('h2');
+  vehicleStatsTitle.textContent = 'Vehicle Stats';
+  const vehicleStatsToggle = document.createElement('button');
+  vehicleStatsToggle.type = 'button';
+  vehicleStatsToggle.className = 'dock-panel__toggle';
+  vehicleStatsToggle.setAttribute('aria-label', 'Collapse Vehicle Stats');
+  vehicleStatsToggle.setAttribute('aria-expanded', 'true');
+  vehicleStatsToggle.addEventListener('click', () => {
+    const collapsed = vehicleStats.classList.toggle('is-collapsed');
+    vehicleStatsToggle.setAttribute('aria-expanded', String(!collapsed));
+    vehicleStatsToggle.setAttribute(
+      'aria-label',
+      `${collapsed ? 'Expand' : 'Collapse'} Vehicle Stats`,
+    );
+  });
+  vehicleStatsHeader.append(vehicleStatsTitle, vehicleStatsToggle);
+  const vehicleStatsContent = document.createElement('div');
+  vehicleStatsContent.className = 'vehicle-stats__content';
+  vehicleStats.append(vehicleStatsHeader, vehicleStatsContent);
+  root.appendChild(vehicleStats);
 
   const bottom = document.createElement('div');
   bottom.className = 'bottombar';
@@ -227,42 +461,55 @@ export function buildEditorUI(
     root.appendChild(welcome);
   }
 
+  const showNoSelection = (): void => {
+    root.classList.remove('has-selection');
+    selectedPanel.classList.remove('is-visible');
+    selectedContent.replaceChildren();
+    const empty = document.createElement('div');
+    empty.className = 'selected-empty';
+    const mark = document.createElement('span');
+    mark.textContent = '[ ]';
+    const text = document.createElement('p');
+    text.textContent = 'Select a block on the model to inspect, upgrade, rotate, paint, or sell it.';
+    empty.append(mark, text);
+    selectedContent.appendChild(empty);
+  };
+  showNoSelection();
+
   return {
     root,
     ghostTip,
     setBlueprintName: (name) => { nameInput.value = name; },
-    setSlots: (slots, current) => {
-      slotSelect.replaceChildren();
-      for (const slot of slots) {
-        const option = document.createElement('option');
-        option.value = slot;
-        option.textContent = slot;
-        option.selected = slot === current;
-        slotSelect.appendChild(option);
-      }
+    setUndoRedo: (canUndo, canRedo) => {
+      undoBtn.disabled = !canUndo;
+      redoBtn.disabled = !canRedo;
     },
-    setUndoRedo: (canUndo, canRedo) => { undoBtn.disabled = !canUndo; redoBtn.disabled = !canRedo; },
-    setBuildSummary: (weightKg, rolloverRisk, errors, warnings) => {
-      const stability: Record<string, string> = { low: '😀 Great', medium: '🙂 Okay', high: '😟 Tippy', extreme: '🛑 Will tip' };
-      buildCard.replaceChildren();
-      const weight = document.createElement('div');
-      weight.textContent = `Weight: ${weightKg.toFixed(0)} kg`;
-      const balance = document.createElement('div');
-      balance.textContent = `Stability: ${stability[rolloverRisk] ?? '🙂 Okay'}`;
-      buildCard.append(weight, balance);
-      const tips = errors.length > 0 ? errors.slice(0, 2) : warnings.length > 0 ? warnings.slice(0, 1) : [];
-      if (tips.length === 0) {
-        const ready = document.createElement('div');
-        ready.className = 'ready';
-        ready.textContent = '✅ Ready to drive';
-        buildCard.appendChild(ready);
-      } else {
-        for (const tip of tips) {
-          const line = document.createElement('div');
-          line.className = tip.severity === 'error' ? 'issue-error' : 'issue-warning';
-          line.textContent = tip.message;
-          buildCard.appendChild(line);
-        }
+    setBuildSummary: (report, errors, warnings) => {
+      const stabilityValues: Record<string, number> = {
+        low: 100,
+        medium: 68,
+        high: 34,
+        extreme: 8,
+      };
+      const stabilityLabels: Record<string, string> = {
+        low: 'Stable',
+        medium: 'Watch',
+        high: 'High Risk',
+        extreme: 'Critical',
+      };
+      vehicleStatsContent.replaceChildren(
+        buildMetric('Mass', `${report.totalMassKg.toFixed(0)} KG`, report.totalMassKg, 4000),
+        buildMetric('Stability', stabilityLabels[report.rolloverRisk] ?? 'Unknown', stabilityValues[report.rolloverRisk] ?? 0, 100, report.rolloverRisk),
+        buildMetric('DPS', report.totalDps.toFixed(1), report.totalDps, 160, 'damage'),
+        buildMetric('Top Speed', `${report.estimatedTopSpeedKph.toFixed(0)} KM/H`, report.estimatedTopSpeedKph, 120),
+        buildMetric('Power / Weight', `${report.powerToWeightKwPerT.toFixed(0)} KW/T`, report.powerToWeightKwPerT, 180),
+      );
+      const issues = errors.length > 0 ? errors.slice(0, 1) : warnings.slice(0, 1);
+      if (issues.length > 0) {
+        const issue = document.createElement('div');
+        issue.className = `garage-stats__issue ${issues[0].severity === 'error' ? 'issue-error' : 'issue-warning'}`;
+        issue.textContent = issues[0].message;
+        vehicleStatsContent.appendChild(issue);
       }
     },
     setTestDriveEnabled: (enabled, blockedBy) => {
@@ -272,78 +519,155 @@ export function buildEditorUI(
       fightBtn.disabled = !enabled;
       fightBtn.title = enabled ? 'Fight zombies' : blockedTitle;
     },
-    setSelectedPart: (def, partId, level = 1, effectiveDef = def ?? undefined, economy) => {
-      selectedToolbar.replaceChildren();
-      if (!def || !partId) { selectedToolbar.style.display = 'none'; return; }
-      selectedToolbar.style.display = 'flex';
-      const title = document.createElement('strong');
-      title.textContent = def.name;
-      selectedToolbar.appendChild(title);
-      const levelAndStats = document.createElement('span');
-      levelAndStats.className = 'selected-stats';
-      const maxLevel = def.upgrade?.maxLevel;
-      const levelLabel = maxLevel === undefined
-        ? `Level ${level}`
-        : `Level ${level}/${maxLevel}`;
-      const stats = def.upgrade && effectiveDef
-        ? effectiveStatLabels(effectiveDef)
-        : [];
-      levelAndStats.textContent = [levelLabel, ...stats].join(' · ');
-      selectedToolbar.appendChild(levelAndStats);
-      const nextPrice = economy?.nextUpgradePrice ?? null;
-      const upgradeButton = btn(
-        nextPrice === null ? 'Max Level' : `Upgrade $${nextPrice}`,
-        () => handlers.onUpgradePart(partId),
-      );
-      upgradeButton.disabled = nextPrice === null || economy?.canUpgrade !== true;
-      if (nextPrice !== null && economy?.canUpgrade === false) upgradeButton.title = 'Not enough money';
-      selectedToolbar.appendChild(upgradeButton);
-      if (!def.isRoot) {
-        selectedToolbar.append(btn('Turn', () => handlers.onRotateSelected('y'), 'R'), btn('Flip', () => handlers.onRotateSelected('x'), 'F'));
+    setSelectedPart: (def, partId, level = 1, effectiveDef = def ?? undefined, economy, partConfig) => {
+      if (!def || !partId) {
+        showNoSelection();
+        return;
       }
-      const swatches = document.createElement('span');
+      root.classList.add('has-selection');
+      selectedPanel.classList.add('is-visible');
+      selectedContent.replaceChildren();
+      const title = document.createElement('div');
+      title.className = 'selected-part__title';
+      const name = document.createElement('h3');
+      name.textContent = def.name;
+      const levelBadge = document.createElement('span');
+      const maxLevel = def.upgrade?.maxLevel;
+      levelBadge.textContent = maxLevel === undefined ? `LV ${level}` : `LV ${level}/${maxLevel}`;
+      title.append(name, levelBadge);
+      const description = document.createElement('p');
+      description.className = 'selected-part__description';
+      description.textContent = def.description;
+      selectedContent.append(title, description);
+
+      const statList = document.createElement('div');
+      statList.className = 'selected-part__stats';
+      for (const stat of effectiveStatLabels(effectiveDef ?? def)) {
+        const row = document.createElement('div');
+        const [labelText, valueText] = stat;
+        const label = document.createElement('span');
+        label.textContent = labelText;
+        const value = document.createElement('strong');
+        value.textContent = valueText;
+        row.append(label, value);
+        statList.appendChild(row);
+      }
+      selectedContent.appendChild(statList);
+
+      if (effectiveDef?.wheel) {
+        const config = document.createElement('div');
+        config.className = 'selected-part__config';
+        for (const [labelText, key] of [['Driven', 'driven'], ['Steering', 'steering'], ['Braking', 'braking']] as const) {
+          const label = document.createElement('label');
+          const input = document.createElement('input');
+          input.type = 'checkbox';
+          input.checked = partConfig?.[key] === true;
+          input.addEventListener('change', () => handlers.onConfigChange(partId, key, input.checked));
+          label.append(input, labelText);
+          config.appendChild(label);
+        }
+        selectedContent.appendChild(config);
+      }
+
+      const paintSection = document.createElement('div');
+      paintSection.className = 'selected-part__paint';
+      const paintLabel = document.createElement('span');
+      paintLabel.textContent = 'Paint';
+      const swatches = document.createElement('div');
       swatches.className = 'paint-swatches';
       for (const [paint, color] of Object.entries(PAINT_COLORS)) {
         const swatch = document.createElement('button');
+        swatch.type = 'button';
         swatch.className = 'paint-swatch';
         swatch.style.background = `#${color.toString(16).padStart(6, '0')}`;
         swatch.title = `Paint ${paint}`;
+        swatch.setAttribute('aria-label', `Paint ${paint}`);
         swatch.addEventListener('click', () => handlers.onConfigChange(partId, 'paint', paint));
         swatches.appendChild(swatch);
       }
-      selectedToolbar.appendChild(swatches);
-      if (!def.isRoot) selectedToolbar.appendChild(btn(`Sell +$${economy?.sellRefund ?? 0}`, handlers.onDeleteSelected, 'Del'));
+      paintSection.append(paintLabel, swatches);
+      selectedContent.appendChild(paintSection);
+
+      const actions = document.createElement('div');
+      actions.className = 'selected-part__actions';
+      const nextPrice = economy?.nextUpgradePrice ?? null;
+      const upgradeButton = btn(
+        nextPrice === null ? 'Max Level' : `Upgrade  $${nextPrice}`,
+        () => handlers.onUpgradePart(partId),
+      );
+      upgradeButton.className = 'primary selected-upgrade';
+      upgradeButton.disabled = nextPrice === null || economy?.canUpgrade !== true;
+      if (nextPrice !== null && economy?.canUpgrade === false) upgradeButton.title = 'Not enough money';
+      actions.appendChild(upgradeButton);
+      if (!def.isRoot) {
+        actions.append(
+          btn('Turn', () => handlers.onRotateSelected('y'), 'R'),
+          btn('Flip', () => handlers.onRotateSelected('x'), 'F'),
+          btn(`Sell  +$${economy?.sellRefund ?? 0}`, handlers.onDeleteSelected, 'Delete'),
+        );
+      }
+      selectedContent.appendChild(actions);
     },
-    setEconomy: (money, unlockedDefIds) => {
+    setEconomy: (money, unlockedDefIds, currentInventory, installedDefIds) => {
       moneyReadout.textContent = `$${money}`;
       const unlocked = new Set(unlockedDefIds);
-      for (const [id, partButton] of partButtons) {
-        const def = catalog[id];
-        const locked = (def.unlockCost ?? 0) > 0 && !unlocked.has(def.id);
-        const unaffordable = !locked && def.cost > money;
-        partButton.classList.toggle('locked', locked);
-        partButton.classList.toggle('unaffordable', unaffordable);
-        partButton.disabled = locked || unaffordable;
-        partButton.setAttribute('aria-label', locked
-          ? `${def.name}, locked, unlock for $${def.unlockCost ?? 0}`
-          : unaffordable
-            ? `${def.name}, costs $${def.cost}, not enough money`
-            : `${def.name}, costs $${def.cost}`);
-        partButton.title = locked
-          ? `Unlock ${def.name} for $${def.unlockCost ?? 0}`
-          : unaffordable
-            ? `Need $${def.cost - money} more · Buy ${def.name} for $${def.cost}`
-            : `${def.description} · Buy $${def.cost}`;
-        const price = partPriceLabels.get(id);
-        if (price) price.textContent = locked
-          ? `🔒 Unlock $${def.unlockCost ?? 0}`
-          : `Buy $${def.cost}`;
+      const installedCounts = new Map<string, number>();
+      for (const defId of installedDefIds) {
+        installedCounts.set(defId, (installedCounts.get(defId) ?? 0) + 1);
       }
+      let stockCount = 0;
+      for (const id of SIMPLE_PART_IDS) {
+        const def = catalog[id];
+        if (!def) continue;
+        const storeButton = storeButtons.get(id);
+        const inventoryButton = inventoryButtons.get(id);
+        const countLabel = inventoryCountLabels.get(id);
+        const count = Math.max(0, currentInventory[id] ?? 0);
+        stockCount += count;
+        if (inventoryButton) {
+          inventoryButton.disabled = count <= 0;
+          inventoryButton.classList.toggle('is-empty', count <= 0);
+          inventoryButton.setAttribute('aria-label', `${def.name}, ${count} in inventory`);
+        }
+        if (countLabel) countLabel.textContent = `x${count}`;
+
+        const locked = (def.unlockCost ?? 0) > 0 && !unlocked.has(def.id);
+        const price = locked ? def.unlockCost ?? 0 : def.cost;
+        const unaffordable = price > money;
+        const atOwnershipLimit =
+          id === 'driver-seat' &&
+          count + (installedCounts.get(id) ?? 0) >= 1;
+        storeButton?.classList.toggle('locked', locked);
+        storeButton?.classList.toggle('unaffordable', unaffordable);
+        storeButton?.classList.toggle('limit-reached', atOwnershipLimit);
+        if (storeButton) {
+          storeButton.disabled = unaffordable || atOwnershipLimit;
+          storeButton.setAttribute('aria-label', atOwnershipLimit
+            ? `${def.name}, ownership limit reached`
+            : locked
+            ? `${def.name}, unlock for $${price}`
+            : `${def.name}, buy for $${price}`);
+          storeButton.title = atOwnershipLimit
+            ? 'Driver Seat limit reached: 1 owned or installed'
+            : locked
+            ? `Unlock ${def.name} for $${price}`
+            : `Buy one ${def.name} for $${price}`;
+        }
+        const priceLabel = storePriceLabels.get(id);
+        if (priceLabel) {
+          priceLabel.textContent = atOwnershipLimit
+            ? 'Limit 1'
+            : locked
+              ? `Unlock $${price}`
+              : `Buy $${price}`;
+        }
+      }
+      inventoryEmpty.style.display = stockCount > 0 ? 'none' : 'block';
     },
     setRunContext: (wave, summary) => {
       menuBtn.style.display = wave === undefined ? '' : 'none';
       if (wave !== undefined) {
-        runBanner.textContent = `Wave ${wave} cleared — rebuild! Next: Wave ${wave + 1}`;
+        runBanner.textContent = `Wave ${wave} cleared - rebuild. Next: Wave ${wave + 1}`;
         runBanner.style.display = 'block';
         runBanner.classList.remove('run-summary');
         fightBtn.textContent = `Start Wave ${wave + 1}`;
@@ -351,7 +675,7 @@ export function buildEditorUI(
       }
       fightBtn.textContent = 'Fight Zombies';
       if (summary) {
-        runBanner.textContent = `Run complete — ${summary.wavesSurvived} wave${summary.wavesSurvived === 1 ? '' : 's'} survived · $${summary.moneyEarned} earned`;
+        runBanner.textContent = `Run complete - ${summary.wavesSurvived} wave${summary.wavesSurvived === 1 ? '' : 's'} survived - $${summary.moneyEarned} earned`;
         runBanner.style.display = 'block';
         runBanner.classList.add('run-summary');
       } else {
@@ -360,15 +684,15 @@ export function buildEditorUI(
       }
     },
     setArmedPart: (defId) => {
-      if (armed) (armed === 'erase' ? eraseButton : partButtons.get(armed))?.classList.remove('active');
+      if (armed) (armed === 'erase' ? eraseButton : inventoryButtons.get(armed))?.classList.remove('active');
       armed = defId;
-      if (armed) (armed === 'erase' ? eraseButton : partButtons.get(armed))?.classList.add('active');
+      if (armed) (armed === 'erase' ? eraseButton : inventoryButtons.get(armed))?.classList.add('active');
       cancelButton.style.display = armed ? 'block' : 'none';
     },
     highlightPaletteButton: (defId) => {
-      if (highlighted) partButtons.get(highlighted)?.classList.remove('tutorial-glow');
+      if (highlighted) inventoryButtons.get(highlighted)?.classList.remove('tutorial-glow');
       highlighted = defId;
-      if (highlighted) partButtons.get(highlighted)?.classList.add('tutorial-glow');
+      if (highlighted) inventoryButtons.get(highlighted)?.classList.add('tutorial-glow');
     },
     setStatus: (text) => { status.textContent = text; },
     setNotice: (text) => {
@@ -384,32 +708,26 @@ export function buildEditorUI(
   };
 }
 
-function effectiveStatLabels(def: PartDefinition): string[] {
-  const labels = [`HP ${formatStat(def.health)}`];
+function effectiveStatLabels(def: PartDefinition): [string, string][] {
+  const labels: [string, string][] = [['Integrity', `${formatStat(def.health)} HP`]];
   if (def.engine) {
-    const peakTorque = Math.max(
-      0,
-      ...def.engine.torqueCurve.map(([, torque]) => torque),
-    );
+    const peakTorque = Math.max(0, ...def.engine.torqueCurve.map(([, torque]) => torque));
     labels.push(
-      `${formatStat(def.engine.maxPowerKw)} kW`,
-      `${formatStat(peakTorque)} N·m`,
+      ['Power', `${formatStat(def.engine.maxPowerKw)} KW`],
+      ['Torque', `${formatStat(peakTorque)} NM`],
     );
   }
   if (def.wheel) {
-    labels.push(
-      `grip ${def.wheel.frictionLong.toFixed(2)}/${def.wheel.frictionLat.toFixed(2)}`,
-    );
+    labels.push(['Grip', `${def.wheel.frictionLong.toFixed(2)} / ${def.wheel.frictionLat.toFixed(2)}`]);
   }
   if (def.weapon) {
     labels.push(
-      `${formatStat(def.weapon.damage)} damage`,
-      `${formatStat(def.weapon.fireRate)} shots/s`,
+      ['Damage', formatStat(def.weapon.damage)],
+      ['Fire Rate', `${formatStat(def.weapon.fireRate)} / S`],
+      ['DPS', formatStat(def.weapon.damage * def.weapon.fireRate)],
     );
   }
-  if (def.armour) {
-    labels.push(`${formatStat(def.armour.protection)} protection`);
-  }
+  if (def.armour) labels.push(['Protection', formatStat(def.armour.protection)]);
   return labels;
 }
 
@@ -420,37 +738,37 @@ function formatStat(value: number): string {
 function buildWelcomeDialog(onStartTutorial: () => void, onClose: () => void): HTMLDivElement {
   const wrap = document.createElement('div');
   wrap.className = 'panel welcome-panel';
-  wrap.innerHTML = '<div>🚗 Want to learn how to build a truck?</div>';
+  const prompt = document.createElement('div');
+  prompt.textContent = 'Want to learn how to build a truck?';
   const actions = document.createElement('div');
   actions.className = 'welcome-actions';
   const tutorial = document.createElement('button');
   tutorial.className = 'primary';
-  tutorial.textContent = '🎓 Show me how!';
+  tutorial.textContent = 'Start Tutorial';
   tutorial.addEventListener('click', onStartTutorial);
   const close = document.createElement('button');
-  close.textContent = "🔧 I'll figure it out";
+  close.textContent = 'Explore Garage';
   close.addEventListener('click', onClose);
   actions.append(tutorial, close);
-  wrap.appendChild(actions);
+  wrap.append(prompt, actions);
   return wrap;
 }
 
 function buildHelpOverlay(): HTMLDivElement {
   const wrap = document.createElement('div');
-  wrap.className = 'panel';
-  wrap.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(620px,92vw);max-height:84vh;overflow-y:auto;padding:18px 22px;z-index:20;line-height:1.5';
+  wrap.className = 'panel help-panel';
   wrap.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:17px">How to build a vehicle</b><button>✕ Close</button></div>
+    <div class="help-panel__header"><b>How to build a vehicle</b><button>Close</button></div>
     <div class="cat-title">quick start</div>
-    <ol style="margin-left:18px"><li>Pick a part from the palette. Green means it can place; red explains why it cannot. Each placement is one at a time.</li>
-    <li>Build blocks around the orange Truck Heart. Everything needs to connect face-to-face.</li>
-    <li>Wheels snap onto the sides of blocks, engines on top. Add a Driver Seat, Engine, Fuel Tank, and four wheels.</li>
-    <li>Click a part to Turn or Flip it, change its paint, or delete it. Right-click erases a part; paint swatches change its colour.</li>
-    <li>Press <b>▶ TEST DRIVE</b> when ready.</li></ol>
+    <ol><li>Buy parts in the Store. Purchased parts appear in Inventory.</li>
+    <li>Select an Inventory part, then place it on the model. Green can place; red explains why it cannot.</li>
+    <li>Build blocks around the Truck Heart. Everything needs to connect face-to-face.</li>
+    <li>Select a placed part to upgrade, rotate, paint, or sell it in the right inspector.</li>
+    <li>Use Test Drive when the vehicle is ready.</li></ol>
     <div class="cat-title">controls</div>
-    <table style="width:100%;font-size:13px"><tr><td>Orbit / zoom</td><td>left-drag / mouse wheel · keys <b>1–5</b> choose views</td></tr>
-    <tr><td>Rotate selected / held part</td><td><b>R</b> turn · <b>F</b> flip</td></tr>
-    <tr><td>Erase</td><td>right-click, Erase tool, or <b>Del</b> on a selected part</td></tr>
+    <table><tr><td>Orbit / zoom</td><td>left-drag / mouse wheel; keys <b>1-5</b> choose views</td></tr>
+    <tr><td>Rotate selected / held part</td><td><b>R</b> turn; <b>F</b> flip</td></tr>
+    <tr><td>Erase</td><td>right-click, Erase Part, or <b>Delete</b> on a selected part</td></tr>
     <tr><td>Undo / redo</td><td>Ctrl+Z / Ctrl+Shift+Z</td></tr><tr><td>Layers</td><td>bottom slider slices the build by height</td></tr></table>`;
   return wrap;
 }

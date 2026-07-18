@@ -1,6 +1,6 @@
 /**
  * 3D vehicle editor: orbit/ortho cameras, layer slicing, ghost placement,
- * selection, symmetry, overlays, reversible commands, save/load.
+ * selection, symmetry, overlays, reversible commands, and autosave.
  */
 
 import * as THREE from 'three';
@@ -27,7 +27,7 @@ import {
   updateConfigCommand,
   type EditorCommand,
 } from '../core/commands.ts';
-import { serializeBlueprint, deserializeBlueprint } from '../core/serialize.ts';
+import { serializeBlueprint } from '../core/serialize.ts';
 import { createEmptyBlueprint } from '../core/blueprint.ts';
 import {
   composeOrientations,
@@ -41,6 +41,7 @@ import { buildEditorUI, type EditorUI } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
+import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
 import {
   canAfford,
   nextUpgrade,
@@ -158,9 +159,8 @@ export class EditorMode {
     this.scene.add(this.overlays.group);
 
     this.ui = buildEditorUI(container, PART_CATALOG, {
+      onBuyPart: (defId) => this.buyInventoryPart(defId),
       onArmPart: (defId) => this.armGhost(defId),
-      onSave: () => this.save(),
-      onLoad: (slot) => this.load(slot),
       onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
       onMenu: context.onMenu,
       onRename: (name) => {
@@ -221,7 +221,6 @@ export class EditorMode {
       this.layer = context.view.layer;
     }
     this.ui.setRunContext(this.runContext?.wave, this.runSummary);
-    this.refreshSlots();
     this.refresh();
     if (context.notice) this.ui.setNotice(context.notice);
   }
@@ -375,13 +374,13 @@ export class EditorMode {
     }
     try {
       const preview = cmd.apply(this.bp);
-      const command = wheelPositionsChanged(this.bp, preview)
+      const command = wheelLayoutInputsChanged(this.bp, preview)
         ? batchCommand(cmd.label, [
             cmd,
             replaceBlueprintCommand(
-              withDefaultWheelConfigs(preview),
+              withAutomaticWheelConfigs(preview),
               0,
-              'Configure new wheels',
+              'Configure automatic 2WD',
             ),
           ])
         : cmd;
@@ -397,9 +396,14 @@ export class EditorMode {
 
   private undo(): void {
     try {
+      const label = this.history.undoLabels.at(-1) ?? '';
+      const before = this.bp;
       const prev = this.history.undo(this.bp);
       if (prev) {
         this.bp = prev;
+        if (this.isInventoryPlacementLabel(label)) {
+          this.reconcilePlacementInventory(before, prev);
+        }
         this.selected.clear();
         this.refresh();
         this.autosave();
@@ -411,9 +415,14 @@ export class EditorMode {
 
   private redo(): void {
     try {
+      const label = this.history.redoLabels.at(-1) ?? '';
+      const before = this.bp;
       const next = this.history.redo(this.bp);
       if (next) {
         this.bp = next;
+        if (this.isInventoryPlacementLabel(label)) {
+          this.reconcilePlacementInventory(before, next);
+        }
         this.selected.clear();
         this.refresh();
         this.autosave();
@@ -449,6 +458,39 @@ export class EditorMode {
     return error instanceof Error ? error.message : String(error);
   }
 
+  private inventory(): Record<string, number> {
+    this.profile.inventory ??= {};
+    return this.profile.inventory;
+  }
+
+  private isInventoryPlacementLabel(label: string): boolean {
+    return label.startsWith('Place ') || label === 'symmetric place';
+  }
+
+  /** Keeps owned stock consistent when a placement is undone or redone. */
+  private reconcilePlacementInventory(
+    before: VehicleBlueprint,
+    after: VehicleBlueprint,
+  ): void {
+    const beforeCounts = new Map<string, number>();
+    const afterCounts = new Map<string, number>();
+    for (const part of before.parts) {
+      beforeCounts.set(part.defId, (beforeCounts.get(part.defId) ?? 0) + 1);
+    }
+    for (const part of after.parts) {
+      afterCounts.set(part.defId, (afterCounts.get(part.defId) ?? 0) + 1);
+    }
+    const stock = this.inventory();
+    for (const defId of new Set([...beforeCounts.keys(), ...afterCounts.keys()])) {
+      const inventoryDelta = (beforeCounts.get(defId) ?? 0) - (afterCounts.get(defId) ?? 0);
+      if (inventoryDelta === 0) continue;
+      const nextCount = Math.max(0, (stock[defId] ?? 0) + inventoryDelta);
+      if (nextCount === 0) delete stock[defId];
+      else stock[defId] = nextCount;
+    }
+    this.persistProfile();
+  }
+
   private changeConfig(partId: string, key: string, value: boolean | string): void {
     if (key === 'level') {
       this.deny('Use Upgrade to increase a part level');
@@ -470,7 +512,7 @@ export class EditorMode {
         const part = getPart(this.bp, id);
         return part ? getPartDef(part.defId).isRoot : false;
       })) {
-        this.ui.setStatus("🔒 Truck Heart can't be deleted");
+        this.ui.setStatus("Truck Heart can't be deleted");
       }
       return;
     }
@@ -551,11 +593,9 @@ export class EditorMode {
   // ---------- ghost placement ----------
 
   private armGhost(defId: string): void {
-    if (!this.isUnlocked(defId)) {
-      const def = getPartDef(defId);
-      const price = unlockCost(defId);
-      const confirmed = window.confirm(`Unlock ${def.name} for $${price}? This is a one-time purchase.`);
-      if (!confirmed || !this.unlockPart(defId)) return;
+    if ((this.inventory()[defId] ?? 0) <= 0) {
+      this.deny(`No ${getPartDef(defId).name} in inventory`);
+      return;
     }
     this.eraseArmed = false;
     this.ghost = { defId, orient: 0 };
@@ -598,6 +638,68 @@ export class EditorMode {
     this.refreshProfile();
     this.ui.setStatus(`Unlocked ${def.name} (-$${price})`);
     return true;
+  }
+
+  private buyInventoryPart(defId: string): boolean {
+    let def: ReturnType<typeof getPartDef>;
+    try {
+      def = getPartDef(defId);
+    } catch {
+      this.deny(`Unknown store part: ${defId}`);
+      return false;
+    }
+    if (
+      defId === 'driver-seat' &&
+      (this.inventory()[defId] ?? 0) +
+        this.bp.parts.filter((part) => part.defId === defId).length >=
+        1
+    ) {
+      this.deny('Driver Seat limit reached - only one can be owned or installed');
+      return false;
+    }
+    if (!this.isUnlocked(defId)) return this.unlockPart(defId);
+    if (!canAfford(this.profile.money, def.cost)) {
+      this.deny(`Not enough money to buy ${def.name} - need $${def.cost}`);
+      return false;
+    }
+
+    const previousMoney = this.profile.money;
+    const stock = this.inventory();
+    const previousCount = stock[defId] ?? 0;
+    this.profile.money -= def.cost;
+    stock[defId] = previousCount + 1;
+    try {
+      this.persistProfile();
+    } catch (err) {
+      this.profile.money = previousMoney;
+      const restoredStock = this.inventory();
+      if (previousCount === 0) delete restoredStock[defId];
+      else restoredStock[defId] = previousCount;
+      this.deny(`Purchase could not be saved: ${this.errorMessage(err)}`);
+      return false;
+    }
+    this.refreshProfile();
+    this.ui.setStatus(`Bought ${def.name} (-$${def.cost})`);
+    return true;
+  }
+
+  private changeInventory(defId: string, delta: number): boolean {
+    const stock = this.inventory();
+    const previousCount = stock[defId] ?? 0;
+    const nextCount = previousCount + delta;
+    if (!Number.isSafeInteger(nextCount) || nextCount < 0) return false;
+    if (nextCount === 0) delete stock[defId];
+    else stock[defId] = nextCount;
+    try {
+      this.persistProfile();
+      return true;
+    } catch (err) {
+      const restoredStock = this.inventory();
+      if (previousCount === 0) delete restoredStock[defId];
+      else restoredStock[defId] = previousCount;
+      this.deny(`Inventory could not be saved: ${this.errorMessage(err)}`);
+      return false;
+    }
   }
 
   private disarmGhost(): void {
@@ -745,6 +847,12 @@ export class EditorMode {
       this.deny('That catalog part is locked');
       return;
     }
+    const available = this.inventory()[this.ghost.defId] ?? 0;
+    if (available <= 0) {
+      this.deny(`No ${getPartDef(this.ghost.defId).name} left in inventory`);
+      this.disarmGhost();
+      return;
+    }
     const { pos } = this.ghostTarget;
     const def = getPartDef(this.ghost.defId);
     const placement = canPlacePart(this.bp, getPartDef, this.ghost.defId, pos, this.ghost.orient, {});
@@ -756,14 +864,13 @@ export class EditorMode {
     const id = nextPartId(this.bp);
     const config: PartConfig = {};
     const part: PlacedPart = { id, defId: this.ghost.defId, pos, orient: this.ghost.orient, config };
-    const cost = placeCost(part.defId);
-    const cmds: EditorCommand[] = [placeCommand(part, -cost)];
+    const cmds: EditorCommand[] = [placeCommand(part)];
 
-    if (this.symmetry && !def.unique) {
+    if (this.symmetry && !def.unique && available >= 2) {
       const mPos = mirrorCellX(pos);
       if (mPos.x !== pos.x || def.cells.length === 0) {
         const after = cmds[0].apply(this.bp);
-        const mirror = mirrorCommand(id, nextPartId(after), -cost);
+        const mirror = mirrorCommand(id, nextPartId(after));
         // Validate the mirrored placement before batching.
         try {
           const test = mirror.apply(after);
@@ -775,9 +882,13 @@ export class EditorMode {
         }
       }
     }
+    const usedCount = cmds.length;
+    if (!this.changeInventory(part.defId, -usedCount)) return;
     if (this.exec(cmds.length > 1 ? batchCommand('symmetric place', cmds) : cmds[0])) {
       this.disarmGhost();
       this.selectOnly(id);
+    } else {
+      this.changeInventory(part.defId, usedCount);
     }
   }
 
@@ -862,7 +973,7 @@ export class EditorMode {
       nextUpgradePrice: upgrade?.price ?? null,
       canUpgrade: upgrade !== null && canAfford(this.profile.money, upgrade.price),
       sellRefund: selectionRefund,
-    });
+    }, part.config);
     this.refreshOverlays();
   }
 
@@ -989,8 +1100,8 @@ export class EditorMode {
     }
   }
 
-  save(): void {
-    if (this.writeCurrentSlot()) this.ui.setStatus(`Saved "${this.bp.name}"`);
+  persistGarage(): void {
+    this.writeCurrentSlot();
   }
 
   private autosave(): void {
@@ -1013,44 +1124,11 @@ export class EditorMode {
       this.profile.currentBlueprintName = this.bp.name;
       this.persistProfile();
       this.explicitRenamePending = false;
-      this.refreshSlots();
       return true;
     } catch (err) {
       this.ui.setStatus(`Autosave failed: ${this.errorMessage(err)}`);
       return false;
     }
-  }
-
-  private load(slot: string): void {
-    const currentName = this.profile.currentBlueprintName;
-    if (currentName !== undefined && slot !== currentName) {
-      this.deny(
-        'Persistent economy keeps one active build; finish or rename the current build instead',
-      );
-      return;
-    }
-    const all = this.slots();
-    const json = all[slot];
-    if (!json) return;
-    try {
-      this.replaceBlueprint(deserializeBlueprint(json));
-      this.profile.currentBlueprintName = slot;
-      this.persistProfile();
-      this.ui.setStatus(`Loaded "${slot}"`);
-    } catch (err) {
-      this.ui.setStatus(`Load failed: ${String(err)}`);
-    }
-  }
-
-  private refreshSlots(): void {
-    const slotNames = Object.keys(this.slots());
-    const currentName = this.profile.currentBlueprintName;
-    this.ui.setSlots(
-      currentName !== undefined && slotNames.includes(currentName)
-        ? [currentName]
-        : slotNames,
-      this.bp.name,
-    );
   }
 
   // ---------- refresh ----------
@@ -1060,14 +1138,24 @@ export class EditorMode {
     this.refreshAnalysis();
     this.ui.setBlueprintName(this.bp.name);
     this.ui.setUndoRedo(this.history.canUndo, this.history.canRedo);
-    this.ui.setEconomy(this.profile.money, this.profile.unlockedDefIds);
+    this.ui.setEconomy(
+      this.profile.money,
+      this.profile.unlockedDefIds,
+      this.inventory(),
+      this.bp.parts.map((part) => part.defId),
+    );
     this.refreshSelectionUI();
     if (this.tutorialActive) this.tutorialOverlay?.update(this.bp, getPartDef);
   }
 
   /** Refresh profile-backed UI after an App-side reward or debug grant. */
   refreshProfile(): void {
-    this.ui.setEconomy(this.profile.money, this.profile.unlockedDefIds);
+    this.ui.setEconomy(
+      this.profile.money,
+      this.profile.unlockedDefIds,
+      this.inventory(),
+      this.bp.parts.map((part) => part.defId),
+    );
     this.refreshSelectionUI();
   }
 
@@ -1109,7 +1197,7 @@ export class EditorMode {
   private refreshAnalysis(): void {
     const report = analyzeVehicle(this.bp, getPartDef);
     const validation = validateBlueprint(this.bp, getPartDef);
-    this.ui.setBuildSummary(report.totalMassKg, report.rolloverRisk, validation.errors, report.warnings);
+    this.ui.setBuildSummary(report, validation.errors, report.warnings);
     this.ui.setTestDriveEnabled(
       validation.errors.length === 0 && this.bp.parts.length > 0,
       validation.errors.map((e) => e.message),
@@ -1186,25 +1274,17 @@ export class EditorMode {
   }
 }
 
-/** Fill only absent wheel defaults, preserving every player-selected value. */
-function withDefaultWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
-  const wheels = bp.parts.filter((part) => getPartDef(part.defId).wheel);
-  if (wheels.length === 0) return bp;
-  const minZ = Math.min(...wheels.map((wheel) => wheel.pos.z));
-  const maxZ = Math.max(...wheels.map((wheel) => wheel.pos.z));
-  const midpoint = (minZ + maxZ) / 2;
-  const allSteer = minZ === maxZ;
+/** Mirror the automatic runtime roles into saved config for editor inspection. */
+function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
+  const layout = deriveAutomaticWheelLayout(bp, getPartDef);
   let changed = false;
   const parts = bp.parts.map((part) => {
     if (!getPartDef(part.defId).wheel) return part;
     const config = { ...part.config };
-    if (config.driven === undefined) config.driven = true;
+    config.driven = layout.drivenPartIds.has(part.id);
+    config.steering = layout.steeringPartIds.has(part.id);
     if (config.braking === undefined) config.braking = true;
     if (config.steerInverted === undefined) config.steerInverted = false;
-    if (config.suspensionPreset === undefined) config.suspensionPreset = 'standard';
-    if (config.steering === undefined) {
-      config.steering = allSteer || part.pos.z > midpoint;
-    }
     if (Object.keys(config).every((key) => config[key as keyof PartConfig] === part.config[key as keyof PartConfig])) {
       return part;
     }
@@ -1214,21 +1294,27 @@ function withDefaultWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
   return changed ? { ...bp, parts } : bp;
 }
 
-function wheelPositionsChanged(
+function wheelLayoutInputsChanged(
   before: VehicleBlueprint,
   after: VehicleBlueprint,
 ): boolean {
-  const beforeById = new Map(before.parts.map((part) => [part.id, part]));
-  return after.parts.some((part) => {
-    if (!getPartDef(part.defId).wheel) return false;
-    const previous = beforeById.get(part.id);
-    return (
-      previous === undefined ||
-      previous.pos.x !== part.pos.x ||
-      previous.pos.y !== part.pos.y ||
-      previous.pos.z !== part.pos.z
-    );
-  });
+  const relevant = (bp: VehicleBlueprint): string[] =>
+    bp.parts
+      .filter((part) => {
+        const def = getPartDef(part.defId);
+        return def.wheel !== undefined || def.providesControl === true;
+      })
+      .map(
+        (part) =>
+          `${part.id}|${part.defId}|${part.pos.x},${part.pos.y},${part.pos.z}`,
+      )
+      .sort();
+  const beforeLayout = relevant(before);
+  const afterLayout = relevant(after);
+  return (
+    beforeLayout.length !== afterLayout.length ||
+    beforeLayout.some((value, index) => value !== afterLayout[index])
+  );
 }
 
 function disposeObjectResources(root: THREE.Object3D): void {

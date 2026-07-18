@@ -139,7 +139,7 @@ export class App {
   private returnToTitle(): void {
     if (!this.editor || (this.activeRun && this.inBuildPhase)) return;
     this.bp = this.editor.blueprint();
-    this.editor.save();
+    this.editor.persistGarage();
     this.editor.dispose();
     this.editor = null;
     this.showTitle();
@@ -152,6 +152,7 @@ export class App {
     this.profile.schemaVersion = fresh.schemaVersion;
     this.profile.money = fresh.money;
     this.profile.unlockedDefIds = [...fresh.unlockedDefIds];
+    this.profile.inventory = { ...fresh.inventory };
     delete this.profile.currentBlueprintName;
     this.resetSessionState();
     this.bp = buildStarterBlueprint();
@@ -243,7 +244,7 @@ export class App {
   }
 
   private enterSurvival(bp: VehicleBlueprint, run: RunState): void {
-    this.editor?.save();
+    this.editor?.persistGarage();
     this.bp = bp;
     this.savedView = this.editor?.viewState();
     this.editor?.dispose();
@@ -276,7 +277,7 @@ export class App {
     this.openEditor();
     // Persist permanent wave damage immediately; the history was intentionally
     // cleared because its pre-wave commands can reference parts that are gone.
-    this.editor?.save();
+    this.editor?.persistGarage();
   }
 
   private finishRun(run: RunState): void {
@@ -542,10 +543,9 @@ export function buildStarterBlueprint(): VehicleBlueprint {
 
 function defaultWheelConfig(steering: boolean): PartConfig {
   return {
-    driven: true,
+    driven: !steering,
     braking: true,
     steering,
     steerInverted: false,
-    suspensionPreset: 'standard',
   };
 }
