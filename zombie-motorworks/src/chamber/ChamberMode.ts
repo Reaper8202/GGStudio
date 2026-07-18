@@ -594,11 +594,13 @@ export class ChamberMode {
   debugTelemetry(): Record<string, unknown> {
     const p = this.vehicle.body.translation();
     const r = this.vehicle.body.rotation();
+    const av = this.vehicle.body.angvel();
     return {
       ...this.vehicle.telemetry(),
       shotsThisStep: undefined,
       position: { x: p.x, y: p.y, z: p.z },
       rotation: { x: r.x, y: r.y, z: r.z, w: r.w },
+      angvel: { x: av.x, y: av.y, z: av.z },
       scenario: this.scenario,
     };
   }

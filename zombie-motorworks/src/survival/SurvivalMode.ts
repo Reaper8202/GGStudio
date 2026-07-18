@@ -50,6 +50,14 @@ export interface SurvivalTelemetry {
   partHp: Record<string, number>;
   integrityPct: number;
   vehiclePos: [number, number, number];
+  /** Debug-only: body rotation quaternion (collision/upright diagnostics). */
+  rotation: [number, number, number, number];
+  /** Debug-only: body angular velocity, rad/s (collision spin diagnostics). */
+  angvel: [number, number, number];
+  /** Debug-only: follow camera world position (camera bugs/regressions). */
+  cameraPos: [number, number, number];
+  /** Debug-only: wheels currently loaded on the ground (collision diagnostics). */
+  groundedWheels: number;
   weapons: {
     partId: string;
     aimMode: 'auto' | 'manual';
@@ -807,6 +815,8 @@ export class SurvivalMode {
 
   debugTelemetry(): SurvivalTelemetry {
     const position = this.vehicle.body.translation();
+    const rotation = this.vehicle.body.rotation();
+    const angvel = this.vehicle.body.angvel();
     return {
       mode: 'survival',
       kills: this.kills,
@@ -818,6 +828,10 @@ export class SurvivalMode {
       partHp: this.vehicle.partHpSnapshot(),
       integrityPct: this.vehicle.integrityPct(),
       vehiclePos: [position.x, position.y, position.z],
+      rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
+      angvel: [angvel.x, angvel.y, angvel.z],
+      cameraPos: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
+      groundedWheels: this.vehicle.telemetry().groundedWheels,
       weapons: this.vehicle.weaponStates().map((weapon) => ({
         partId: weapon.partId,
         aimMode: weapon.def.aimMode,

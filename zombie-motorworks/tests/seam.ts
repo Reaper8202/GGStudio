@@ -44,6 +44,7 @@ declare global {
         detachedParts: number;
         position: { x: number; y: number; z: number };
         rotation: { x: number; y: number; z: number; w: number };
+        angvel: { x: number; y: number; z: number };
       };
       survivalTelemetry(): {
         mode: 'survival';
@@ -56,6 +57,10 @@ declare global {
         partHp: Record<string, number>;
         integrityPct: number;
         vehiclePos: [number, number, number];
+        rotation: [number, number, number, number];
+        angvel: [number, number, number];
+        cameraPos: [number, number, number];
+        groundedWheels: number;
         weapons: {
           partId: string;
           aimMode: 'auto' | 'manual';

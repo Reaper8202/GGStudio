@@ -148,7 +148,14 @@ export function assembleVehicle(
       spawn.translation.z,
     )
     .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
-    .setCanSleep(false);
+    .setCanSleep(false)
+    // Modest angular damping: the compound body is a rigid stack of cuboid
+    // colliders with no natural rotational drag, so corner impacts against
+    // walls/terrain can otherwise pump energy into spin indefinitely (no
+    // tire lateral force while airborne to bleed it off). Kept low so it
+    // doesn't fight legitimate rollover dynamics (RuntimeVehicle.preStep
+    // adds a yaw-specific limiter on top for the worst spikes).
+    .setAngularDamping(0.2);
   const body = world.createRigidBody(bodyDesc);
 
   const parts = new Map<string, RuntimePart>();

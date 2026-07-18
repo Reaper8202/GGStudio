@@ -70,6 +70,15 @@ interface RuntimeEngine {
 
 const POWER_RECHARGE_PER_S = 15;
 
+// Soft yaw-rate limiter: above this |angvel.y|, pull it down exponentially
+// each step. Corner impacts against walls/terrain (cuboid colliders, no
+// angular damping) can otherwise impart a yaw spike that free-spins with
+// nothing to arrest it once wheels are unloaded/airborne. Only the yaw
+// (world Y) component is touched — x/z must stay free so a genuine
+// high-CoM rollover can still tip the vehicle over.
+const YAW_RATE_SOFT_LIMIT = 3.5; // rad/s
+const YAW_RATE_PULLDOWN_PER_S = 6; // exponential decay rate while above the limit
+
 export class RuntimeVehicle {
   readonly assembled: AssembledVehicle;
   readonly colliderToPart = new Map<number, string>();
@@ -305,6 +314,22 @@ export class RuntimeVehicle {
     this.ammo -= weaponResult.ammoUsed;
     this.power -= weaponResult.powerUsed;
     this.lastShots = weaponResult.shots;
+
+    const angvel = this.assembled.body.angvel();
+    const yawAbs = Math.abs(angvel.y);
+    if (yawAbs > YAW_RATE_SOFT_LIMIT) {
+      const excess =
+        (yawAbs - YAW_RATE_SOFT_LIMIT) *
+        Math.exp(-YAW_RATE_PULLDOWN_PER_S * dt);
+      this.assembled.body.setAngvel(
+        {
+          x: angvel.x,
+          y: Math.sign(angvel.y) * (YAW_RATE_SOFT_LIMIT + excess),
+          z: angvel.z,
+        },
+        true,
+      );
+    }
   }
 
   onContactForce(colliderHandle: number, forceMagnitude: number): void {

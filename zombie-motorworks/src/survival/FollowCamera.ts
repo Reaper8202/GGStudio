@@ -8,7 +8,10 @@ export interface FollowBounds {
   maxZ: number;
 }
 
-const BASE_OFFSET = new THREE.Vector3(0, 20, 12);
+// Camera sits behind the vehicle. This engine's vehicles face local +Z
+// (zombie-car, where this was ported from, used -Z forward), so "behind"
+// is negative Z — otherwise W drives the vehicle straight at the camera.
+const BASE_OFFSET = new THREE.Vector3(0, 20, -12);
 const LOOK_AHEAD_TIME = 0.5;
 const MAX_LOOK_AHEAD_DISTANCE = 6;
 const MAX_ZOOM_OUT = 0.25;
