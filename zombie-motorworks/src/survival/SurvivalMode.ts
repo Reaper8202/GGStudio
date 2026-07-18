@@ -17,14 +17,14 @@ import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
-import { Graveyard } from './Graveyard.ts';
+import { GRAVEYARD_HALF_SIZE, Graveyard } from './Graveyard.ts';
 import { WaveManager } from './WaveManager.ts';
 import { ZombieSystem } from './zombies/ZombieSystem.ts';
 import { BASE_ZOMBIE_STATS } from './zombies/zombieConfig.ts';
 
 const FIXED_DT = 1 / 60;
 const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
-const GROUND_HALF_SIZE = 35;
+const GROUND_HALF_SIZE = GRAVEYARD_HALF_SIZE;
 const COUNTDOWN_SECONDS = 3;
 const TRACER_POOL_SIZE = 32;
 const STUCK_PROMPT_SECONDS = 1.6;

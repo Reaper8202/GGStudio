@@ -8,8 +8,9 @@ import {
 } from './VoxelAssetLoader.ts';
 
 const ASSET_ROOT = `${import.meta.env.BASE_URL}assets/graveyard`;
-const HALF_SIZE = 35;
-const SPAWN_RADIUS = 32;
+export const GRAVEYARD_HALF_SIZE = 52.5;
+const HALF_SIZE = GRAVEYARD_HALF_SIZE;
+const SPAWN_RADIUS = HALF_SIZE - 3;
 const SPAWN_POINT_COUNT = 14;
 const ROAD_HALF_WIDTH = 1.7;
 const ROAD_X = -6;
@@ -469,25 +470,27 @@ export class Graveyard {
       [HALF_SIZE, height / 2, 0],
     );
 
-    for (let p = -33.5; p <= 33.5; p += 2) {
-      this.placeVoxel({ asset: 'SM-7-Fence', x: p, z: -34.45, scale: 0.92 });
+    const fenceEdge = HALF_SIZE - 0.55;
+    const fenceSpan = HALF_SIZE - 1.5;
+    for (let p = -fenceSpan; p <= fenceSpan; p += 2) {
+      this.placeVoxel({ asset: 'SM-7-Fence', x: p, z: -fenceEdge, scale: 0.92 });
       this.placeVoxel({
         asset: 'SM-7-Fence',
         x: p,
-        z: 34.45,
+        z: fenceEdge,
         scale: 0.92,
         rotation: Math.PI,
       });
       this.placeVoxel({
         asset: 'SM-7-Fence',
-        x: -34.45,
+        x: -fenceEdge,
         z: p,
         scale: 0.92,
         rotation: Math.PI / 2,
       });
       this.placeVoxel({
         asset: 'SM-7-Fence',
-        x: 34.45,
+        x: fenceEdge,
         z: p,
         scale: 0.92,
         rotation: -Math.PI / 2,
