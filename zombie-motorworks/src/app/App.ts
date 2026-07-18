@@ -36,6 +36,7 @@ import { defaultProfile, type PlayerProfile } from '../core/profile.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
 import { TitleScreen } from './TitleScreen.ts';
 import { playables } from './playables.ts';
+import { flushGameStorage, gameStorage } from './gameStorage.ts';
 
 export class App {
   private renderer!: THREE.WebGLRenderer;
@@ -207,23 +208,15 @@ export class App {
   }
 
   private hasStoredSave(): boolean {
-    try {
-      return (
-        localStorage.getItem(PROFILE_STORAGE_KEY) !== null ||
-        localStorage.getItem(BLUEPRINT_STORAGE_KEY) !== null
-      );
-    } catch {
-      return false;
-    }
+    return (
+      gameStorage.getItem(PROFILE_STORAGE_KEY) !== null ||
+      gameStorage.getItem(BLUEPRINT_STORAGE_KEY) !== null
+    );
   }
 
   private clearStoredSave(): void {
     for (const key of [PROFILE_STORAGE_KEY, BLUEPRINT_STORAGE_KEY]) {
-      try {
-        localStorage.removeItem(key);
-      } catch {
-        // Keep the fresh in-memory game usable if persistence is unavailable.
-      }
+      gameStorage.removeItem(key);
     }
   }
 
@@ -344,7 +337,7 @@ export class App {
     if (!name) return { kind: 'missing' };
     try {
       const slots = JSON.parse(
-        localStorage.getItem(BLUEPRINT_STORAGE_KEY) ?? '{}',
+        gameStorage.getItem(BLUEPRINT_STORAGE_KEY) ?? '{}',
       ) as Record<string, unknown>;
       const json = slots[name];
       if (typeof json !== 'string') return { kind: 'missing' };
@@ -369,6 +362,8 @@ export class App {
       this.profileFlushTimer = undefined;
     }
     this.flushProfile();
+    // The page may be going away — push any debounced Playables write now.
+    flushGameStorage();
   };
 
   private readonly onVisibilityChange = (): void => {

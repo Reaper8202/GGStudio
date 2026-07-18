@@ -2,6 +2,7 @@
 
 import { KID_LABELS, SIMPLE_PART_IDS } from '../core/tutorial.ts';
 import { PAINT_COLORS, type PartDefinition, type ValidationIssue } from '../core/types.ts';
+import { gameStorage } from '../app/gameStorage.ts';
 
 export interface EditorUIHandlers {
   onArmPart(defId: string): void;
@@ -213,16 +214,16 @@ export function buildEditorUI(
   const toggleHelp = (): void => {
     const showing = help.style.display !== 'none';
     help.style.display = showing ? 'none' : 'block';
-    if (!showing) localStorage.setItem(HELP_SEEN_KEY, '1');
+    if (!showing) gameStorage.setItem(HELP_SEEN_KEY, '1');
   };
   help.querySelector('button')?.addEventListener('click', toggleHelp);
   const debugMode = new URLSearchParams(location.search).get('debug') === '1';
   const WELCOME_SEEN_KEY = 'scraprig.welcome-seen';
   const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
-  if (!debugMode && !localStorage.getItem(TUTORIAL_DONE_KEY) && !localStorage.getItem(HELP_SEEN_KEY) && !localStorage.getItem(WELCOME_SEEN_KEY)) {
+  if (!debugMode && !gameStorage.getItem(TUTORIAL_DONE_KEY) && !gameStorage.getItem(HELP_SEEN_KEY) && !gameStorage.getItem(WELCOME_SEEN_KEY)) {
     const welcome = buildWelcomeDialog(
-      () => { localStorage.setItem(WELCOME_SEEN_KEY, '1'); welcome.remove(); handlers.onStartTutorial(); },
-      () => { localStorage.setItem(WELCOME_SEEN_KEY, '1'); welcome.remove(); },
+      () => { gameStorage.setItem(WELCOME_SEEN_KEY, '1'); welcome.remove(); handlers.onStartTutorial(); },
+      () => { gameStorage.setItem(WELCOME_SEEN_KEY, '1'); welcome.remove(); },
     );
     root.appendChild(welcome);
   }

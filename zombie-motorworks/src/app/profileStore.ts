@@ -3,6 +3,7 @@ import {
   encodeProfile,
   type PlayerProfile,
 } from '../core/profile.ts';
+import { gameStorage } from './gameStorage.ts';
 
 export const PROFILE_STORAGE_KEY = 'scraprig.profile.v1';
 
@@ -11,19 +12,11 @@ export interface ProfileStorage {
   setItem(key: string, value: string): void;
 }
 
-function browserStorage(): ProfileStorage | null {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /** Cached profile persistence at the application boundary. */
 export class ProfileStore {
   private cached: PlayerProfile | undefined;
 
-  constructor(private readonly storage: ProfileStorage | null = browserStorage()) {}
+  constructor(private readonly storage: ProfileStorage | null = gameStorage) {}
 
   load(): PlayerProfile {
     if (this.cached !== undefined) return this.cached;

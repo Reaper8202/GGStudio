@@ -50,6 +50,7 @@ import {
   type RunState,
 } from '../core/economy.ts';
 import type { PlayerProfile } from '../core/profile.ts';
+import { gameStorage } from '../app/gameStorage.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
@@ -184,7 +185,7 @@ export class EditorMode {
         const report = validateBlueprint(this.bp, getPartDef);
         if (report.errors.length === 0) {
           if (this.tutorialActive) {
-            localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+            gameStorage.setItem(TUTORIAL_DONE_KEY, '1');
             this.stopTutorial();
           }
           this.onTestDrive(this.bp);
@@ -194,7 +195,7 @@ export class EditorMode {
         const report = validateBlueprint(this.bp, getPartDef);
         if (report.errors.length === 0) {
           if (this.tutorialActive) {
-            localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+            gameStorage.setItem(TUTORIAL_DONE_KEY, '1');
             this.stopTutorial();
           }
           this.onFightZombies(this.bp);
@@ -976,7 +977,7 @@ export class EditorMode {
   private slots(): Record<string, string> {
     try {
       const parsed: unknown = JSON.parse(
-        localStorage.getItem(BLUEPRINT_STORAGE_KEY) ?? '{}',
+        gameStorage.getItem(BLUEPRINT_STORAGE_KEY) ?? '{}',
       );
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
         return {};
@@ -1009,7 +1010,7 @@ export class EditorMode {
       ) {
         delete all[previousName];
       }
-      localStorage.setItem(BLUEPRINT_STORAGE_KEY, JSON.stringify(all));
+      gameStorage.setItem(BLUEPRINT_STORAGE_KEY, JSON.stringify(all));
       this.profile.currentBlueprintName = this.bp.name;
       this.persistProfile();
       this.explicitRenamePending = false;

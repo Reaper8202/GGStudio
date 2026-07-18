@@ -49,6 +49,16 @@ export const playables = {
     sdk()?.system.onResume(cb);
   },
 
+  /** Cloud save blob for the signed-in YouTube user; null outside Playables. */
+  async loadData(): Promise<string | null> {
+    const yt = sdk();
+    return yt ? await yt.game.loadData() : null;
+  },
+
+  async saveData(data: string): Promise<void> {
+    await sdk()?.game.saveData(data);
+  },
+
   /** The game has no audio yet; wired so future audio respects YouTube mute. */
   isAudioEnabled(): boolean {
     return sdk()?.system.isAudioEnabled() ?? true;

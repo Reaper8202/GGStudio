@@ -7,6 +7,7 @@ import { buildPartMesh } from '../editor/meshes.ts';
 import { BLUEPRINT_STORAGE_KEY } from '../editor/EditorMode.ts';
 import { Graveyard } from '../survival/Graveyard.ts';
 import { profileStore } from './profileStore.ts';
+import { gameStorage } from './gameStorage.ts';
 // buildStarterBlueprint is a plain function export; the cross-import back
 // into App.ts is safe because it is only invoked at call time, well after
 // both modules have finished linking.
@@ -27,7 +28,7 @@ function loadBackdropBlueprint(): VehicleBlueprint {
     const profile = profileStore.load();
     const name = profile.currentBlueprintName;
     if (name) {
-      const raw = localStorage.getItem(BLUEPRINT_STORAGE_KEY);
+      const raw = gameStorage.getItem(BLUEPRINT_STORAGE_KEY);
       if (raw) {
         const slots = JSON.parse(raw) as Record<string, unknown>;
         const json = slots[name];
