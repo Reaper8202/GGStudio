@@ -139,13 +139,3 @@ InitTestScene*.unity*
 !/zombie-car/.env.example
 /zombie-car/.DS_Store
 /zombie-car/Thumbs.db
-
-# Scrap Rig vehicle editor (root-level Vite / TypeScript, from Dereks-Branch)
-dist/
-release/
-playwright-report/
-test-results/
-.vite/
-.DS_Store
-*.local
-npm-debug.log*
