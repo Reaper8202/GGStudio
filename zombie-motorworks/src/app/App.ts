@@ -84,12 +84,14 @@ export class App {
       this.editor?.resize(this.root.clientWidth, this.root.clientHeight);
       this.chamber?.resize(this.root.clientWidth, this.root.clientHeight);
       this.survival?.resize(this.root.clientWidth, this.root.clientHeight);
+      this.title?.resize(this.root.clientWidth, this.root.clientHeight);
     });
 
     this.showTitle(this.saveExistedAtBoot);
 
     const loop = (): void => {
       requestAnimationFrame(loop);
+      this.title?.update();
       this.editor?.update();
       this.chamber?.update();
       this.survival?.update();
@@ -128,7 +130,7 @@ export class App {
   private showTitle(hasSave = this.hasStoredSave()): void {
     if (this.activeRun && this.inBuildPhase) return;
     this.disposeTitle();
-    this.title = new TitleScreen(this.root, hasSave, {
+    this.title = new TitleScreen(this.root, this.renderer, hasSave, {
       onNewGame: () => this.beginNewGame(),
       onContinue: () => this.beginContinueGame(),
     });

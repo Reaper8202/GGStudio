@@ -29,6 +29,11 @@ interface VoxelPlacement {
   readonly emissive?: THREE.ColorRepresentation;
 }
 
+export interface GraveyardOptions {
+  /** False builds visuals only, skipping Rapier collider/rigid-body creation. Defaults to true. */
+  collidersEnabled?: boolean;
+}
+
 interface TileTransform {
   readonly x: number;
   readonly z: number;
@@ -109,12 +114,15 @@ export class Graveyard {
   private readonly focusLightTarget: THREE.Object3D;
   private readonly moon: THREE.DirectionalLight;
   private readonly groundFallback: THREE.Mesh;
+  private readonly collidersEnabled: boolean;
   private disposed = false;
 
   constructor(
     private readonly scene: THREE.Scene,
     private readonly world: RAPIER.World,
+    options: GraveyardOptions = {},
   ) {
+    this.collidersEnabled = options.collidersEnabled ?? true;
     this.root.name = 'graveyard';
     this.scene.add(this.root);
     this.previousBackground = scene.background;
@@ -1047,6 +1055,7 @@ export class Graveyard {
     size: Size3,
     position: readonly [number, number, number],
   ): void {
+    if (!this.collidersEnabled) return;
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(...position),
     );
@@ -1064,6 +1073,7 @@ export class Graveyard {
     height: number,
     position: readonly [number, number, number],
   ): void {
+    if (!this.collidersEnabled) return;
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(...position),
     );

@@ -118,9 +118,9 @@ export function buildEditorUI(
   viewSelect.addEventListener('change', () => handlers.onView(viewSelect.value as 'persp' | 'front' | 'rear' | 'side' | 'top'));
   top.append(viewSelect, btn('🎓 Tutorial', handlers.onStartTutorial), btn('? Help', () => toggleHelp()));
   const testBtn = btn('▶ TEST DRIVE', handlers.onTestDrive);
-  testBtn.className = 'primary';
+  testBtn.className = 'primary btn-hero btn-hero-first';
   const fightBtn = btn('Fight Zombies', handlers.onFightZombies);
-  fightBtn.className = 'primary';
+  fightBtn.className = 'primary btn-hero btn-hero-fight';
   const moneyReadout = document.createElement('span');
   moneyReadout.className = 'panel money-readout';
   moneyReadout.textContent = '$0';
