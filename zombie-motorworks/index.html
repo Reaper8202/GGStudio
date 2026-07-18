@@ -7,6 +7,9 @@
   </head>
   <body>
     <div id="app"></div>
+    <!-- YouTube Playables SDK: must load before any game code. Defines
+         window.ytgame only inside the YouTube environment; harmless elsewhere. -->
+    <script src="https://www.youtube.com/game_api/v1"></script>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>

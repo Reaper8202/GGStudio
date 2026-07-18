@@ -35,6 +35,7 @@ import type { RunState } from '../core/economy.ts';
 import { defaultProfile, type PlayerProfile } from '../core/profile.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
 import { TitleScreen } from './TitleScreen.ts';
+import { playables } from './playables.ts';
 
 export class App {
   private renderer!: THREE.WebGLRenderer;
@@ -58,6 +59,7 @@ export class App {
   private profileFlushTimer: number | undefined;
   private saveFailureNotified = false;
   private pendingEditorNotice: string | undefined;
+  private hostPaused = false;
 
   constructor(private readonly root: HTMLElement) {
     // Raw-key detection must happen before profile loading can synthesize an
@@ -70,6 +72,13 @@ export class App {
     );
     window.addEventListener('pagehide', this.flushDirtyProfile);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+    playables.onPause(() => {
+      this.hostPaused = true;
+      this.flushDirtyProfile();
+    });
+    playables.onResume(() => {
+      this.hostPaused = false;
+    });
   }
 
   async start(): Promise<void> {
@@ -89,12 +98,21 @@ export class App {
 
     this.showTitle(this.saveExistedAtBoot);
 
+    let framesRendered = 0;
     const loop = (): void => {
       requestAnimationFrame(loop);
+      if (this.hostPaused) return;
       this.title?.update();
       this.editor?.update();
       this.chamber?.update();
       this.survival?.update();
+      if (framesRendered === 0) {
+        playables.firstFrameReady();
+      } else if (framesRendered === 1) {
+        // Title screen is interactive once it has rendered a frame.
+        playables.gameReady();
+      }
+      if (framesRendered < 2) framesRendered++;
     };
     loop();
   }
