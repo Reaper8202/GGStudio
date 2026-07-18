@@ -122,3 +122,20 @@ InitTestScene*.unity*
 !/comfy-zoo/.env.example
 /comfy-zoo/.DS_Store
 /comfy-zoo/Thumbs.db
+
+# zombie-car (Vite / TypeScript)
+/zombie-car/node_modules/
+/zombie-car/dist/
+/zombie-car/.vite/
+/zombie-car/.cache/
+/zombie-car/coverage/
+/zombie-car/.nyc_output/
+/zombie-car/npm-debug.log*
+/zombie-car/yarn-debug.log*
+/zombie-car/yarn-error.log*
+/zombie-car/pnpm-debug.log*
+/zombie-car/.env
+/zombie-car/.env.*
+!/zombie-car/.env.example
+/zombie-car/.DS_Store
+/zombie-car/Thumbs.db
