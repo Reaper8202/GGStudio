@@ -2,7 +2,7 @@
 export const BASE_ZOMBIE_STATS = {
   health: 30,
   speed: 3.2,
-  attackDamage: 6,
+  attackDamage: 10,
   attackInterval: 1,
   reward: 10,
 } as const;

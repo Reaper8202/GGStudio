@@ -455,6 +455,7 @@ export class SurvivalMode {
   private updateControls(): void {
     if (this.phase !== 'active') {
       this.controls.throttle = 0;
+      this.controls.reverse = 0;
       this.controls.brake = 1;
       this.controls.steer = 0;
       this.controls.fire = false;
@@ -463,10 +464,12 @@ export class SurvivalMode {
 
     const forward = this.keys.has('w') || this.keys.has('arrowup') ? 1 : 0;
     const reverse = this.keys.has('s') || this.keys.has('arrowdown') ? 1 : 0;
-    const velocity = this.vehicle.body.linvel();
-    const moving = Math.hypot(velocity.x, velocity.y, velocity.z) > 0.56;
+    // S brakes while rolling forward, reverses once (near-)stopped.
+    const movingForward = this.vehicle.forwardSpeed() > 0.6;
     this.controls.throttle = forward;
-    this.controls.brake = this.keys.has(' ') ? 1 : reverse && moving ? 1 : 0;
+    this.controls.reverse = reverse && !forward && !movingForward ? 1 : 0;
+    this.controls.brake =
+      this.keys.has(' ') ? 1 : reverse && movingForward ? 1 : 0;
     this.controls.steer =
       (this.keys.has('a') || this.keys.has('arrowleft') ? -1 : 0) +
       (this.keys.has('d') || this.keys.has('arrowright') ? 1 : 0);
@@ -767,6 +770,10 @@ export class SurvivalMode {
     if (controls.fire !== undefined) {
       if (controls.fire) this.keys.add('f');
       else this.keys.delete('f');
+    }
+    if (controls.reverse !== undefined) {
+      if (controls.reverse > 0) this.keys.add('s');
+      else this.keys.delete('s');
     }
   }
 

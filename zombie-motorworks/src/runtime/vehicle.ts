@@ -32,6 +32,8 @@ import { rotateByQuat } from './vec.ts';
 export interface VehicleControls {
   throttle: number; // 0..1
   brake: number; // 0..1
+  /** 0..1: reverse drive, engages only while near-stopped; throttle wins. */
+  reverse?: number;
   steer: number; // -1..1
   fire: boolean;
   aimYawWorld: number; // rad
@@ -78,6 +80,12 @@ const POWER_RECHARGE_PER_S = 15;
 // high-CoM rollover can still tip the vehicle over.
 const YAW_RATE_SOFT_LIMIT = 3.5; // rad/s
 const YAW_RATE_PULLDOWN_PER_S = 6; // exponential decay rate while above the limit
+
+// Reverse: engages only below this forward speed (S is a brake above it),
+// locks the gearbox to first gear with the torque negated, and stops pushing
+// once reverse speed reaches the cap.
+const REVERSE_ENGAGE_MAX_FORWARD_MPS = 0.6;
+const REVERSE_MAX_SPEED_MPS = 5;
 
 export class RuntimeVehicle {
   readonly assembled: AssembledVehicle;
@@ -133,6 +141,13 @@ export class RuntimeVehicle {
 
   get body(): RAPIER.RigidBody {
     return this.assembled.body;
+  }
+
+  /** Signed speed along the vehicle's forward (+Z) axis, m/s. */
+  forwardSpeed(): number {
+    const fwd = rotateByQuat(this.body.rotation(), { x: 0, y: 0, z: 1 });
+    const v = this.body.linvel();
+    return v.x * fwd.x + v.y * fwd.y + v.z * fwd.z;
   }
 
   applyDirectDamage(partId: string, amount: number): void {
@@ -245,6 +260,14 @@ export class RuntimeVehicle {
     const throttle = controllable ? controls.throttle : 0;
     const brake = controllable ? controls.brake : 0;
     const steer = controllable ? controls.steer : 0;
+    const reverseInput =
+      controllable && throttle <= 0 ? (controls.reverse ?? 0) : 0;
+    const forwardSpeed = this.forwardSpeed();
+    const reversing =
+      reverseInput > 0 &&
+      forwardSpeed < REVERSE_ENGAGE_MAX_FORWARD_MPS &&
+      forwardSpeed > -REVERSE_MAX_SPEED_MPS;
+    const demand = reversing ? reverseInput : throttle;
 
     // Live drivetrain: engines attached+alive with fuel; wheels attached+driven.
     const liveEngines = this.engines.filter(
@@ -257,16 +280,26 @@ export class RuntimeVehicle {
     let totalTorque = 0;
     let rpmDisplay = 0;
     for (const eng of liveEngines) {
+      // Reverse locks first gear (its ratio doubles as the reverse ratio)
+      // and negates the wheel torque; the automatic gearbox stays frozen.
+      if (reversing && eng.gearbox.gear !== 0) {
+        eng.gearbox = { gear: 0, shiftCooldown: eng.gearbox.shiftCooldown };
+      }
       const out: EngineOutput = engineStep(
         eng.def,
         eng.gearbox,
-        throttle,
+        demand,
         this.lastWheelTelemetry.meanDrivenOmega,
         dt,
       );
-      eng.gearbox = updateGearbox(eng.gearbox, out.rpm, eng.def, dt);
+      if (!reversing) {
+        eng.gearbox = updateGearbox(eng.gearbox, out.rpm, eng.def, dt);
+      }
       eng.rpm = out.rpm;
-      totalTorque += drivenWheels.length > 0 ? out.wheelTorqueTotal : 0;
+      totalTorque +=
+        drivenWheels.length > 0
+          ? (reversing ? -1 : 1) * out.wheelTorqueTotal
+          : 0;
       this.fuel = Math.max(0, this.fuel - out.fuelUsed);
       rpmDisplay = Math.max(rpmDisplay, out.rpm);
     }

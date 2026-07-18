@@ -272,7 +272,7 @@ export class ChamberMode {
 
     const help = document.createElement('div');
     help.className = 'hud-note';
-    help.textContent = 'W/S throttle+reverse-brake · A/D steer · Space brake · F or click: fire · mouse: aim';
+    help.textContent = 'W throttle · S brake/reverse · A/D steer · Space brake · F or click: fire · mouse: aim';
     this.ui.appendChild(help);
 
     this.banner = document.createElement('div');
@@ -338,12 +338,11 @@ export class ChamberMode {
     const k = this.keys;
     const fwd = k.has('w') || k.has('arrowup') ? 1 : 0;
     const rev = k.has('s') || k.has('arrowdown') ? 1 : 0;
-    const telemetry = this.vehicle.telemetry();
-    const movingForward = telemetry.speedKmh > 2;
+    // S brakes while rolling forward, reverses once (near-)stopped.
+    const movingForward = this.vehicle.forwardSpeed() > 0.6;
     this.controls.throttle = fwd;
+    this.controls.reverse = rev && !fwd && !movingForward ? 1 : 0;
     this.controls.brake = k.has(' ') ? 1 : rev && movingForward ? 1 : 0;
-    // Reverse: if stopped and S held, apply reverse torque via negative throttle trick —
-    // MVP: no reverse gear; S acts as brake.
     this.controls.steer = (k.has('a') || k.has('arrowleft') ? -1 : 0) + (k.has('d') || k.has('arrowright') ? 1 : 0);
 
     this.vehicle.preStep(FIXED_DT, this.controls, (h) => this.surfaceByCollider.get(h) ?? 'asphalt');
@@ -588,6 +587,10 @@ export class ChamberMode {
     if (c.brake !== undefined) {
       if (c.brake > 0) this.keys.add(' ');
       else this.keys.delete(' ');
+    }
+    if (c.reverse !== undefined) {
+      if (c.reverse > 0) this.keys.add('s');
+      else this.keys.delete('s');
     }
   }
 
