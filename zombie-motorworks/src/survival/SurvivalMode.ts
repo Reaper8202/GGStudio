@@ -21,6 +21,7 @@ import { Graveyard } from './Graveyard.ts';
 import { WaveManager } from './WaveManager.ts';
 import { ZombieSystem } from './zombies/ZombieSystem.ts';
 import { BASE_ZOMBIE_STATS } from './zombies/zombieConfig.ts';
+import { TouchControls, isTouchDevice } from '../input/TouchControls.ts';
 
 const FIXED_DT = 1 / 60;
 const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
@@ -155,6 +156,7 @@ export class SurvivalMode {
   private tracerCursor = 0;
   private pendingWaveReward = 0;
   private pendingTransition: PendingTransition | null = null;
+  private touch: TouchControls | null = null;
 
   private readonly keydown = (event: KeyboardEvent): void => {
     if (this.phase === 'gameOver') return;
@@ -218,6 +220,7 @@ export class SurvivalMode {
     this.moneyValue = builtUi.moneyValue;
     this.countdownOverlay = builtUi.countdownOverlay;
     this.countdownValue = builtUi.countdownValue;
+    if (isTouchDevice()) this.touch = new TouchControls(this.ui);
 
     this.beginCountdown(run.wave);
     window.addEventListener('keydown', this.keydown);
@@ -868,6 +871,7 @@ export class SurvivalMode {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.touch?.dispose();
     window.removeEventListener('keydown', this.keydown);
     window.removeEventListener('keyup', this.keyup);
     window.removeEventListener('blur', this.blur);

@@ -14,6 +14,7 @@ import { lowestPointM, GROUP_TERRAIN, GROUP_ZOMBIE } from '../runtime/assembler.
 import type { SurfaceKind } from '../runtime/surfaces.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
+import { TouchControls, isTouchDevice } from '../input/TouchControls.ts';
 
 export type ScenarioName =
   | 'flat'
@@ -56,6 +57,7 @@ export class ChamberMode {
   private banner!: HTMLDivElement;
   private failTimers = { flipped: 0, noTraction: 0, airborne: 0 };
   private ui!: HTMLDivElement;
+  private touch: TouchControls | null = null;
   private disposed = false;
   private readonly keydown = (e: KeyboardEvent) => {
     this.keys.add(e.key.toLowerCase());
@@ -80,6 +82,7 @@ export class ChamberMode {
     this.scene.add(dir);
     this.camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 300);
     this.buildUI();
+    if (isTouchDevice()) this.touch = new TouchControls(this.ui);
     this.resetWorld();
     window.addEventListener('keydown', this.keydown);
     window.addEventListener('keyup', this.keyup);
@@ -540,6 +543,7 @@ export class ChamberMode {
 
   dispose(): void {
     this.disposed = true;
+    this.touch?.dispose();
     window.removeEventListener('keydown', this.keydown);
     window.removeEventListener('keyup', this.keyup);
     this.renderer.domElement.removeEventListener('pointermove', this.onAim);

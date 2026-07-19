@@ -139,6 +139,65 @@ canvas.viewport {
   position: absolute;
   inset: 0;
   display: block;
+  touch-action: none;
+}
+
+/* On-screen driving controls (touch devices only) */
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.touch-cluster {
+  position: absolute;
+  bottom: 22px;
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.touch-cluster-left {
+  left: 20px;
+}
+
+.touch-cluster-right {
+  right: 20px;
+}
+
+.touch-btn {
+  pointer-events: auto;
+  touch-action: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid var(--panel-border);
+  background: var(--panel-bg);
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 700;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-btn:active {
+  background: var(--accent-green-dim);
+  border-color: var(--accent-green-light);
+}
+
+.touch-fire {
+  border-color: var(--accent-orange);
+  color: var(--accent-orange-light);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.touch-fire:active {
+  background: var(--accent-orange);
+  border-color: var(--accent-orange-light);
+  color: #fff4e6;
 }
 
 .ui-layer {
