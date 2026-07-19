@@ -20,7 +20,17 @@ import {
   LUNGE_DURATION,
   OBSTACLE_PROBE_DISTANCE,
   OBSTACLE_PROBE_HEIGHT,
+  PHONE_ADDICT_GLOW_OPACITY,
+  PHONE_ADDICT_GLOW_RADIUS,
+  PHONE_ADDICT_HEALTH_MULTIPLIER,
+  PHONE_ADDICT_POOL_REMAINDER,
+  PHONE_ADDICT_REWARD,
+  PHONE_ADDICT_SPEED_MULTIPLIER,
+  PHONE_ADDICT_VISUAL_HEIGHT,
   SCALE_VARIATION,
+  SHIELD_FLASH_DURATION,
+  SHIELD_FLASH_MAX_OPACITY,
+  SHIELD_RADIUS,
   SPAWN_RISE_DURATION,
   STUCK_SPEED_THRESHOLD,
   STUCK_TIME_THRESHOLD,
@@ -34,6 +44,18 @@ import {
   THROWER_VISUAL_HEIGHT,
   WALK_BOB_AMPLITUDE,
   WALK_BOB_FREQUENCY,
+  WORKER_HEALTH_MULTIPLIER,
+  WORKER_PLANT_RANGE,
+  WORKER_PLANT_SECONDS,
+  WORKER_POOL_REMAINDER,
+  WORKER_RETREAT_RANGE,
+  WORKER_RING_MAX_RADIUS,
+  WORKER_RING_MAX_RATE,
+  WORKER_RING_MIN_RATE,
+  WORKER_RING_OPACITY,
+  WORKER_REWARD,
+  WORKER_SPEED_MULTIPLIER,
+  WORKER_VISUAL_HEIGHT,
   ZOMBIE_ATTACK_EXIT_MARGIN,
   ZOMBIE_ATTACK_RANGE,
   ZOMBIE_HALF_HEIGHT,
@@ -49,6 +71,49 @@ const HIT_FLASH_COLOR = new THREE.Color(0xffffff);
 const BASE_VISUAL_SCALE = 1.85;
 const BODY_TINTS = [0x4c6b3f, 0x5a7247, 0x3f5c48, 0x6b5a3f, 0x556b4c, 0x47614a];
 const warnedVisualVariants = new Set<number>();
+
+/** Shared soft radial gradients for kind-marking ground glows, cached per palette. */
+const glowTextures = new Map<string, THREE.CanvasTexture>();
+function getGlowTexture(
+  inner: string,
+  mid: string,
+  outer: string,
+): THREE.CanvasTexture {
+  const key = `${inner}|${mid}|${outer}`;
+  const cached = glowTextures.get(key);
+  if (cached) return cached;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const gradient = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2,
+  );
+  gradient.addColorStop(0, inner);
+  gradient.addColorStop(0.55, mid);
+  gradient.addColorStop(1, outer);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  glowTextures.set(key, texture);
+  return texture;
+}
+
+/** Red halo for the shielded phone addict. */
+function getAddictGlowTexture(): THREE.CanvasTexture {
+  return getGlowTexture(
+    'rgba(255, 10, 10, 0.95)',
+    'rgba(215, 0, 0, 0.45)',
+    'rgba(140, 0, 0, 0)',
+  );
+}
+
 
 export interface Vector3Like {
   readonly x: number;
@@ -69,17 +134,56 @@ export enum ZombieState {
   Spawning = 'Spawning',
   Chasing = 'Chasing',
   Attacking = 'Attacking',
+  /** Worker only: standing still while arming the next landmine. */
+  Planting = 'Planting',
   KnockedBack = 'KnockedBack',
   Dead = 'Dead',
 }
 
 export type ZombieKilledCallback = (reward: number, zombie: Zombie) => void;
 
-export type ZombieKind = 'walker' | 'thrower';
+export type ZombieKind = 'walker' | 'thrower' | 'phone-addict' | 'worker';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
+
+/** Per-kind stat multipliers over BASE_ZOMBIE_STATS, plus flat rewards. */
+const KIND_STATS: Record<
+  ZombieKind,
+  {
+    readonly health: number;
+    readonly speed: number;
+    readonly reward: number;
+    readonly attackInterval: number;
+  }
+> = {
+  walker: {
+    health: 1,
+    speed: 1,
+    reward: BASE_ZOMBIE_STATS.reward,
+    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+  },
+  thrower: {
+    health: THROWER_HEALTH_MULTIPLIER,
+    speed: THROWER_SPEED_MULTIPLIER,
+    reward: THROWER_REWARD,
+    attackInterval: THROWER_ATTACK_INTERVAL,
+  },
+  'phone-addict': {
+    health: PHONE_ADDICT_HEALTH_MULTIPLIER,
+    speed: PHONE_ADDICT_SPEED_MULTIPLIER,
+    reward: PHONE_ADDICT_REWARD,
+    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+  },
+  // Workers never attack; the interval is inert but kept sane.
+  worker: {
+    health: WORKER_HEALTH_MULTIPLIER,
+    speed: WORKER_SPEED_MULTIPLIER,
+    reward: WORKER_REWARD,
+    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+  },
+};
 
 /** One persistent pooled zombie body, collider, visual, and AI state machine. */
 export class Zombie {
@@ -99,6 +203,8 @@ export class Zombie {
   active = false;
   /** Set by ZombieSystem; fired when a thrower's attack timer elapses. */
   onThrow: ((zombie: Zombie) => void) | null = null;
+  /** Set by ZombieSystem; fired when a worker's mine-plant timer elapses. */
+  onPlantMine: ((zombie: Zombie) => void) | null = null;
   readonly kind: ZombieKind;
 
   private readonly visualRoot = new THREE.Group();
@@ -113,6 +219,15 @@ export class Zombie {
   private readonly impulseScratch = { x: 0, y: 0, z: 0 };
   private readonly translationScratch = { x: 0, y: 0, z: 0 };
 
+  private shieldMesh: THREE.Mesh | null = null;
+  private shieldMaterial: THREE.MeshBasicMaterial | null = null;
+  private shieldTimer = 0;
+  private glowMesh: THREE.Mesh | null = null;
+  private ringMesh: THREE.Mesh | null = null;
+  private ringMaterial: THREE.MeshBasicMaterial | null = null;
+  private ringPhase = 0;
+  private plantTimer = 0;
+
   private health = 0;
   private moveSpeed = 0;
   private attackDamage = 0;
@@ -126,6 +241,8 @@ export class Zombie {
   private detourTimer = 0;
   private detourSign: 1 | -1 = 1;
   private stuckTimer = 0;
+  /** Worker only: backing off after a plant until it may arm again. */
+  private retreating = false;
   private lungeTimer = 0;
   private hitFlashTimer = 0;
   private bobPhase = 0;
@@ -139,10 +256,15 @@ export class Zombie {
     fallbackGeometry: THREE.CapsuleGeometry,
     private readonly onKilled: ZombieKilledCallback,
   ) {
+    const remainder = index % THROWER_POOL_STRIDE;
     this.kind =
-      index % THROWER_POOL_STRIDE === THROWER_POOL_STRIDE - 1
+      remainder === THROWER_POOL_STRIDE - 1
         ? 'thrower'
-        : 'walker';
+        : remainder === PHONE_ADDICT_POOL_REMAINDER
+          ? 'phone-addict'
+          : remainder === WORKER_POOL_REMAINDER
+            ? 'worker'
+            : 'walker';
     this.baseScale =
       BASE_VISUAL_SCALE + (Math.random() - 0.5) * SCALE_VARIATION;
     const tint = new THREE.Color(
@@ -162,6 +284,57 @@ export class Zombie {
     fallback.receiveShadow = true;
     this.visualRoot.add(fallback);
     this.root.add(this.visualRoot);
+    if (this.kind === 'phone-addict') {
+      // Projectile shield bubble, flashed whenever a gun hit is absorbed.
+      this.shieldMaterial = new THREE.MeshBasicMaterial({
+        color: 0xff2b2b,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      this.shieldMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(SHIELD_RADIUS / BASE_VISUAL_SCALE, 20, 14),
+        this.shieldMaterial,
+      );
+      this.shieldMesh.visible = false;
+      this.root.add(this.shieldMesh);
+
+      // Always-on red glow disc at the feet, marking the shielded zombie.
+      const glowSize = (PHONE_ADDICT_GLOW_RADIUS * 2) / BASE_VISUAL_SCALE;
+      this.glowMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(glowSize, glowSize),
+        new THREE.MeshBasicMaterial({
+          map: getAddictGlowTexture(),
+          transparent: true,
+          opacity: PHONE_ADDICT_GLOW_OPACITY,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      this.glowMesh.rotation.x = -Math.PI / 2;
+      // World height is pinned just above the ground each visual update;
+      // the root's animated scale would otherwise bury a fixed local offset.
+      this.root.add(this.glowMesh);
+    }
+    if (this.kind === 'worker') {
+      // Arming telegraph: a flat ring that repeatedly expands from the worker
+      // while a mine is being planted, pulsing faster near completion.
+      this.ringMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffb428,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
+      this.ringMesh = new THREE.Mesh(
+        new THREE.RingGeometry(0.82, 1, 32),
+        this.ringMaterial,
+      );
+      this.ringMesh.rotation.x = -Math.PI / 2;
+      this.ringMesh.visible = false;
+      this.root.add(this.ringMesh);
+    }
     this.root.visible = false;
     this.scene.add(this.root);
 
@@ -195,6 +368,12 @@ export class Zombie {
     return this.isAlive && this.state !== ZombieState.Spawning;
   }
 
+  /** A projectile bounced off this zombie's shield: flash the bubble. */
+  flashShield(): void {
+    if (!this.isTargetable) return;
+    this.shieldTimer = SHIELD_FLASH_DURATION;
+  }
+
   /** Apply a weapon hit. Returns true only when this hit kills the zombie. */
   takeDamage(amount: number, direction?: Vector3Like): boolean {
     if (!this.isTargetable || amount <= 0) return false;
@@ -223,20 +402,14 @@ export class Zombie {
     if (this.disposed) return;
     this.active = true;
     this.state = ZombieState.Spawning;
-    const thrower = this.kind === 'thrower';
-    this.health =
-      BASE_ZOMBIE_STATS.health *
-      healthMultiplier *
-      (thrower ? THROWER_HEALTH_MULTIPLIER : 1);
-    this.moveSpeed =
-      BASE_ZOMBIE_STATS.speed *
-      speedMultiplier *
-      (thrower ? THROWER_SPEED_MULTIPLIER : 1);
+    const stats = KIND_STATS[this.kind];
+    this.health = BASE_ZOMBIE_STATS.health * healthMultiplier * stats.health;
+    this.moveSpeed = BASE_ZOMBIE_STATS.speed * speedMultiplier * stats.speed;
     this.attackDamage = BASE_ZOMBIE_STATS.attackDamage;
-    this.attackInterval = thrower
-      ? THROWER_ATTACK_INTERVAL
-      : BASE_ZOMBIE_STATS.attackInterval;
-    this.reward = thrower ? THROWER_REWARD : BASE_ZOMBIE_STATS.reward;
+    this.attackInterval = stats.attackInterval;
+    this.reward = stats.reward;
+    this.shieldTimer = 0;
+    if (this.shieldMesh) this.shieldMesh.visible = false;
 
     this.spawnTimer = SPAWN_RISE_DURATION;
     this.attackTimer = 0;
@@ -245,6 +418,10 @@ export class Zombie {
     this.impactCooldown = 0;
     this.detourTimer = 0;
     this.stuckTimer = 0;
+    this.retreating = false;
+    this.plantTimer = 0;
+    this.ringPhase = 0;
+    if (this.ringMesh) this.ringMesh.visible = false;
     this.lungeTimer = 0;
     this.hitFlashTimer = 0;
     this.detourSign = Math.random() < 0.5 ? -1 : 1;
@@ -313,6 +490,9 @@ export class Zombie {
         break;
       case ZombieState.Attacking:
         this.stepAttacking(dt, vehicle);
+        break;
+      case ZombieState.Planting:
+        this.stepPlanting(dt);
         break;
       case ZombieState.KnockedBack:
         this.knockbackTimer -= dt;
@@ -385,6 +565,16 @@ export class Zombie {
         material.emissive.setScalar(BASE_EMISSIVE);
     }
 
+    if (this.shieldMesh && this.shieldMaterial) {
+      this.shieldTimer = Math.max(0, this.shieldTimer - dt);
+      const shieldVisible = this.shieldTimer > 0 && this.isAlive;
+      this.shieldMesh.visible = shieldVisible;
+      if (shieldVisible) {
+        this.shieldMaterial.opacity =
+          SHIELD_FLASH_MAX_OPACITY * (this.shieldTimer / SHIELD_FLASH_DURATION);
+      }
+    }
+
     this.lungeTimer = Math.max(0, this.lungeTimer - dt);
     switch (this.state) {
       case ZombieState.Spawning: {
@@ -398,6 +588,7 @@ export class Zombie {
       }
       case ZombieState.Chasing:
       case ZombieState.Attacking:
+      case ZombieState.Planting:
       case ZombieState.KnockedBack:
         this.root.scale.setScalar(this.baseScale);
         this.setOpacity(1);
@@ -427,6 +618,31 @@ export class Zombie {
 
     const translation = this.body.translation();
     this.root.position.set(translation.x, translation.y, translation.z);
+    if (this.glowMesh) {
+      this.glowMesh.visible = this.isAlive;
+      // Counter the root's animated scale so the disc hugs the ground plane.
+      const rootScale = this.root.scale.y || 1;
+      this.glowMesh.position.y = (0.06 - translation.y) / rootScale;
+    }
+    if (this.ringMesh && this.ringMaterial) {
+      const planting = this.state === ZombieState.Planting && this.isAlive;
+      this.ringMesh.visible = planting;
+      if (planting) {
+        // Each pulse expands from the worker and fades; pulses come faster as
+        // the arming channel nears completion.
+        const charge = clamp(1 - this.plantTimer / WORKER_PLANT_SECONDS, 0, 1);
+        const rate =
+          WORKER_RING_MIN_RATE +
+          (WORKER_RING_MAX_RATE - WORKER_RING_MIN_RATE) * charge;
+        this.ringPhase = (this.ringPhase + dt * rate) % 1;
+        const rootScale = this.root.scale.y || 1;
+        this.ringMesh.scale.setScalar(
+          (WORKER_RING_MAX_RADIUS * Math.max(0.15, this.ringPhase)) / rootScale,
+        );
+        this.ringMesh.position.y = (0.1 - translation.y) / rootScale;
+        this.ringMaterial.opacity = WORKER_RING_OPACITY * (1 - this.ringPhase);
+      }
+    }
   }
 
   dispose(): void {
@@ -435,6 +651,16 @@ export class Zombie {
     this.scene.remove(this.root);
     this.world.removeRigidBody(this.body);
     this.fallbackMaterial.dispose();
+    this.shieldMaterial?.dispose();
+    this.shieldMesh?.geometry.dispose();
+    if (this.glowMesh) {
+      (this.glowMesh.material as THREE.Material).dispose();
+      this.glowMesh.geometry.dispose();
+    }
+    if (this.ringMesh) {
+      this.ringMaterial?.dispose();
+      this.ringMesh.geometry.dispose();
+    }
     for (const material of this.loadedMaterials) material.dispose();
     this.loadedMaterials.length = 0;
     this.visualMaterials.length = 0;
@@ -456,25 +682,46 @@ export class Zombie {
     const dx = target.x - this.position.x;
     const dz = target.z - this.position.z;
     const horizontalDistance = Math.hypot(dx, dz);
-    const attackRange =
-      this.kind === 'thrower' ? THROWER_ATTACK_RANGE : ZOMBIE_ATTACK_RANGE;
-    if (target.distance <= attackRange) {
-      this.state = ZombieState.Attacking;
-      // Throwers wind up quickly on arrival instead of a full idle interval.
-      this.attackTimer =
-        this.kind === 'thrower'
-          ? this.attackInterval * 0.5
-          : this.attackInterval;
-      this.zeroHorizontalVelocity();
-      return;
+    const worker = this.kind === 'worker';
+    let away = 1;
+    if (worker) {
+      if (this.retreating) {
+        // Back off after a plant; only past retreat range may it arm again.
+        if (target.distance >= WORKER_RETREAT_RANGE) {
+          this.retreating = false;
+        } else {
+          away = -1;
+        }
+      } else if (target.distance <= WORKER_PLANT_RANGE) {
+        // In range: commit to the arming channel wherever the vehicle goes.
+        this.plantTimer = WORKER_PLANT_SECONDS;
+        this.ringPhase = 0;
+        this.state = ZombieState.Planting;
+        this.zeroHorizontalVelocity();
+        this.updateFacing(dx, dz);
+        return;
+      }
+    } else {
+      const attackRange =
+        this.kind === 'thrower' ? THROWER_ATTACK_RANGE : ZOMBIE_ATTACK_RANGE;
+      if (target.distance <= attackRange) {
+        this.state = ZombieState.Attacking;
+        // Throwers wind up quickly on arrival instead of a full idle interval.
+        this.attackTimer =
+          this.kind === 'thrower'
+            ? this.attackInterval * 0.5
+            : this.attackInterval;
+        this.zeroHorizontalVelocity();
+        return;
+      }
     }
     if (horizontalDistance < 1e-4) {
       this.zeroHorizontalVelocity();
       return;
     }
 
-    const targetDirX = dx / horizontalDistance;
-    const targetDirZ = dz / horizontalDistance;
+    const targetDirX = (away * dx) / horizontalDistance;
+    const targetDirZ = (away * dz) / horizontalDistance;
     let dirX = targetDirX;
     let dirZ = targetDirZ;
     const blocked = this.probeBlocked(dirX, dirZ);
@@ -531,6 +778,16 @@ export class Zombie {
       }
       this.lungeTimer = LUNGE_DURATION;
     }
+  }
+
+  /** Stand still arming the mine; it drops only if the channel completes. */
+  private stepPlanting(dt: number): void {
+    this.zeroHorizontalVelocity();
+    this.plantTimer -= dt;
+    if (this.plantTimer > 0) return;
+    this.onPlantMine?.(this);
+    this.retreating = true;
+    this.state = ZombieState.Chasing;
   }
 
   private probeBlocked(dirX: number, dirZ: number): boolean {
@@ -621,22 +878,40 @@ export class Zombie {
 
   private loadVoxelVisual(): void {
     const thrower = this.kind === 'thrower';
-    const variant = thrower ? 0 : (this.index % 6) + 1;
+    const addict = this.kind === 'phone-addict';
+    const worker = this.kind === 'worker';
+    const variant = thrower
+      ? 0
+      : addict
+        ? 90 + (this.index % 2)
+        : worker
+          ? 80
+          : (this.index % 6) + 1;
     const url = thrower
       ? `${ZOMBIE_ASSET_ROOT}/zombie_city`
-      : `${ZOMBIE_ASSET_ROOT}/Zed_${variant}`;
+      : addict
+        ? `${ZOMBIE_ASSET_ROOT}/PhoneAddict-${this.index % 2 === 0 ? '0-Woman' : '1-Man'}`
+        : worker
+          ? `${ZOMBIE_ASSET_ROOT}/zombie_worker`
+          : `${ZOMBIE_ASSET_ROOT}/Zed_${variant}`;
     void instantiateVoxelAsset(url, true)
       .then((model) => {
         if (this.disposed) {
           disposeModelMaterials(model);
           return;
         }
-        if (thrower) {
-          // The thrower model's voxel grid differs from the Zed exports;
-          // scale by bounds to match the walkers' world height.
+        if (thrower || addict || worker) {
+          // These models' voxel grids differ from the Zed exports; scale by
+          // bounds to match the walkers' world height.
           const bounds = new THREE.Box3().setFromObject(model);
           const height = Math.max(1e-3, bounds.max.y - bounds.min.y);
-          model.scale.setScalar(THROWER_VISUAL_HEIGHT / height);
+          model.scale.setScalar(
+            (thrower
+              ? THROWER_VISUAL_HEIGHT
+              : addict
+                ? PHONE_ADDICT_VISUAL_HEIGHT
+                : WORKER_VISUAL_HEIGHT) / height,
+          );
         } else {
           model.scale.setScalar(0.23);
         }

@@ -16,6 +16,7 @@ describe('AutoAim', () => {
       forwardLocal: { x: 0, y: 0, z: 1 },
       yaw: 0,
       cooldown: 0,
+      cycleTime: 0,
       shotsFired: 0,
     };
     const manualWeapon: RuntimeWeapon = {
@@ -25,6 +26,7 @@ describe('AutoAim', () => {
       forwardLocal: { x: 0, y: 0, z: 1 },
       yaw: 0,
       cooldown: 0,
+      cycleTime: 0,
       shotsFired: 0,
     };
     const vehicle = {
@@ -82,6 +84,7 @@ describe('AutoAim', () => {
       forwardLocal: { x: 0, y: 0, z: 1 },
       yaw: 0,
       cooldown: 0,
+      cycleTime: 0,
       shotsFired: 0,
     };
     const vehicle = {
@@ -113,7 +116,7 @@ describe('AutoAim', () => {
   it('holds fire when all bounded candidates are occluded', () => {
     const weapon: RuntimeWeapon = {
       partId: 'auto', def: PART_CATALOG.turret.weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, shotsFired: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -125,5 +128,51 @@ describe('AutoAim', () => {
     } as never);
 
     expect(autoAim.step().get('auto')?.fire).toBe(false);
+  });
+
+  it('prefers an in-range thrower over a nearer walker for ranged-priority weapons', () => {
+    const weapon: RuntimeWeapon = {
+      partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0,
+    };
+    const vehicle = {
+      body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
+      assembled: { parts: new Map([['sniper', { alive: true, detached: false, health: 100 }]]) }, weaponStates: () => [weapon],
+    } as unknown as RuntimeVehicle;
+    const walker = {
+      kind: 'walker', body: { translation: () => ({ x: 0, y: 0.9, z: 12 }) }, collider: { handle: 1 },
+    };
+    const thrower = {
+      kind: 'thrower', body: { translation: () => ({ x: 0, y: 0.9, z: 20 }) }, collider: { handle: 2 },
+    };
+    const autoAim = new AutoAim(vehicle, { getAliveTargets: () => [walker, thrower] } as unknown as ZombieSystem, {
+      // Line of sight resolves to whichever zombie the ray was aimed at.
+      castRay: (_ray: unknown, maxToi: number) => ({
+        collider: { handle: maxToi > 15 ? 2 : 1 },
+      }),
+    } as never);
+
+    const entry = autoAim.step().get('sniper');
+    expect(entry?.fire).toBe(true);
+    expect(entry?.aimPoint).toEqual({ x: 0, y: 0.9, z: 20 });
+  });
+
+  it('holds fire when the only target sits inside the minimum range', () => {
+    const weapon: RuntimeWeapon = {
+      partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0,
+    };
+    const vehicle = {
+      body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
+      assembled: { parts: new Map([['sniper', { alive: true, detached: false, health: 100 }]]) }, weaponStates: () => [weapon],
+    } as unknown as RuntimeVehicle;
+    const close = {
+      kind: 'walker', body: { translation: () => ({ x: 0, y: 0.9, z: 4 }) }, collider: { handle: 1 },
+    };
+    const autoAim = new AutoAim(vehicle, { getAliveTargets: () => [close] } as unknown as ZombieSystem, {
+      castRay: () => ({ collider: { handle: 1 } }),
+    } as never);
+
+    expect(autoAim.step().get('sniper')?.fire).toBe(false);
   });
 });

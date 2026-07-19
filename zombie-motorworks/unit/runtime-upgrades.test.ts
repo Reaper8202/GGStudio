@@ -187,6 +187,65 @@ describe('hybrid weapon input', () => {
     world.free();
   });
 
+  it('fires a periodic cone weapon without input, fanning rays across the cone', () => {
+    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    const flame = part('flame', 'flamethrower');
+    const assembled = assembleVehicle(
+      world,
+      blueprint([flame]),
+      getPartDef,
+      [],
+      { translation: { x: 0, y: 0, z: 0 } },
+    );
+    const weapon = createWeapon(flame);
+    const def = getPartDef('flamethrower').weapon!;
+
+    const result = stepWeapons(
+      world,
+      assembled,
+      [weapon],
+      new Set([weapon.partId]),
+      { aimYawWorld: Math.PI / 2, fire: false },
+      100,
+      1_000,
+      0.1,
+    );
+
+    // Fires with no fire input, ignoring aim yaw: rays fan around mounted
+    // forward (+Z) across coneDeg, every one carrying aoe damage.
+    expect(result.shots).toHaveLength(def.raysPerShot!);
+    expect(result.ammoUsed).toBe(def.ammoPerShot);
+    const halfCone = ((def.coneDeg! / 2) * Math.PI) / 180;
+    for (const shot of result.shots) {
+      expect(shot.damageType).toBe('aoe');
+      const dx = shot.to.x - shot.from.x;
+      const dz = shot.to.z - shot.from.z;
+      const yaw = Math.atan2(dx, dz);
+      expect(Math.abs(yaw)).toBeLessThanOrEqual(halfCone + 1e-6);
+    }
+    const yaws = result.shots.map((shot) =>
+      Math.atan2(shot.to.x - shot.from.x, shot.to.z - shot.from.z),
+    );
+    expect(Math.min(...yaws)).toBeCloseTo(-halfCone);
+    expect(Math.max(...yaws)).toBeCloseTo(halfCone);
+
+    // Cooldown gates the next burst: an immediate second step stays silent.
+    const second = stepWeapons(
+      world,
+      assembled,
+      [weapon],
+      new Set([weapon.partId]),
+      { aimYawWorld: 0, fire: false },
+      100,
+      1_000,
+      0.1,
+    );
+    expect(second.shots).toHaveLength(0);
+
+    world.removeRigidBody(assembled.body);
+    world.free();
+  });
+
   it('pitches an elevated automatic turret down toward its target centre', () => {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const elevated = {
@@ -215,7 +274,8 @@ describe('hybrid weapon input', () => {
 
     expect(result.shots).toHaveLength(1);
     expect(result.shots[0].to.y).toBeLessThan(result.shots[0].from.y);
-    expect(result.shots[0].to.y - result.shots[0].from.y).toBeLessThan(-1);
+    // A close-range blaster still drops meaningfully across its 8 m reach.
+    expect(result.shots[0].to.y - result.shots[0].from.y).toBeLessThan(-0.5);
 
     world.removeRigidBody(assembled.body);
     world.free();

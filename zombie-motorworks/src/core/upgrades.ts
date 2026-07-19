@@ -69,6 +69,15 @@ export function effectivePartDef(
       },
     };
   }
+  if (base.melee !== undefined) {
+    effective = {
+      ...effective,
+      melee: {
+        ...base.melee,
+        damage: base.melee.damage * (1 + 0.12 * steps),
+      },
+    };
+  }
   if (base.armour !== undefined) {
     effective = {
       ...effective,

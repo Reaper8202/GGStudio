@@ -22,6 +22,9 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'turret',
   'armour-plate',
   'cannon-heavy',
+  'barrel-drum',
+  'sniper-light',
+  'flamethrower',
 ];
 
 export interface PartLabel {
@@ -54,6 +57,18 @@ export const KID_LABELS: Record<string, PartLabel> = {
   turret: { name: 'Zombie Blaster', blurb: 'Spins around to blast zombies!' },
   'armour-plate': { name: 'Armour Plate', blurb: 'Adds a tough layer of protection!' },
   'cannon-heavy': { name: 'Heavy Cannon', blurb: 'A big boom for tough zombies!' },
+  'barrel-drum': {
+    name: 'Grinder Drum',
+    blurb: 'Spinning drum that munches zombies it touches!',
+  },
+  'sniper-light': {
+    name: 'Light Sniper',
+    blurb: 'One careful shot from far, far away!',
+  },
+  flamethrower: {
+    name: 'Flamethrower',
+    blurb: 'Whoosh! Sprays hot flames up close!',
+  },
 };
 
 export interface TutorialStep {

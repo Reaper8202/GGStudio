@@ -10,6 +10,9 @@ import type { ZombieSystem } from './zombies/ZombieSystem.ts';
 
 export type AutoAimEntry = WeaponAimInput;
 
+/** Larger than any squared weapon range, so it only reorders, never excludes. */
+const RANGED_PRIORITY_PENALTY = 1e9;
+
 interface AutoWeapon {
   readonly weapon: RuntimeWeapon;
   readonly entry: AutoAimEntry;
@@ -111,6 +114,8 @@ export class AutoAim {
         mountY,
         mountZ,
         weapon.def.rangeM,
+        weapon.def.minRangeM ?? 0,
+        weapon.def.targetPriority === 'ranged',
       );
       let acquired = false;
 
@@ -160,9 +165,12 @@ export class AutoAim {
     mountY: number,
     mountZ: number,
     rangeM: number,
+    minRangeM: number,
+    preferRanged: boolean,
   ): number {
     let count = 0;
     const rangeSq = rangeM * rangeM;
+    const minRangeSq = minRangeM * minRangeM;
     for (const zombie of targets) {
       // Rapier is authoritative here. The render position can trail physics
       // and is not precise enough for a 0.32 m-radius hitscan target.
@@ -170,8 +178,12 @@ export class AutoAim {
       const dx = target.x - mountX;
       const dy = target.y - mountY;
       const dz = target.z - mountZ;
-      const distanceSq = dx * dx + dy * dy + dz * dz;
-      if (distanceSq > rangeSq) continue;
+      let distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq > rangeSq || distanceSq < minRangeSq) continue;
+      // Priority weapons sort walkers behind every in-range thrower while
+      // keeping their true distance ordering within each group.
+      if (preferRanged && zombie.kind !== 'thrower')
+        distanceSq += RANGED_PRIORITY_PENALTY;
       let index = count;
       while (index > 0 && distanceSq < this.candidateDistances[index - 1]) {
         if (index < this.candidateTargets.length) {

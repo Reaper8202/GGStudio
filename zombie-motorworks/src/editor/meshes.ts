@@ -21,6 +21,9 @@ const COLORS: Record<string, number> = {
   turret: 0x39424e,
   'armour-plate': 0x69737a,
   'cannon-heavy': 0x303840,
+  'barrel-drum': 0x7d5a3a,
+  'sniper-light': 0x33404f,
+  flamethrower: 0x9c3d20,
 };
 
 const CATEGORY_FALLBACK: Record<string, number> = {
@@ -84,6 +87,51 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
     wheelGroup.position.set(centre.x, centre.y, centre.z);
     wheelGroup.name = 'wheel-spin';
     group.add(wheelGroup);
+    return group;
+  }
+
+  if (def.melee) {
+    // Grinder drum: one cylinder spanning the part's cells along local X,
+    // studded with teeth. Local +Y of the drum group is the spin axis.
+    const centre = cellCentreM(placed.pos);
+    const radius = s * 0.48;
+    const length = def.cells.length * s * 0.96;
+    const material = new THREE.MeshLambertMaterial({
+      color,
+      transparent: opacity < 1,
+      opacity,
+    });
+    const drum = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, length, 14),
+      material,
+    );
+    drum.userData.placementSurface = true;
+    const drumGroup = new THREE.Group();
+    drumGroup.add(drum);
+    const toothMaterial = new THREE.MeshLambertMaterial({
+      color: 0x2b2e33,
+      transparent: opacity < 1,
+      opacity,
+    });
+    const toothGeometry = new THREE.BoxGeometry(s * 0.14, s * 0.1, s * 0.14);
+    const rings = def.cells.length * 2;
+    for (let ring = 0; ring < rings; ring++) {
+      const y = -length / 2 + ((ring + 0.5) / rings) * length;
+      for (let toothIndex = 0; toothIndex < 5; toothIndex++) {
+        const angle = (toothIndex / 5) * Math.PI * 2 + ring * 0.55;
+        const tooth = new THREE.Mesh(toothGeometry, toothMaterial);
+        tooth.position.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+        drumGroup.add(tooth);
+      }
+    }
+    const axle = rotateVec(placed.orient, { x: 1, y: 0, z: 0 });
+    drumGroup.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(axle.x, axle.y, axle.z),
+    );
+    drumGroup.position.set(centre.x, centre.y, centre.z);
+    drumGroup.name = 'melee-drum';
+    group.add(drumGroup);
     return group;
   }
 
@@ -168,13 +216,22 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
     }
     if (def.weapon) {
       const fwd = rotateVec(placed.orient, { x: 0, y: 0, z: 1 });
-      const isHeavyCannon = def.id === 'cannon-heavy';
+      // Barrel silhouette per weapon: [muzzleRadius, breechRadius, cell
+      // lengths, segments, forward offset in cells].
+      const style =
+        def.id === 'cannon-heavy'
+          ? { muzzle: 0.07, breech: 0.08, length: 2.6, segments: 10, offset: 1.35 }
+          : def.id === 'sniper-light'
+            ? { muzzle: 0.03, breech: 0.045, length: 2.2, segments: 8, offset: 1.15 }
+            : def.id === 'flamethrower'
+              ? { muzzle: 0.1, breech: 0.06, length: 1.0, segments: 10, offset: 0.6 }
+              : { muzzle: 0.045, breech: 0.045, length: 1.4, segments: 8, offset: 0.8 };
       const barrel = new THREE.Mesh(
         new THREE.CylinderGeometry(
-          isHeavyCannon ? 0.07 : 0.045,
-          isHeavyCannon ? 0.08 : 0.045,
-          s * (isHeavyCannon ? 2.6 : 1.4),
-          isHeavyCannon ? 10 : 8,
+          style.muzzle,
+          style.breech,
+          s * style.length,
+          style.segments,
         ),
         new THREE.MeshLambertMaterial({ color: 0x22262c, transparent: opacity < 1, opacity }),
       );
@@ -183,7 +240,7 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
         new THREE.Vector3(0, 1, 0),
         new THREE.Vector3(fwd.x, fwd.y, fwd.z),
       );
-      const barrelOffset = isHeavyCannon ? 1.35 : 0.8;
+      const barrelOffset = style.offset;
       barrel.position.set(centre.x + fwd.x * s * barrelOffset, centre.y + fwd.y * s * barrelOffset + 0.08, centre.z + fwd.z * s * barrelOffset);
       barrel.name = 'weapon-barrel';
       group.add(barrel);

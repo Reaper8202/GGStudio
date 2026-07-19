@@ -25,6 +25,9 @@ const EXPECTED_LABELS: Record<string, string> = {
   turret: 'Zombie Blaster',
   'armour-plate': 'Armour Plate',
   'cannon-heavy': 'Heavy Cannon',
+  'barrel-drum': 'Grinder Drum',
+  'sniper-light': 'Light Sniper',
+  flamethrower: 'Flamethrower',
 };
 
 const FRAME_BUILD: readonly { defId: string; pos: Vec3i }[] = [
@@ -118,7 +121,7 @@ describe('editor catalog presentation', () => {
     }
   });
 
-  it('exposes exactly the ten visible tiles in spec order', () => {
+  it('exposes exactly the visible store tiles in spec order', () => {
     expect(SIMPLE_PART_IDS).toEqual([
       'frame-box',
       'frame-reinforced',
@@ -130,6 +133,9 @@ describe('editor catalog presentation', () => {
       'turret',
       'armour-plate',
       'cannon-heavy',
+      'barrel-drum',
+      'sniper-light',
+      'flamethrower',
     ]);
     expect(SIMPLE_PART_IDS).not.toContain('chassis-core');
     expect(SIMPLE_PART_IDS.every((id) => PART_CATALOG[id] !== undefined)).toBe(

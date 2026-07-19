@@ -103,12 +103,20 @@ export interface EngineDefinition {
 
 export type WeaponMountType = 'fixed' | 'turret';
 
+/**
+ * How a weapon's damage is delivered. Defensive effects key off this:
+ * the phone addict's bubble shield stops projectile and hitscan hits but
+ * not aoe (flame washes around it).
+ */
+export type DamageType = 'projectile' | 'hitscan' | 'aoe';
+
 export interface WeaponDefinition {
   mountType: WeaponMountType;
   /** Auto weapons acquire targets; manual weapons follow player aim input. */
   aimMode: 'auto' | 'manual';
   /** Horizontal firing arc in degrees (centered on part forward; 360 for turrets). */
   arcDeg: number;
+  damageType: DamageType;
   damage: number;
   fireRate: number; // shots/s
   ammoPerShot: number;
@@ -116,6 +124,37 @@ export interface WeaponDefinition {
   recoilImpulse: number; // N·s applied opposite to fire direction at the mount
   projectileSpeed: number; // m/s
   rangeM: number;
+  /** Auto weapons ignore targets closer than this (sniper dead zone). */
+  minRangeM?: number;
+  /**
+   * Horizontal spray cone, degrees. When set, each trigger pull casts
+   * raysPerShot rays fanned across the cone (flamethrower-style burst);
+   * damage applies per ray.
+   */
+  coneDeg?: number;
+  /** Rays per trigger pull for cone weapons; default 1. */
+  raysPerShot?: number;
+  /**
+   * 'periodic' weapons ignore fire input and aim entirely: they discharge
+   * along their mounted direction every cooldown (flamethrower nozzle).
+   * Default 'triggered' fires on player/auto-aim input.
+   */
+  fireMode?: 'triggered' | 'periodic';
+  /**
+   * Periodic burst cycle: the weapon sprays for burstSeconds (ticking at
+   * fireRate) then stays quiet until burstIntervalSeconds has elapsed since
+   * the burst began. Both must be set together.
+   */
+  burstSeconds?: number;
+  burstIntervalSeconds?: number;
+  /** Auto-aim preference: 'ranged' targets thrower zombies before walkers. */
+  targetPriority?: 'ranged';
+}
+
+/** Contact weapon (grinder drum): damages any zombie touching the part. */
+export interface MeleeDefinition {
+  /** Damage per contact hit; cadence is the zombie impact cooldown. */
+  damage: number;
 }
 
 export interface ArmourDefinition {
@@ -171,6 +210,7 @@ export interface PartDefinition {
   wheel?: WheelDefinition;
   engine?: EngineDefinition;
   weapon?: WeaponDefinition;
+  melee?: MeleeDefinition;
   armour?: ArmourDefinition;
   fuelCapacity?: number; // litres
   batteryCapacity?: number; // kJ

@@ -221,7 +221,7 @@ export function assembleVehicle(
         partId: placed.id,
         wheelDef: w,
         driven: false,
-        steering: false,
+        steering: placed.config.steering === true,
         steerInverted: placed.config.steerInverted ?? false,
         braking: placed.config.braking ?? true,
         anchorLocal: centre,
@@ -285,7 +285,6 @@ export function assembleVehicle(
 
   const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
   for (const wheel of wheels) {
-    wheel.steering = wheelLayout.steeringPartIds.has(wheel.partId);
     wheel.driven = wheelLayout.drivenPartIds.has(wheel.partId);
   }
 

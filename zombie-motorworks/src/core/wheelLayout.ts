@@ -2,14 +2,13 @@ import type { PartDefinition, VehicleBlueprint } from './types.ts';
 import { cellCentreM } from './mass.ts';
 
 export interface AutomaticWheelLayout {
-  steeringPartIds: ReadonlySet<string>;
   drivenPartIds: ReadonlySet<string>;
 }
 
 /**
- * Automatic 2WD layout. The driver defines the front of an unconventional
- * build: its two nearest wheels steer, while the two farthest remaining
- * wheels receive engine torque. A two-wheel vehicle uses both for both roles.
+ * Automatic 2WD drive layout. Steering is player-configured per wheel
+ * (config.steering); this only assigns engine torque, to the two wheels
+ * farthest from the driver, preferring wheels not configured to steer.
  */
 export function deriveAutomaticWheelLayout(
   blueprint: VehicleBlueprint,
@@ -19,10 +18,7 @@ export function deriveAutomaticWheelLayout(
     .filter((part) => getDef(part.defId).wheel !== undefined)
     .map((part) => ({ part, centre: cellCentreM(part.pos) }));
   if (wheels.length === 0) {
-    return {
-      steeringPartIds: new Set<string>(),
-      drivenPartIds: new Set<string>(),
-    };
+    return { drivenPartIds: new Set<string>() };
   }
 
   const driver = blueprint.parts.find(
@@ -38,21 +34,15 @@ export function deriveAutomaticWheelLayout(
     const dz = wheel.centre.z - reference.z;
     return dx * dx + dy * dy + dz * dz;
   };
-  const nearestFirst = [...wheels].sort(
-    (a, b) => distanceSq(a) - distanceSq(b) || a.part.id.localeCompare(b.part.id),
-  );
-  const steering = new Set(
-    nearestFirst.slice(0, Math.min(2, wheels.length)).map(({ part }) => part.id),
-  );
 
   const driveOrder = [...wheels].sort(
     (a, b) => distanceSq(b) - distanceSq(a) || a.part.id.localeCompare(b.part.id),
   );
-  const nonSteering = driveOrder.filter(({ part }) => !steering.has(part.id));
-  const candidates = [...nonSteering, ...driveOrder.filter(({ part }) => steering.has(part.id))];
+  const nonSteering = driveOrder.filter(({ part }) => part.config.steering !== true);
+  const candidates = [...nonSteering, ...driveOrder.filter(({ part }) => part.config.steering === true)];
   const driven = new Set(
     candidates.slice(0, Math.min(2, wheels.length)).map(({ part }) => part.id),
   );
 
-  return { steeringPartIds: steering, drivenPartIds: driven };
+  return { drivenPartIds: driven };
 }

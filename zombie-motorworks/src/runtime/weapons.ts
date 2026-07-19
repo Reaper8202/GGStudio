@@ -12,7 +12,12 @@ import {
   GROUP_ZOMBIE,
   resolvePlacedDef,
 } from './assembler.ts';
-import type { PlacedPart, Vec3, WeaponDefinition } from '../core/types.ts';
+import type {
+  DamageType,
+  PlacedPart,
+  Vec3,
+  WeaponDefinition,
+} from '../core/types.ts';
 import { rotateVec } from '../core/grid.ts';
 import { cellCentreM } from '../core/mass.ts';
 import { getPartDef } from '../core/parts.ts';
@@ -33,6 +38,8 @@ export interface RuntimeWeapon {
   forwardLocal: Vec3;
   yaw: number; // turret yaw relative to mounted forward, rad
   cooldown: number; // s
+  /** Elapsed time in the current burst cycle for periodic burst weapons, s. */
+  cycleTime: number;
   shotsFired: number;
 }
 
@@ -41,6 +48,8 @@ export interface TracerShot {
   to: Vec3;
   hitZombieHandle: number | null;
   damage: number;
+  /** Delivery type of the firing weapon; aoe rays render as flame. */
+  damageType: DamageType;
 }
 
 export function createWeapon(
@@ -58,6 +67,7 @@ export function createWeapon(
     forwardLocal: rotateVec(placed.orient, { x: 0, y: 0, z: 1 }),
     yaw: 0,
     cooldown: 0,
+    cycleTime: 0,
     shotsFired: 0,
   };
 }
@@ -133,7 +143,20 @@ export function stepWeapons(
       wpn.yaw = 0;
     }
 
-    if (!weaponInput.fire || wpn.cooldown > 0) continue;
+    let wantsFire: boolean;
+    if (wpn.def.fireMode === 'periodic') {
+      const { burstSeconds, burstIntervalSeconds } = wpn.def;
+      if (burstSeconds !== undefined && burstIntervalSeconds !== undefined) {
+        // Spray while inside the burst window, then wait out the cycle.
+        wantsFire = wpn.cycleTime < burstSeconds;
+        wpn.cycleTime = (wpn.cycleTime + dt) % burstIntervalSeconds;
+      } else {
+        wantsFire = true;
+      }
+    } else {
+      wantsFire = weaponInput.fire;
+    }
+    if (!wantsFire || wpn.cooldown > 0) continue;
     if (ammoAvailable - ammoUsed < wpn.def.ammoPerShot) continue;
     if (powerAvailable - powerUsed < wpn.def.powerPerShot) continue;
 
@@ -148,34 +171,48 @@ export function stepWeapons(
     const fireDir = wpn.def.aimMode === 'auto' && weaponInput.aimPoint
       ? pitchedDirection(yawDir, up, mountW, weaponInput.aimPoint)
       : yawDir;
-    const muzzle = add(mountW, scale(fireDir, 0.4));
 
-    const ray = new RAPIER.Ray(muzzle, fireDir);
-    const hit = world.castRay(
-      ray,
-      wpn.def.rangeM,
-      true,
-      undefined,
-      WEAPON_RAY_GROUPS,
-      undefined,
-      body,
-    );
-    const end = hit
-      ? add(muzzle, scale(fireDir, hit.timeOfImpact))
-      : add(muzzle, scale(fireDir, wpn.def.rangeM));
-    let zombieHandle: number | null = null;
-    if (hit) {
-      const groups = hit.collider.collisionGroups() >>> 16;
-      if ((groups & GROUP_ZOMBIE) !== 0) zombieHandle = hit.collider.handle;
+    // Cone weapons fan raysPerShot rays across coneDeg around the fire
+    // direction; conventional weapons are the single-ray special case.
+    const rays = wpn.def.coneDeg !== undefined
+      ? Math.max(1, wpn.def.raysPerShot ?? 1)
+      : 1;
+    const halfCone = ((wpn.def.coneDeg ?? 0) / 2) * (Math.PI / 180);
+    for (let i = 0; i < rays; i++) {
+      const offset =
+        rays === 1 ? 0 : -halfCone + (2 * halfCone * i) / (rays - 1);
+      const rayDir =
+        offset === 0 ? fireDir : norm(rotateAroundAxis(fireDir, up, offset));
+      const muzzle = add(mountW, scale(rayDir, 0.4));
+
+      const ray = new RAPIER.Ray(muzzle, rayDir);
+      const hit = world.castRay(
+        ray,
+        wpn.def.rangeM,
+        true,
+        undefined,
+        WEAPON_RAY_GROUPS,
+        undefined,
+        body,
+      );
+      const end = hit
+        ? add(muzzle, scale(rayDir, hit.timeOfImpact))
+        : add(muzzle, scale(rayDir, wpn.def.rangeM));
+      let zombieHandle: number | null = null;
+      if (hit) {
+        const groups = hit.collider.collisionGroups() >>> 16;
+        if ((groups & GROUP_ZOMBIE) !== 0) zombieHandle = hit.collider.handle;
+      }
+      shots.push({
+        from: muzzle,
+        to: end,
+        hitZombieHandle: zombieHandle,
+        damage: wpn.def.damage,
+        damageType: wpn.def.damageType,
+      });
     }
-    shots.push({
-      from: muzzle,
-      to: end,
-      hitZombieHandle: zombieHandle,
-      damage: wpn.def.damage,
-    });
 
-    // Recoil at the mount, opposite fire direction.
+    // Recoil at the mount, opposite fire direction (once per trigger pull).
     body.applyImpulseAtPoint(
       scale(fireDir, -wpn.def.recoilImpulse),
       mountW,

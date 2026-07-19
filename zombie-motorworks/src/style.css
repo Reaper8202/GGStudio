@@ -1549,6 +1549,72 @@ button:disabled {
   }
 }
 
+.survival-victory {
+  background: var(--panel-bg-strong);
+  box-shadow: 7px 8px 0 rgb(0 0 0 / 0.45), inset 3px 0 0 var(--ui-signal);
+}
+
+.survival-victory__title {
+  color: var(--accent-green-light);
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+}
+
+.survival-victory__subtitle {
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.survival-victory__stats {
+  display: grid;
+  gap: 7px;
+  margin: 16px 0;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--ui-edge);
+  text-align: left;
+}
+
+.survival-victory__stats > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.survival-victory__stats span {
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.survival-victory__stats strong {
+  color: var(--gold);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.survival-victory__actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.survival-victory__actions button {
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 @media (max-width: 560px) {
   .survival-wave-hud {
     top: 8px;

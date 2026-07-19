@@ -29,6 +29,10 @@ test('wave completion enters build phase and resumes at the next wave', async ({
   });
   await page.evaluate(() => window.__scrapRig.forceWaveComplete());
 
+  await expect(page.getByText('VICTORY', { exact: true })).toBeVisible();
+  await expect(page.getByText('Wave 1 Cleared', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Go to Garage' }).click();
+
   expect(await page.evaluate(() => window.__scrapRig.mode())).toBe('editor');
   expect(await page.evaluate(() => window.__scrapRig.runState())).toEqual({
     wave: 1,
@@ -49,6 +53,32 @@ test('wave completion enters build phase and resumes at the next wave', async ({
   expect(await page.evaluate(() => window.__scrapRig.getBlueprintJson())).toBe(
     design,
   );
+});
+
+test('victory screen next wave continues the run without leaving survival', async ({
+  page,
+}) => {
+  await boot(page);
+  await buildBasicRig(page);
+  expect(await page.evaluate(() => window.__scrapRig.grantMoney(250))).toBe(
+    true,
+  );
+  expect((await place(page, 'turret', { x: 0, y: 2, z: 1 })).ok).toBe(true);
+
+  expect(await enterSurvivalPaused(page)).toBe(true);
+  await page.evaluate(() => window.__scrapRig.forceWaveComplete());
+  await expect(page.getByText('VICTORY', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Next Wave' }).click();
+  await expect(page.getByText('VICTORY', { exact: true })).toBeHidden();
+  expect(await page.evaluate(() => window.__scrapRig.mode())).toBe('survival');
+  expect(await page.evaluate(() => window.__scrapRig.runState())).toEqual({
+    wave: 2,
+    inBuildPhase: false,
+  });
+  expect(
+    await page.evaluate(() => window.__scrapRig.survivalTelemetry()?.wave),
+  ).toBe(2);
 });
 
 test('new-build profile hygiene and fresh-run wave state are independent', async ({

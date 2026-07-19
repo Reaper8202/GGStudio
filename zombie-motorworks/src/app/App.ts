@@ -257,6 +257,9 @@ export class App {
       runEarnings: () => this.runMoneyEarned,
       onReward: (amount) => this.creditRunReward(amount),
       onExit: (state) => this.finishRun(state),
+      onWaveAdvance: (state) => {
+        this.activeRun = { wave: state.wave };
+      },
       onBuildPhase: (state, survivingPartIds) =>
         this.enterBuildPhase(state, survivingPartIds),
       onGameOver: (state) => this.finishRun(state),

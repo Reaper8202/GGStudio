@@ -36,6 +36,7 @@ export interface SurvivalCallbacks {
   runEarnings(): number;
   onReward(amount: number): void;
   onExit(run: RunState): void;
+  onWaveAdvance(run: RunState): void;
   onBuildPhase(run: RunState, survivingPartIds: readonly string[]): void;
   onGameOver(run: RunState): void;
 }
@@ -89,6 +90,11 @@ interface SurvivalUi {
   stuckPrompt: HTMLDivElement;
   countdownOverlay: HTMLDivElement;
   countdownValue: HTMLDivElement;
+  victoryOverlay: HTMLDivElement;
+  victorySubtitle: HTMLDivElement;
+  victoryMoneyValue: HTMLElement;
+  victoryKillsValue: HTMLElement;
+  victoryTimeValue: HTMLElement;
 }
 
 type PendingTransition =
@@ -127,6 +133,11 @@ export class SurvivalMode {
   private readonly tracerMaterial = new THREE.LineBasicMaterial({
     color: 0xffd76e,
   });
+  private readonly flameTracerMaterial = new THREE.LineBasicMaterial({
+    color: 0xff6b2b,
+    transparent: true,
+    opacity: 0.85,
+  });
   private readonly wheelSteerQuaternion = new THREE.Quaternion();
   private readonly wheelSteerAxis = new THREE.Vector3(0, 1, 0);
   private readonly pointerNdc = new THREE.Vector2();
@@ -145,6 +156,11 @@ export class SurvivalMode {
   private readonly stuckPrompt: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly countdownValue: HTMLDivElement;
+  private readonly victoryOverlay: HTMLDivElement;
+  private readonly victorySubtitle: HTMLDivElement;
+  private readonly victoryMoneyValue: HTMLElement;
+  private readonly victoryKillsValue: HTMLElement;
+  private readonly victoryTimeValue: HTMLElement;
 
   private accumulator = 0;
   private lastTime = performance.now();
@@ -163,6 +179,9 @@ export class SurvivalMode {
   private lastCountdownSecond = -1;
   private tracerCursor = 0;
   private pendingWaveReward = 0;
+  private waveStartKills = 0;
+  private waveMoneyEarned = 0;
+  private waveElapsedSeconds = 0;
   private pendingTransition: PendingTransition | null = null;
   private stuckSeconds = 0;
   private recoveryCooldown = 0;
@@ -247,6 +266,11 @@ export class SurvivalMode {
     this.stuckPrompt = builtUi.stuckPrompt;
     this.countdownOverlay = builtUi.countdownOverlay;
     this.countdownValue = builtUi.countdownValue;
+    this.victoryOverlay = builtUi.victoryOverlay;
+    this.victorySubtitle = builtUi.victorySubtitle;
+    this.victoryMoneyValue = builtUi.victoryMoneyValue;
+    this.victoryKillsValue = builtUi.victoryKillsValue;
+    this.victoryTimeValue = builtUi.victoryTimeValue;
 
     this.beginCountdown(run.wave);
     window.addEventListener('keydown', this.keydown);
@@ -409,6 +433,48 @@ export class SurvivalMode {
     countdownOverlay.append(countdownLabel, countdownValue);
     root.appendChild(countdownOverlay);
 
+    const victoryOverlay = overlayPanel();
+    victoryOverlay.classList.add('survival-victory');
+    victoryOverlay.style.display = 'none';
+    const victoryTitle = document.createElement('div');
+    victoryTitle.className = 'survival-victory__title';
+    victoryTitle.textContent = 'VICTORY';
+    const victorySubtitle = document.createElement('div');
+    victorySubtitle.className = 'survival-victory__subtitle';
+    const victoryStats = document.createElement('div');
+    victoryStats.className = 'survival-victory__stats';
+    const statRow = (label: string): HTMLElement => {
+      const row = document.createElement('div');
+      const rowLabel = document.createElement('span');
+      rowLabel.textContent = label;
+      const rowValue = document.createElement('strong');
+      row.append(rowLabel, rowValue);
+      victoryStats.appendChild(row);
+      return rowValue;
+    };
+    const victoryMoneyValue = statRow('Money Earned');
+    const victoryKillsValue = statRow('Zombies Killed');
+    const victoryTimeValue = statRow('Time');
+    const victoryActions = document.createElement('div');
+    victoryActions.className = 'survival-victory__actions';
+    const nextWaveButton = document.createElement('button');
+    nextWaveButton.type = 'button';
+    nextWaveButton.className = 'primary';
+    nextWaveButton.textContent = 'Next Wave';
+    nextWaveButton.addEventListener('click', this.onNextWave);
+    const garageButton = document.createElement('button');
+    garageButton.type = 'button';
+    garageButton.textContent = 'Go to Garage';
+    garageButton.addEventListener('click', this.onGoToGarage);
+    victoryActions.append(nextWaveButton, garageButton);
+    victoryOverlay.append(
+      victoryTitle,
+      victorySubtitle,
+      victoryStats,
+      victoryActions,
+    );
+    root.appendChild(victoryOverlay);
+
     return {
       root,
       speedValue,
@@ -420,8 +486,28 @@ export class SurvivalMode {
       stuckPrompt,
       countdownOverlay,
       countdownValue,
+      victoryOverlay,
+      victorySubtitle,
+      victoryMoneyValue,
+      victoryKillsValue,
+      victoryTimeValue,
     };
   }
+
+  private readonly onNextWave = (): void => {
+    if (this.disposed || this.phase !== 'cleared') return;
+    this.beginCountdown(this.currentWave + 1);
+    this.callbacks.onWaveAdvance(this.currentRunState());
+  };
+
+  private readonly onGoToGarage = (): void => {
+    if (this.disposed || this.phase !== 'cleared') return;
+    this.victoryOverlay.style.display = 'none';
+    this.callbacks.onBuildPhase(
+      this.currentRunState(),
+      this.vehicle.survivingPartIds(),
+    );
+  };
 
   private readonly onAim = (event: PointerEvent): void => {
     if (this.phase !== 'active') return;
@@ -482,6 +568,7 @@ export class SurvivalMode {
   }
 
   private stepPhysics(): void {
+    this.waveElapsedSeconds += FIXED_DT;
     this.updateControls();
     this.updateRecoveryAssist(FIXED_DT);
     this.controls.weaponAim = this.autoAim.step();
@@ -517,6 +604,7 @@ export class SurvivalMode {
         shot.hitZombieHandle,
         shot.damage,
         this.shotDirection,
+        shot.damageType,
       );
     }
 
@@ -692,13 +780,21 @@ export class SurvivalMode {
     this.recoverySettleSeconds = 0;
     this.recoveryRequested = false;
     this.stuckPrompt.classList.remove('is-visible');
+    this.victoryOverlay.style.display = 'none';
     this.countdownOverlay.style.display = 'block';
   }
 
   private startCurrentWave(): void {
     this.phase = 'active';
     this.countdownOverlay.style.display = 'none';
+    this.resetWaveStats();
     this.waves.startWave(this.currentWave);
+  }
+
+  private resetWaveStats(): void {
+    this.waveStartKills = this.kills;
+    this.waveMoneyEarned = 0;
+    this.waveElapsedSeconds = 0;
   }
 
   private readonly handleZombieKilled = (reward: number): void => {
@@ -714,6 +810,7 @@ export class SurvivalMode {
     // final zombie and vehicle die together, destruction wins consistently and
     // the uncleared wave is neither counted nor rewarded.
     this.pendingWaveReward = reward;
+    this.zombies.clearLandmines();
     this.phase = 'cleared';
     this.pointerFiring = false;
     this.keys.clear();
@@ -723,6 +820,7 @@ export class SurvivalMode {
 
   private creditReward(amount: number): void {
     if (!Number.isSafeInteger(amount) || amount <= 0) return;
+    this.waveMoneyEarned += amount;
     this.callbacks.onReward(amount);
   }
 
@@ -739,12 +837,20 @@ export class SurvivalMode {
       this.creditReward(this.pendingWaveReward);
       this.pendingWaveReward = 0;
       this.stopVehicleMotion();
-      this.pendingTransition = {
-        kind: 'buildPhase',
-        run: this.currentRunState(),
-        survivingPartIds: this.vehicle.survivingPartIds(),
-      };
+      this.showVictory();
     }
+  }
+
+  private showVictory(): void {
+    this.victorySubtitle.textContent = `Wave ${this.currentWave} Cleared`;
+    this.victoryMoneyValue.textContent = `$${this.waveMoneyEarned}`;
+    this.victoryKillsValue.textContent = String(
+      Math.max(0, this.kills - this.waveStartKills),
+    );
+    this.victoryTimeValue.textContent = formatDuration(
+      this.waveElapsedSeconds,
+    );
+    this.victoryOverlay.style.display = 'block';
   }
 
   private queueGameOver(): void {
@@ -757,6 +863,7 @@ export class SurvivalMode {
     this.pointerFiring = false;
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
+    this.victoryOverlay.style.display = 'none';
     this.stuckPrompt.classList.remove('is-visible');
     this.stopVehicleMotion();
     this.pendingTransition = {
@@ -916,7 +1023,11 @@ export class SurvivalMode {
     positions[4] = shot.to.y;
     positions[5] = shot.to.z;
     tracer.positionAttribute.needsUpdate = true;
-    tracer.ttl = 0.08;
+    const flame = shot.damageType === 'aoe';
+    tracer.line.material = flame
+      ? this.flameTracerMaterial
+      : this.tracerMaterial;
+    tracer.ttl = flame ? 0.18 : 0.08;
     tracer.line.visible = true;
   }
 
@@ -982,6 +1093,8 @@ export class SurvivalMode {
     this.pointerFiring = false;
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
+    this.victoryOverlay.style.display = 'none';
+    this.resetWaveStats();
     this.waves.startWave(this.currentWave);
   }
 
@@ -1077,12 +1190,20 @@ export class SurvivalMode {
     disposeObject(this.scene);
     this.scene.clear();
     this.tracerMaterial.dispose();
+    this.flameTracerMaterial.dispose();
     this.wheelMeshes.clear();
     this.wheelSpin.clear();
     this.islandGroups.clear();
     this.surfaceByCollider.clear();
     this.tracers.length = 0;
   }
+}
+
+function formatDuration(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(whole / 60);
+  const rest = whole % 60;
+  return `${minutes}:${String(rest).padStart(2, '0')}`;
 }
 
 function overlayPanel(): HTMLDivElement {

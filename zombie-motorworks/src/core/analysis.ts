@@ -238,13 +238,21 @@ export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => Par
   const engineDefs = engineEntries.map((entry) => entry.def);
   const totalPowerKw = engineDefs.reduce((sum, def) => sum + def.engine!.maxPowerKw, 0);
   const powerToWeightKwPerT = totalMassKg > 0 ? totalPowerKw / (totalMassKg / 1000) : 0;
-  const totalDps = entries.reduce(
-    (sum, entry) =>
-      sum + (entry.def.weapon === undefined
-        ? 0
-        : entry.def.weapon.damage * entry.def.weapon.fireRate),
-    0,
-  );
+  const totalDps = entries.reduce((sum, entry) => {
+    const weapon = entry.def.weapon;
+    if (weapon === undefined) return sum;
+    // Burst weapons only spray for part of each cycle.
+    const dutyCycle =
+      weapon.burstSeconds !== undefined &&
+      weapon.burstIntervalSeconds !== undefined &&
+      weapon.burstIntervalSeconds > 0
+        ? Math.min(1, weapon.burstSeconds / weapon.burstIntervalSeconds)
+        : 1;
+    return (
+      sum +
+      weapon.damage * weapon.fireRate * (weapon.raysPerShot ?? 1) * dutyCycle
+    );
+  }, 0);
   const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
   const drivenWheels = wheelEntries.filter((wheel) =>
     wheelLayout.drivenPartIds.has(wheel.part.id),
@@ -301,11 +309,11 @@ export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => Par
   if (wheelEntries.length > 0 && drivenWheels.length === 0) {
     addIssue(issue('NO_DRIVEN_WHEELS', 'No wheels are configured as driven.', wheelEntries.map((wheel) => wheel.part.id), [], 'Mark at least one grounded wheel as driven.'));
   }
-  const steeringWheels = wheelEntries.filter((wheel) =>
-    wheelLayout.steeringPartIds.has(wheel.part.id),
+  const steeringWheels = wheelEntries.filter(
+    (wheel) => wheel.part.config.steering === true,
   );
   if (wheelEntries.length > 0 && steeringWheels.length === 0) {
-    addIssue(issue('NO_STEERING_WHEELS', 'No wheels are configured for steering.', wheelEntries.map((wheel) => wheel.part.id), [], 'Mark at least one wheel as steering.'));
+    addIssue(issue('NO_STEERING_WHEELS', 'No wheels are configured for steering.', wheelEntries.map((wheel) => wheel.part.id), [], 'Tick Steering on at least one wheel.'));
   }
   if (trackWidthM < 2.2 * comHeight && groundedWheels.length >= 2) {
     addIssue(issue('NARROW_TRACK', 'Track width is narrow for the centre of mass height.', groundedWheels.map((wheel) => wheel.part.id), [], 'Move wheels farther left and right or lower heavy parts.'));

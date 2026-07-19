@@ -1274,7 +1274,10 @@ export class EditorMode {
   }
 }
 
-/** Mirror the automatic runtime roles into saved config for editor inspection. */
+/**
+ * Mirror the automatic drive layout into saved config for editor inspection.
+ * Steering is player-owned: whatever is ticked on each wheel stays put.
+ */
 function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
   const layout = deriveAutomaticWheelLayout(bp, getPartDef);
   let changed = false;
@@ -1282,7 +1285,6 @@ function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
     if (!getPartDef(part.defId).wheel) return part;
     const config = { ...part.config };
     config.driven = layout.drivenPartIds.has(part.id);
-    config.steering = layout.steeringPartIds.has(part.id);
     if (config.braking === undefined) config.braking = true;
     if (config.steerInverted === undefined) config.steerInverted = false;
     if (Object.keys(config).every((key) => config[key as keyof PartConfig] === part.config[key as keyof PartConfig])) {

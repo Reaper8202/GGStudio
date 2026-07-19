@@ -184,6 +184,23 @@ describe('analyzeVehicle wheels and stability', () => {
     expect(codes(report)).toContain('NO_DRIVEN_WHEELS');
   });
 
+  it('warns when no wheel is ticked for steering and stays quiet when one is', () => {
+    const unsteered = analyzeVehicle(
+      blueprint([...symmetricFrameParts(), ...fourWheels({ driven: true })]),
+      getPartDef,
+    );
+    expect(codes(unsteered)).toContain('NO_STEERING_WHEELS');
+
+    const steered = analyzeVehicle(
+      blueprint([
+        ...symmetricFrameParts(),
+        ...fourWheels({ driven: true, steering: true }),
+      ]),
+      getPartDef,
+    );
+    expect(codes(steered)).not.toContain('NO_STEERING_WHEELS');
+  });
+
   it('flags a tall narrow stack as high rollover risk', () => {
     const tower = Array.from({ length: 8 }, (_, index) =>
       part(`tower-${index}`, 'frame-reinforced', 0, index, 0),

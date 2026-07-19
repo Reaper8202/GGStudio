@@ -190,6 +190,28 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
       <path d="M34 14H58V21H34Z" fill="#8a5035"/>
       <path d="M53 12H61V23H53Z" fill="#2a2e28"/>
     `,
+    'barrel-drum': `
+      <path d="M10 24H54V44H10Z" fill="#6b4a2e"/>
+      <ellipse cx="10" cy="34" rx="5" ry="10" fill="#4a3320"/>
+      <ellipse cx="54" cy="34" rx="5" ry="10" fill="#8a5035"/>
+      <path d="M14 22H18V26H14ZM26 20H30V24H26ZM38 22H42V26H38ZM20 42H24V46H20ZM32 44H36V48H32ZM44 42H48V46H44Z" fill="#242923"/>
+      <path d="M10 30H54M10 38H54" stroke="#4a3320" stroke-width="2"/>
+    `,
+    'sniper-light': `
+      ${common}
+      <path d="M26 20 32 16 38 20V27L32 31 26 27Z" fill="#4b5245"/>
+      <path d="M33 17H60V20H33Z" fill="#8a5035"/>
+      <path d="M57 15H61V22H57Z" fill="#2a2e28"/>
+      <circle cx="36" cy="13" r="3" fill="#89995a"/>
+    `,
+    flamethrower: `
+      ${common}
+      <path d="M24 18 32 14 40 18V28L32 32 24 28Z" fill="#5a3a28"/>
+      <path d="M34 16H46V22H34Z" fill="#8a5035"/>
+      <path d="M46 14H50V24H46Z" fill="#2a2e28"/>
+      <path d="M50 16 58 12 55 19 61 21 52 24Z" fill="#c96a2f"/>
+      <path d="M52 17 57 15 55 20Z" fill="#e0a13e"/>
+    `,
   };
   const drawing = drawings[def.id] ?? common;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" shape-rendering="crispEdges"><rect width="64" height="64" fill="#090b09"/>${drawing}</svg>`;

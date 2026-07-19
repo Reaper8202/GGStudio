@@ -60,6 +60,61 @@ export const THROWER_ATTACK_EXIT_MARGIN = 2;
 export const THROWER_ATTACK_INTERVAL = 2.8;
 export const THROWER_VISUAL_HEIGHT = 1; // pre-baseScale model height, m
 
+// Phone Addict: projectile-proof zombie (PhoneAddict voxel pack). A personal
+// bubble shield absorbs every gun hit — only flame, ramming, and grinder
+// contact hurt it. Fills the pool slots at this remainder of the thrower
+// stride, so walkers, throwers, and addicts never collide.
+export const PHONE_ADDICT_POOL_REMAINDER = 2;
+export const PHONE_ADDICT_HEALTH_MULTIPLIER = 1.2;
+export const PHONE_ADDICT_SPEED_MULTIPLIER = 0.9;
+export const PHONE_ADDICT_REWARD = 30;
+export const PHONE_ADDICT_VISUAL_HEIGHT = 1.4; // pre-baseScale model height, m
+/** Red ground-glow disc marking a shielded zombie, world metres. */
+export const PHONE_ADDICT_GLOW_RADIUS = 1.15;
+export const PHONE_ADDICT_GLOW_OPACITY = 0.65;
+
+// Worker: mine-layer zombie (zombie_worker.vox). Fills the pool slots at this
+// remainder of the thrower stride. It approaches the vehicle until it gets
+// within plant range, commits to a stationary arming channel no matter where
+// the vehicle goes, drops the mine, then retreats and must close to plant
+// range again before the next mine.
+export const WORKER_POOL_REMAINDER = 0;
+export const WORKER_HEALTH_MULTIPLIER = 1.3;
+export const WORKER_SPEED_MULTIPLIER = 0.85;
+export const WORKER_REWARD = 35;
+export const WORKER_VISUAL_HEIGHT = 1.4; // pre-baseScale model height, m
+/** Reaching this close to the vehicle triggers the arming channel. */
+export const WORKER_PLANT_RANGE = 10;
+/** After a plant, the worker backs off past this before it can arm again. */
+export const WORKER_RETREAT_RANGE = 16;
+
+// Arming channel: the worker stands still this long to arm a mine, radiating
+// a ground ring that pulses faster as the plant completes.
+export const WORKER_PLANT_SECONDS = 5;
+export const WORKER_RING_MAX_RADIUS = 2.4; // world metres at full expansion
+export const WORKER_RING_MIN_RATE = 0.8; // pulses/s at the start of arming
+export const WORKER_RING_MAX_RATE = 3.2; // pulses/s just before the plant
+export const WORKER_RING_OPACITY = 0.85;
+
+// Landmines: stationary pulsing red placeholder cylinders planted by workers.
+// The worker's visible arming channel already telegraphs the plant, so a mine
+// is live the moment it appears. It detonates with a flash when the vehicle
+// runs one over, and every survivor is cleared when the wave completes.
+export const LANDMINE_POOL_SIZE = 24;
+export const LANDMINE_RADIUS = 0.45;
+export const LANDMINE_HEIGHT = 0.22;
+export const LANDMINE_TRIGGER_RADIUS = 1.5;
+export const LANDMINE_DAMAGE = 60;
+export const LANDMINE_PULSE_FREQUENCY = 6; // rad/s
+export const LANDMINE_PULSE_AMPLITUDE = 0.2; // fraction of base scale
+export const LANDMINE_EXPLOSION_POOL_SIZE = 6;
+export const LANDMINE_EXPLOSION_RADIUS = 2.2; // final flash-sphere radius, m
+export const LANDMINE_EXPLOSION_DURATION = 0.4;
+
+export const SHIELD_FLASH_DURATION = 0.45;
+export const SHIELD_FLASH_MAX_OPACITY = 0.4;
+export const SHIELD_RADIUS = 1.3;
+
 export const PROJECTILE_POOL_SIZE = 24;
 export const PROJECTILE_HORIZONTAL_SPEED = 9; // m/s, still a dodgeable lob
 export const PROJECTILE_MIN_FLIGHT_TIME = 0.5;

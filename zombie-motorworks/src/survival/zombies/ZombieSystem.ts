@@ -1,17 +1,21 @@
-import RAPIER from '@dimforge/rapier3d-compat';
-import * as THREE from 'three';
-import type { RuntimePart } from '../../runtime/assembler.ts';
-import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
+import RAPIER from "@dimforge/rapier3d-compat";
+import * as THREE from "three";
+import type { DamageType } from "../../core/types.ts";
+import type { RuntimePart } from "../../runtime/assembler.ts";
+import type { RuntimeVehicle } from "../../runtime/vehicle.ts";
 import {
   Zombie,
   ZombieState,
   type Vector3Like,
   type ZombieKilledCallback,
-} from './Zombie.ts';
-import { ThrowerProjectiles } from './ThrowerProjectiles.ts';
+} from "./Zombie.ts";
+import { Landmines } from "./Landmines.ts";
+import { ThrowerProjectiles } from "./ThrowerProjectiles.ts";
 import {
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
+  LANDMINE_DAMAGE,
+  LANDMINE_TRIGGER_RADIUS,
   MAXIMUM_SWARM_DRAG,
   MIN_IMPACT_SPEED,
   MIN_SPAWN_DISTANCE_FROM_VEHICLE,
@@ -28,7 +32,7 @@ import {
   ZOMBIE_HALF_HEIGHT,
   ZOMBIE_POOL_SIZE,
   ZOMBIE_RADIUS,
-} from './zombieConfig.ts';
+} from "./zombieConfig.ts";
 
 interface VehiclePartAnchor {
   readonly partId: string;
@@ -59,6 +63,7 @@ export class ZombieSystem {
   private readonly swarmForce = { x: 0, y: 0, z: 0 };
   private readonly fallbackGeometry: THREE.CapsuleGeometry;
   private readonly projectiles: ThrowerProjectiles;
+  private readonly landmines: Landmines;
   private readonly tryProjectileImpact = (
     x: number,
     y: number,
@@ -76,6 +81,26 @@ export class ZombieSystem {
       return true;
     }
     return false;
+  };
+  /** Mine explosions damage every attached part inside the trigger radius. */
+  private readonly tryMineDetonation = (
+    x: number,
+    y: number,
+    z: number,
+  ): boolean => {
+    const radiusSq = LANDMINE_TRIGGER_RADIUS * LANDMINE_TRIGGER_RADIUS;
+    let detonated = false;
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      const dx = anchor.worldX - x;
+      const dy = anchor.worldY - y;
+      const dz = anchor.worldZ - z;
+      if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
+      this.vehicle.applyDirectDamage(anchor.partId, LANDMINE_DAMAGE);
+      detonated = true;
+    }
+    return detonated;
   };
   private healthMultiplier = 1;
   private speedMultiplier = 1;
@@ -95,6 +120,7 @@ export class ZombieSystem {
       8,
     );
     this.projectiles = new ThrowerProjectiles(scene);
+    this.landmines = new Landmines(scene);
     for (let i = 0; i < ZOMBIE_POOL_SIZE; i++) {
       const zombie = new Zombie(
         world,
@@ -104,6 +130,8 @@ export class ZombieSystem {
         onKilled,
       );
       zombie.onThrow = (thrower) => this.launchProjectileFrom(thrower);
+      zombie.onPlantMine = (worker) =>
+        this.landmines.plant(worker.position.x, worker.position.z);
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -196,7 +224,14 @@ export class ZombieSystem {
 
     this.processVehicleContacts(this.activeScratch, dt);
     this.projectiles.update(dt, this.tryProjectileImpact);
+    this.landmines.update(dt, this.tryMineDetonation);
     this.rebuildAliveTargets();
+  }
+
+  /** SurvivalMode clears surviving mines the moment a wave completes. */
+  clearLandmines(): void {
+    if (this.disposed) return;
+    this.landmines.despawnAll();
   }
 
   private launchProjectileFrom(zombie: Zombie): void {
@@ -233,10 +268,17 @@ export class ZombieSystem {
     handle: number,
     damage: number,
     direction?: Vector3Like,
+    damageType: DamageType = "hitscan",
   ): boolean {
     if (this.disposed || damage <= 0) return false;
     const zombie = this.colliderToZombie.get(handle);
     if (!zombie) return false;
+    // The phone addict's bubble shield absorbs projectile and hitscan hits;
+    // aoe damage washes around it.
+    if (zombie.kind === "phone-addict" && damageType !== "aoe") {
+      zombie.flashShield();
+      return false;
+    }
     const killed = zombie.takeDamage(damage, direction);
     if (killed) this.rebuildAliveTargets();
     return killed;
@@ -254,6 +296,7 @@ export class ZombieSystem {
   reset(): void {
     if (this.disposed) return;
     this.projectiles.despawnAll();
+    this.landmines.despawnAll();
     for (const zombie of this.pool) zombie.forceReturnToPool();
     this.healthMultiplier = 1;
     this.speedMultiplier = 1;
@@ -268,6 +311,7 @@ export class ZombieSystem {
     if (this.disposed) return;
     this.disposed = true;
     this.projectiles.dispose();
+    this.landmines.dispose();
     for (const zombie of this.pool) zombie.dispose();
     this.pool.length = 0;
     this.colliderToZombie.clear();
@@ -387,7 +431,13 @@ export class ZombieSystem {
         continue;
       if (zombie.vehicleTarget.distance > ZOMBIE_CONTACT_RADIUS) continue;
       contacts++;
-      if (vehicleSpeed < MIN_IMPACT_SPEED) continue;
+
+      // Grinder drums shred on contact regardless of vehicle speed.
+      const touchedPart = this.vehicle.assembled.parts.get(
+        zombie.vehicleTarget.partId,
+      );
+      const melee = touchedPart?.def.melee;
+      if (melee === undefined && vehicleSpeed < MIN_IMPACT_SPEED) continue;
 
       let awayX = zombie.position.x - zombie.vehicleTarget.x;
       let awayZ = zombie.position.z - zombie.vehicleTarget.z;
@@ -402,8 +452,12 @@ export class ZombieSystem {
             ? velocity.z / horizontalVehicleSpeed
             : 0;
       }
+      const impactDamage =
+        vehicleSpeed >= MIN_IMPACT_SPEED
+          ? vehicleSpeed * IMPACT_DAMAGE_PER_SPEED
+          : 0;
       zombie.applyVehicleImpact(
-        vehicleSpeed * IMPACT_DAMAGE_PER_SPEED,
+        Math.max(impactDamage, melee?.damage ?? 0),
         awayX,
         awayZ,
       );
@@ -436,7 +490,9 @@ export class ZombieSystem {
   }
 
   private updateWatchdog(zombie: Zombie, dt: number): void {
-    if (zombie.state !== ZombieState.Chasing) {
+    // Workers deliberately stand still (arming, holding range); never teleport
+    // them for lack of progress toward the vehicle.
+    if (zombie.state !== ZombieState.Chasing || zombie.kind === "worker") {
       this.resetWatchdog(zombie);
       return;
     }
