@@ -65,8 +65,11 @@ export class Sfx {
     this.tone('sawtooth', 300, 140, 130, 0.2);
   }
 
-  coin(): void {
-    this.tone('sine', 880, 1320, 90, 0.3);
+  /** `streak` raises the pitch (~2 semitones per step, capped) — quick
+   *  successive pickups climb a little scale. */
+  coin(streak = 0): void {
+    const mul = Math.pow(2, Math.min(streak, 6) / 6);
+    this.tone('sine', 880 * mul, 1320 * mul, 90, 0.3);
   }
 
   hit(): void {

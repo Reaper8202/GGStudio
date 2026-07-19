@@ -21,6 +21,16 @@ export const GameConfig = {
   reviveInvulnMs: 1500,
   seed: undefined as number | undefined, // set for deterministic runs/tests
 
+  // -- rideable platforms ---------------------------------------------------
+  platform: {
+    /** Length along z, world units. MUST stay below the minimum wave
+     *  z-spacing (~13.6u) so a platform never overlaps the next wave. */
+    length: 10,
+    height: 1.1,
+    /** Short drop back to ground level when running off the end. */
+    fallMs: 150,
+  },
+
   // -- scoring --------------------------------------------------------------
   unitsPerMeter: 1,
   scorePerMeter: 10,

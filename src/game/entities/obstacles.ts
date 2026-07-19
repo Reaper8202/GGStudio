@@ -49,8 +49,14 @@ abstract class BaseObstacle implements Obstacle3D {
 
 const ventBaseGeo = new THREE.BoxGeometry(1.7, 0.5, 0.95);
 const ventSlatGeo = new THREE.BoxGeometry(1.45, 0.06, 0.16);
+const ventGlowGeo = new THREE.BoxGeometry(1.5, 0.05, 0.02);
 const ventMat = new THREE.MeshLambertMaterial({ color: Palette.vent });
 const ventDarkMat = new THREE.MeshLambertMaterial({ color: Palette.ventDark });
+const ventGlowMat = new THREE.MeshBasicMaterial({
+  color: Palette.laneGlow,
+  transparent: true,
+  opacity: 0.55,
+});
 
 /** Floor vent — jump over. */
 export class VentObstacle extends BaseObstacle {
@@ -66,6 +72,10 @@ export class VentObstacle extends BaseObstacle {
       slat.position.set(0, 0.53, -0.36 + i * 0.24);
       this.group.add(slat);
     }
+    // Low-key emissive strip along the front face so the vent pops under bloom.
+    const glow = new THREE.Mesh(ventGlowGeo, ventGlowMat);
+    glow.position.set(0, 0.12, 0.485);
+    this.group.add(glow);
   }
 }
 
@@ -78,13 +88,34 @@ const postMat = new THREE.MeshLambertMaterial({ color: Palette.ventDark });
 const beamMat = new THREE.MeshLambertMaterial({ color: Palette.gate });
 const beamGlowMat = new THREE.MeshBasicMaterial({ color: Palette.gateBeam });
 
+// Hover-drone variant geometry — same clearance as the beam gate (underside
+// ~y1.36, overall top ~y2.0), just no posts to slide "under a beam" past.
+const droneBodyGeo = new THREE.BoxGeometry(1.3, 0.4, 0.75);
+const droneStemGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.2, 8);
+const droneRotorGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.035, 20);
+const droneGlowGeo = new THREE.BoxGeometry(1.1, 0.04, 0.5);
+const droneBodyMat = new THREE.MeshLambertMaterial({ color: Palette.vent });
+const droneDarkMat = new THREE.MeshLambertMaterial({ color: Palette.ventDark });
+const droneGlowMat = new THREE.MeshBasicMaterial({ color: Palette.gateBeam });
+
 /** Overhead energy gate — slide under (clearance below ~1.3u). */
 export class GateObstacle extends BaseObstacle {
   readonly kind = 'high' as const;
   private readonly glow: THREE.Mesh;
 
+  // Two interchangeable visual variants, same footprint/clearance:
+  //   0 = classic post-and-beam gate, 1 = hovering drone.
+  private static variantCounter = 0;
+  private variant = 0;
+  private readonly beamVariant: THREE.Group;
+  private readonly droneVariant: THREE.Group;
+  private readonly droneRotor: THREE.Mesh;
+  private readonly droneGlow: THREE.Mesh;
+
   constructor(scene: THREE.Scene) {
     super(scene);
+
+    this.beamVariant = new THREE.Group();
     const postL = new THREE.Mesh(postGeo, postMat);
     postL.position.set(-0.9, 1.05, 0);
     const postR = new THREE.Mesh(postGeo, postMat);
@@ -93,13 +124,44 @@ export class GateObstacle extends BaseObstacle {
     beam.position.y = 1.62;
     this.glow = new THREE.Mesh(beamGlowGeo, beamGlowMat);
     this.glow.position.y = 1.36;
-    this.group.add(postL, postR, beam, this.glow);
+    this.beamVariant.add(postL, postR, beam, this.glow);
+
+    this.droneVariant = new THREE.Group();
+    const body = new THREE.Mesh(droneBodyGeo, droneBodyMat);
+    body.position.y = 1.56; // bottom 1.36, top 1.76
+    const stem = new THREE.Mesh(droneStemGeo, droneDarkMat);
+    stem.position.y = 1.86; // sits atop the body, up to the rotor
+    this.droneRotor = new THREE.Mesh(droneRotorGeo, droneDarkMat);
+    this.droneRotor.position.y = 1.98; // overall top ~2.0
+    this.droneGlow = new THREE.Mesh(droneGlowGeo, droneGlowMat);
+    this.droneGlow.position.y = 1.34; // emissive strip flush under the body
+    this.droneVariant.add(body, stem, this.droneRotor, this.droneGlow);
+
+    this.group.add(this.beamVariant, this.droneVariant);
   }
 
-  override update(_dt: number, now: number): void {
-    // Hazard flicker on the lower edge of the beam.
-    (this.glow.material as THREE.MeshBasicMaterial).opacity = 0.7 + 0.3 * Math.sin(now / 90);
-    (this.glow.material as THREE.MeshBasicMaterial).transparent = true;
+  override activate(lane: number, x: number, z: number): void {
+    super.activate(lane, x, z);
+    this.variant = GateObstacle.variantCounter++ % 2;
+    this.beamVariant.visible = this.variant === 0;
+    this.droneVariant.visible = this.variant === 1;
+    this.droneVariant.position.y = 0;
+  }
+
+  override update(dt: number, now: number): void {
+    if (this.variant === 0) {
+      // Hazard flicker on the lower edge of the beam.
+      (this.glow.material as THREE.MeshBasicMaterial).opacity = 0.7 + 0.3 * Math.sin(now / 90);
+      (this.glow.material as THREE.MeshBasicMaterial).transparent = true;
+    } else {
+      // Spinning rotor, a subtle hover bob (does not affect the collision
+      // profile — only shifts the whole assembly by up to ±0.04), and the
+      // same flicker treatment on the underside glow strip.
+      this.droneRotor.rotation.y += dt * 0.015;
+      this.droneVariant.position.y = 0.04 * Math.sin(now / 260);
+      (this.droneGlow.material as THREE.MeshBasicMaterial).opacity = 0.7 + 0.3 * Math.sin(now / 90);
+      (this.droneGlow.material as THREE.MeshBasicMaterial).transparent = true;
+    }
   }
 }
 
