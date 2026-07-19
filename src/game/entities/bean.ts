@@ -14,8 +14,8 @@ export interface BeanParts {
   legL: THREE.Mesh;
   legR: THREE.Mesh;
   /** Exposed so callers (e.g. the color picker) can recolor after creation. */
-  bodyMat: THREE.MeshStandardMaterial;
-  darkMat: THREE.MeshStandardMaterial;
+  bodyMat: THREE.MeshLambertMaterial;
+  darkMat: THREE.MeshLambertMaterial;
 }
 
 const bodyGeo = new THREE.CapsuleGeometry(0.42, 0.6, 6, 14);
@@ -38,26 +38,16 @@ export interface BeanOptions {
 export function makeBean(opts: BeanOptions): BeanParts {
   const group = new THREE.Group();
 
-  const bodyMat = new THREE.MeshStandardMaterial({
+  const bodyMat = new THREE.MeshLambertMaterial({
     color: opts.color,
-    roughness: 0.35,
-    metalness: 0.12,
   });
-  const darkMat = new THREE.MeshStandardMaterial({
+  const darkMat = new THREE.MeshLambertMaterial({
     color: opts.darkColor,
-    // Matte: any metalness here turns the flat camera-facing backpack into
-    // a mirror of the env map's warm room lights (reads as a yellow blob).
-    roughness: 0.65,
-    metalness: 0.05,
   });
-  const visorMat = new THREE.MeshStandardMaterial({
+  const visorMat = new THREE.MeshLambertMaterial({
     color: opts.visorColor,
     emissive: opts.visorEmissive ?? 0x000000,
-    emissiveIntensity: 0.35,
-    // Glassy but not mirror-metal: high metalness made the visor mirror the
-    // env map's warm room lights as a big yellow blob.
-    roughness: 0.12,
-    metalness: 0.4,
+    emissiveIntensity: 0.7,
   });
 
   const body = new THREE.Mesh(bodyGeo, bodyMat);

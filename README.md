@@ -15,6 +15,12 @@ aberration, speed vignette, pickup pulses, death/revive flashes) keeps the
 feedback loop punchy; `?fx=0` disables it, and it auto-disables on devices
 that can't hold frame rate. Rapid coin streaks climb in pitch.
 
+**Built phone-first**: portrait and landscape both keep all three lanes in
+frame (aspect-aware camera rig), swipes register the instant the finger
+crosses the threshold (no lift needed), flat-shaded materials + a
+degradation ladder (post-FX off → adaptive resolution, floor 0.5×) keep
+weak devices above 30 fps, and the UI respects notch safe areas.
+
 Three.js + TypeScript + Vite, zero runtime dependencies beyond Three, zero
 binary assets — every model is procedural geometry, textures are generated
 canvases, and SFX are WebAudio synthesis. The production build is **~0.5 MB

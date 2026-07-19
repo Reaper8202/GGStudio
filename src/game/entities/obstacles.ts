@@ -50,15 +50,11 @@ abstract class BaseObstacle implements Obstacle3D {
 const ventBaseGeo = new THREE.BoxGeometry(1.7, 0.5, 0.95);
 const ventSlatGeo = new THREE.BoxGeometry(1.45, 0.06, 0.16);
 const ventGlowGeo = new THREE.BoxGeometry(1.5, 0.05, 0.02);
-const ventMat = new THREE.MeshStandardMaterial({
+const ventMat = new THREE.MeshLambertMaterial({
   color: Palette.vent,
-  roughness: 0.45,
-  metalness: 0.75,
 });
-const ventDarkMat = new THREE.MeshStandardMaterial({
+const ventDarkMat = new THREE.MeshLambertMaterial({
   color: Palette.ventDark,
-  roughness: 0.45,
-  metalness: 0.75,
 });
 const ventGlowMat = new THREE.MeshBasicMaterial({
   color: Palette.laneGlow,
@@ -92,15 +88,11 @@ export class VentObstacle extends BaseObstacle {
 const postGeo = new THREE.BoxGeometry(0.18, 2.1, 0.18);
 const beamGeo = new THREE.BoxGeometry(1.95, 0.45, 0.28);
 const beamGlowGeo = new THREE.BoxGeometry(1.95, 0.07, 0.3);
-const postMat = new THREE.MeshStandardMaterial({
+const postMat = new THREE.MeshLambertMaterial({
   color: Palette.ventDark,
-  roughness: 0.4,
-  metalness: 0.6,
 });
-const beamMat = new THREE.MeshStandardMaterial({
+const beamMat = new THREE.MeshLambertMaterial({
   color: Palette.gate,
-  roughness: 0.4,
-  metalness: 0.6,
 });
 const beamGlowMat = new THREE.MeshBasicMaterial({ color: Palette.gateBeam });
 
@@ -110,15 +102,11 @@ const droneBodyGeo = new THREE.BoxGeometry(1.3, 0.4, 0.75);
 const droneStemGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.2, 8);
 const droneRotorGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.035, 20);
 const droneGlowGeo = new THREE.BoxGeometry(1.1, 0.04, 0.5);
-const droneBodyMat = new THREE.MeshStandardMaterial({
+const droneBodyMat = new THREE.MeshLambertMaterial({
   color: Palette.vent,
-  roughness: 0.35,
-  metalness: 0.8,
 });
-const droneDarkMat = new THREE.MeshStandardMaterial({
+const droneDarkMat = new THREE.MeshLambertMaterial({
   color: Palette.ventDark,
-  roughness: 0.35,
-  metalness: 0.8,
 });
 const droneGlowMat = new THREE.MeshBasicMaterial({ color: Palette.gateBeam });
 
@@ -222,12 +210,10 @@ export class ImposterObstacle extends BaseObstacle {
 // ---------------------------------------------------------------------------
 
 const coinGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.08, 18);
-const coinMat = new THREE.MeshStandardMaterial({
+const coinMat = new THREE.MeshLambertMaterial({
   color: Palette.coin,
   emissive: Palette.coin,
-  emissiveIntensity: 0.2,
-  metalness: 1.0,
-  roughness: 0.15,
+  emissiveIntensity: 0.35,
 });
 
 /** Spinning pickup. `elevated` marks arc coins floating over a vent jump. */

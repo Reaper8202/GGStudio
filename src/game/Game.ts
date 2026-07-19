@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { GameConfig } from '../config/GameConfig';
 import {
   CREW_COLORS,
@@ -92,7 +91,14 @@ export class Game {
   private lowFpsMs = 0;
   /** Adaptive-resolution scale (1 → 0.5) for weak devices. */
   private perfScale = 1;
-  private readonly basePixelRatio = Math.min(window.devicePixelRatio, 1.75);
+  /** Phones get a tighter DPR cap — fill-rate is the mobile bottleneck. */
+  private readonly basePixelRatio = Math.min(
+    window.devicePixelRatio,
+    navigator.maxTouchPoints > 0 ? 1.5 : 1.75,
+  );
+  /** Aspect-dependent base FOV + camera rig (portrait vs landscape). */
+  private baseFov = 62;
+  private lastSpeed01 = 0;
   private coinStreak = 0;
   private lastCoinAt = 0;
   /** The platform currently under the player's feet (null = on the floor). */
@@ -108,25 +114,16 @@ export class Game {
     const aa =
       new URLSearchParams(location.search).get('aa') !== '0' &&
       window.devicePixelRatio <= 1.5;
-    this.renderer = new THREE.WebGLRenderer({ antialias: aa });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: aa,
+      powerPreference: 'high-performance',
+    });
+    this.renderer.setPixelRatio(this.basePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    // Filmic response curve — highlights roll off instead of clipping,
-    // which is what sells the PBR materials as "real".
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
     document.getElementById('game')!.appendChild(this.renderer.domElement);
 
     this.scene.background = new THREE.Color(Palette.bg);
     this.scene.fog = new THREE.Fog(Palette.fog, 28, 85);
-
-    // Neutral studio environment map: gives every MeshStandardMaterial
-    // real reflections (procedural — no asset, ~1 ms one-off PMREM bake).
-    // Intensity kept low so the dark space mood survives.
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.22;
-    pmrem.dispose();
 
     this.camera = new THREE.PerspectiveCamera(
       62,
@@ -134,7 +131,7 @@ export class Game {
       0.1,
       220,
     );
-    this.camera.position.set(0, 4.4, 6.8);
+    this.applyViewProfile();
     this.camera.lookAt(0, 0.9, -12);
 
     // The env map now carries ambient fill; lights add direction/definition.
@@ -209,8 +206,7 @@ export class Game {
     window.addEventListener('resize', () => {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.postfx.setSize(window.innerWidth, window.innerHeight);
-      this.camera.aspect = window.innerWidth / window.innerHeight;
-      this.camera.updateProjectionMatrix();
+      this.applyViewProfile();
     });
 
     document.addEventListener('visibilitychange', () => {
@@ -219,6 +215,28 @@ export class Game {
 
     this.ui.showMenu(this.score.highScore);
     this.renderer.setAnimationLoop((t) => this.frame(t));
+  }
+
+  /**
+   * Portrait vs landscape camera rig. A fixed vertical FOV clips the side
+   * lanes off-screen in portrait (the horizontal FOV shrinks with aspect),
+   * so phones held upright get a wider FOV and a higher, further-back
+   * camera that keeps all three lanes plus incoming obstacles in frame.
+   */
+  private applyViewProfile(): void {
+    const aspect = window.innerWidth / window.innerHeight;
+    this.camera.aspect = aspect;
+    if (aspect < 1) {
+      this.baseFov = 80;
+      this.camera.position.y = 5.1;
+      this.camera.position.z = 9.2;
+    } else {
+      this.baseFov = 62;
+      this.camera.position.y = 4.4;
+      this.camera.position.z = 6.8;
+    }
+    this.camera.fov = this.baseFov;
+    this.camera.updateProjectionMatrix();
   }
 
   /** main.ts wires this to LifecycleGuard's ad hooks: freeze the whole loop. */
@@ -450,9 +468,10 @@ export class Game {
     const speed = this.difficulty.speedAt(this.score.meters);
     const dy = (speed * dt) / 1000;
     const speed01 = speed / GameConfig.maxScrollSpeed;
+    this.lastSpeed01 = speed01;
     this.postfx.setSpeed01(speed01);
     // Speed-scaled FOV kick — the corridor pulls wider as you accelerate.
-    const targetFov = 62 + 6 * speed01;
+    const targetFov = this.baseFov + 6 * speed01;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt / 300);
       this.camera.updateProjectionMatrix();

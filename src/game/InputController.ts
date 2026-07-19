@@ -17,6 +17,24 @@ export class InputController extends Emitter {
 
   private swipeStart: { x: number; y: number } | null = null;
 
+  /**
+   * Fire the swipe the moment the finger crosses the threshold (pointermove)
+   * instead of waiting for lift-off — that finger-travel + lift time is the
+   * bulk of perceived input latency on phones. One intent per gesture.
+   */
+  private readonly onPointerMove = (e: PointerEvent): void => {
+    if (!this.swipeStart) return;
+    const dx = e.clientX - this.swipeStart.x;
+    const dy = e.clientY - this.swipeStart.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_THRESHOLD) return;
+    this.swipeStart = null; // gesture consumed
+    if (Math.abs(dx) > Math.abs(dy)) {
+      this.fire(dx > 0 ? Intent.Right : Intent.Left);
+    } else {
+      this.fire(dy > 0 ? Intent.Slide : Intent.Jump);
+    }
+  };
+
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     const map: Record<string, IntentT | undefined> = {
       ArrowLeft: Intent.Left,
@@ -36,6 +54,8 @@ export class InputController extends Emitter {
   };
 
   private readonly onPointerUp = (e: PointerEvent): void => {
+    // Fallback for gestures that ended without crossing the threshold
+    // mid-move (e.g. very fast flicks where only down/up were delivered).
     if (!this.swipeStart) return;
     const dx = e.clientX - this.swipeStart.x;
     const dy = e.clientY - this.swipeStart.y;
@@ -52,6 +72,7 @@ export class InputController extends Emitter {
     super();
     window.addEventListener('keydown', this.onKeyDown, { passive: false });
     window.addEventListener('pointerdown', this.onPointerDown);
+    window.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('pointerup', this.onPointerUp);
   }
 

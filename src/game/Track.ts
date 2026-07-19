@@ -26,7 +26,7 @@ export class Track {
   private readonly wallCanvas: HTMLCanvasElement;
   private readonly floorTex: THREE.CanvasTexture;
   private readonly wallTex: THREE.CanvasTexture;
-  private readonly wallMat: THREE.MeshStandardMaterial;
+  private readonly wallMat: THREE.MeshLambertMaterial;
 
   private currentTheme: ThemeName = 'station';
   /** Lerp target for fog/background color, preallocated to avoid per-frame GC. */
@@ -45,7 +45,7 @@ export class Track {
     this.floorTex.repeat.set(1, TRACK_LENGTH / SEGMENT_UNITS);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(width, TRACK_LENGTH),
-      new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: 0.85, metalness: 0.1 }),
+      new THREE.MeshLambertMaterial({ map: this.floorTex }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(0, 0, -TRACK_LENGTH / 2 + 12);
@@ -58,7 +58,7 @@ export class Track {
     this.wallTex.wrapS = THREE.RepeatWrapping;
     this.wallTex.repeat.set(TRACK_LENGTH / SEGMENT_UNITS, 1);
     const wallGeo = new THREE.PlaneGeometry(TRACK_LENGTH, 3.2);
-    this.wallMat = new THREE.MeshStandardMaterial({ map: this.wallTex, roughness: 0.9, metalness: 0.05 });
+    this.wallMat = new THREE.MeshLambertMaterial({ map: this.wallTex });
     const wallX = lanes.floorHalfWidth + 0.4;
 
     const left = new THREE.Mesh(wallGeo, this.wallMat);

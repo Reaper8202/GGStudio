@@ -12,15 +12,11 @@ const bodyGeo = new THREE.BoxGeometry(WIDTH, HEIGHT, LENGTH);
 const topGeo = new THREE.BoxGeometry(WIDTH, 0.06, LENGTH);
 const railGeo = new THREE.BoxGeometry(0.1, 0.05, LENGTH);
 
-const bodyMat = new THREE.MeshStandardMaterial({
+const bodyMat = new THREE.MeshLambertMaterial({
   color: Palette.ventDark,
-  roughness: 0.5,
-  metalness: 0.7,
 });
-const topMat = new THREE.MeshStandardMaterial({
+const topMat = new THREE.MeshLambertMaterial({
   color: Palette.vent,
-  roughness: 0.35,
-  metalness: 0.6,
 });
 const railMat = new THREE.MeshBasicMaterial({ color: Palette.laneGlow });
 
