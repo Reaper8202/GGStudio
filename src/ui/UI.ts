@@ -1,3 +1,5 @@
+import { CREW_COLORS } from '../config/constants';
+
 /**
  * DOM overlay UI (menu / HUD / game-over / pause). Zero canvas text, zero
  * webfonts — everything is styled in index.html. The Game assigns the
@@ -10,6 +12,7 @@ export class UI {
   onRestart: () => void = () => {};
   onRevive: () => void = () => {};
   onResumeTap: () => void = () => {};
+  onColorPick: (hex: number) => void = () => {};
 
   private readonly menu = byId('menu');
   private readonly menuBest = byId('menu-best');
@@ -25,6 +28,8 @@ export class UI {
   private readonly dist = byId('dist');
   private readonly coins = byId('coins');
   private readonly toastEl = byId('toast');
+  private readonly colors = byId('colors');
+  private readonly swatches: HTMLButtonElement[] = [];
 
   private lastScore = -1;
   private lastCoins = -1;
@@ -35,6 +40,20 @@ export class UI {
     this.paused.addEventListener('pointerdown', () => this.onResumeTap());
     this.btnRestart.addEventListener('pointerdown', () => this.onRestart());
     this.btnRevive.addEventListener('pointerdown', () => this.onRevive());
+
+    for (const hex of CREW_COLORS) {
+      const btn = document.createElement('button');
+      btn.className = 'swatch';
+      btn.style.backgroundColor = `#${hex.toString(16).padStart(6, '0')}`;
+      btn.addEventListener('pointerdown', (e) => {
+        // Stop this from bubbling to #menu's pointerdown, which starts the run.
+        e.stopPropagation();
+        this.selectSwatch(btn);
+        this.onColorPick(hex);
+      });
+      this.colors.appendChild(btn);
+      this.swatches.push(btn);
+    }
 
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'Space' && e.code !== 'Enter') return;
@@ -126,6 +145,17 @@ export class UI {
     setTimeout(() => {
       this.toastEl.style.opacity = '0';
     }, ms);
+  }
+
+  /** Marks the swatch matching `hex` as selected (used at boot for the persisted choice). Falls back to the first swatch. */
+  setSelectedColor(hex: number): void {
+    const idx = CREW_COLORS.indexOf(hex as (typeof CREW_COLORS)[number]);
+    const btn = this.swatches[idx >= 0 ? idx : 0];
+    if (btn) this.selectSwatch(btn);
+  }
+
+  private selectSwatch(btn: HTMLButtonElement): void {
+    for (const s of this.swatches) s.classList.toggle('selected', s === btn);
   }
 }
 

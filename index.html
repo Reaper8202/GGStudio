@@ -160,6 +160,28 @@
         font-size: clamp(13px, 2.2vw, 20px);
         font-weight: 600;
       }
+      #colors {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        pointer-events: auto;
+      }
+      .swatch {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        border: 3px solid transparent;
+        cursor: pointer;
+        pointer-events: auto;
+        padding: 0;
+        min-width: 0;
+      }
+      .swatch.selected {
+        border-color: var(--text);
+        transform: scale(1.12);
+      }
       #toast {
         position: absolute;
         left: 50%;
@@ -201,6 +223,7 @@
         <div class="best" id="menu-best" hidden></div>
         <div class="prompt">TAP OR PRESS SPACE TO RUN</div>
         <div class="hint">← → move &nbsp;·&nbsp; ↑ / swipe up jump &nbsp;·&nbsp; ↓ / swipe down slide</div>
+        <div id="colors"></div>
       </div>
 
       <div id="gameover" class="screen" hidden>

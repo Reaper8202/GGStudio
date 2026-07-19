@@ -13,6 +13,9 @@ export interface BeanParts {
   visor: THREE.Mesh;
   legL: THREE.Mesh;
   legR: THREE.Mesh;
+  /** Exposed so callers (e.g. the color picker) can recolor after creation. */
+  bodyMat: THREE.MeshLambertMaterial;
+  darkMat: THREE.MeshLambertMaterial;
 }
 
 const bodyGeo = new THREE.CapsuleGeometry(0.42, 0.6, 6, 14);
@@ -83,7 +86,7 @@ export function makeBean(opts: BeanOptions): BeanParts {
     group.add(tip);
   }
 
-  return { group, body, visor, legL, legR };
+  return { group, body, visor, legL, legR, bodyMat, darkMat };
 }
 
 /** Flat dark disc used as a cheap blob shadow (no shadow-mapping needed). */

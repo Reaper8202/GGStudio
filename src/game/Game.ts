@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { GameConfig } from '../config/GameConfig';
-import { Intent, Palette } from '../config/constants';
+import {
+  CREW_COLORS,
+  Intent,
+  Palette,
+  SaveKeys,
+  THEME_CYCLE,
+  THEME_SEGMENT_METERS,
+} from '../config/constants';
 import type { LifecycleGuard } from '../platform/LifecycleGuard';
 import type { Sfx } from '../audio/Sfx';
 import type { ScoreManager } from '../systems/ScoreManager';
@@ -13,6 +20,7 @@ import { InputController } from './InputController';
 import { CollisionSystem } from './CollisionSystem';
 import { Track } from './Track';
 import { PlayerAvatar } from './entities/PlayerAvatar';
+import { ChasingImposter } from './entities/ChasingImposter';
 import {
   VentObstacle,
   GateObstacle,
@@ -44,6 +52,8 @@ export class Game {
   private readonly track: Track;
   private readonly lanes = new LaneManager();
   private readonly player: PlayerAvatar;
+  /** The impostor at your heels (public for acceptance tests). */
+  readonly chaser: ChasingImposter;
   private readonly input: InputController;
   private readonly collisions = new CollisionSystem();
   private readonly difficulty = new DifficultyDirector();
@@ -99,6 +109,23 @@ export class Game {
 
     this.track = new Track(this.scene, this.lanes);
     this.player = new PlayerAvatar(this.scene, this.lanes, this.sfx);
+    this.chaser = new ChasingImposter(this.scene);
+
+    // Crew color: apply the persisted choice (default teal), save on pick.
+    this.ui.setSelectedColor(CREW_COLORS[0]);
+    void this.platform.load(SaveKeys.CrewColor).then((raw) => {
+      const hex = raw === null ? NaN : parseInt(raw, 10);
+      if ((CREW_COLORS as readonly number[]).includes(hex)) {
+        this.player.setColor(hex);
+        this.ui.setSelectedColor(hex);
+      }
+    });
+    this.ui.onColorPick = (hex) => {
+      this.sfx.unlock();
+      this.sfx.click();
+      this.player.setColor(hex);
+      void this.platform.save(SaveKeys.CrewColor, String(hex));
+    };
 
     this.pools = {
       low: new ObjectPool<Obstacle3D>(
@@ -169,6 +196,7 @@ export class Game {
     for (const c of this.coins) this.coinPool.release(c);
     this.coins = [];
     this.player.resetRun();
+    this.chaser.reset();
 
     // Seed: config > ?seed= query > nondeterministic (outside the run loop).
     const urlSeed = new URLSearchParams(location.search).get('seed');
@@ -258,6 +286,7 @@ export class Game {
       for (const o of this.obstacles) this.pools[o.kind].release(o);
       this.obstacles = [];
       this.spawner?.reviveGrace();
+      this.chaser.reset(); // back off — you escaped this time
       this.player.revive(performance.now());
       this.sfx.revive();
       this.ui.hideGameOver();
@@ -272,6 +301,7 @@ export class Game {
     this.state = 'gameover';
     this.input.enabled = false;
     this.player.die();
+    this.chaser.lunge(performance.now()); // the pounce that caught you
     this.sfx.hit();
     this.shakeUntil = performance.now() + 260;
     this.platform.gameplayStop();
@@ -325,8 +355,11 @@ export class Game {
 
     if (this.state === 'playing') this.updateRun(dt, time);
 
-    // Player animates in every state (menu idle, death fall, revive blink).
+    // Player and chaser animate in every state (menu idle, death lunge);
+    // theme color transitions keep easing even outside the run.
     this.player.update(time);
+    this.chaser.update(dt, time, this.player.x, this.state === 'playing');
+    this.track.update(dt);
 
     // Camera: follow the player's lane with a soft lean; shake on death.
     const targetX = this.player.x * 0.42;
@@ -349,6 +382,11 @@ export class Game {
 
     this.score.addDistance(dy);
     this.track.scroll(dy);
+    // Environment cycles with distance (pure function of meters — seeded
+    // runs stay deterministic). setTheme no-ops until the segment changes.
+    this.track.setTheme(
+      THEME_CYCLE[Math.floor(this.score.meters / THEME_SEGMENT_METERS) % THEME_CYCLE.length],
+    );
     this.spawner?.update(dt, this.score.meters);
 
     // Move + cull obstacles (swap-remove, no allocation).

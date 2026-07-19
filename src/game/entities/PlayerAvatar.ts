@@ -45,6 +45,12 @@ export class PlayerAvatar {
     scene.add(this.group);
   }
 
+  /** Recolors the crewmate body; legs/backpack get the same hue darkened. Does not touch the visor. */
+  setColor(hex: number): void {
+    this.bean.bodyMat.color.set(hex);
+    this.bean.darkMat.color.copy(new THREE.Color(hex).multiplyScalar(0.55));
+  }
+
   get x(): number {
     return this.group.position.x;
   }

@@ -1,9 +1,12 @@
 # Impostor Run
 
 A 3D three-lane endless runner for web game portals (CrazyGames, Poki,
-YouTube Playables-ready): sprint down a space-station corridor, dodging
-**impostors** that block your lane, jumping floor vents, and sliding under
-energy gates while collecting coins.
+YouTube Playables-ready): sprint down a space-station corridor with an
+**impostor at your heels**, dodging impostors that block your lane, jumping
+floor vents, and sliding under energy gates while collecting coins. Get
+caught and the chaser pounces. The environment cycles every 400 m
+(station corridor → open hull → reactor section), and you can pick your
+crewmate's color on the menu (persisted via the platform save).
 
 Three.js + TypeScript + Vite, zero runtime dependencies beyond Three, zero
 binary assets — every model is procedural geometry, textures are generated

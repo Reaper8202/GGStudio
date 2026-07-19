@@ -17,12 +17,14 @@ Deferred ideas land here, not in the code. Scope of the MVP is fixed by
 
 ## Ideas parked during the 3D rewrite
 
-- Chasing impostor visible behind the player (the "why you're running")
-- Impostor lunge animation on death (currently: fall + camera shake)
-- Environment variety: corridor → hull exterior → reactor sections
+- ~~Chasing impostor visible behind the player~~ — shipped (polish iteration)
+- ~~Impostor lunge animation on death~~ — shipped (polish iteration)
+- ~~Environment variety: corridor → hull → reactor~~ — shipped (400 m cycle)
+- ~~Player color picker (crew colors)~~ — shipped (menu swatches, persisted)
 - Shadow-mapped lighting (currently cheap blob shadows)
 - Post-processing bloom on visors/gates (needs a perf budget pass first)
-- Player color picker (crew colors) — cosmetic only, no shop
+- Chaser reacts to near-misses (surges closer when you graze an obstacle)
+- Theme-specific obstacle skins (reactor vents glow, hull gates are airlocks)
 
 ## Ideas parked during 2D development
 
