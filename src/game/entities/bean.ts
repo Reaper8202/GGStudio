@@ -14,8 +14,8 @@ export interface BeanParts {
   legL: THREE.Mesh;
   legR: THREE.Mesh;
   /** Exposed so callers (e.g. the color picker) can recolor after creation. */
-  bodyMat: THREE.MeshLambertMaterial;
-  darkMat: THREE.MeshLambertMaterial;
+  bodyMat: THREE.MeshStandardMaterial;
+  darkMat: THREE.MeshStandardMaterial;
 }
 
 const bodyGeo = new THREE.CapsuleGeometry(0.42, 0.6, 6, 14);
@@ -38,12 +38,22 @@ export interface BeanOptions {
 export function makeBean(opts: BeanOptions): BeanParts {
   const group = new THREE.Group();
 
-  const bodyMat = new THREE.MeshLambertMaterial({ color: opts.color });
-  const darkMat = new THREE.MeshLambertMaterial({ color: opts.darkColor });
-  const visorMat = new THREE.MeshLambertMaterial({
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: opts.color,
+    roughness: 0.35,
+    metalness: 0.12,
+  });
+  const darkMat = new THREE.MeshStandardMaterial({
+    color: opts.darkColor,
+    roughness: 0.5,
+    metalness: 0.15,
+  });
+  const visorMat = new THREE.MeshStandardMaterial({
     color: opts.visorColor,
     emissive: opts.visorEmissive ?? 0x000000,
-    emissiveIntensity: 0.7,
+    emissiveIntensity: 0.35,
+    roughness: 0.08,
+    metalness: 0.85,
   });
 
   const body = new THREE.Mesh(bodyGeo, bodyMat);

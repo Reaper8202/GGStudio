@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { GameConfig } from '../config/GameConfig';
 import {
   CREW_COLORS,
@@ -107,10 +108,22 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ antialias: aa });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    // Filmic response curve — highlights roll off instead of clipping,
+    // which is what sells the PBR materials as "real".
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
     document.getElementById('game')!.appendChild(this.renderer.domElement);
 
     this.scene.background = new THREE.Color(Palette.bg);
     this.scene.fog = new THREE.Fog(Palette.fog, 28, 85);
+
+    // Neutral studio environment map: gives every MeshStandardMaterial
+    // real reflections (procedural — no asset, ~1 ms one-off PMREM bake).
+    // Intensity kept low so the dark space mood survives.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.45;
+    pmrem.dispose();
 
     this.camera = new THREE.PerspectiveCamera(
       62,
@@ -121,8 +134,9 @@ export class Game {
     this.camera.position.set(0, 4.4, 6.8);
     this.camera.lookAt(0, 0.9, -12);
 
-    this.scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x0b0e1a, 1.1));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    // The env map now carries ambient fill; lights add direction/definition.
+    this.scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x0b0e1a, 0.65));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
     sun.position.set(4, 9, 5);
     this.scene.add(sun);
 
