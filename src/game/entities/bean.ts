@@ -45,15 +45,19 @@ export function makeBean(opts: BeanOptions): BeanParts {
   });
   const darkMat = new THREE.MeshStandardMaterial({
     color: opts.darkColor,
-    roughness: 0.5,
-    metalness: 0.15,
+    // Matte: any metalness here turns the flat camera-facing backpack into
+    // a mirror of the env map's warm room lights (reads as a yellow blob).
+    roughness: 0.65,
+    metalness: 0.05,
   });
   const visorMat = new THREE.MeshStandardMaterial({
     color: opts.visorColor,
     emissive: opts.visorEmissive ?? 0x000000,
     emissiveIntensity: 0.35,
-    roughness: 0.08,
-    metalness: 0.85,
+    // Glassy but not mirror-metal: high metalness made the visor mirror the
+    // env map's warm room lights as a big yellow blob.
+    roughness: 0.12,
+    metalness: 0.4,
   });
 
   const body = new THREE.Mesh(bodyGeo, bodyMat);

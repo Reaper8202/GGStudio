@@ -45,7 +45,7 @@ export class Track {
     this.floorTex.repeat.set(1, TRACK_LENGTH / SEGMENT_UNITS);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(width, TRACK_LENGTH),
-      new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: 0.85, metalness: 0.25 }),
+      new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: 0.85, metalness: 0.1 }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(0, 0, -TRACK_LENGTH / 2 + 12);
@@ -58,7 +58,7 @@ export class Track {
     this.wallTex.wrapS = THREE.RepeatWrapping;
     this.wallTex.repeat.set(TRACK_LENGTH / SEGMENT_UNITS, 1);
     const wallGeo = new THREE.PlaneGeometry(TRACK_LENGTH, 3.2);
-    this.wallMat = new THREE.MeshStandardMaterial({ map: this.wallTex, roughness: 0.8, metalness: 0.2 });
+    this.wallMat = new THREE.MeshStandardMaterial({ map: this.wallTex, roughness: 0.9, metalness: 0.05 });
     const wallX = lanes.floorHalfWidth + 0.4;
 
     const left = new THREE.Mesh(wallGeo, this.wallMat);

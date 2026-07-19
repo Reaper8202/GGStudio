@@ -88,8 +88,11 @@ export class Game {
 
   private readonly postfx: PostFX;
   private readonly burst: CoinBurst;
-  /** Sustained-low-fps timer for the one-way post-FX auto-disable. */
+  /** Sustained-low-fps timer driving the degradation ladder. */
   private lowFpsMs = 0;
+  /** Adaptive-resolution scale (1 → 0.5) for weak devices. */
+  private perfScale = 1;
+  private readonly basePixelRatio = Math.min(window.devicePixelRatio, 1.75);
   private coinStreak = 0;
   private lastCoinAt = 0;
   /** The platform currently under the player's feet (null = on the floor). */
@@ -111,7 +114,7 @@ export class Game {
     // Filmic response curve — highlights roll off instead of clipping,
     // which is what sells the PBR materials as "real".
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.0;
     document.getElementById('game')!.appendChild(this.renderer.domElement);
 
     this.scene.background = new THREE.Color(Palette.bg);
@@ -122,7 +125,7 @@ export class Game {
     // Intensity kept low so the dark space mood survives.
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.45;
+    this.scene.environmentIntensity = 0.22;
     pmrem.dispose();
 
     this.camera = new THREE.PerspectiveCamera(
@@ -426,12 +429,19 @@ export class Game {
     this.burst.update(dt);
     this.postfx.render(dt);
 
-    // One-way auto-disable if post-FX can't hold a playable frame rate.
-    if (this.postfx.enabled) {
-      this.lowFpsMs = this.fps < 40 ? this.lowFpsMs + dt : 0;
-      if (this.lowFpsMs > 5000) {
+    // Degradation ladder for weak devices: sustained low fps first drops
+    // post-FX, then steps render resolution down (never below 0.5×).
+    this.lowFpsMs = this.fps < 40 ? this.lowFpsMs + dt : 0;
+    if (this.lowFpsMs > 4000) {
+      this.lowFpsMs = 0;
+      if (this.postfx.enabled) {
         this.postfx.enabled = false;
         console.info('[Game] post-FX disabled (sustained low fps)');
+      } else if (this.perfScale > 0.55) {
+        this.perfScale *= 0.8;
+        this.renderer.setPixelRatio(this.basePixelRatio * this.perfScale);
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        console.info(`[Game] render scale → ${this.perfScale.toFixed(2)} (sustained low fps)`);
       }
     }
   }
