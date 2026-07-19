@@ -5,14 +5,15 @@ import type { Rng } from './Rng';
 export type ObstacleKind = 'low' | 'high' | 'block';
 export type Cell = ObstacleKind | 'none';
 
-/** PlayScene provides sprite lifecycle; the spawner only decides what/when. */
+/** The game shell provides entity lifecycle; the spawner only decides what/when. */
 export interface SpawnSink {
-  spawnObstacle(lane: number, kind: ObstacleKind, y: number): void;
-  spawnCoin(lane: number, y: number, elevated: boolean): void;
+  spawnObstacle(lane: number, kind: ObstacleKind, z: number): void;
+  spawnCoin(lane: number, z: number, elevated: boolean): void;
 }
 
-const SPAWN_Y = -80; // just above the top edge; travels down toward the player
-const COIN_SPACING = 88;
+/** Spawn depth: far ahead of the player (player stands at z = 0, world moves +z). */
+const SPAWN_Z = -85;
+const COIN_SPACING = 2.2;
 
 /**
  * Wave-based generator with a solvability guarantee.
@@ -70,7 +71,7 @@ export class Spawner {
 
     for (let lane = 0; lane < wave.length; lane++) {
       const cell = wave[lane];
-      if (cell !== 'none') this.sink.spawnObstacle(lane, cell, SPAWN_Y);
+      if (cell !== 'none') this.sink.spawnObstacle(lane, cell, SPAWN_Z);
     }
     this.log?.(`wave ${this.waveIndex} @${meters.toFixed(0)}m ${wave.join(',')}`);
 
@@ -176,7 +177,7 @@ export class Spawner {
       // spawn time so they never pop in).
       const lane = this.rng.pick(lowLanes);
       for (let i = -2; i <= 2; i++) {
-        this.sink.spawnCoin(lane, SPAWN_Y - 120 + i * COIN_SPACING, Math.abs(i) <= 1);
+        this.sink.spawnCoin(lane, SPAWN_Z - 3 + i * COIN_SPACING, Math.abs(i) <= 1);
       }
       this.log?.(`coins arc lane ${lane}`);
     } else if (safeLanes.length > 0) {
@@ -184,7 +185,7 @@ export class Spawner {
       const lane = this.rng.pick(safeLanes);
       const count = 3 + this.rng.int(3);
       for (let i = 1; i <= count; i++) {
-        this.sink.spawnCoin(lane, SPAWN_Y - 140 - i * COIN_SPACING, false);
+        this.sink.spawnCoin(lane, SPAWN_Z - 4 - i * COIN_SPACING, false);
       }
       this.log?.(`coins row lane ${lane} n=${count}`);
     }

@@ -15,7 +15,16 @@ Deferred ideas land here, not in the code. Scope of the MVP is fixed by
 - Multiplayer
 - Save slots
 
-## Ideas parked during development
+## Ideas parked during the 3D rewrite
+
+- Chasing impostor visible behind the player (the "why you're running")
+- Impostor lunge animation on death (currently: fall + camera shake)
+- Environment variety: corridor → hull exterior → reactor sections
+- Shadow-mapped lighting (currently cheap blob shadows)
+- Post-processing bloom on visors/gates (needs a perf budget pass first)
+- Player color picker (crew colors) — cosmetic only, no shop
+
+## Ideas parked during 2D development
 
 - Real art pass: replace procedural textures with a drawn texture atlas
   (drop-in: `public/assets/atlas/`, load in `PreloadScene`)

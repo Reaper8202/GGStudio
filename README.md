@@ -1,10 +1,21 @@
-# Lane Runner
+# Impostor Run
 
-A 3-lane instant-play endless runner for web game portals (CrazyGames, Poki,
-YouTube Playables-ready). Phaser 4 + TypeScript + Vite, zero runtime
-dependencies beyond Phaser, zero binary assets — all art and sound are
-generated procedurally at boot, so the initial load is essentially the code
-bundle (well under Poki's 8 MB target).
+A 3D three-lane endless runner for web game portals (CrazyGames, Poki,
+YouTube Playables-ready): sprint down a space-station corridor, dodging
+**impostors** that block your lane, jumping floor vents, and sliding under
+energy gates while collecting coins.
+
+Three.js + TypeScript + Vite, zero runtime dependencies beyond Three, zero
+binary assets — every model is procedural geometry, textures are generated
+canvases, and SFX are WebAudio synthesis. The production build is **~0.5 MB
+total (~140 KB gzipped)** against Poki's 8 MB budget.
+
+All characters are an original design (bean-bodied astronauts with antennae
+and offset visors) — deliberately distinct from any existing IP so the game
+is safe for commercial portal distribution.
+
+> The previous 2D Phaser version is preserved at git tag `v0.1-2d`
+> (commit `b32f1f6`).
 
 ## Run
 
@@ -22,10 +33,10 @@ npm run build:zip  # dist/ → game.zip (single-ZIP bundle for portal upload)
 | Action | Desktop | Mobile |
 |---|---|---|
 | Switch lane | ← / → | swipe left/right |
-| Jump (clears low barriers) | ↑ or Space | swipe up |
-| Slide (clears overhead gates) | ↓ | swipe down |
+| Jump (clears vents; grabs arc coins) | ↑ or Space | swipe up |
+| Slide (clears energy gates) | ↓ | swipe down |
 
-Full blocks can't be jumped or slid — change lanes.
+Impostors can't be jumped or slid past — change lanes.
 
 ## Platform providers
 
@@ -39,13 +50,14 @@ The active provider is chosen at runtime by `src/platform/detect.ts`:
 
 Every provider is wrapped in `LifecycleGuard`, which enforces the portal QA
 event-timing contract (strict `gameplayStart`/`gameplayStop` pairing, no SDK
-events during ads, audio muted + input frozen + game loop asleep while an ad
-runs).
+events during ads, audio muted + input frozen + render loop frozen while an
+ad runs).
 
 Useful dev query params:
 
 - `?seed=12345` — deterministic run (spawns, difficulty, coin placement).
   With the `local` provider a spawn log is exposed at `window.__spawnLog`.
+- `?aa=0` — disable antialiasing (low-end devices / software-GL test rigs).
 - `?useLocalSdk=true` — CrazyGames SDK local-testing mode (their flag).
 
 ## Portal builds
@@ -69,6 +81,15 @@ that need human verification.
 
 ## Project layout
 
+- `src/platform/` — ⭐ the SDK spine (interface, guard, providers, detect)
+- `src/game/` — Three.js shell: `Game.ts` (loop/camera/state machine),
+  `Track.ts` (corridor), `entities/` (procedural crewmate, impostor, vent,
+  gate, coin), input, collision
+- `src/systems/` — engine-independent logic: seeded RNG, wave spawner with
+  solvability guarantee, difficulty ramp, scoring, pooling
+- `src/ui/UI.ts` — DOM overlay (menu / HUD / game-over / pause)
+
 See [`docs/ENDLESS_RUNNER_SPEC.md`](./docs/ENDLESS_RUNNER_SPEC.md) for the
-full build spec. Deferred ideas live in [`BACKLOG.md`](./BACKLOG.md), not in
-the code.
+original build spec (written for the 2D version; the platform-SDK contract,
+gameplay scope, and acceptance criteria still govern). Deferred ideas live
+in [`BACKLOG.md`](./BACKLOG.md), not in the code.

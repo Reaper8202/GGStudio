@@ -4,7 +4,7 @@ import type { PlatformSDK } from '../platform/PlatformSDK';
 
 /** score = f(distance) + coins; high score persists via the platform SDK. */
 export class ScoreManager {
-  distancePx = 0;
+  distanceUnits = 0;
   coins = 0;
   highScore = 0;
   private savedHigh = 0;
@@ -20,7 +20,7 @@ export class ScoreManager {
   }
 
   get meters(): number {
-    return this.distancePx / GameConfig.pixelsPerMeter;
+    return this.distanceUnits / GameConfig.unitsPerMeter;
   }
 
   get score(): number {
@@ -30,8 +30,8 @@ export class ScoreManager {
     );
   }
 
-  addDistance(px: number): void {
-    this.distancePx += px;
+  addDistance(units: number): void {
+    this.distanceUnits += units;
   }
 
   collectCoin(): void {
@@ -39,7 +39,7 @@ export class ScoreManager {
   }
 
   resetRun(): void {
-    this.distancePx = 0;
+    this.distanceUnits = 0;
     this.coins = 0;
   }
 

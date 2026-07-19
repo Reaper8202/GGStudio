@@ -6,44 +6,215 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
-    <title>Lane Runner</title>
+    <title>Impostor Run</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b0e1a'/%3E%3Crect x='11' y='4' width='10' height='18' rx='5' fill='%2335e0b8'/%3E%3Crect x='12' y='22' width='3' height='6' rx='1.5' fill='%231a9e80'/%3E%3Crect x='17' y='22' width='3' height='6' rx='1.5' fill='%231a9e80'/%3E%3C/svg%3E"
     />
     <style>
+      :root {
+        --bg: #0b0e1a;
+        --text: #f2f5ff;
+        --dim: #8f9bc4;
+        --accent: #35e0b8;
+        --gold: #ffd83d;
+        --danger: #ff5c7a;
+        --font: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+      }
       html,
       body {
         margin: 0;
         padding: 0;
         width: 100%;
         height: 100%;
-        background: #0b0e1a;
+        background: var(--bg);
         overflow: hidden;
-        /* stop browser gestures (pull-to-refresh, swipe-nav) fighting swipes */
         touch-action: none;
         overscroll-behavior: none;
         -webkit-user-select: none;
         user-select: none;
+        font-family: var(--font);
+        color: var(--text);
       }
-      #game {
+      #game,
+      #game canvas {
+        position: absolute;
+        inset: 0;
         width: 100%;
         height: 100%;
-      }
-      canvas {
         display: block;
+      }
+      /* ---- overlay UI (DOM, zero external assets) ---- */
+      #ui {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .screen {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        text-align: center;
+        background: rgba(5, 7, 15, 0.55);
+        pointer-events: auto;
+      }
+      .screen[hidden] {
+        display: none;
+      }
+      h1 {
+        font-size: clamp(40px, 9vw, 92px);
+        margin: 0;
+        letter-spacing: 0.04em;
+        text-shadow: 0 4px 24px rgba(53, 224, 184, 0.35);
+      }
+      .sub {
+        color: var(--dim);
+        font-size: clamp(14px, 2.4vw, 22px);
+        font-weight: 600;
+      }
+      .prompt {
+        font-size: clamp(20px, 4vw, 34px);
+        font-weight: 700;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.35;
+        }
+      }
+      .best {
+        color: var(--gold);
+        font-size: clamp(16px, 3vw, 28px);
+        font-weight: 700;
+      }
+      .big-score {
+        color: var(--gold);
+        font-size: clamp(44px, 9vw, 80px);
+        font-weight: 800;
+        line-height: 1;
+      }
+      .newbest {
+        color: var(--accent);
+        font-weight: 800;
+      }
+      button {
+        font: inherit;
+        font-size: clamp(18px, 3vw, 26px);
+        font-weight: 800;
+        color: #0b0e1a;
+        background: var(--text);
+        border: 0;
+        border-radius: 14px;
+        padding: 16px 40px;
+        min-width: min(320px, 80vw);
+        cursor: pointer;
+        pointer-events: auto;
+      }
+      button.accent {
+        background: var(--accent);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      #hud {
+        position: absolute;
+        inset: 0;
+        padding: 14px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        pointer-events: none;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+      }
+      #hud[hidden] {
+        display: none;
+      }
+      #score {
+        font-size: clamp(28px, 5vw, 44px);
+        font-weight: 800;
+        line-height: 1;
+      }
+      #best {
+        color: var(--dim);
+        font-size: clamp(13px, 2vw, 19px);
+        font-weight: 700;
+      }
+      #dist {
+        color: var(--dim);
+        font-size: clamp(14px, 2.2vw, 21px);
+        font-weight: 700;
+      }
+      #coins {
+        color: var(--gold);
+        font-size: clamp(24px, 4.4vw, 38px);
+        font-weight: 800;
+        line-height: 1;
+      }
+      .hint {
+        color: var(--dim);
+        font-size: clamp(13px, 2.2vw, 20px);
+        font-weight: 600;
+      }
+      #toast {
+        position: absolute;
+        left: 50%;
+        top: 26%;
+        transform: translateX(-50%);
+        font-size: clamp(18px, 3.4vw, 30px);
+        font-weight: 700;
+        text-align: center;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+        pointer-events: none;
+        transition: opacity 0.8s;
+        opacity: 0;
       }
     </style>
     <!--
       Vendor SDKs — loaded only so local/dev has the globals; portals inject
-      their own. Providers treat the globals as possibly-absent (see
-      INTEGRATION.md §0). Do NOT npm-install these.
+      their own (see INTEGRATION.md §0). Remove both tags for the YouTube
+      Playables ZIP. Do NOT npm-install these.
     -->
     <script src="https://game-cdn.poki.com/scripts/v2/poki-sdk.js"></script>
     <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
   </head>
   <body>
     <div id="game"></div>
+    <div id="ui">
+      <div id="hud" hidden>
+        <div>
+          <div id="score">0</div>
+          <div id="best">BEST 0</div>
+        </div>
+        <div id="dist">0m</div>
+        <div id="coins">● 0</div>
+      </div>
+      <div id="toast"></div>
+
+      <div id="menu" class="screen">
+        <h1>IMPOSTOR RUN</h1>
+        <div class="sub">an impostor is chasing the crew — run.</div>
+        <div class="best" id="menu-best" hidden></div>
+        <div class="prompt">TAP OR PRESS SPACE TO RUN</div>
+        <div class="hint">← → move &nbsp;·&nbsp; ↑ / swipe up jump &nbsp;·&nbsp; ↓ / swipe down slide</div>
+      </div>
+
+      <div id="gameover" class="screen" hidden>
+        <h1 style="font-size: clamp(32px, 7vw, 68px)">CAUGHT!</h1>
+        <div class="big-score" id="go-score">0</div>
+        <div class="sub" id="go-line"></div>
+        <button id="btn-revive" class="accent">▶ &nbsp;REVIVE (watch ad)</button>
+        <button id="btn-restart">RUN AGAIN</button>
+      </div>
+
+      <div id="paused" class="screen" hidden>
+        <div class="prompt">PAUSED<br />TAP TO RESUME</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
