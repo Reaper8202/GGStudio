@@ -28,7 +28,10 @@ import {
   CoinPickup,
   type Obstacle3D,
 } from './entities/obstacles';
+import { PlatformObstacle } from './entities/PlatformObstacle';
 import { UI } from '../ui/UI';
+import { PostFX } from './fx/PostFX';
+import { CoinBurst } from './fx/CoinBurst';
 
 type State = 'menu' | 'playing' | 'paused' | 'gameover';
 
@@ -71,9 +74,25 @@ export class Game {
   private shakeUntil = 0;
   private lastTime = -1;
   private adPaused = false;
+  /**
+   * Game clock: wall time with the per-frame delta cap applied. ALL pose /
+   * animation / invulnerability timing runs on this clock so that when the
+   * cap engages (very low fps, tab restore), the world and the animations
+   * slow down TOGETHER — a jump always covers the same world distance.
+   */
+  private gameTime = 0;
 
   /** Smoothed fps, exposed for acceptance tests via the __game dev hook. */
   fps = 60;
+
+  private readonly postfx: PostFX;
+  private readonly burst: CoinBurst;
+  /** Sustained-low-fps timer for the one-way post-FX auto-disable. */
+  private lowFpsMs = 0;
+  private coinStreak = 0;
+  private lastCoinAt = 0;
+  /** The platform currently under the player's feet (null = on the floor). */
+  ridingPlatform: Obstacle3D | null = null;
 
   constructor(
     private readonly platform: LifecycleGuard,
@@ -109,6 +128,12 @@ export class Game {
 
     this.track = new Track(this.scene, this.lanes);
     this.player = new PlayerAvatar(this.scene, this.lanes, this.sfx);
+
+    // Post-processing juice: bloom + pickup/danger feedback. `?fx=0`
+    // disables it; a sustained-low-fps fallback disables it at runtime.
+    this.postfx = new PostFX(this.renderer, this.scene, this.camera);
+    this.postfx.enabled = new URLSearchParams(location.search).get('fx') !== '0';
+    this.burst = new CoinBurst(this.scene);
     this.chaser = new ChasingImposter(this.scene);
 
     // Crew color: apply the persisted choice (default teal), save on pick.
@@ -140,6 +165,10 @@ export class Game {
         () => new ImposterObstacle(this.scene),
         (o) => o.deactivate(),
       ),
+      platform: new ObjectPool<Obstacle3D>(
+        () => new PlatformObstacle(this.scene),
+        (o) => o.deactivate(),
+      ),
     };
     this.coinPool = new ObjectPool<CoinPickup>(
       () => new CoinPickup(this.scene),
@@ -148,10 +177,10 @@ export class Game {
 
     // -- input → player intents (active only while playing) ------------------
     this.input = new InputController();
-    this.input.on(Intent.Left, () => this.player.moveLane(-1, performance.now()));
-    this.input.on(Intent.Right, () => this.player.moveLane(1, performance.now()));
-    this.input.on(Intent.Jump, () => this.player.jump(performance.now()));
-    this.input.on(Intent.Slide, () => this.player.slide(performance.now()));
+    this.input.on(Intent.Left, () => this.player.moveLane(-1, this.gameTime));
+    this.input.on(Intent.Right, () => this.player.moveLane(1, this.gameTime));
+    this.input.on(Intent.Jump, () => this.player.jump(this.gameTime));
+    this.input.on(Intent.Slide, () => this.player.slide(this.gameTime));
     this.input.on(InputController.ANY, () => this.sfx.unlock());
 
     // -- UI callbacks --------------------------------------------------------
@@ -162,6 +191,7 @@ export class Game {
 
     window.addEventListener('resize', () => {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.postfx.setSize(window.innerWidth, window.innerHeight);
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
     });
@@ -195,6 +225,7 @@ export class Game {
     this.obstacles = [];
     for (const c of this.coins) this.coinPool.release(c);
     this.coins = [];
+    this.ridingPlatform = null;
     this.player.resetRun();
     this.chaser.reset();
 
@@ -285,10 +316,12 @@ export class Game {
       // Clear the board ahead so the revive is never an instant re-death.
       for (const o of this.obstacles) this.pools[o.kind].release(o);
       this.obstacles = [];
+      this.ridingPlatform = null;
       this.spawner?.reviveGrace();
       this.chaser.reset(); // back off — you escaped this time
-      this.player.revive(performance.now());
+      this.player.revive(this.gameTime);
       this.sfx.revive();
+      this.postfx.kickRevive();
       this.ui.hideGameOver();
       this.platform.gameplayStart();
       this.state = 'playing';
@@ -301,9 +334,10 @@ export class Game {
     this.state = 'gameover';
     this.input.enabled = false;
     this.player.die();
-    this.chaser.lunge(performance.now()); // the pounce that caught you
+    this.chaser.lunge(this.gameTime); // the pounce that caught you
     this.sfx.hit();
-    this.shakeUntil = performance.now() + 260;
+    this.postfx.kickDeath();
+    this.shakeUntil = this.gameTime + 260;
     this.platform.gameplayStop();
 
     const newBest = this.score.score > this.score.highScore;
@@ -352,13 +386,15 @@ export class Game {
     const dt = Math.min(time - this.lastTime, MAX_DELTA_MS);
     this.lastTime = time;
     if (dt > 0) this.fps = this.fps * 0.95 + (1000 / dt) * 0.05;
+    this.gameTime += dt;
+    const now = this.gameTime;
 
-    if (this.state === 'playing') this.updateRun(dt, time);
+    if (this.state === 'playing') this.updateRun(dt, now);
 
     // Player and chaser animate in every state (menu idle, death lunge);
     // theme color transitions keep easing even outside the run.
-    this.player.update(time);
-    this.chaser.update(dt, time, this.player.x, this.state === 'playing');
+    this.player.update(now);
+    this.chaser.update(dt, now, this.player.x, this.state === 'playing');
     this.track.update(dt);
 
     // Camera: follow the player's lane with a soft lean; shake on death.
@@ -366,19 +402,37 @@ export class Game {
     this.camera.position.x += (targetX - this.camera.position.x) * Math.min(1, dt / 120);
     let shakeX = 0;
     let shakeY = 0;
-    if (time < this.shakeUntil) {
-      const s = ((this.shakeUntil - time) / 260) * 0.14;
-      shakeX = Math.sin(time * 0.09) * s;
-      shakeY = Math.cos(time * 0.13) * s;
+    if (now < this.shakeUntil) {
+      const s = ((this.shakeUntil - now) / 260) * 0.14;
+      shakeX = Math.sin(now * 0.09) * s;
+      shakeY = Math.cos(now * 0.13) * s;
     }
     this.camera.lookAt(this.player.x * 0.25 + shakeX, 0.9 + shakeY, -12);
 
-    this.renderer.render(this.scene, this.camera);
+    this.burst.update(dt);
+    this.postfx.render(dt);
+
+    // One-way auto-disable if post-FX can't hold a playable frame rate.
+    if (this.postfx.enabled) {
+      this.lowFpsMs = this.fps < 40 ? this.lowFpsMs + dt : 0;
+      if (this.lowFpsMs > 5000) {
+        this.postfx.enabled = false;
+        console.info('[Game] post-FX disabled (sustained low fps)');
+      }
+    }
   }
 
   private updateRun(dt: number, now: number): void {
     const speed = this.difficulty.speedAt(this.score.meters);
     const dy = (speed * dt) / 1000;
+    const speed01 = speed / GameConfig.maxScrollSpeed;
+    this.postfx.setSpeed01(speed01);
+    // Speed-scaled FOV kick — the corridor pulls wider as you accelerate.
+    const targetFov = 62 + 6 * speed01;
+    if (Math.abs(this.camera.fov - targetFov) > 0.05) {
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt / 300);
+      this.camera.updateProjectionMatrix();
+    }
 
     this.score.addDistance(dy);
     this.track.scroll(dy);
@@ -411,10 +465,29 @@ export class Game {
       }
     }
 
-    this.collisions.checkCoins(this.player, this.coins, (c) => {
+    // Rideable platforms: land on top → ride; run into the box → death.
+    const plat = this.collisions.checkPlatforms(
+      this.player,
+      this.obstacles,
+      this.ridingPlatform,
+      now,
+    );
+    this.ridingPlatform = plat.riding;
+    this.player.setGroundLevel(plat.riding ? GameConfig.platform.height : 0, now);
+    if (plat.hit) {
+      this.onDeath();
+      return;
+    }
+
+    this.collisions.checkCoins(this.player, this.coins, this.ridingPlatform !== null, (c) => {
       c.deactivate(); // culled from the array on the next sweep
       this.score.collectCoin();
-      this.sfx.coin();
+      // Streak: rapid successive pickups climb in pitch and pulse the frame.
+      this.coinStreak = now - this.lastCoinAt < 2000 ? this.coinStreak + 1 : 0;
+      this.lastCoinAt = now;
+      this.sfx.coin(this.coinStreak);
+      this.postfx.kickCoin();
+      this.burst.burst(c.group.position.x, 1.0, c.group.position.z);
     });
 
     const hit = this.collisions.checkObstacles(this.player, this.obstacles, now);

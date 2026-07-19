@@ -27,6 +27,11 @@ export class PlayerAvatar {
   private laneTo = 0;
   private laneMoveStart = -1; // -1 → not tweening
 
+  /** 0 = floor, GameConfig.platform.height = riding a platform's top. */
+  private groundLevel = 0;
+  private fallFrom = 0;
+  private fallStart = -1; // -1 → not easing a fall
+
   constructor(
     scene: THREE.Scene,
     private readonly lanes: LaneManager,
@@ -67,6 +72,37 @@ export class PlayerAvatar {
     return now < this.invulnUntil;
   }
 
+  /**
+   * The bean's current visual base height above the floor: groundLevel
+   * during run/slide, the jump arc's height during jumps, or the eased
+   * fall value while dropping off a platform's end. CollisionSystem reads
+   * this to decide whether the player is "on top" of a platform.
+   */
+  get height(): number {
+    return this.bean.group.position.y;
+  }
+
+  /**
+   * Updates the ground the avatar's pose math is relative to (0 = floor,
+   * GameConfig.platform.height = a platform's top surface). Rising, or any
+   * change while airborne, applies immediately — the jump arc already
+   * interpolates smoothly down to zero at touchdown, so it just lands at
+   * the new level with no extra animation. Dropping while grounded
+   * (running off the back end of a platform) eases down over
+   * GameConfig.platform.fallMs instead of snapping, reading as a short hop
+   * down rather than a teleport.
+   */
+  setGroundLevel(y: number, now: number): void {
+    if (y === this.groundLevel) return;
+    if (y < this.groundLevel && this.pose !== 'jump') {
+      this.fallFrom = this.groundLevel;
+      this.fallStart = now;
+    } else {
+      this.fallStart = -1;
+    }
+    this.groundLevel = y;
+  }
+
   moveLane(dir: -1 | 1, now: number): void {
     if (this.pose === 'dead') return;
     const target = this.lanes.clampLane(this.lane + dir);
@@ -94,8 +130,9 @@ export class PlayerAvatar {
     this.poseStart = now;
     this.poseUntil = now + durMs;
     if (pose === 'slide') {
-      // A slide can cancel a jump mid-air — snap back to the ground.
-      this.bean.group.position.y = 0;
+      // A slide can cancel a jump mid-air — snap back to the current ground
+      // level (0, or a platform's top if riding one).
+      this.bean.group.position.y = this.groundLevel;
     }
   }
 
@@ -109,6 +146,8 @@ export class PlayerAvatar {
     this.bean.group.rotation.set(0, 0, 0);
     this.bean.group.scale.set(1, 1, 1);
     this.bean.group.position.y = 0;
+    this.groundLevel = 0;
+    this.fallStart = -1;
     this.invulnUntil = now + GameConfig.reviveInvulnMs;
   }
 
@@ -121,11 +160,23 @@ export class PlayerAvatar {
     this.bean.group.rotation.set(0, 0, 0);
     this.bean.group.scale.set(1, 1, 1);
     this.bean.group.position.y = 0;
+    this.groundLevel = 0;
+    this.fallStart = -1;
     this.group.visible = true;
   }
 
   update(now: number): void {
     const b = this.bean.group;
+
+    // Eased ground level: instant except for a short drop when running off
+    // the back of a platform (see setGroundLevel).
+    let groundY = this.groundLevel;
+    if (this.fallStart >= 0) {
+      const t = Math.min(1, (now - this.fallStart) / GameConfig.platform.fallMs);
+      const e = Math.sin((t * Math.PI) / 2);
+      groundY = this.fallFrom + (this.groundLevel - this.fallFrom) * e;
+      if (t >= 1) this.fallStart = -1;
+    }
 
     // Lane tween (sine-out ease).
     if (this.laneMoveStart >= 0) {
@@ -138,28 +189,30 @@ export class PlayerAvatar {
 
     if (this.pose === 'jump') {
       const t = Math.min(1, (now - this.poseStart) / GameConfig.jumpMs);
-      b.position.y = GameConfig.jumpHeight * Math.sin(Math.PI * t);
+      b.position.y = groundY + GameConfig.jumpHeight * Math.sin(Math.PI * t);
       this.bean.legL.rotation.x = 1.1 * Math.sin(Math.PI * t);
       this.bean.legR.rotation.x = 1.1 * Math.sin(Math.PI * t);
       const s = 1 - 0.45 * Math.sin(Math.PI * t);
       this.shadow.scale.set(s, s, s);
-      if (now >= this.poseUntil) this.land();
+      if (now >= this.poseUntil) this.land(groundY);
     } else if (this.pose === 'slide') {
       const t = Math.min(1, (now - this.poseStart) / GameConfig.slideMs);
       const depth = Math.sin(Math.PI * Math.min(1, t * 1.15));
+      b.position.y = groundY;
       b.scale.y = 1 - 0.45 * depth;
       b.rotation.x = -0.55 * depth; // lean back, feet-first
-      if (now >= this.poseUntil) this.land();
+      if (now >= this.poseUntil) this.land(groundY);
     } else if (this.pose === 'run') {
       // Run cycle: bob + leg swing.
       const phase = now / 90;
-      b.position.y = Math.abs(Math.sin(phase)) * 0.07;
+      b.position.y = groundY + Math.abs(Math.sin(phase)) * 0.07;
       this.bean.legL.rotation.x = Math.sin(phase) * 0.7;
       this.bean.legR.rotation.x = -Math.sin(phase) * 0.7;
     } else {
-      // dead: keel over toward the camera
+      // dead: keel over toward the camera, settling at the current ground
+      // level (0, or a platform's top if the player died while riding one).
       b.rotation.x = Math.min(Math.PI / 2, b.rotation.x + 0.12);
-      b.position.y = Math.max(0, b.position.y - 0.05);
+      b.position.y = Math.max(groundY, b.position.y - 0.05);
     }
 
     // Revive grace blink.
@@ -168,12 +221,15 @@ export class PlayerAvatar {
     }
 
     this.shadow.position.x = 0; // shadow is a child; stays under the group
+    // The shadow tracks the current ground level (not the jump arc), so it
+    // sits on the platform top while riding one.
+    this.shadow.position.y = groundY + 0.02;
   }
 
-  private land(): void {
+  private land(groundY: number): void {
     this.pose = 'run';
     const b = this.bean.group;
-    b.position.y = 0;
+    b.position.y = groundY;
     b.scale.y = 1;
     b.rotation.x = 0;
     this.bean.legL.rotation.x = 0;

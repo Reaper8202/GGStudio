@@ -2,7 +2,7 @@ import { GameConfig } from '../config/GameConfig';
 import type { DifficultyDirector } from './DifficultyDirector';
 import type { Rng } from './Rng';
 
-export type ObstacleKind = 'low' | 'high' | 'block';
+export type ObstacleKind = 'low' | 'high' | 'block' | 'platform';
 export type Cell = ObstacleKind | 'none';
 
 /** The game shell provides entity lifecycle; the spawner only decides what/when. */
@@ -75,7 +75,31 @@ export class Spawner {
     }
     this.log?.(`wave ${this.waveIndex} @${meters.toFixed(0)}m ${wave.join(',')}`);
 
+    // Platforms always carry a top-side coin trail (at most one per wave —
+    // see randomWave), regardless of the pity-ruled coin drought below.
+    const platformLane = wave.indexOf('platform');
+    if (platformLane >= 0) this.spawnPlatformCoins(platformLane);
+
     this.maybeSpawnCoins(wave);
+  }
+
+  /**
+   * Four coins along the top of a platform spawned at lane `lane`. The
+   * platform's own spawnObstacle z (SPAWN_Z) is its CENTER (see
+   * PlatformObstacle), so the footprint spans
+   * [SPAWN_Z - length/2, SPAWN_Z + length/2]. Coins sit `margin` in from
+   * each end and are evenly spaced across the remaining span.
+   */
+  private spawnPlatformCoins(lane: number): void {
+    const length = GameConfig.platform.length;
+    const margin = 1.2;
+    const start = SPAWN_Z - length / 2 + margin;
+    const end = SPAWN_Z + length / 2 - margin;
+    const step = (end - start) / 3; // 4 coins → 3 gaps
+    for (let i = 0; i < 4; i++) {
+      this.sink.spawnCoin(lane, start + step * i, true);
+    }
+    this.log?.(`coins top lane ${lane}`);
   }
 
   /** Onboarding rule: first obstacle is trivially avoidable. */
@@ -114,8 +138,17 @@ export class Spawner {
   private randomWave(): Cell[] {
     const d = this.difficulty01();
     const wave: Cell[] = [];
+    let sawPlatform = false;
     for (let lane = 0; lane < GameConfig.lanes; lane++) {
-      wave.push(this.randomCell(d));
+      let cell = this.randomCell(d);
+      // At most one platform per wave — demote any extra to 'none' (still
+      // trivially survivable, so this can only help feasibleAfter, never
+      // hurt it).
+      if (cell === 'platform') {
+        if (sawPlatform) cell = 'none';
+        sawPlatform = true;
+      }
+      wave.push(cell);
     }
     return wave;
   }
@@ -131,15 +164,22 @@ export class Spawner {
     const wNone = 0.55 - 0.3 * d;
     const wLow = 0.2 + 0.05 * d;
     const wHigh = 0.15 + 0.05 * d;
-    // remainder: block (0.10 → 0.30)
+    // Platforms only start appearing once the run has some pace to it.
+    const wPlatform = d < 0.15 ? 0 : 0.12;
+    // remainder: block
     const r = this.rng.next();
     if (r < wNone) return 'none';
     if (r < wNone + wLow) return 'low';
     if (r < wNone + wLow + wHigh) return 'high';
+    if (r < wNone + wLow + wHigh + wPlatform) return 'platform';
     return 'block';
   }
 
-  /** Lanes the player could be alive in after this wave. */
+  /**
+   * Lanes the player could be alive in after this wave. 'platform' is
+   * survivable in-lane just like 'low' (jump onto it) — only 'block' forces
+   * a lane change, so it's the only kind excluded here.
+   */
   private feasibleAfter(wave: Cell[], switches: number): boolean[] {
     const next = new Array<boolean>(GameConfig.lanes).fill(false);
     for (let m = 0; m < GameConfig.lanes; m++) {
@@ -169,7 +209,12 @@ export class Spawner {
     const safeLanes: number[] = [];
     for (let lane = 0; lane < wave.length; lane++) {
       if (wave[lane] === 'low') lowLanes.push(lane);
-      if (wave[lane] !== 'block' && this.feasible[lane]) safeLanes.push(lane);
+      // Platform lanes already get their own top-side coin trail above;
+      // skip them here so a ground-level trailing row never spawns inside
+      // the platform's footprint.
+      if (wave[lane] !== 'block' && wave[lane] !== 'platform' && this.feasible[lane]) {
+        safeLanes.push(lane);
+      }
     }
 
     if (lowLanes.length > 0 && this.rng.chance(0.6)) {

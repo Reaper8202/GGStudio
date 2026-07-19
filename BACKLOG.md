@@ -21,8 +21,11 @@ Deferred ideas land here, not in the code. Scope of the MVP is fixed by
 - ~~Impostor lunge animation on death~~ — shipped (polish iteration)
 - ~~Environment variety: corridor → hull → reactor~~ — shipped (400 m cycle)
 - ~~Player color picker (crew colors)~~ — shipped (menu swatches, persisted)
+- ~~Post-processing bloom on visors/gates~~ — shipped (juice iteration:
+  bloom + chromatic aberration/vignette/pulse shader, coin bursts)
 - Shadow-mapped lighting (currently cheap blob shadows)
-- Post-processing bloom on visors/gates (needs a perf budget pass first)
+- Platform chains (back-to-back platforms with gaps to jump between)
+- Coin magnet power-up spawning on platform tops
 - Chaser reacts to near-misses (surges closer when you graze an obstacle)
 - Theme-specific obstacle skins (reactor vents glow, hull gates are airlocks)
 
