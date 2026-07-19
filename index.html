@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Lane Runner</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b0e1a'/%3E%3Crect x='11' y='4' width='10' height='18' rx='5' fill='%2335e0b8'/%3E%3Crect x='12' y='22' width='3' height='6' rx='1.5' fill='%231a9e80'/%3E%3Crect x='17' y='22' width='3' height='6' rx='1.5' fill='%231a9e80'/%3E%3C/svg%3E"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #0b0e1a;
+        overflow: hidden;
+        /* stop browser gestures (pull-to-refresh, swipe-nav) fighting swipes */
+        touch-action: none;
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #game {
+        width: 100%;
+        height: 100%;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+    <!--
+      Vendor SDKs — loaded only so local/dev has the globals; portals inject
+      their own. Providers treat the globals as possibly-absent (see
+      INTEGRATION.md §0). Do NOT npm-install these.
+    -->
+    <script src="https://game-cdn.poki.com/scripts/v2/poki-sdk.js"></script>
+    <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
+  </head>
+  <body>
+    <div id="game"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
