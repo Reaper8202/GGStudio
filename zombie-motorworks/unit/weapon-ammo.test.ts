@@ -78,7 +78,7 @@ describe('per-weapon magazines', () => {
     world.free();
   });
 
-  it('stops a weapon firing once its own magazine is empty', () => {
+  it('waits to fire until regeneration restores a complete round', () => {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const blasterPart = part('blaster', 'turret');
     const assembled = assembleVehicle(
@@ -103,6 +103,91 @@ describe('per-weapon magazines', () => {
 
     expect(result.shots).toHaveLength(0);
     expect(blaster.shotsFired).toBe(0);
+    expect(blaster.ammo).toBeCloseTo(blaster.ammoCapacity * 0.02 * 0.1);
+
+    world.removeRigidBody(assembled.body);
+    world.free();
+  });
+
+  it('recharges an empty attached weapon until it can fire again', () => {
+    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    const blasterPart = part('blaster', 'turret');
+    const assembled = assembleVehicle(
+      world,
+      blueprint([blasterPart]),
+      getPartDef,
+      [],
+      { translation: { x: 0, y: 1, z: 0 } },
+    );
+    const blaster = createWeapon(blasterPart);
+    const attachedAliveIds = new Set([blaster.partId]);
+
+    while (blaster.ammo > 0) {
+      const result = stepWeapons(
+        world,
+        assembled,
+        [blaster],
+        attachedAliveIds,
+        { aimYawWorld: 0, fire: true },
+        1_000,
+        0,
+      );
+      expect(result.shots).toHaveLength(1);
+      blaster.cooldown = 0;
+    }
+    expect(blaster.ammo).toBe(0);
+    const shotsBeforeRecharge = blaster.shotsFired;
+
+    stepWeapons(
+      world,
+      assembled,
+      [blaster],
+      attachedAliveIds,
+      { aimYawWorld: 0, fire: false },
+      1_000,
+      1,
+    );
+    expect(blaster.ammo).toBeGreaterThan(blaster.def.ammoPerShot);
+
+    const resumed = stepWeapons(
+      world,
+      assembled,
+      [blaster],
+      attachedAliveIds,
+      { aimYawWorld: 0, fire: true },
+      1_000,
+      0,
+    );
+    expect(resumed.shots).toHaveLength(1);
+    expect(blaster.shotsFired).toBe(shotsBeforeRecharge + 1);
+
+    world.removeRigidBody(assembled.body);
+    world.free();
+  });
+
+  it('does not recharge a detached or destroyed weapon', () => {
+    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    const blasterPart = part('blaster', 'turret');
+    const assembled = assembleVehicle(
+      world,
+      blueprint([blasterPart]),
+      getPartDef,
+      [],
+      { translation: { x: 0, y: 1, z: 0 } },
+    );
+    const blaster = createWeapon(blasterPart);
+    blaster.ammo = 0;
+
+    stepWeapons(
+      world,
+      assembled,
+      [blaster],
+      new Set(),
+      { aimYawWorld: 0, fire: false },
+      1_000,
+      1,
+    );
+
     expect(blaster.ammo).toBe(0);
 
     world.removeRigidBody(assembled.body);

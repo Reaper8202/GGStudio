@@ -998,7 +998,9 @@ export class EditorMode {
       nextUpgradePrice: upgrade?.price ?? null,
       canUpgrade: upgrade !== null && canAfford(this.profile.money, upgrade.price),
       sellRefund: selectionRefund,
-    }, part.config);
+    }, part.config, def.wheel
+      ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
+      : undefined);
     this.refreshOverlays();
   }
 
@@ -1300,12 +1302,7 @@ export class EditorMode {
   }
 }
 
-/**
- * Fill missing wheel config from the automatic drive and steer layout for
- * editor inspection. Both flags stay player-owned once decided: the derived
- * value only fills in wheels whose config never had it set. Ticking or
- * unticking a box in the inspector always wins.
- */
+/** Fill missing persistent wheel defaults without freezing derived steering. */
 export function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
   const layout = deriveAutomaticWheelLayout(bp, getPartDef);
   let changed = false;
@@ -1314,9 +1311,6 @@ export function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprin
     const config = { ...part.config };
     if (config.driven === undefined) {
       config.driven = layout.drivenPartIds.has(part.id);
-    }
-    if (config.steering === undefined) {
-      config.steering = layout.steeringPartIds.has(part.id);
     }
     if (config.braking === undefined) config.braking = true;
     if (config.steerInverted === undefined) config.steerInverted = false;

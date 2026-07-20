@@ -59,6 +59,7 @@ export interface EditorUI {
     effectiveDef?: PartDefinition,
     economy?: SelectedPartEconomy,
     config?: PartConfig,
+    effectiveSteering?: boolean,
   ): void;
   setEconomy(
     money: number,
@@ -555,7 +556,15 @@ export function buildEditorUI(
       fightBtn.disabled = !enabled;
       fightBtn.title = enabled ? 'Fight zombies' : blockedTitle;
     },
-    setSelectedPart: (def, partId, level = 1, effectiveDef = def ?? undefined, economy, partConfig) => {
+    setSelectedPart: (
+      def,
+      partId,
+      level = 1,
+      effectiveDef = def ?? undefined,
+      economy,
+      partConfig,
+      effectiveSteering,
+    ) => {
       if (!def || !partId) {
         showNoSelection();
         return;
@@ -597,7 +606,9 @@ export function buildEditorUI(
           const label = document.createElement('label');
           const input = document.createElement('input');
           input.type = 'checkbox';
-          input.checked = partConfig?.[key] === true;
+          input.checked = key === 'steering'
+            ? (partConfig?.steering ?? effectiveSteering ?? false)
+            : partConfig?.[key] === true;
           input.addEventListener('change', () => handlers.onConfigChange(partId, key, input.checked));
           label.append(input, labelText);
           config.appendChild(label);

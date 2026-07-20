@@ -85,6 +85,7 @@ export function createWeapon(
 }
 
 const TURRET_YAW_RATE = 3.2; // rad/s
+const AMMO_RECHARGE_FRACTION_PER_S = 0.02;
 const WEAPON_RAY_GROUPS =
   (0xffff << 16) | (GROUP_TERRAIN | GROUP_ZOMBIE | GROUP_DEBRIS);
 
@@ -124,6 +125,10 @@ export function stepWeapons(
   for (const wpn of weapons) {
     wpn.cooldown = Math.max(0, wpn.cooldown - dt);
     if (!attachedAliveIds.has(wpn.partId)) continue;
+    wpn.ammo = Math.min(
+      wpn.ammoCapacity,
+      wpn.ammo + wpn.ammoCapacity * AMMO_RECHARGE_FRACTION_PER_S * dt,
+    );
     const weaponInput = input.weaponAim?.get(wpn.partId) ?? input;
 
     const up = norm(rotateByQuat(rot, v3(0, 1, 0)));

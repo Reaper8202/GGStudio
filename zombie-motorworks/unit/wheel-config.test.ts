@@ -34,7 +34,7 @@ beforeAll(async () => {
 });
 
 describe('authoritative wheel configuration', () => {
-  it('places a new wheel with drive, steering, and braking enabled', () => {
+  it('places a new wheel with drive and braking enabled while steering stays automatic', () => {
     const placed = placeCommand(
       wheel(defaultConfigForDef(getPartDef('wheel-standard'))),
     ).apply(createEmptyBlueprint('wheel defaults'));
@@ -42,10 +42,91 @@ describe('authoritative wheel configuration', () => {
 
     expect(configured.parts[0].config).toMatchObject({
       driven: true,
-      steering: true,
       braking: true,
       steerInverted: false,
     });
+    expect(configured.parts[0].config.steering).toBeUndefined();
+  });
+
+  it('re-derives the complete front steering axle after sequential placements', () => {
+    const placements: PlacedPart[] = [
+      {
+        id: 'root',
+        defId: 'chassis-core',
+        pos: { x: 0, y: 1, z: 0 },
+        orient: 0,
+        config: {},
+      },
+      {
+        id: 'seat',
+        defId: 'driver-seat',
+        pos: { x: 0, y: 1, z: -1 },
+        orient: 0,
+        config: {},
+      },
+      {
+        id: 'front-left',
+        defId: 'wheel-standard',
+        pos: { x: -1, y: 0, z: 2 },
+        orient: 0,
+        config: defaultConfigForDef(getPartDef('wheel-standard')),
+      },
+      {
+        id: 'front-right',
+        defId: 'wheel-standard',
+        pos: { x: 1, y: 0, z: 2 },
+        orient: 0,
+        config: defaultConfigForDef(getPartDef('wheel-standard')),
+      },
+      {
+        id: 'rear-left',
+        defId: 'wheel-standard',
+        pos: { x: -1, y: 0, z: -2 },
+        orient: 0,
+        config: defaultConfigForDef(getPartDef('wheel-standard')),
+      },
+      {
+        id: 'rear-right',
+        defId: 'wheel-standard',
+        pos: { x: 1, y: 0, z: -2 },
+        orient: 0,
+        config: defaultConfigForDef(getPartDef('wheel-standard')),
+      },
+    ];
+    let placed = createEmptyBlueprint('sequential wheel layout');
+    for (const next of placements) {
+      placed = withAutomaticWheelConfigs(placeCommand(next).apply(placed));
+    }
+
+    const placedWheels = placed.parts.filter((part) =>
+      getPartDef(part.defId).wheel,
+    );
+    expect(placedWheels.every((part) => part.config.steering === undefined)).toBe(
+      true,
+    );
+
+    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    const assembled = assembleVehicle(
+      world,
+      placed,
+      getPartDef,
+      [],
+      { translation: { x: 0, y: 1, z: 0 } },
+    );
+    const steeringByPartId = new Map(
+      assembled.wheels.map((runtimeWheel) => [
+        runtimeWheel.partId,
+        runtimeWheel.steering,
+      ]),
+    );
+
+    expect(steeringByPartId.get('front-left')).toBe(true);
+    expect(steeringByPartId.get('front-right')).toBe(true);
+    expect(steeringByPartId.get('rear-left')).toBe(false);
+    expect(steeringByPartId.get('rear-right')).toBe(false);
+
+    world.removeRigidBody(assembled.body);
+    world.free();
   });
 
   it('preserves explicit driven false in editor automatic configuration', () => {
