@@ -1,14 +1,27 @@
 /** Wave-one zombie stats. WaveManager supplies health/speed multipliers. */
 export const BASE_ZOMBIE_STATS = {
-  health: 30,
+  health: 40,
   speed: 3.2,
   attackDamage: 10,
   attackInterval: 1,
   reward: 10,
 } as const;
 
-/** A little above the maximum active cap so death feedback cannot starve it. */
-export const ZOMBIE_POOL_SIZE = 34;
+/**
+ * Large normal reserve plus small specialist reserves. The director requests
+ * kinds explicitly, so pool makeup is gameplay balance rather than a hidden
+ * spawn-order lottery.
+ */
+export const ZOMBIE_POOL_COUNTS = {
+  walker: 58,
+  thrower: 14,
+  worker: 8,
+  'phone-addict': 8,
+} as const;
+export const ZOMBIE_POOL_SIZE = Object.values(ZOMBIE_POOL_COUNTS).reduce(
+  (total, count) => total + count,
+  0,
+);
 
 export const ZOMBIE_ATTACK_RANGE = 2.4;
 /** Nearest-part-centroid distance used for true ram/swarm contact. */
@@ -18,8 +31,12 @@ export const ZOMBIE_ATTACK_EXIT_MARGIN = 0.35;
 export const ZOMBIE_RADIUS = 0.32;
 export const ZOMBIE_HALF_HEIGHT = 0.55;
 
-export const MIN_IMPACT_SPEED = 5;
-export const IMPACT_DAMAGE_PER_SPEED = 3.5;
+/** Below 40 km/h, the car shoves but cannot ram-damage a zombie. */
+export const MIN_IMPACT_SPEED = 40 / 3.6;
+/** At 80 km/h and above, a ram is lethal regardless of zombie toughness. */
+export const LETHAL_IMPACT_SPEED = 80 / 3.6;
+/** Moderate-zone damage reaches base walker health at exactly 80 km/h. */
+export const IMPACT_DAMAGE_PER_SPEED = 1.8;
 export const KNOCKBACK_SPEED = 9;
 export const KNOCKBACK_DURATION = 0.35;
 export const IMPACT_COOLDOWN_SECONDS = 0.4;
@@ -40,18 +57,17 @@ export const DETOUR_BLEND = 0.9;
 export const STUCK_TELEPORT_DISPLACEMENT = 0.5;
 export const STUCK_TELEPORT_SECONDS = 4;
 
-export const HORDE_SCATTER_RADIUS = 2.5;
+export const HORDE_SCATTER_RADIUS = 3.5;
 export const MIN_SPAWN_DISTANCE_FROM_VEHICLE = 18;
 
-/** The retired arcade vehicle lost 9% handling per touching zombie, capped at 80%. */
-export const SWARM_DRAG_PER_CONTACT = 0.09;
-export const MAXIMUM_SWARM_DRAG = 0.8;
-/** Its baseline acceleration was 9m/s²; retain that physical drag scale. */
+/** A pack trims momentum without making the vehicle feel glued in place. */
+export const SWARM_DRAG_PER_CONTACT = 0.03;
+export const MAXIMUM_SWARM_DRAG = 0.3;
+/** Baseline acceleration used to convert the small drag fraction into force. */
 export const SWARM_DRAG_ACCELERATION = 9;
 
-// Thrower: slow ranged zombie (zombie_city.vox). Every Nth pool slot is a
-// thrower; it stops at range and lobs slow box projectiles at the vehicle.
-export const THROWER_POOL_STRIDE = 5; // pool indices at (stride-1) mod stride
+// Thrower: slow ranged zombie (zombie_city.vox). It stops at range and lobs
+// slow box projectiles at the vehicle.
 export const THROWER_SPEED_MULTIPLIER = 0.5;
 export const THROWER_HEALTH_MULTIPLIER = 1.6;
 export const THROWER_REWARD = 25;
@@ -62,9 +78,7 @@ export const THROWER_VISUAL_HEIGHT = 1; // pre-baseScale model height, m
 
 // Phone Addict: projectile-proof zombie (PhoneAddict voxel pack). A personal
 // bubble shield absorbs every gun hit — only flame, ramming, and grinder
-// contact hurt it. Fills the pool slots at this remainder of the thrower
-// stride, so walkers, throwers, and addicts never collide.
-export const PHONE_ADDICT_POOL_REMAINDER = 2;
+// contact hurt it.
 export const PHONE_ADDICT_HEALTH_MULTIPLIER = 1.2;
 export const PHONE_ADDICT_SPEED_MULTIPLIER = 0.9;
 export const PHONE_ADDICT_REWARD = 30;
@@ -73,12 +87,10 @@ export const PHONE_ADDICT_VISUAL_HEIGHT = 1.4; // pre-baseScale model height, m
 export const PHONE_ADDICT_GLOW_RADIUS = 1.15;
 export const PHONE_ADDICT_GLOW_OPACITY = 0.65;
 
-// Worker: mine-layer zombie (zombie_worker.vox). Fills the pool slots at this
-// remainder of the thrower stride. It approaches the vehicle until it gets
-// within plant range, commits to a stationary arming channel no matter where
-// the vehicle goes, drops the mine, then retreats and must close to plant
-// range again before the next mine.
-export const WORKER_POOL_REMAINDER = 0;
+// Worker: mine-layer zombie (zombie_worker.vox). It approaches the vehicle
+// until it gets within plant range, commits to a stationary arming channel no
+// matter where the vehicle goes, drops the mine, then retreats and must close
+// to plant range again before the next mine.
 export const WORKER_HEALTH_MULTIPLIER = 1.3;
 export const WORKER_SPEED_MULTIPLIER = 0.85;
 export const WORKER_REWARD = 35;

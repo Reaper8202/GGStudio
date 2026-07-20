@@ -11,7 +11,9 @@ const ASSET_ROOT = `${import.meta.env.BASE_URL}assets/graveyard`;
 export const GRAVEYARD_HALF_SIZE = 52.5;
 const HALF_SIZE = GRAVEYARD_HALF_SIZE;
 const SPAWN_RADIUS = HALF_SIZE - 3;
-const SPAWN_POINT_COUNT = 14;
+/** Inward jitter applied per ring anchor so hordes don't spawn from the same fixed rim every time. */
+const SPAWN_RADIUS_VARIATION = 10;
+const SPAWN_POINT_COUNT = 20;
 const ROAD_HALF_WIDTH = 1.7;
 const ROAD_X = -6;
 const SIDE_ROAD_Z = 8;
@@ -1089,15 +1091,18 @@ export class Graveyard {
     this.staticBodies.push(body);
   }
 
+  /** Ring of horde anchors around the map centre; angle and radius are jittered per point so the rim reads as organic rather than a perfect circle. */
   private computeSpawnPoints(): THREE.Vector3[] {
     const points: THREE.Vector3[] = [];
+    const slice = (Math.PI * 2) / SPAWN_POINT_COUNT;
     for (let i = 0; i < SPAWN_POINT_COUNT; i++) {
-      const angle = (i / SPAWN_POINT_COUNT) * Math.PI * 2;
+      const angle = i * slice + (Math.random() - 0.5) * slice * 0.7;
+      const radius = SPAWN_RADIUS - Math.random() * SPAWN_RADIUS_VARIATION;
       points.push(
         new THREE.Vector3(
-          Math.cos(angle) * SPAWN_RADIUS,
+          Math.cos(angle) * radius,
           0,
-          Math.sin(angle) * SPAWN_RADIUS,
+          Math.sin(angle) * radius,
         ),
       );
     }

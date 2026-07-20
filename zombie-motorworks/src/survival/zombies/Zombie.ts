@@ -23,7 +23,6 @@ import {
   PHONE_ADDICT_GLOW_OPACITY,
   PHONE_ADDICT_GLOW_RADIUS,
   PHONE_ADDICT_HEALTH_MULTIPLIER,
-  PHONE_ADDICT_POOL_REMAINDER,
   PHONE_ADDICT_REWARD,
   PHONE_ADDICT_SPEED_MULTIPLIER,
   PHONE_ADDICT_VISUAL_HEIGHT,
@@ -38,7 +37,6 @@ import {
   THROWER_ATTACK_INTERVAL,
   THROWER_ATTACK_RANGE,
   THROWER_HEALTH_MULTIPLIER,
-  THROWER_POOL_STRIDE,
   THROWER_REWARD,
   THROWER_SPEED_MULTIPLIER,
   THROWER_VISUAL_HEIGHT,
@@ -47,7 +45,6 @@ import {
   WORKER_HEALTH_MULTIPLIER,
   WORKER_PLANT_RANGE,
   WORKER_PLANT_SECONDS,
-  WORKER_POOL_REMAINDER,
   WORKER_RETREAT_RANGE,
   WORKER_RING_MAX_RADIUS,
   WORKER_RING_MAX_RATE,
@@ -113,7 +110,6 @@ function getAddictGlowTexture(): THREE.CanvasTexture {
     'rgba(140, 0, 0, 0)',
   );
 }
-
 
 export interface Vector3Like {
   readonly x: number;
@@ -253,18 +249,11 @@ export class Zombie {
     private readonly world: RAPIER.World,
     private readonly scene: THREE.Scene,
     readonly index: number,
+    kind: ZombieKind,
     fallbackGeometry: THREE.CapsuleGeometry,
     private readonly onKilled: ZombieKilledCallback,
   ) {
-    const remainder = index % THROWER_POOL_STRIDE;
-    this.kind =
-      remainder === THROWER_POOL_STRIDE - 1
-        ? 'thrower'
-        : remainder === PHONE_ADDICT_POOL_REMAINDER
-          ? 'phone-addict'
-          : remainder === WORKER_POOL_REMAINDER
-            ? 'worker'
-            : 'walker';
+    this.kind = kind;
     this.baseScale =
       BASE_VISUAL_SCALE + (Math.random() - 0.5) * SCALE_VARIATION;
     const tint = new THREE.Color(

@@ -52,8 +52,7 @@ export class App {
   private inBuildPhase = false;
   private runMoneyEarned = 0;
   private runSummary:
-    | { wavesSurvived: number; moneyEarned: number }
-    | undefined;
+    { wavesSurvived: number; moneyEarned: number } | undefined;
   private profileDirty = false;
   private profileFlushTimer: number | undefined;
   private saveFailureNotified = false;
@@ -168,8 +167,7 @@ export class App {
     } else {
       this.bp = buildStarterBlueprint();
       if (loaded.kind === 'failed') {
-        this.pendingEditorNotice =
-          `Saved vehicle could not be loaded — it has been preserved as ${loaded.name}`;
+        this.pendingEditorNotice = `Saved vehicle could not be loaded — it has been preserved as ${loaded.name}`;
       }
     }
     this.openEditor();
@@ -263,6 +261,9 @@ export class App {
       onBuildPhase: (state, survivingPartIds) =>
         this.enterBuildPhase(state, survivingPartIds),
       onGameOver: (state) => this.finishRun(state),
+      onResetWave: (state, waveEarnings) =>
+        this.resetSurvivalWave(state, waveEarnings),
+      onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
     });
     this.survival.resize(this.root.clientWidth, this.root.clientHeight);
   }
@@ -294,11 +295,37 @@ export class App {
     this.openEditor();
   }
 
-  private creditRunReward(amount: number): void {
-    const credited = Math.min(amount, Number.MAX_SAFE_INTEGER - this.profile.money);
-    if (credited <= 0) return;
+  private resetSurvivalWave(run: RunState, waveEarnings: number): void {
+    const rollback = Math.min(
+      Math.max(0, Math.floor(waveEarnings)),
+      this.runMoneyEarned,
+      this.profile.money,
+    );
+    if (rollback > 0) {
+      this.changeMoney(-rollback, false);
+      this.runMoneyEarned -= rollback;
+    }
+    this.activeRun = { wave: run.wave };
+    this.inBuildPhase = false;
+    this.enterSurvival(this.bp, this.activeRun);
+  }
+
+  private grantInfiniteMoney(): void {
+    const amount = Number.MAX_SAFE_INTEGER - this.profile.money;
+    if (amount <= 0) return;
+    this.changeMoney(amount, true);
+    this.editor?.refreshProfile();
+  }
+
+  private creditRunReward(amount: number): number {
+    const credited = Math.min(
+      amount,
+      Number.MAX_SAFE_INTEGER - this.profile.money,
+    );
+    if (credited <= 0) return 0;
     this.changeMoney(credited, false);
     this.runMoneyEarned += credited;
+    return credited;
   }
 
   private changeMoney(moneyDelta: number, persist: boolean): void {
@@ -473,8 +500,7 @@ export class App {
       },
       buyUpgrade: (partId: string) =>
         this.editor?.debugBuyUpgrade(partId) ?? false,
-      sellPart: (partId: string) =>
-        this.editor?.debugSellPart(partId) ?? false,
+      sellPart: (partId: string) => this.editor?.debugSellPart(partId) ?? false,
       unlockPart: (defId: string) =>
         this.editor?.debugUnlockPart(defId) ?? false,
       runState: () =>
@@ -532,10 +558,25 @@ export function buildStarterBlueprint(): VehicleBlueprint {
     part('frame-box', { x: -1, y: 1, z: 2 }),
     part('frame-box', { x: 1, y: 1, z: -2 }),
     part('frame-box', { x: -1, y: 1, z: -2 }),
-    part('wheel-standard', { x: 2, y: 1, z: 2 }, yaw180, defaultWheelConfig(true)),
+    part(
+      'wheel-standard',
+      { x: 2, y: 1, z: 2 },
+      yaw180,
+      defaultWheelConfig(true),
+    ),
     part('wheel-standard', { x: -2, y: 1, z: 2 }, 0, defaultWheelConfig(true)),
-    part('wheel-standard', { x: 2, y: 1, z: -2 }, yaw180, defaultWheelConfig(false)),
-    part('wheel-standard', { x: -2, y: 1, z: -2 }, 0, defaultWheelConfig(false)),
+    part(
+      'wheel-standard',
+      { x: 2, y: 1, z: -2 },
+      yaw180,
+      defaultWheelConfig(false),
+    ),
+    part(
+      'wheel-standard',
+      { x: -2, y: 1, z: -2 },
+      0,
+      defaultWheelConfig(false),
+    ),
     part('frame-box', { x: 0, y: 1, z: -2 }),
     part('engine-small', { x: 0, y: 2, z: -2 }),
     part('fuel-tank', { x: 0, y: 2, z: -1 }),

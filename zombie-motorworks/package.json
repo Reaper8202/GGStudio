@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run --config vitest.config.ts",
-    "test": "playwright test"
+    "test": "playwright test",
+    "render:portraits": "node scripts/render-portraits.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.14.0",

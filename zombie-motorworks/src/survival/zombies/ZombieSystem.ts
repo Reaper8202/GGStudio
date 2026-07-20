@@ -7,6 +7,7 @@ import {
   Zombie,
   ZombieState,
   type Vector3Like,
+  type ZombieKind,
   type ZombieKilledCallback,
 } from "./Zombie.ts";
 import { Landmines } from "./Landmines.ts";
@@ -16,6 +17,7 @@ import {
   IMPACT_DAMAGE_PER_SPEED,
   LANDMINE_DAMAGE,
   LANDMINE_TRIGGER_RADIUS,
+  LETHAL_IMPACT_SPEED,
   MAXIMUM_SWARM_DRAG,
   MIN_IMPACT_SPEED,
   MIN_SPAWN_DISTANCE_FROM_VEHICLE,
@@ -30,6 +32,7 @@ import {
   SWARM_DRAG_PER_CONTACT,
   ZOMBIE_CONTACT_RADIUS,
   ZOMBIE_HALF_HEIGHT,
+  ZOMBIE_POOL_COUNTS,
   ZOMBIE_POOL_SIZE,
   ZOMBIE_RADIUS,
 } from "./zombieConfig.ts";
@@ -121,11 +124,19 @@ export class ZombieSystem {
     );
     this.projectiles = new ThrowerProjectiles(scene);
     this.landmines = new Landmines(scene);
-    for (let i = 0; i < ZOMBIE_POOL_SIZE; i++) {
+    const poolKinds: ZombieKind[] = [];
+    for (const [kind, count] of Object.entries(ZOMBIE_POOL_COUNTS) as [
+      ZombieKind,
+      number,
+    ][]) {
+      for (let i = 0; i < count; i++) poolKinds.push(kind);
+    }
+    for (let i = 0; i < poolKinds.length; i++) {
       const zombie = new Zombie(
         world,
         scene,
         i,
+        poolKinds[i],
         this.fallbackGeometry,
         onKilled,
       );
@@ -172,16 +183,20 @@ export class ZombieSystem {
     return positions;
   }
 
-  /** Spawn up to count pooled zombies around one eligible far-away anchor. */
-  trySpawnHorde(count: number): number {
-    if (this.disposed || count <= 0) return 0;
+  /** Spawn the requested kinds around one eligible far-away anchor. */
+  trySpawnHorde(kinds: readonly ZombieKind[]): number {
+    if (this.disposed || kinds.length === 0) return 0;
     const anchor = this.pickSpawnPoint();
     if (!anchor) return 0;
 
     let spawned = 0;
-    for (const zombie of this.pool) {
-      if (spawned >= count) break;
-      if (zombie.active) continue;
+    for (const kind of kinds) {
+      const zombie = this.pool.find(
+        (candidate) => !candidate.active && candidate.kind === kind,
+      );
+      // Preserve prefix semantics for WaveManager: it only advances past the
+      // requests that were actually fulfilled.
+      if (!zombie) break;
 
       const angle = Math.random() * Math.PI * 2;
       const radius = Math.sqrt(Math.random()) * HORDE_SCATTER_RADIUS;
@@ -453,9 +468,11 @@ export class ZombieSystem {
             : 0;
       }
       const impactDamage =
-        vehicleSpeed >= MIN_IMPACT_SPEED
-          ? vehicleSpeed * IMPACT_DAMAGE_PER_SPEED
-          : 0;
+        vehicleSpeed >= LETHAL_IMPACT_SPEED
+          ? Number.MAX_SAFE_INTEGER
+          : vehicleSpeed >= MIN_IMPACT_SPEED
+            ? vehicleSpeed * IMPACT_DAMAGE_PER_SPEED
+            : 0;
       zombie.applyVehicleImpact(
         Math.max(impactDamage, melee?.damage ?? 0),
         awayX,

@@ -21,6 +21,8 @@ const ORBIT_RADIUS_M = 12;
 const ORBIT_HEIGHT_M = 5;
 const ORBIT_PERIOD_S = 25;
 
+const PORTRAIT_ROOT = `${import.meta.env.BASE_URL}assets/zombies/portraits`;
+
 /** Loads the same "current" blueprint App would resume into, for the backdrop car. */
 function loadBackdropBlueprint(): VehicleBlueprint {
   try {
@@ -177,7 +179,19 @@ export class TitleScreen {
     confirmActions.append(this.confirmButton, this.cancelButton);
     this.confirmation.append(warning, confirmActions);
 
-    panel.append(kicker, title, subtitle, actions, this.confirmation);
+    const zombieLeft = document.createElement('img');
+    zombieLeft.className = 'title-zombie title-zombie-left';
+    zombieLeft.src = `${PORTRAIT_ROOT}/zed-2.png`;
+    zombieLeft.alt = '';
+    zombieLeft.setAttribute('aria-hidden', 'true');
+
+    const zombieRight = document.createElement('img');
+    zombieRight.className = 'title-zombie title-zombie-right';
+    zombieRight.src = `${PORTRAIT_ROOT}/zed-5.png`;
+    zombieRight.alt = '';
+    zombieRight.setAttribute('aria-hidden', 'true');
+
+    panel.append(kicker, title, subtitle, actions, this.confirmation, zombieLeft, zombieRight);
     this.root.appendChild(panel);
     container.appendChild(this.root);
 

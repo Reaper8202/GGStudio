@@ -5,6 +5,7 @@ import {
   maxActiveZombiesForWave,
   speedMultiplierForWave,
   waveRewardForWave,
+  zombieCompositionForWave,
   zombieCountForWave,
 } from '../src/survival/WaveManager.ts';
 import type { ZombieSystem } from '../src/survival/zombies/ZombieSystem.ts';
@@ -13,18 +14,18 @@ describe('wave formulas', () => {
   it.each([
     {
       wave: 1,
-      zombies: 11,
-      maxActive: 9,
+      zombies: 31,
+      maxActive: 27,
       healthMultiplier: 1,
       speedMultiplier: 1,
       reward: 125,
     },
     {
       wave: 5,
-      zombies: 23,
-      maxActive: 13,
-      healthMultiplier: 1.48,
-      speedMultiplier: 1.1,
+      zombies: 59,
+      maxActive: 39,
+      healthMultiplier: 1.6,
+      speedMultiplier: 1.14,
       reward: 225,
     },
   ])('scales wave $wave', (expected) => {
@@ -39,11 +40,38 @@ describe('wave formulas', () => {
     expect(waveRewardForWave(expected.wave)).toBe(expected.reward);
   });
 
-  it('caps active zombies at 30 and speed at 1.5x', () => {
-    expect(maxActiveZombiesForWave(22)).toBe(30);
-    expect(maxActiveZombiesForWave(50)).toBe(30);
-    expect(speedMultiplierForWave(21)).toBe(1.5);
-    expect(speedMultiplierForWave(50)).toBe(1.5);
+  it('caps active zombies at 56 and speed at 1.6x', () => {
+    expect(maxActiveZombiesForWave(11)).toBe(56);
+    expect(maxActiveZombiesForWave(50)).toBe(56);
+    expect(speedMultiplierForWave(19)).toBe(1.6);
+    expect(speedMultiplierForWave(50)).toBe(1.6);
+  });
+
+  it('unlocks sparse specialists at their progression milestones', () => {
+    expect(zombieCompositionForWave(1)).toEqual({
+      walker: 31,
+      thrower: 0,
+      worker: 0,
+      'phone-addict': 0,
+    });
+    expect(zombieCompositionForWave(2)).toEqual({
+      walker: 37,
+      thrower: 3,
+      worker: 0,
+      'phone-addict': 0,
+    });
+    expect(zombieCompositionForWave(6)).toEqual({
+      walker: 61,
+      thrower: 5,
+      worker: 2,
+      'phone-addict': 0,
+    });
+    expect(zombieCompositionForWave(9)).toEqual({
+      walker: 79,
+      thrower: 6,
+      worker: 3,
+      'phone-addict': 2,
+    });
   });
 
   it('makes debug kill-all account for every pending wave assignment', () => {
@@ -64,7 +92,7 @@ describe('wave formulas', () => {
     });
 
     waves.startWave(1);
-    expect(waves.prepareDebugKillAll()).toBe(11);
+    expect(waves.prepareDebugKillAll()).toBe(31);
     expect(remaining).toBe(0);
     expect(completion).toEqual({ wave: 1, reward: 125 });
   });

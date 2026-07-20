@@ -1,8 +1,9 @@
 import type { ZombieSystem } from './zombies/ZombieSystem.ts';
+import type { ZombieKind } from './zombies/Zombie.ts';
 
-const HORDE_SIZE_MIN = 3;
-const HORDE_SIZE_MAX = 8;
-const HORDE_INTERVAL_SECONDS = 3;
+const HORDE_SIZE_MIN = 10;
+const HORDE_SIZE_MAX = 18;
+const HORDE_INTERVAL_SECONDS = 1.2;
 const HORDE_RETRY_SECONDS = 0.5;
 
 export interface WaveManagerCallbacks {
@@ -10,20 +11,43 @@ export interface WaveManagerCallbacks {
   onWaveComplete(wave: number, reward: number): void;
 }
 
+export interface WaveComposition {
+  walker: number;
+  thrower: number;
+  worker: number;
+  'phone-addict': number;
+}
+
+/** Normals remain the overwhelming majority while specialists unlock slowly. */
+export function zombieCompositionForWave(wave: number): WaveComposition {
+  const safeWave = Math.max(1, Math.floor(Number.isFinite(wave) ? wave : 1));
+  return {
+    walker: 25 + safeWave * 6,
+    thrower:
+      safeWave >= 2 ? Math.min(3 + Math.floor((safeWave - 2) / 2), 12) : 0,
+    worker: safeWave >= 6 ? Math.min(2 + Math.floor((safeWave - 6) / 3), 7) : 0,
+    'phone-addict':
+      safeWave >= 9 ? Math.min(2 + Math.floor((safeWave - 9) / 4), 7) : 0,
+  };
+}
+
 export function zombieCountForWave(wave: number): number {
-  return 8 + wave * 3;
+  return Object.values(zombieCompositionForWave(wave)).reduce(
+    (total, count) => total + count,
+    0,
+  );
 }
 
 export function maxActiveZombiesForWave(wave: number): number {
-  return Math.min(8 + wave, 30);
+  return Math.min(24 + Math.max(1, Math.floor(wave)) * 3, 56);
 }
 
 export function healthMultiplierForWave(wave: number): number {
-  return 1 + (wave - 1) * 0.12;
+  return 1 + (wave - 1) * 0.15;
 }
 
 export function speedMultiplierForWave(wave: number): number {
-  return 1 + Math.min((wave - 1) * 0.025, 0.5);
+  return 1 + Math.min((wave - 1) * 0.035, 0.6);
 }
 
 export function waveRewardForWave(wave: number): number {
@@ -40,10 +64,32 @@ function hordeSizeForWave(wave: number): number {
   );
 }
 
+function spawnOrderForWave(wave: number): ZombieKind[] {
+  const composition = zombieCompositionForWave(wave);
+  const specials: ZombieKind[] = [];
+  for (const kind of ['thrower', 'worker', 'phone-addict'] as const) {
+    for (let i = 0; i < composition[kind]; i++) specials.push(kind);
+  }
+  if (specials.length === 0) return Array(composition.walker).fill('walker');
+
+  const order: ZombieKind[] = [];
+  let walkersLeft = composition.walker;
+  for (let i = 0; i < specials.length; i++) {
+    const groupsLeft = specials.length - i + 1;
+    const walkersNow = Math.ceil(walkersLeft / groupsLeft);
+    for (let j = 0; j < walkersNow; j++) order.push('walker');
+    walkersLeft -= walkersNow;
+    order.push(specials[i]);
+  }
+  for (let i = 0; i < walkersLeft; i++) order.push('walker');
+  return order;
+}
+
 /** Fixed-step endless-wave director with direct callbacks and no event bus. */
 export class WaveManager {
   private assignedCount = 0;
-  private spawnedCount = 0;
+  private spawnQueueIndex = 0;
+  private spawnOrder: ZombieKind[] = [];
   private killedCount = 0;
   private spawnTimer = 0;
   private waveNumber = 0;
@@ -74,7 +120,8 @@ export class WaveManager {
   startWave(wave: number): void {
     this.waveNumber = Math.max(1, Math.floor(wave));
     this.assignedCount = zombieCountForWave(this.waveNumber);
-    this.spawnedCount = 0;
+    this.spawnQueueIndex = 0;
+    this.spawnOrder = spawnOrderForWave(this.waveNumber);
     this.killedCount = 0;
     this.spawnTimer = 0;
     this.waveDone = false;
@@ -90,7 +137,7 @@ export class WaveManager {
   fixedUpdate(dt: number): void {
     if (this.waveDone) return;
 
-    if (this.spawnedCount < this.assignedCount) {
+    if (this.spawnQueueIndex < this.spawnOrder.length) {
       this.spawnTimer -= Math.max(0, dt);
       if (this.spawnTimer <= 0) this.trySpawnHorde();
     }
@@ -105,14 +152,29 @@ export class WaveManager {
     this.checkWaveComplete();
   }
 
+  /** Add cheat-spawned zombies to the live wave so kills/completion stay exact. */
+  spawnBonusHorde(kinds: readonly ZombieKind[]): number {
+    if (this.waveDone || kinds.length === 0) return 0;
+    const spawned = Math.min(
+      kinds.length,
+      Math.max(0, this.zombies.trySpawnHorde(kinds)),
+    );
+    this.assignedCount += spawned;
+    this.emitRemaining();
+    return spawned;
+  }
+
   /**
    * Marks pending assignments as debug kills before SurvivalMode kills every
    * active zombie. Returns the virtual-kill count so run rewards stay faithful.
    */
   prepareDebugKillAll(): number {
     if (this.waveDone) return 0;
-    const unspawned = Math.max(0, this.assignedCount - this.spawnedCount);
-    this.spawnedCount = this.assignedCount;
+    const unspawned = Math.max(
+      0,
+      this.spawnOrder.length - this.spawnQueueIndex,
+    );
+    this.spawnQueueIndex = this.spawnOrder.length;
     this.killedCount = Math.min(
       this.assignedCount,
       this.killedCount + unspawned,
@@ -124,7 +186,8 @@ export class WaveManager {
 
   reset(): void {
     this.assignedCount = 0;
-    this.spawnedCount = 0;
+    this.spawnQueueIndex = 0;
+    this.spawnOrder = [];
     this.killedCount = 0;
     this.spawnTimer = 0;
     this.waveNumber = 0;
@@ -139,15 +202,26 @@ export class WaveManager {
     );
     const wanted = Math.min(
       hordeSizeForWave(this.waveNumber),
-      this.assignedCount - this.spawnedCount,
+      this.spawnOrder.length - this.spawnQueueIndex,
       headroom,
     );
     const spawned =
       wanted > 0
-        ? Math.min(wanted, Math.max(0, this.zombies.trySpawnHorde(wanted)))
+        ? Math.min(
+            wanted,
+            Math.max(
+              0,
+              this.zombies.trySpawnHorde(
+                this.spawnOrder.slice(
+                  this.spawnQueueIndex,
+                  this.spawnQueueIndex + wanted,
+                ),
+              ),
+            ),
+          )
         : 0;
 
-    this.spawnedCount += spawned;
+    this.spawnQueueIndex += spawned;
     this.spawnTimer =
       wanted > 0 && spawned === wanted
         ? HORDE_INTERVAL_SECONDS
@@ -162,7 +236,7 @@ export class WaveManager {
   }
 
   private checkWaveComplete(): void {
-    if (this.waveDone || this.spawnedCount < this.assignedCount) return;
+    if (this.waveDone || this.spawnQueueIndex < this.spawnOrder.length) return;
     if (this.zombies.getActiveCount() > 0) return;
 
     // ZombieSystem normally records every kill synchronously. This clamp also
