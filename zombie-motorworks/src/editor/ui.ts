@@ -158,6 +158,20 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
       <ellipse cx="32" cy="34" rx="13" ry="17" fill="#343a31" stroke="#070807" stroke-width="4"/>
       <rect x="27" y="27" width="10" height="14" fill="#89995a"/>
     `,
+    'wheel-moto': `
+      <ellipse cx="32" cy="34" rx="10" ry="21" fill="#171a17" stroke="#555b50" stroke-width="3"/>
+      <ellipse cx="32" cy="34" rx="4" ry="8" fill="#89995a"/>
+      <path d="M32 13V55M24 34H40" stroke="#080a08" stroke-width="2"/>
+      <path d="M26 20 38 48M38 20 26 48" stroke="#343a31" stroke-width="2"/>
+    `,
+    'tread-tank': `
+      <rect x="8" y="18" width="48" height="28" rx="14" fill="#1a1d19" stroke="#555b50" stroke-width="3"/>
+      <circle cx="20" cy="32" r="7" fill="#343a31"/>
+      <circle cx="32" cy="32" r="7" fill="#343a31"/>
+      <circle cx="44" cy="32" r="7" fill="#343a31"/>
+      <path d="M14 18H50M14 46H50" stroke="#89995a" stroke-width="3"/>
+      <path d="M20 15V21M32 15V21M44 15V21M20 43V49M32 43V49M44 43V49" stroke="#8a5035" stroke-width="2"/>
+    `,
     'driver-seat': `
       <path d="M22 14H42V36H22Z" fill="#3d4339"/>
       <path d="M18 35H44V47H36V53H24V47H18Z" fill="#242923"/>
@@ -741,6 +755,12 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
   }
   if (def.wheel) {
     labels.push(['Grip', `${def.wheel.frictionLong.toFixed(2)} / ${def.wheel.frictionLat.toFixed(2)}`]);
+    labels.push([
+      'Steering',
+      def.wheel.skidSteer
+        ? 'Tracked'
+        : `${formatStat(def.wheel.maxSteerAngleDeg)}°`,
+    ]);
   }
   if (def.weapon) {
     labels.push(
@@ -748,6 +768,15 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Fire Rate', `${formatStat(def.weapon.fireRate)} / S`],
       ['DPS', formatStat(def.weapon.damage * def.weapon.fireRate)],
     );
+    // Each weapon carries its own magazine, so this is what the part brings
+    // to the rig rather than a share of a common pool.
+    if (def.ammoCapacity) {
+      const shots = Math.floor(def.ammoCapacity / Math.max(1, def.weapon.ammoPerShot));
+      labels.push(
+        ['Ammo', `${formatStat(def.ammoCapacity)} RDS`],
+        ['Firing Time', `${(shots / def.weapon.fireRate).toFixed(1)} S`],
+      );
+    }
   }
   if (def.armour) labels.push(['Protection', formatStat(def.armour.protection)]);
   return labels;

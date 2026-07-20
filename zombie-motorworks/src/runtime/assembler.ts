@@ -223,7 +223,8 @@ export function assembleVehicle(
         partId: placed.id,
         wheelDef: w,
         driven: false,
-        steering: placed.config.steering === true,
+        // Overwritten below from the derived layout.
+        steering: false,
         steerInverted: placed.config.steerInverted ?? false,
         braking: placed.config.braking ?? true,
         anchorLocal: centre,
@@ -285,13 +286,22 @@ export function assembleVehicle(
     parts.set(placed.id, entry);
   }
 
+  // Derive drive and steer here rather than trusting config alone, so a
+  // blueprint that never passed through the editor normalizer (an old save, a
+  // rig rebuilt after the build phase) still gets a working steering axle.
   const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
   for (const wheel of wheels) {
+    // An explicit player choice wins; otherwise fall back to the derived
+    // layout so legacy and mid-run-rebuilt blueprints still drive.
     const configured = parts.get(wheel.partId)?.placed.config.driven;
     wheel.driven =
       typeof configured === 'boolean'
         ? configured
         : wheelLayout.drivenPartIds.has(wheel.partId);
+    // Steering is always derived: deriveAutomaticWheelLayout already honours
+    // an explicit config.steering, and deriving here is what rescues a wheel
+    // remounted mid-run (which would otherwise fight the axle that steers).
+    wheel.steering = wheelLayout.steeringPartIds.has(wheel.partId);
   }
 
   const live = connections.map((c) => ({ ...c }));

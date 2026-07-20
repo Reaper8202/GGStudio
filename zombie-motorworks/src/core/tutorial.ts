@@ -16,6 +16,8 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'frame-reinforced',
   'wheel-standard',
   'wheel-offroad',
+  'wheel-moto',
+  'tread-tank',
   'driver-seat',
   'engine-small',
   'fuel-tank',
@@ -50,6 +52,14 @@ export const KID_LABELS: Record<string, PartLabel> = {
   'wheel-offroad': {
     name: 'Monster Wheel',
     blurb: 'Climbs over big, bumpy ground!',
+  },
+  'wheel-moto': {
+    name: 'Speedy Wheel',
+    blurb: 'Super fast and turns sharp, but breaks easily!',
+  },
+  'tread-tank': {
+    name: 'Tank Tread',
+    blurb: 'Slow and super tough! Crawls over anything.',
   },
   'driver-seat': { name: 'Driver Seat', blurb: 'Put your brave driver here!' },
   'engine-small': { name: 'Engine', blurb: 'Makes the truck go!' },

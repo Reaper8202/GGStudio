@@ -183,6 +183,84 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       },
     },
   },
+  'wheel-moto': {
+    id: 'wheel-moto',
+    name: 'Motorcycle Wheel',
+    category: 'movement',
+    description:
+      'Thin racing wheel. Very light and turns hard, but buckles under load.',
+    cells: oneCell,
+    clearanceCells: [v(0, -1, 0)],
+    sockets: [singleSocket('wheel-mount-px', 'frame', ORIGIN, 'px')],
+    massKg: 12,
+    health: 45,
+    cost: 24,
+    upgrade: upgrade(5, 24),
+    unlockCost: 180,
+    reinforcement: 1,
+    wheel: {
+      radius: 0.36,
+      width: 0.1,
+      axleAxis: WHEEL_AXLE_LOCAL,
+      suspensionDir: WHEEL_SUSPENSION_LOCAL,
+      // Light and eager: a big steering lock and low rolling drag, paid for
+      // with a narrow contact patch that lets go early in a hard corner.
+      maxSteerAngleDeg: 42,
+      driveTorqueLimit: 1500,
+      brakeTorque: 900,
+      frictionLong: 0.95,
+      frictionLat: 0.72,
+      maxLoad: 3800,
+      suspension: {
+        restLength: 0.38,
+        travel: 0.26,
+        stiffness: 21000,
+        damping: 1700,
+        maxLoad: 3400,
+      },
+    },
+  },
+  'tread-tank': {
+    id: 'tread-tank',
+    name: 'Tank Tread',
+    category: 'movement',
+    // Three cells long, so it reads as a belt rather than a wheel and forces
+    // the player to commit real chassis length to a tracked build.
+    description:
+      'Three-block armoured belt. Crawls over anything and shrugs off mines, but slow.',
+    cells: [v(0, 0, -1), ORIGIN, v(0, 0, 1)],
+    clearanceCells: [v(0, -1, -1), v(0, -1, 0), v(0, -1, 1)],
+    sockets: frameSockets([v(0, 0, -1), ORIGIN, v(0, 0, 1)]),
+    massKg: 190,
+    health: 460,
+    cost: 85,
+    upgrade: upgrade(5, 85),
+    unlockCost: 450,
+    reinforcement: 2,
+    wheel: {
+      radius: 0.34,
+      width: 0.34,
+      axleAxis: WHEEL_AXLE_LOCAL,
+      suspensionDir: WHEEL_SUSPENSION_LOCAL,
+      // A belt does not angle its hub; it turns by driving one side harder
+      // than the other. Lateral grip is deliberately below longitudinal so the
+      // rig can pivot instead of digging in.
+      maxSteerAngleDeg: 0,
+      skidSteer: true,
+      driveTorqueLimit: 5600,
+      brakeTorque: 3400,
+      frictionLong: 1.45,
+      frictionLat: 0.8,
+      maxLoad: 30000,
+      suspension: {
+        restLength: 0.4,
+        travel: 0.14,
+        stiffness: 105000,
+        damping: 7600,
+        maxLoad: 28000,
+      },
+    },
+  },
   'driver-seat': {
     id: 'driver-seat',
     name: 'Driver Seat',

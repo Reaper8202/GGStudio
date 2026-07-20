@@ -27,6 +27,8 @@ const EXPECTED_CATALOG_IDS = [
   'frame-reinforced',
   'wheel-standard',
   'wheel-offroad',
+  'wheel-moto',
+  'tread-tank',
   'driver-seat',
   'engine-small',
   'fuel-tank',

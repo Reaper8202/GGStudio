@@ -216,10 +216,10 @@ export class ChamberMode {
       if (part.def.wheel) {
         // Wheels are positioned per-frame in world space (suspension travel).
         const spin = mesh.getObjectByName('wheel-spin');
-        if (spin) {
-          spin.userData.baseQuat = spin.quaternion.clone();
-          spin.position.set(0, 0, 0); // outer group is placed at the wheel centre
-        }
+        if (spin) spin.userData.baseQuat = spin.quaternion.clone();
+        // Outer group is placed at the wheel centre, so every child sits on
+        // the origin — a tread's static belt as well as its spinning rollers.
+        for (const child of mesh.children) child.position.set(0, 0, 0);
         this.wheelMeshes.set(id, mesh);
         this.scene.add(mesh);
       } else {

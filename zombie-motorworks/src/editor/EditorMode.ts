@@ -61,11 +61,19 @@ import type { PlayerProfile } from '../core/profile.ts';
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
 
+/**
+ * Seed a freshly placed part's config. Wheels arrive powered and braked so a
+ * new wheel contributes immediately instead of mounting inert.
+ *
+ * `steering` is deliberately left undecided: deriveAutomaticWheelLayout picks
+ * the axle ahead of the wheelbase midpoint, which is what makes the rig turn.
+ * Forcing every wheel to steer would steer the rear axle the same way as the
+ * front and crab the vehicle sideways instead of rotating it.
+ */
 export function defaultConfigForDef(def: PartDefinition): PartConfig {
   return def.wheel
     ? {
         driven: true,
-        steering: true,
         braking: true,
         steerInverted: false,
       }
@@ -1293,8 +1301,10 @@ export class EditorMode {
 }
 
 /**
- * Fill missing wheel config from the automatic layout for editor inspection.
- * Explicit player choices remain authoritative.
+ * Fill missing wheel config from the automatic drive and steer layout for
+ * editor inspection. Both flags stay player-owned once decided: the derived
+ * value only fills in wheels whose config never had it set. Ticking or
+ * unticking a box in the inspector always wins.
  */
 export function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
   const layout = deriveAutomaticWheelLayout(bp, getPartDef);
@@ -1304,6 +1314,9 @@ export function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprin
     const config = { ...part.config };
     if (config.driven === undefined) {
       config.driven = layout.drivenPartIds.has(part.id);
+    }
+    if (config.steering === undefined) {
+      config.steering = layout.steeringPartIds.has(part.id);
     }
     if (config.braking === undefined) config.braking = true;
     if (config.steerInverted === undefined) config.steerInverted = false;
