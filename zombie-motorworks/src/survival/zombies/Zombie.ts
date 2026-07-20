@@ -387,6 +387,7 @@ export class Zombie {
     position: Vector3Like,
     healthMultiplier: number,
     speedMultiplier: number,
+    attackDamageMultiplier: number,
   ): void {
     if (this.disposed) return;
     this.active = true;
@@ -394,7 +395,7 @@ export class Zombie {
     const stats = KIND_STATS[this.kind];
     this.health = BASE_ZOMBIE_STATS.health * healthMultiplier * stats.health;
     this.moveSpeed = BASE_ZOMBIE_STATS.speed * speedMultiplier * stats.speed;
-    this.attackDamage = BASE_ZOMBIE_STATS.attackDamage;
+    this.attackDamage = BASE_ZOMBIE_STATS.attackDamage * attackDamageMultiplier;
     this.attackInterval = stats.attackInterval;
     this.reward = stats.reward;
     this.shieldTimer = 0;

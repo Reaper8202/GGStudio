@@ -25,7 +25,10 @@ import {
 import { cellCentreM, placedCellMasses } from '../core/mass.ts';
 import { getPartDef } from '../core/parts.ts';
 import { effectivePartDef, getEffectiveDef } from '../core/upgrades.ts';
-import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
+import {
+  deriveAutomaticWheelLayout,
+  resolveDrivenPartIds,
+} from '../core/wheelLayout.ts';
 
 export type GetDef = (defId: string) => PartDefinition;
 
@@ -290,14 +293,12 @@ export function assembleVehicle(
   // blueprint that never passed through the editor normalizer (an old save, a
   // rig rebuilt after the build phase) still gets a working steering axle.
   const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
+  const drivenPartIds = resolveDrivenPartIds(bp, getDef);
   for (const wheel of wheels) {
     // An explicit player choice wins; otherwise fall back to the derived
-    // layout so legacy and mid-run-rebuilt blueprints still drive.
-    const configured = parts.get(wheel.partId)?.placed.config.driven;
-    wheel.driven =
-      typeof configured === 'boolean'
-        ? configured
-        : wheelLayout.drivenPartIds.has(wheel.partId);
+    // layout so legacy and mid-run-rebuilt blueprints still drive. Shared with
+    // analysis so the build report cannot disagree with the runtime.
+    wheel.driven = drivenPartIds.has(wheel.partId);
     // Steering is always derived: deriveAutomaticWheelLayout already honours
     // an explicit config.steering, and deriving here is what rescues a wheel
     // remounted mid-run (which would otherwise fight the axle that steers).

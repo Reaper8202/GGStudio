@@ -76,6 +76,7 @@ export function defaultConfigForDef(def: PartDefinition): PartConfig {
         driven: true,
         braking: true,
         steerInverted: false,
+        suspensionPreset: 'standard',
       }
     : {};
 }
