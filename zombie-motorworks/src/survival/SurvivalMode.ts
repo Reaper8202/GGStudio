@@ -12,7 +12,11 @@ import type { VehicleBlueprint } from '../core/types.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
-import { RuntimeVehicle, type VehicleControls } from '../runtime/vehicle.ts';
+import {
+  RuntimeVehicle,
+  brakeInputWithAutoHold,
+  type VehicleControls,
+} from '../runtime/vehicle.ts';
 import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
@@ -933,7 +937,8 @@ export class SurvivalMode {
     const forward = this.keys.has('w') || this.keys.has('arrowup') ? 1 : 0;
     const reverse = this.keys.has('s') || this.keys.has('arrowdown') ? 1 : 0;
     // S brakes while rolling forward, reverses once (near-)stopped.
-    const movingForward = this.vehicle.forwardSpeed() > 0.6;
+    const forwardSpeed = this.vehicle.forwardSpeed();
+    const movingForward = forwardSpeed > 0.6;
     this.controls.throttle = forward;
     this.controls.reverse = reverse && !forward && !movingForward ? 1 : 0;
     this.controls.brake = this.keys.has(' ')
@@ -941,6 +946,7 @@ export class SurvivalMode {
       : reverse && movingForward
         ? 1
         : 0;
+    this.controls.brake = brakeInputWithAutoHold(this.controls, forwardSpeed);
     this.controls.steer =
       (this.keys.has('a') || this.keys.has('arrowleft') ? -1 : 0) +
       (this.keys.has('d') || this.keys.has('arrowright') ? 1 : 0);

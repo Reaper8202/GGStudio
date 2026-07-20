@@ -45,6 +45,19 @@ export interface VehicleControls {
   weaponAim?: ReadonlyMap<string, { aimYawWorld: number; fire: boolean }>;
 }
 
+export const AUTO_HOLD_SPEED = 1.5; // m/s
+
+/** Apply the parking brake only for the final low-speed part of a coast. */
+export function brakeInputWithAutoHold(
+  controls: Pick<VehicleControls, 'throttle' | 'reverse' | 'brake'>,
+  forwardSpeed: number,
+): number {
+  const noDriveInput = controls.throttle <= 0 && (controls.reverse ?? 0) <= 0;
+  return controls.brake <= 0 && noDriveInput && Math.abs(forwardSpeed) < AUTO_HOLD_SPEED
+    ? 1
+    : controls.brake;
+}
+
 export interface VehicleTelemetry {
   speedKmh: number;
   rpm: number;
@@ -294,12 +307,14 @@ export class RuntimeVehicle {
 
     const attached = this.attachedAliveIds();
     const controllable = this.hasControl(attached);
+    const forwardSpeed = this.forwardSpeed();
     const throttle = controllable ? controls.throttle : 0;
-    const brake = controllable ? controls.brake : 0;
+    const brake = controllable
+      ? brakeInputWithAutoHold(controls, forwardSpeed)
+      : 0;
     const steer = controllable ? controls.steer : 0;
     const reverseInput =
       controllable && throttle <= 0 ? (controls.reverse ?? 0) : 0;
-    const forwardSpeed = this.forwardSpeed();
     const reversing =
       reverseInput > 0 &&
       forwardSpeed < REVERSE_ENGAGE_MAX_FORWARD_MPS &&

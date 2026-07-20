@@ -43,6 +43,7 @@ export const DEBRIS_GROUPS =
   (GROUP_DEBRIS << 16) |
   (GROUP_TERRAIN | GROUP_DEBRIS | GROUP_ZOMBIE | GROUP_VEHICLE);
 export const WHEEL_RAY_GROUPS = (0xffff << 16) | GROUP_TERRAIN;
+const CHASSIS_LINEAR_DAMPING = 0.05;
 
 export interface RuntimePart {
   placed: PlacedPart;
@@ -165,7 +166,8 @@ export function assembleVehicle(
     // tire lateral force while airborne to bleed it off). Kept low so it
     // doesn't fight legitimate rollover dynamics (RuntimeVehicle adds
     // post-solve energy guards for the worst contact spikes).
-    .setAngularDamping(0.38);
+    .setAngularDamping(0.38)
+    .setLinearDamping(CHASSIS_LINEAR_DAMPING);
   const body = world.createRigidBody(bodyDesc);
 
   const parts = new Map<string, RuntimePart>();
@@ -285,7 +287,11 @@ export function assembleVehicle(
 
   const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
   for (const wheel of wheels) {
-    wheel.driven = wheelLayout.drivenPartIds.has(wheel.partId);
+    const configured = parts.get(wheel.partId)?.placed.config.driven;
+    wheel.driven =
+      typeof configured === 'boolean'
+        ? configured
+        : wheelLayout.drivenPartIds.has(wheel.partId);
   }
 
   const live = connections.map((c) => ({ ...c }));

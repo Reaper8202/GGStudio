@@ -5,7 +5,13 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { PartConfig, PlacedPart, Vec3i, VehicleBlueprint } from '../core/types.ts';
+import type {
+  PartConfig,
+  PartDefinition,
+  PlacedPart,
+  Vec3i,
+  VehicleBlueprint,
+} from '../core/types.ts';
 import { CELL_SIZE, GRID_MAX, GRID_MIN } from '../core/types.ts';
 import { PART_CATALOG, getPartDef } from '../core/parts.ts';
 import {
@@ -54,6 +60,17 @@ import type { PlayerProfile } from '../core/profile.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
+
+export function defaultConfigForDef(def: PartDefinition): PartConfig {
+  return def.wheel
+    ? {
+        driven: true,
+        steering: true,
+        braking: true,
+        steerInverted: false,
+      }
+    : {};
+}
 
 interface GhostState {
   defId: string;
@@ -862,7 +879,7 @@ export class EditorMode {
       return;
     }
     const id = nextPartId(this.bp);
-    const config: PartConfig = {};
+    const config = defaultConfigForDef(def);
     const part: PlacedPart = { id, defId: this.ghost.defId, pos, orient: this.ghost.orient, config };
     const cmds: EditorCommand[] = [placeCommand(part)];
 
@@ -1223,7 +1240,8 @@ export class EditorMode {
       this.deny(`${getPartDef(defId).name} is locked`);
       return { ok: false, issues: [`LOCKED_PART: ${defId}`] };
     }
-    const baseConfig = { ...config };
+    const def = getPartDef(defId);
+    const baseConfig = { ...defaultConfigForDef(def), ...config };
     delete baseConfig.level;
     const result = canPlacePart(this.bp, getPartDef, defId, pos, orient, baseConfig);
     if (!result.ok) {
@@ -1275,16 +1293,18 @@ export class EditorMode {
 }
 
 /**
- * Mirror the automatic drive layout into saved config for editor inspection.
- * Steering is player-owned: whatever is ticked on each wheel stays put.
+ * Fill missing wheel config from the automatic layout for editor inspection.
+ * Explicit player choices remain authoritative.
  */
-function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
+export function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
   const layout = deriveAutomaticWheelLayout(bp, getPartDef);
   let changed = false;
   const parts = bp.parts.map((part) => {
     if (!getPartDef(part.defId).wheel) return part;
     const config = { ...part.config };
-    config.driven = layout.drivenPartIds.has(part.id);
+    if (config.driven === undefined) {
+      config.driven = layout.drivenPartIds.has(part.id);
+    }
     if (config.braking === undefined) config.braking = true;
     if (config.steerInverted === undefined) config.steerInverted = false;
     if (Object.keys(config).every((key) => config[key as keyof PartConfig] === part.config[key as keyof PartConfig])) {
