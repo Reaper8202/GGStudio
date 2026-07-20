@@ -566,14 +566,16 @@ export function buildEditorUI(
       const title = document.createElement('div');
       title.className = 'selected-part__title';
       const name = document.createElement('h3');
-      name.textContent = def.name;
+      // Match the store/HUD: show the kid-facing label (e.g. "Zombie Blaster"),
+      // falling back to the catalog name.
+      name.textContent = KID_LABELS[def.id]?.name ?? def.name;
       const levelBadge = document.createElement('span');
       const maxLevel = def.upgrade?.maxLevel;
       levelBadge.textContent = maxLevel === undefined ? `LV ${level}` : `LV ${level}/${maxLevel}`;
       title.append(name, levelBadge);
       const description = document.createElement('p');
       description.className = 'selected-part__description';
-      description.textContent = def.description;
+      description.textContent = KID_LABELS[def.id]?.blurb ?? def.description;
       selectedContent.append(title, description);
 
       const statList = document.createElement('div');
