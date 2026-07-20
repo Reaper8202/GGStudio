@@ -221,7 +221,8 @@ export function assembleVehicle(
         partId: placed.id,
         wheelDef: w,
         driven: false,
-        steering: placed.config.steering === true,
+        // Overwritten below from the derived layout.
+        steering: false,
         steerInverted: placed.config.steerInverted ?? false,
         braking: placed.config.braking ?? true,
         anchorLocal: centre,
@@ -283,9 +284,13 @@ export function assembleVehicle(
     parts.set(placed.id, entry);
   }
 
+  // Derive drive and steer here rather than trusting config alone, so a
+  // blueprint that never passed through the editor normalizer (an old save, a
+  // rig rebuilt after the build phase) still gets a working steering axle.
   const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
   for (const wheel of wheels) {
     wheel.driven = wheelLayout.drivenPartIds.has(wheel.partId);
+    wheel.steering = wheelLayout.steeringPartIds.has(wheel.partId);
   }
 
   const live = connections.map((c) => ({ ...c }));

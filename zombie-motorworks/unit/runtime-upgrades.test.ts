@@ -1,4 +1,4 @@
-import RAPIER from '@dimforge/rapier3d-compat';
+﻿import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { getPartDef } from '../src/core/parts.ts';
 import type {
@@ -172,7 +172,6 @@ describe('hybrid weapon input', () => {
           [overridden.partId, { aimYawWorld: Math.PI / 2, fire: false }],
         ]),
       },
-      100,
       1_000,
       0.1,
     );
@@ -206,7 +205,6 @@ describe('hybrid weapon input', () => {
       [weapon],
       new Set([weapon.partId]),
       { aimYawWorld: Math.PI / 2, fire: false },
-      100,
       1_000,
       0.1,
     );
@@ -236,7 +234,6 @@ describe('hybrid weapon input', () => {
       [weapon],
       new Set([weapon.partId]),
       { aimYawWorld: 0, fire: false },
-      100,
       1_000,
       0.1,
     );
@@ -267,7 +264,6 @@ describe('hybrid weapon input', () => {
       [weapon],
       new Set([weapon.partId]),
       { aimYawWorld: 0, fire: true, aimPoint: { x: 0, y: 0.9, z: 10 } },
-      100,
       1_000,
       1,
     );
