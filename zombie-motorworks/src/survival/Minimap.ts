@@ -13,6 +13,12 @@ export interface MinimapZombie {
   readonly position: THREE.Vector3;
 }
 
+export interface MinimapMine {
+  readonly x: number;
+  readonly z: number;
+  readonly revealed: boolean;
+}
+
 export interface MinimapSnapshotSource {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
@@ -37,6 +43,7 @@ const SNAPSHOT_DESATURATION = 0.22;
  */
 const SNAPSHOT_TINT = [1.06, 1.02, 0.82] as const;
 const ZOMBIE_RADIUS_PX = 2.6;
+const MINE_MARKER_RADIUS_PX = 4;
 const PLAYER_LENGTH_PX = 14;
 const PLAYER_TIP_DISTANCE_PX = (PLAYER_LENGTH_PX * 2) / 3;
 const PLAYER_REAR_DISTANCE_PX = PLAYER_LENGTH_PX / 3;
@@ -122,6 +129,7 @@ export class Minimap {
     vehicleZ: number,
     yaw: number,
     zombies: readonly MinimapZombie[],
+    mines?: readonly MinimapMine[],
   ): void {
     const context = this.context;
     if (context === null) return;
@@ -160,6 +168,35 @@ export class Minimap {
     }
     context.fill();
     context.stroke();
+
+    if (mines !== undefined) {
+      context.fillStyle = '#ffae3d';
+      context.strokeStyle = 'rgba(77, 39, 7, 0.95)';
+      context.lineWidth = 1;
+      context.beginPath();
+      for (let index = 0; index < mines.length; index += 1) {
+        const mine = mines[index];
+        if (
+          !mine.revealed ||
+          mine.x < this.minX ||
+          mine.x > this.maxX ||
+          mine.z < this.minZ ||
+          mine.z > this.maxZ
+        ) {
+          continue;
+        }
+
+        const x = (this.maxX - mine.x) * this.scaleX;
+        const y = (this.maxZ - mine.z) * this.scaleZ;
+        context.moveTo(x, y - MINE_MARKER_RADIUS_PX);
+        context.lineTo(x + MINE_MARKER_RADIUS_PX, y);
+        context.lineTo(x, y + MINE_MARKER_RADIUS_PX);
+        context.lineTo(x - MINE_MARKER_RADIUS_PX, y);
+        context.closePath();
+      }
+      context.fill();
+      context.stroke();
+    }
 
     const projectedPlayerX = (this.maxX - vehicleX) * this.scaleX;
     const projectedPlayerY = (this.maxZ - vehicleZ) * this.scaleZ;
@@ -457,8 +494,7 @@ function liftSnapshotChannel(
   luminance: number,
   tint: number,
 ): number {
-  const desaturated =
-    channel + (luminance - channel) * SNAPSHOT_DESATURATION;
+  const desaturated = channel + (luminance - channel) * SNAPSHOT_DESATURATION;
   return Math.min(
     255,
     Math.round(

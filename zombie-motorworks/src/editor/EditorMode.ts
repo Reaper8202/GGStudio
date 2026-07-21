@@ -43,7 +43,11 @@ import {
 } from '../core/grid.ts';
 import { buildPartMesh } from './meshes.ts';
 import { Overlays, defaultToggles, type OverlayToggles } from './overlays.ts';
-import { buildEditorUI, type EditorUI } from './ui.ts';
+import {
+  buildEditorUI,
+  type EditorUI,
+  type TurretModuleEconomy,
+} from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
@@ -57,6 +61,13 @@ import {
   type RunState,
 } from '../core/economy.ts';
 import type { PlayerProfile } from '../core/profile.ts';
+import {
+  isEmpUnlocked,
+  isPiercingUnlocked,
+  turretModuleLevel,
+  turretModulePrice,
+  type TurretModule,
+} from '../core/turretModules.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
@@ -79,6 +90,58 @@ export function defaultConfigForDef(def: PartDefinition): PartConfig {
         suspensionPreset: 'standard',
       }
     : {};
+}
+
+export interface TurretModulePurchase {
+  config: PartConfig;
+  targetLevel: number;
+  price: number;
+}
+
+/** Build the immutable config change shared by UI purchases and unit tests. */
+export function nextTurretModulePurchase(
+  config: PartConfig,
+  module: TurretModule,
+): TurretModulePurchase | null {
+  const targetLevel = turretModuleLevel(config, module) + 1;
+  const price = turretModulePrice(module, targetLevel);
+  if (price === null) return null;
+  return {
+    config: {
+      ...config,
+      ...(module === 'emp'
+        ? { empLevel: targetLevel }
+        : { piercingLevel: targetLevel }),
+    },
+    targetLevel,
+    price,
+  };
+}
+
+/** Derive all button gates from wallet and profile progress in one place. */
+export function turretModuleEconomy(
+  config: PartConfig,
+  money: number,
+  progress: Pick<
+    PlayerProfile,
+    'highestWaveCleared' | 'phoneAddictsKilled'
+  >,
+): Record<TurretModule, TurretModuleEconomy> {
+  const state = (module: TurretModule): TurretModuleEconomy => {
+    const level = turretModuleLevel(config, module);
+    const purchase = nextTurretModulePurchase(config, module);
+    const unlocked =
+      module === 'emp' ? isEmpUnlocked(progress) : isPiercingUnlocked();
+    return {
+      level,
+      targetLevel: purchase?.targetLevel ?? null,
+      price: purchase?.price ?? null,
+      unlocked,
+      canBuy:
+        unlocked && purchase !== null && canAfford(money, purchase.price),
+    };
+  };
+  return { emp: state('emp'), piercing: state('piercing') };
 }
 
 interface GhostState {
@@ -229,6 +292,8 @@ export class EditorMode {
       onStartTutorial: () => this.startTutorial(),
       onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
       onUpgradePart: (partId) => this.buyUpgrade(partId),
+      onBuyTurretModule: (partId, module) =>
+        this.buyTurretModule(partId, module),
       onDeleteSelected: () => this.deleteSelected(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onToggleErase: () => this.toggleErase(),
@@ -577,6 +642,43 @@ export class EditorMode {
     return upgraded;
   }
 
+  private buyTurretModule(
+    partId: string,
+    module: TurretModule,
+  ): boolean {
+    const part = getPart(this.bp, partId);
+    if (!part || part.defId !== 'turret') {
+      this.deny(`Unknown turret: ${partId}`);
+      return false;
+    }
+    const state = turretModuleEconomy(
+      part.config,
+      this.profile.money,
+      this.profile,
+    )[module];
+    if (!state.unlocked) {
+      this.deny('Clear wave 10 or kill a Phone Addict to unlock EMP');
+      return false;
+    }
+    const purchase = nextTurretModulePurchase(part.config, module);
+    if (purchase === null) {
+      const displayName = module === 'emp' ? 'EMP' : 'Piercing';
+      this.deny(`${displayName} is already at maximum level`);
+      return false;
+    }
+    const bought = this.exec(
+      updateConfigCommand(part.id, purchase.config, -purchase.price),
+    );
+    if (bought) {
+      this.selectOnly(part.id);
+      const displayName = module === 'emp' ? 'EMP' : 'Piercing';
+      this.ui.setStatus(
+        `${displayName} upgraded to level ${purchase.targetLevel} (-$${purchase.price})`,
+      );
+    }
+    return bought;
+  }
+
   private sellPart(partId: string): boolean {
     const part = getPart(this.bp, partId);
     if (!part) {
@@ -675,12 +777,12 @@ export class EditorMode {
       return false;
     }
     if (
-      defId === 'driver-seat' &&
+      def.unique === true &&
       (this.inventory()[defId] ?? 0) +
         this.bp.parts.filter((part) => part.defId === defId).length >=
         1
     ) {
-      this.deny('Driver Seat limit reached - only one can be owned or installed');
+      this.deny(`${def.name} limit reached - only one can be owned or installed`);
       return false;
     }
     if (!this.isUnlocked(defId)) return this.unlockPart(defId);
@@ -999,6 +1101,10 @@ export class EditorMode {
       nextUpgradePrice: upgrade?.price ?? null,
       canUpgrade: upgrade !== null && canAfford(this.profile.money, upgrade.price),
       sellRefund: selectionRefund,
+      turretModules:
+        def.id === 'turret'
+          ? turretModuleEconomy(part.config, this.profile.money, this.profile)
+          : undefined,
     }, part.config, def.wheel
       ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
       : undefined);
@@ -1300,6 +1406,13 @@ export class EditorMode {
 
   debugUnlockPart(defId: string): boolean {
     return this.unlockPart(defId);
+  }
+
+  /** Selects a part by id so headless checks can drive the inspector UI. */
+  debugSelectPart(partId: string): boolean {
+    if (!this.bp.parts.some((part) => part.id === partId)) return false;
+    this.selectOnly(partId);
+    return true;
   }
 }
 

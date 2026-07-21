@@ -8,3 +8,5 @@ test-results/
 *.local
 npm-debug.log*
 verify-minimap-save.mjs
+verify-balance-pass.mjs
+probe.mjs

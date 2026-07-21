@@ -108,15 +108,22 @@ export const WORKER_RING_MIN_RATE = 0.8; // pulses/s at the start of arming
 export const WORKER_RING_MAX_RATE = 3.2; // pulses/s just before the plant
 export const WORKER_RING_OPACITY = 0.85;
 
-// Landmines: stationary pulsing red placeholder cylinders planted by workers.
-// The worker's visible arming channel already telegraphs the plant, so a mine
-// is live the moment it appears. It detonates with a flash when the vehicle
-// runs one over, and every survivor is cleared when the wave completes.
+// Landmines: stationary placeholder cylinders planted by workers. The worker's
+// visible arming channel telegraphs the drop, then each mine has a short
+// harmless arming window before becoming a hidden hazard.
 export const LANDMINE_POOL_SIZE = 24;
 export const LANDMINE_RADIUS = 0.45;
 export const LANDMINE_HEIGHT = 0.22;
-export const LANDMINE_TRIGGER_RADIUS = 1.5;
-export const LANDMINE_DAMAGE = 63;
+export const LANDMINE_TRIGGER_RADIUS = 1.2;
+export const LANDMINE_DAMAGE = 36;
+/** Damage falls off to zero at this radius from the blast centre. */
+export const LANDMINE_BLAST_RADIUS = 1.5;
+/** Visible, harmless arming window after a worker drops a mine. */
+export const LANDMINE_ARM_SECONDS = 1.25;
+/** Last wave on which mines stay permanently visible, as the tutorial encounter. */
+export const LANDMINE_VISIBLE_THROUGH_WAVE = 7;
+/** Every mine glints faintly this close, regardless of Mine Sweeper — last-second fairness. */
+export const LANDMINE_GLINT_RADIUS = 3.5;
 export const LANDMINE_PULSE_FREQUENCY = 6; // rad/s
 export const LANDMINE_PULSE_AMPLITUDE = 0.2; // fraction of base scale
 export const LANDMINE_EXPLOSION_POOL_SIZE = 6;

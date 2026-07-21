@@ -8,6 +8,10 @@ import {
   type ValidationIssue,
   type VehicleAnalysisReport,
 } from '../core/types.ts';
+import {
+  TURRET_MODULE_MAX_LEVEL,
+  type TurretModule,
+} from '../core/turretModules.ts';
 
 export interface EditorUIHandlers {
   onBuyPart(defId: string): void;
@@ -27,6 +31,7 @@ export interface EditorUIHandlers {
   onStartTutorial(): void;
   onConfigChange(partId: string, key: string, value: boolean | string): void;
   onUpgradePart(partId: string): void;
+  onBuyTurretModule(partId: string, module: TurretModule): void;
   onDeleteSelected(): void;
   onRotateSelected(axis: 'y' | 'x'): void;
 }
@@ -35,6 +40,15 @@ export interface SelectedPartEconomy {
   nextUpgradePrice: number | null;
   canUpgrade: boolean;
   sellRefund: number;
+  turretModules?: Record<TurretModule, TurretModuleEconomy>;
+}
+
+export interface TurretModuleEconomy {
+  level: number;
+  targetLevel: number | null;
+  price: number | null;
+  unlocked: boolean;
+  canBuy: boolean;
 }
 
 export interface RunSummary {
@@ -654,6 +668,39 @@ export function buildEditorUI(
         );
       }
       selectedContent.appendChild(actions);
+
+      if (def.id === 'turret' && economy?.turretModules) {
+        const moduleSection = document.createElement('div');
+        moduleSection.className = 'selected-part__modules';
+        for (const module of ['emp', 'piercing'] as const) {
+          const moduleEconomy = economy.turretModules[module];
+          const displayName = module === 'emp' ? 'EMP' : 'Piercing';
+          const row = document.createElement('div');
+          row.className = 'selected-part__module-row';
+          const label = document.createElement('span');
+          label.textContent = `${displayName}  L${moduleEconomy.level} / ${TURRET_MODULE_MAX_LEVEL}`;
+          const buyButton = btn(
+            moduleEconomy.targetLevel === null || moduleEconomy.price === null
+              ? 'Max'
+              : `${displayName} L${moduleEconomy.targetLevel}  $${moduleEconomy.price}`,
+            () => handlers.onBuyTurretModule(partId, module),
+          );
+          buyButton.className = 'selected-part__module-buy';
+          buyButton.disabled = !moduleEconomy.canBuy;
+          if (!moduleEconomy.unlocked) {
+            buyButton.title =
+              'Clear wave 10 or kill a Phone Addict to unlock EMP';
+          } else if (
+            moduleEconomy.price !== null &&
+            !moduleEconomy.canBuy
+          ) {
+            buyButton.title = 'Not enough money';
+          }
+          row.append(label, buyButton);
+          moduleSection.appendChild(row);
+        }
+        selectedContent.appendChild(moduleSection);
+      }
     },
     setEconomy: (money, unlockedDefIds, currentInventory, installedDefIds) => {
       moneyReadout.textContent = `$${money}`;
@@ -682,7 +729,7 @@ export function buildEditorUI(
         const price = locked ? def.unlockCost ?? 0 : def.cost;
         const unaffordable = price > money;
         const atOwnershipLimit =
-          id === 'driver-seat' &&
+          def.unique === true &&
           count + (installedCounts.get(id) ?? 0) >= 1;
         storeButton?.classList.toggle('locked', locked);
         storeButton?.classList.toggle('unaffordable', unaffordable);
@@ -695,7 +742,7 @@ export function buildEditorUI(
             ? `${def.name}, unlock for $${price}`
             : `${def.name}, buy for $${price}`);
           storeButton.title = atOwnershipLimit
-            ? 'Driver Seat limit reached: 1 owned or installed'
+            ? `${def.name} limit reached: 1 owned or installed`
             : locked
             ? `Unlock ${def.name} for $${price}`
             : `Buy one ${def.name} for $${price}`;

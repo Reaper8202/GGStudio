@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MINIMAP_REDRAW_HZ,
+  Minimap,
   type MinimapBounds,
   worldToMinimap,
 } from '../src/survival/Minimap.ts';
@@ -127,18 +128,8 @@ describe('worldToMinimap', () => {
       kind: 'road',
     };
 
-    const northEdge = worldToMinimap(
-      road.minX,
-      road.maxZ,
-      BOUNDS,
-      sizePx,
-    );
-    const southEdge = worldToMinimap(
-      road.minX,
-      road.minZ,
-      BOUNDS,
-      sizePx,
-    );
+    const northEdge = worldToMinimap(road.minX, road.maxZ, BOUNDS, sizePx);
+    const southEdge = worldToMinimap(road.minX, road.minZ, BOUNDS, sizePx);
 
     expect(northEdge.y).toBeCloseTo(0);
     expect(southEdge.y).toBeCloseTo(sizePx);
@@ -151,3 +142,187 @@ describe('minimap redraw rate', () => {
     expect(MINIMAP_REDRAW_HZ).toBeLessThanOrEqual(30);
   });
 });
+
+describe('Minimap mine markers', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (globalThis as { document?: Document }).document;
+    delete (globalThis as { window?: Window & typeof globalThis }).window;
+  });
+
+  it('draws mine markers when revealed mines are passed', () => {
+    const harness = installMinimapDom();
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const minimap = new Minimap(harness.parent, BOUNDS);
+    const foreground = harness.contexts[0];
+    foreground.operations.length = 0;
+
+    minimap.update(20, 10, 0, [], [{ x: 10, z: 0, revealed: true }]);
+
+    expect(foreground.operations).toContain('fillStyle:#ffae3d');
+    expect(foreground.operations).toContain('lineTo:107.40,112.80');
+    minimap.dispose();
+  });
+
+  it('does not draw markers for unrevealed mines', () => {
+    const harness = installMinimapDom();
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const minimap = new Minimap(harness.parent, BOUNDS);
+    const foreground = harness.contexts[0];
+    foreground.operations.length = 0;
+
+    minimap.update(20, 10, 0, [], [{ x: 10, z: 0, revealed: false }]);
+
+    expect(foreground.operations).toContain('fillStyle:#ffae3d');
+    expect(foreground.operations).not.toContain('lineTo:107.40,112.80');
+    minimap.dispose();
+  });
+
+  it('does not draw mine markers when the mines argument is omitted', () => {
+    const harness = installMinimapDom();
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const minimap = new Minimap(harness.parent, BOUNDS);
+    const foreground = harness.contexts[0];
+    foreground.operations.length = 0;
+
+    minimap.update(20, 10, 0, [], undefined);
+
+    expect(foreground.operations).not.toContain('fillStyle:#ffae3d');
+    minimap.dispose();
+  });
+});
+
+class FakeElement {
+  className = '';
+  readonly children: FakeElement[] = [];
+
+  append(...children: FakeElement[]): void {
+    this.children.push(...children);
+  }
+
+  appendChild(child: FakeElement): FakeElement {
+    this.children.push(child);
+    return child;
+  }
+
+  remove(): void {}
+}
+
+class FakeCanvas extends FakeElement {
+  width = 0;
+  height = 0;
+  clientWidth = 188;
+
+  constructor(private readonly context: FakeContext) {
+    super();
+  }
+
+  getContext(kind: '2d'): FakeContext | null {
+    return kind === '2d' ? this.context : null;
+  }
+}
+
+class FakeContext {
+  readonly operations: string[] = [];
+  private currentFillStyle = '';
+  private currentStrokeStyle = '';
+  private currentLineWidth = 0;
+  private currentShadowColor = '';
+  private currentShadowBlur = 0;
+  private currentLineJoin = '';
+
+  set fillStyle(value: string | CanvasGradient | CanvasPattern) {
+    this.currentFillStyle = String(value);
+    this.operations.push(`fillStyle:${this.currentFillStyle}`);
+  }
+
+  get fillStyle(): string | CanvasGradient | CanvasPattern {
+    return this.currentFillStyle;
+  }
+
+  set strokeStyle(value: string | CanvasGradient | CanvasPattern) {
+    this.currentStrokeStyle = String(value);
+  }
+
+  get strokeStyle(): string | CanvasGradient | CanvasPattern {
+    return this.currentStrokeStyle;
+  }
+
+  set lineWidth(value: number) {
+    this.currentLineWidth = value;
+  }
+
+  get lineWidth(): number {
+    return this.currentLineWidth;
+  }
+
+  set shadowColor(value: string) {
+    this.currentShadowColor = value;
+  }
+
+  get shadowColor(): string {
+    return this.currentShadowColor;
+  }
+
+  set shadowBlur(value: number) {
+    this.currentShadowBlur = value;
+  }
+
+  get shadowBlur(): number {
+    return this.currentShadowBlur;
+  }
+
+  set lineJoin(value: CanvasLineJoin) {
+    this.currentLineJoin = value;
+  }
+
+  get lineJoin(): CanvasLineJoin {
+    return this.currentLineJoin as CanvasLineJoin;
+  }
+
+  setTransform(): void {}
+  clearRect(): void {}
+  fillRect(): void {}
+  strokeRect(): void {}
+  drawImage(): void {}
+  beginPath(): void {}
+  closePath(): void {}
+  fill(): void {}
+  stroke(): void {}
+  arc(): void {}
+
+  moveTo(x: number, y: number): void {
+    this.operations.push(`moveTo:${x.toFixed(2)},${y.toFixed(2)}`);
+  }
+
+  lineTo(x: number, y: number): void {
+    this.operations.push(`lineTo:${x.toFixed(2)},${y.toFixed(2)}`);
+  }
+}
+
+function installMinimapDom(): {
+  parent: HTMLElement;
+  contexts: FakeContext[];
+} {
+  const contexts: FakeContext[] = [];
+  const documentStub = {
+    createElement(tagName: string): FakeElement {
+      if (tagName === 'canvas') {
+        const context = new FakeContext();
+        contexts.push(context);
+        return new FakeCanvas(context);
+      }
+      return new FakeElement();
+    },
+  };
+  (globalThis as { document: Document }).document =
+    documentStub as unknown as Document;
+  (globalThis as { window: Window & typeof globalThis }).window = {
+    devicePixelRatio: 1,
+  } as Window & typeof globalThis;
+
+  return {
+    parent: new FakeElement() as unknown as HTMLElement,
+    contexts,
+  };
+}

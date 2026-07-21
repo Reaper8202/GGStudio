@@ -1126,6 +1126,31 @@ button:disabled {
   height: 24px;
 }
 
+.selected-part__modules {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ui-edge);
+}
+
+.selected-part__module-row {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1 var(--ui-font-body);
+}
+
+.selected-part__module-buy {
+  min-width: 122px;
+  min-height: 32px;
+  padding: 5px 8px;
+  font-size: var(--ui-text-10);
+}
+
 .selected-part__actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

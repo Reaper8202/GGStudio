@@ -32,11 +32,49 @@ import { ChamberMode, type ScenarioName } from '../chamber/ChamberMode.ts';
 import type { VehicleControls } from '../runtime/vehicle.ts';
 import { SurvivalMode } from '../survival/SurvivalMode.ts';
 import type { RunState } from '../core/economy.ts';
-import { defaultProfile, type PlayerProfile } from '../core/profile.ts';
+import {
+  defaultProfile,
+  MINE_SWEEPER_UNLOCK_WAVE,
+  type PlayerProfile,
+} from '../core/profile.ts';
 import type { SavedRun } from '../core/runSave.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
 import { runSaveStore } from './runSaveStore.ts';
 import { TitleScreen } from './TitleScreen.ts';
+
+/** Apply permanent wave progress and its catalog unlock to a profile. */
+export function recordWaveCleared(
+  profile: PlayerProfile,
+  wave: number,
+): void {
+  profile.highestWaveCleared = Math.max(
+    profile.highestWaveCleared ?? 0,
+    wave,
+  );
+  if (
+    wave >= MINE_SWEEPER_UNLOCK_WAVE &&
+    !profile.unlockedDefIds.includes('mine-sweeper')
+  ) {
+    profile.unlockedDefIds.push('mine-sweeper');
+  }
+}
+
+/** Apply the lifetime kill progress used by the EMP unlock gate. */
+export function recordPhoneAddictKilled(profile: PlayerProfile): void {
+  profile.phoneAddictsKilled = (profile.phoneAddictsKilled ?? 0) + 1;
+}
+
+/** Restore every persistent profile field owned by a fresh game. */
+export function resetProfileForNewGame(profile: PlayerProfile): void {
+  const fresh = defaultProfile();
+  profile.schemaVersion = fresh.schemaVersion;
+  profile.money = fresh.money;
+  profile.unlockedDefIds = [...fresh.unlockedDefIds];
+  profile.inventory = { ...fresh.inventory };
+  delete profile.currentBlueprintName;
+  delete profile.highestWaveCleared;
+  delete profile.phoneAddictsKilled;
+}
 
 export class App {
   private renderer!: THREE.WebGLRenderer;
@@ -212,12 +250,7 @@ export class App {
   private beginNewGame(): void {
     this.disposeTitle();
     this.clearStoredSave();
-    const fresh = defaultProfile();
-    this.profile.schemaVersion = fresh.schemaVersion;
-    this.profile.money = fresh.money;
-    this.profile.unlockedDefIds = [...fresh.unlockedDefIds];
-    this.profile.inventory = { ...fresh.inventory };
-    delete this.profile.currentBlueprintName;
+    resetProfileForNewGame(this.profile);
     this.resetSessionState();
     this.bp = buildStarterBlueprint();
     this.openEditor();
@@ -335,6 +368,14 @@ export class App {
       onResetWave: (state, waveEarnings) =>
         this.resetSurvivalWave(state, waveEarnings),
       onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
+      onPhoneAddictKilled: () => {
+        recordPhoneAddictKilled(this.profile);
+        this.markProfileDirty();
+      },
+      onWaveCleared: (wave) => {
+        recordWaveCleared(this.profile, wave);
+        this.markProfileDirty();
+      },
       onSaveAndQuit: (snapshot) => this.saveAndQuitRun(snapshot),
     });
     this.survival.resize(this.root.clientWidth, this.root.clientHeight);
@@ -568,7 +609,30 @@ export class App {
       profile: () => ({
         money: this.profile.money,
         unlocks: [...this.profile.unlockedDefIds],
+        highestWaveCleared: this.profile.highestWaveCleared ?? 0,
+        phoneAddictsKilled: this.profile.phoneAddictsKilled ?? 0,
       }),
+      setProgress: (
+        highestWaveCleared: number,
+        phoneAddictsKilled: number,
+      ): void => {
+        if (
+          !Number.isSafeInteger(highestWaveCleared) ||
+          highestWaveCleared < 0 ||
+          !Number.isSafeInteger(phoneAddictsKilled) ||
+          phoneAddictsKilled < 0
+        ) {
+          return;
+        }
+        // Go through recordWaveCleared so the seam grants exactly the unlocks a
+        // real clear would. Setting the counter alone would leave the profile in
+        // a state the game can never actually produce.
+        this.profile.highestWaveCleared = 0;
+        this.profile.phoneAddictsKilled = phoneAddictsKilled;
+        recordWaveCleared(this.profile, highestWaveCleared);
+        this.markProfileDirty();
+        this.editor?.refreshProfile();
+      },
       grantMoney: (amount: number) => {
         if (!Number.isSafeInteger(amount) || amount < 0) return false;
         try {
@@ -584,6 +648,8 @@ export class App {
       sellPart: (partId: string) => this.editor?.debugSellPart(partId) ?? false,
       unlockPart: (defId: string) =>
         this.editor?.debugUnlockPart(defId) ?? false,
+      selectPart: (partId: string) =>
+        this.editor?.debugSelectPart(partId) ?? false,
       runState: () =>
         this.activeRun
           ? { wave: this.activeRun.wave, inBuildPhase: this.inBuildPhase }
