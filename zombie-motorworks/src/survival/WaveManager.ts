@@ -1,9 +1,8 @@
 import type { ZombieSystem } from './zombies/ZombieSystem.ts';
 import type { ZombieKind } from './zombies/Zombie.ts';
 
-const HORDE_SIZE_MIN = 10;
-const HORDE_SIZE_MAX = 18;
-const HORDE_INTERVAL_SECONDS = 1.2;
+const HORDE_SIZE_MIN = 8;
+const HORDE_SIZE_MAX = 14;
 const HORDE_RETRY_SECONDS = 0.5;
 
 export interface WaveManagerCallbacks {
@@ -20,9 +19,9 @@ export interface WaveComposition {
 
 /** Normals remain the overwhelming majority while specialists unlock slowly. */
 export function zombieCompositionForWave(wave: number): WaveComposition {
-  const safeWave = Math.max(1, Math.floor(Number.isFinite(wave) ? wave : 1));
+  const safeWave = safeWaveNumber(wave);
   return {
-    walker: 10 + safeWave * 4,
+    walker: Math.min(10 + safeWave * 3, 70),
     thrower:
       safeWave >= 4 ? Math.min(2 + Math.floor((safeWave - 4) / 2), 10) : 0,
     worker: safeWave >= 7 ? Math.min(1 + Math.floor((safeWave - 7) / 3), 6) : 0,
@@ -39,32 +38,45 @@ export function zombieCountForWave(wave: number): number {
 }
 
 export function maxActiveZombiesForWave(wave: number): number {
-  return Math.min(24 + Math.max(1, Math.floor(wave)) * 3, 56);
+  const safeWave = safeWaveNumber(wave);
+  return Math.min(24 + safeWave * 2, 48);
 }
 
 export function healthMultiplierForWave(wave: number): number {
-  return 1 + (wave - 1) * 0.15;
+  const safeWave = safeWaveNumber(wave);
+  return Math.min(1 + 0.1 * (safeWave - 1), 2.8);
 }
 
 export function speedMultiplierForWave(wave: number): number {
-  return 1 + Math.min((wave - 1) * 0.035, 0.6);
+  const safeWave = safeWaveNumber(wave);
+  return Math.min(1 + 0.025 * (safeWave - 1), 1.45);
 }
 
 export function attackDamageMultiplierForWave(wave: number): number {
-  return 1 + Math.min((Math.max(1, Math.floor(wave)) - 1) * 0.08, 1.5);
+  const safeWave = safeWaveNumber(wave);
+  return Math.min(1 + 0.06 * (safeWave - 1), 2);
 }
 
 export function waveRewardForWave(wave: number): number {
   return 40 + wave * 10;
 }
 
-function hordeSizeForWave(wave: number): number {
-  const max = Math.min(
-    HORDE_SIZE_MIN + 1 + Math.floor(wave / 2),
-    HORDE_SIZE_MAX,
-  );
+export function hordeIntervalForWave(wave: number): number {
+  const safeWave = safeWaveNumber(wave);
+  // Later waves spawn more often so pressure comes from tempo instead of health.
+  if (safeWave >= 13) return 1.05;
+  if (safeWave >= 6) return 1.25;
+  return 1.45;
+}
+
+function safeWaveNumber(wave: number): number {
+  return Math.max(1, Math.floor(Number.isFinite(wave) ? wave : 1));
+}
+
+function hordeSizeForWave(): number {
   return (
-    HORDE_SIZE_MIN + Math.floor(Math.random() * (max - HORDE_SIZE_MIN + 1))
+    HORDE_SIZE_MIN +
+    Math.floor(Math.random() * (HORDE_SIZE_MAX - HORDE_SIZE_MIN + 1))
   );
 }
 
@@ -206,7 +218,7 @@ export class WaveManager {
       maxActiveZombiesForWave(this.waveNumber) - this.zombies.getActiveCount(),
     );
     const wanted = Math.min(
-      hordeSizeForWave(this.waveNumber),
+      hordeSizeForWave(),
       this.spawnOrder.length - this.spawnQueueIndex,
       headroom,
     );
@@ -229,7 +241,7 @@ export class WaveManager {
     this.spawnQueueIndex += spawned;
     this.spawnTimer =
       wanted > 0 && spawned === wanted
-        ? HORDE_INTERVAL_SECONDS
+        ? hordeIntervalForWave(this.waveNumber)
         : HORDE_RETRY_SECONDS;
   }
 

@@ -3,6 +3,7 @@ import {
   WaveManager,
   attackDamageMultiplierForWave,
   healthMultiplierForWave,
+  hordeIntervalForWave,
   maxActiveZombiesForWave,
   speedMultiplierForWave,
   waveRewardForWave,
@@ -16,8 +17,8 @@ describe('wave formulas', () => {
   it.each([
     {
       wave: 1,
-      zombies: 14,
-      maxActive: 27,
+      zombies: 13,
+      maxActive: 26,
       healthMultiplier: 1,
       speedMultiplier: 1,
       attackDamageMultiplier: 1,
@@ -25,11 +26,11 @@ describe('wave formulas', () => {
     },
     {
       wave: 5,
-      zombies: 32,
-      maxActive: 39,
-      healthMultiplier: 1.6,
-      speedMultiplier: 1.14,
-      attackDamageMultiplier: 1.32,
+      zombies: 27,
+      maxActive: 34,
+      healthMultiplier: 1.4,
+      speedMultiplier: 1.1,
+      attackDamageMultiplier: 1.24,
       reward: 90,
     },
   ])('scales wave $wave', (expected) => {
@@ -47,54 +48,119 @@ describe('wave formulas', () => {
     expect(waveRewardForWave(expected.wave)).toBe(expected.reward);
   });
 
-  it('caps active zombies at 56 and speed at 1.6x', () => {
-    expect(maxActiveZombiesForWave(11)).toBe(56);
-    expect(maxActiveZombiesForWave(50)).toBe(56);
-    expect(speedMultiplierForWave(19)).toBe(1.6);
-    expect(speedMultiplierForWave(50)).toBe(1.6);
+  it('scales walker counts to the 70 cap', () => {
+    expect(zombieCompositionForWave(1).walker).toBe(13);
+    expect(zombieCompositionForWave(5).walker).toBe(25);
+    expect(zombieCompositionForWave(20).walker).toBe(70);
+    expect(zombieCompositionForWave(50).walker).toBe(70);
   });
 
-  it('scales attack damage monotonically from 1x to a 2.5x cap', () => {
+  it('caps health multiplier at 2.8x', () => {
+    expect(healthMultiplierForWave(1)).toBe(1);
+    expect(healthMultiplierForWave(10)).toBeCloseTo(1.9);
+    expect(healthMultiplierForWave(19)).toBeCloseTo(2.8);
+    expect(healthMultiplierForWave(50)).toBe(2.8);
+  });
+
+  it('caps speed multiplier at 1.45x', () => {
+    expect(speedMultiplierForWave(1)).toBe(1);
+    expect(speedMultiplierForWave(10)).toBeCloseTo(1.225);
+    expect(speedMultiplierForWave(19)).toBe(1.45);
+    expect(speedMultiplierForWave(50)).toBe(1.45);
+  });
+
+  it('scales attack damage monotonically from 1x to a 2x cap', () => {
     expect(attackDamageMultiplierForWave(1)).toBe(1);
+    expect(attackDamageMultiplierForWave(10)).toBeCloseTo(1.54);
     for (let wave = 2; wave <= 50; wave += 1) {
       expect(attackDamageMultiplierForWave(wave)).toBeGreaterThanOrEqual(
         attackDamageMultiplierForWave(wave - 1),
       );
     }
-    expect(attackDamageMultiplierForWave(20)).toBe(2.5);
-    expect(attackDamageMultiplierForWave(50)).toBe(2.5);
+    expect(attackDamageMultiplierForWave(18)).toBe(2);
+    expect(attackDamageMultiplierForWave(50)).toBe(2);
+  });
+
+  it('caps active zombies at 48', () => {
+    expect(maxActiveZombiesForWave(1)).toBe(26);
+    expect(maxActiveZombiesForWave(12)).toBe(48);
+    expect(maxActiveZombiesForWave(50)).toBe(48);
+  });
+
+  it.each([
+    { wave: 1, interval: 1.45 },
+    { wave: 5, interval: 1.45 },
+    { wave: 6, interval: 1.25 },
+    { wave: 12, interval: 1.25 },
+    { wave: 13, interval: 1.05 },
+    { wave: 30, interval: 1.05 },
+  ])('uses the horde interval for wave $wave', ({ wave, interval }) => {
+    expect(hordeIntervalForWave(wave)).toBe(interval);
+  });
+
+  it.each([
+    { wave: Number.POSITIVE_INFINITY, safeWave: 1 },
+    { wave: Number.NaN, safeWave: 1 },
+    { wave: 0, safeWave: 1 },
+    { wave: 5.9, safeWave: 5 },
+  ])('hardens formula input $wave to wave $safeWave', ({ wave, safeWave }) => {
+    expect(zombieCompositionForWave(wave)).toEqual(
+      zombieCompositionForWave(safeWave),
+    );
+    expect(maxActiveZombiesForWave(wave)).toBe(
+      maxActiveZombiesForWave(safeWave),
+    );
+    expect(healthMultiplierForWave(wave)).toBe(
+      healthMultiplierForWave(safeWave),
+    );
+    expect(speedMultiplierForWave(wave)).toBe(
+      speedMultiplierForWave(safeWave),
+    );
+    expect(attackDamageMultiplierForWave(wave)).toBe(
+      attackDamageMultiplierForWave(safeWave),
+    );
+    expect(hordeIntervalForWave(wave)).toBe(hordeIntervalForWave(safeWave));
   });
 
   it('unlocks sparse specialists at their progression milestones', () => {
     expect(zombieCompositionForWave(1)).toEqual({
-      walker: 14,
+      walker: 13,
       thrower: 0,
       worker: 0,
-      'phone-addict': 0,
-    });
-    expect(zombieCompositionForWave(3)).toEqual({
-      walker: 22,
-      worker: 0,
-      thrower: 0,
       'phone-addict': 0,
     });
     expect(zombieCompositionForWave(4)).toEqual({
-      walker: 26,
+      walker: 22,
       thrower: 2,
       worker: 0,
       'phone-addict': 0,
     });
     expect(zombieCompositionForWave(7)).toEqual({
-      walker: 38,
+      walker: 31,
       thrower: 3,
       worker: 1,
       'phone-addict': 0,
     });
     expect(zombieCompositionForWave(10)).toEqual({
-      walker: 50,
+      walker: 40,
       thrower: 5,
       worker: 2,
       'phone-addict': 1,
+    });
+    expect(zombieCompositionForWave(20)).toEqual({
+      walker: 70,
+      thrower: 10,
+      worker: 5,
+      'phone-addict': 3,
+    });
+  });
+
+  it('does not unlock specialists before their milestone waves', () => {
+    expect(zombieCompositionForWave(3)).toEqual({
+      walker: 19,
+      worker: 0,
+      thrower: 0,
+      'phone-addict': 0,
     });
   });
 
@@ -136,7 +202,7 @@ describe('wave formulas', () => {
 
     waves.startWave(1);
     expect(waveMultipliers).toEqual([1, 1, 1]);
-    expect(waves.prepareDebugKillAll()).toBe(14);
+    expect(waves.prepareDebugKillAll()).toBe(13);
     expect(remaining).toBe(0);
     expect(completion).toEqual({ wave: 1, reward: 50 });
   });
