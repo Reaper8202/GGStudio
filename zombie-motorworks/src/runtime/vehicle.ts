@@ -338,6 +338,19 @@ export class RuntimeVehicle {
     return snapshot;
   }
 
+  /** Restore per-part HP from a snapshot; parts at or below 0 HP are killed. */
+  applyPartHpSnapshot(snapshot: Record<string, number>): DetachedIsland[] {
+    for (const [id, health] of Object.entries(snapshot)) {
+      const part = this.assembled.parts.get(id);
+      if (!part) continue;
+      part.health = Math.min(part.def.health, health);
+    }
+    // Restoring a part at zero HP has to break the rig apart exactly the way
+    // taking that last hit would, so the caller gets the islands back and can
+    // give them meshes like any other mid-run detachment.
+    return this.finishStep();
+  }
+
   preStep(
     dt: number,
     controls: VehicleControls,

@@ -37,6 +37,15 @@ export interface GraveyardOptions {
   collidersEnabled?: boolean;
 }
 
+export interface MinimapFeature {
+  /** Axis-aligned world-space footprint, metres. */
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  kind: 'road' | 'obstacle';
+}
+
 interface TileTransform {
   readonly x: number;
   readonly z: number;
@@ -73,10 +82,12 @@ export class Graveyard {
     minZ: -HALF_SIZE,
     maxZ: HALF_SIZE,
   };
+  readonly minimapFeatures: readonly MinimapFeature[];
   readonly spawnPoints: readonly THREE.Vector3[];
 
   private readonly root = new THREE.Group();
   private readonly staticBodies: RAPIER.RigidBody[] = [];
+  private readonly minimapFeatureList: MinimapFeature[] = [];
   private readonly voxelBatches = new Map<string, VoxelPlacement[]>();
   private readonly failedAssets = new Set<string>();
   private readonly followPosition = new THREE.Vector3();
@@ -150,6 +161,8 @@ export class Graveyard {
     this.buildRoadSigns();
     this.buildLanterns();
     this.flushVoxelBatches();
+    // Construction is the only mutation phase; consumers receive a stable layout.
+    this.minimapFeatures = Object.freeze(this.minimapFeatureList);
     this.spawnPoints = this.computeSpawnPoints();
   }
 
@@ -366,6 +379,23 @@ export class Graveyard {
     const laneHalfWidth = nativeTileSize / 2;
     const tileSpacing = nativeTileSize - 0.15;
     const roadTint = 0x4a5a4e;
+
+    this.minimapFeatureList.push(
+      {
+        minX: ROAD_X - nativeTileSize,
+        maxX: ROAD_X + nativeTileSize,
+        minZ: -HALF_SIZE,
+        maxZ: HALF_SIZE,
+        kind: 'road',
+      },
+      {
+        minX: ROAD_X,
+        maxX: HALF_SIZE,
+        minZ: SIDE_ROAD_Z - nativeTileSize,
+        maxZ: SIDE_ROAD_Z + nativeTileSize,
+        kind: 'road',
+      },
+    );
 
     this.placeVoxel({
       asset: 'Road-Crossing-A',
@@ -1060,6 +1090,13 @@ export class Graveyard {
     size: Size3,
     position: readonly [number, number, number],
   ): void {
+    this.minimapFeatureList.push({
+      minX: position[0] - size[0] / 2,
+      maxX: position[0] + size[0] / 2,
+      minZ: position[2] - size[2] / 2,
+      maxZ: position[2] + size[2] / 2,
+      kind: 'obstacle',
+    });
     if (!this.collidersEnabled) return;
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(...position),
@@ -1078,6 +1115,13 @@ export class Graveyard {
     height: number,
     position: readonly [number, number, number],
   ): void {
+    this.minimapFeatureList.push({
+      minX: position[0] - radius,
+      maxX: position[0] + radius,
+      minZ: position[2] - radius,
+      maxZ: position[2] + radius,
+      kind: 'obstacle',
+    });
     if (!this.collidersEnabled) return;
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(...position),

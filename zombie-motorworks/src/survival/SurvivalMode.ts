@@ -24,6 +24,7 @@ import { createToggle } from '../ui/system.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import { GRAVEYARD_HALF_SIZE, Graveyard } from './Graveyard.ts';
+import { Minimap } from './Minimap.ts';
 import { WaveManager } from './WaveManager.ts';
 import { ZombieSystem } from './zombies/ZombieSystem.ts';
 import {
@@ -51,6 +52,16 @@ export interface SurvivalCallbacks {
   onGameOver(run: RunState): void;
   onResetWave(run: RunState, waveEarnings: number): void;
   onCheatInfiniteMoney(): void;
+  /**
+   * Persist the run so the player can close the tab and pick it up later.
+   * Mid-wave zombie state is not restorable, so the saved wave restarts from
+   * its countdown on resume; the vehicle comes back with the damage it has now.
+   */
+  onSaveAndQuit(snapshot: {
+    wave: number;
+    kills: number;
+    partHp: Record<string, number>;
+  }): void;
 }
 
 export type SurvivalPhase = 'countdown' | 'active' | 'cleared' | 'gameOver';
@@ -168,7 +179,9 @@ export class SurvivalMode {
   private readonly aimPoint = new THREE.Vector3();
   private readonly shotDirection = new THREE.Vector3();
   private readonly stoppedVelocity = { x: 0, y: 0, z: 0 };
+  private readonly minimapForward = new THREE.Vector3();
   private readonly ui: HTMLDivElement;
+  private readonly minimap: Minimap;
   private readonly speedValue: HTMLSpanElement;
   private readonly speedTrack: HTMLDivElement;
   private readonly speedSafeLabel: HTMLSpanElement;
@@ -331,6 +344,16 @@ export class SurvivalMode {
     this.settingsEyebrow = builtUi.settingsEyebrow;
     this.spawnCheatButton = builtUi.spawnCheatButton;
     this.settingsStatus = builtUi.settingsStatus;
+    this.minimap = new Minimap(
+      this.ui,
+      this.graveyard.bounds,
+      this.graveyard.minimapFeatures,
+    );
+
+    // A resumed run brings back the damage the vehicle had when it was saved.
+    if (run.partHp) {
+      this.attachNewIslands(this.vehicle.applyPartHpSnapshot(run.partHp));
+    }
 
     this.beginCountdown(run.wave);
     window.addEventListener('keydown', this.keydown);
@@ -644,6 +667,22 @@ export class SurvivalMode {
     resetButton.addEventListener('click', this.onResetWave);
     resetSection.append(resetCopy, resetButton);
 
+    const saveSection = document.createElement('div');
+    saveSection.className = 'survival-settings__reset';
+    const saveCopy = document.createElement('div');
+    const saveTitle = document.createElement('strong');
+    saveTitle.textContent = 'Save & Quit';
+    const saveDescription = document.createElement('span');
+    saveDescription.textContent =
+      'Bank your progress and return to the title screen. This wave restarts when you resume.';
+    saveCopy.append(saveTitle, saveDescription);
+    const saveQuitButton = document.createElement('button');
+    saveQuitButton.type = 'button';
+    saveQuitButton.className = 'ui-button ui-button--medium';
+    saveQuitButton.textContent = 'Save & Quit';
+    saveQuitButton.addEventListener('click', this.onSaveAndQuit);
+    saveSection.append(saveCopy, saveQuitButton);
+
     const settingsStatus = document.createElement('div');
     settingsStatus.className = 'survival-settings__status';
     settingsStatus.setAttribute('role', 'status');
@@ -652,6 +691,7 @@ export class SurvivalMode {
       cheatsToggle,
       cheatActions,
       resetSection,
+      saveSection,
       settingsStatus,
     );
     settingsOverlay.appendChild(settingsPanel);
@@ -728,6 +768,15 @@ export class SurvivalMode {
   private readonly onResetWave = (): void => {
     if (this.disposed) return;
     this.callbacks.onResetWave(this.currentRunState(), this.waveMoneyEarned);
+  };
+
+  private readonly onSaveAndQuit = (): void => {
+    if (this.disposed || this.phase === 'gameOver') return;
+    this.callbacks.onSaveAndQuit({
+      wave: this.currentWave,
+      kills: this.kills,
+      partHp: this.vehicle.partHpSnapshot(),
+    });
   };
 
   private readonly onNextWave = (): void => {
@@ -1192,6 +1241,15 @@ export class SurvivalMode {
     this.followCamera.update(frameDt);
     this.graveyard.follow(this.vehicleGroup);
     this.syncHud();
+    // Vehicles face local +Z, so the heading the arrow should point along is the
+    // yaw of the rotated forward axis. The minimap throttles its own redraws.
+    this.minimapForward.set(0, 0, 1).applyQuaternion(this.vehicleGroup.quaternion);
+    this.minimap.update(
+      position.x,
+      position.z,
+      Math.atan2(this.minimapForward.x, this.minimapForward.z),
+      this.zombies.getAliveTargets(),
+    );
   }
 
   private syncHud(): void {
@@ -1537,6 +1595,7 @@ export class SurvivalMode {
     this.vehicle.dispose();
     this.eventQueue.free();
     this.world.free();
+    this.minimap.dispose();
     this.ui.remove();
     disposeObject(this.scene);
     this.scene.clear();

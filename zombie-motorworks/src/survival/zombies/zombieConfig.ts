@@ -2,7 +2,7 @@
 export const BASE_ZOMBIE_STATS = {
   health: 40,
   speed: 3.2,
-  attackDamage: 10,
+  attackDamage: 10.5,
   attackInterval: 1,
   reward: 3,
 } as const;
@@ -116,7 +116,7 @@ export const LANDMINE_POOL_SIZE = 24;
 export const LANDMINE_RADIUS = 0.45;
 export const LANDMINE_HEIGHT = 0.22;
 export const LANDMINE_TRIGGER_RADIUS = 1.5;
-export const LANDMINE_DAMAGE = 60;
+export const LANDMINE_DAMAGE = 63;
 export const LANDMINE_PULSE_FREQUENCY = 6; // rad/s
 export const LANDMINE_PULSE_AMPLITUDE = 0.2; // fraction of base scale
 export const LANDMINE_EXPLOSION_POOL_SIZE = 6;
@@ -131,7 +131,7 @@ export const PROJECTILE_POOL_SIZE = 24;
 export const PROJECTILE_HORIZONTAL_SPEED = 9; // m/s, still a dodgeable lob
 export const PROJECTILE_MIN_FLIGHT_TIME = 0.5;
 export const PROJECTILE_MAX_FLIGHT_TIME = 2.5;
-export const PROJECTILE_DAMAGE = 12;
+export const PROJECTILE_DAMAGE = 12.6;
 export const PROJECTILE_HIT_RADIUS = 1.3;
 export const PROJECTILE_LIFETIME = 6;
 export const PROJECTILE_LAUNCH_HEIGHT = 1.2;

@@ -33,7 +33,9 @@ import type { VehicleControls } from '../runtime/vehicle.ts';
 import { SurvivalMode } from '../survival/SurvivalMode.ts';
 import type { RunState } from '../core/economy.ts';
 import { defaultProfile, type PlayerProfile } from '../core/profile.ts';
+import type { SavedRun } from '../core/runSave.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
+import { runSaveStore } from './runSaveStore.ts';
 import { TitleScreen } from './TitleScreen.ts';
 
 export class App {
@@ -98,6 +100,62 @@ export class App {
     loop();
   }
 
+  /** True when a resumable run save exists. */
+  hasStoredRun(): boolean {
+    return runSaveStore.has();
+  }
+
+  /**
+   * Persist the in-progress run and return to the title screen.
+   * Called from the survival pause overlay. `wave` is the wave to resume at.
+   */
+  saveAndQuitRun(snapshot: {
+    wave: number;
+    kills: number;
+    partHp: Record<string, number>;
+  }): void {
+    const savedRun: SavedRun = {
+      schemaVersion: 1,
+      wave: snapshot.wave,
+      kills: snapshot.kills,
+      moneyEarned: this.runMoneyEarned,
+      blueprint: this.bp,
+      partHp: snapshot.partHp,
+      savedAt: Date.now(),
+    };
+    try {
+      runSaveStore.save(savedRun);
+    } catch {
+      this.notifySaveFailure();
+      return;
+    }
+
+    this.flushProfile();
+    this.survival?.dispose();
+    this.survival = null;
+    this.clearSessionState();
+    this.showTitle();
+  }
+
+  /** Load the saved run and drop straight into survival at its wave. */
+  resumeSavedRun(): boolean {
+    const savedRun = runSaveStore.load();
+    if (savedRun === null) return false;
+
+    this.disposeTitle();
+    this.clearSessionState();
+    this.bp = savedRun.blueprint;
+    this.runMoneyEarned = savedRun.moneyEarned;
+    this.runSummary = undefined;
+    this.activeRun = { wave: savedRun.wave };
+    this.inBuildPhase = false;
+    this.enterSurvival(this.bp, {
+      wave: savedRun.wave,
+      partHp: savedRun.partHp,
+    });
+    return true;
+  }
+
   private openEditor(): void {
     this.disposeTitle();
     this.chamber?.dispose();
@@ -129,10 +187,17 @@ export class App {
   private showTitle(hasSave = this.hasStoredSave()): void {
     if (this.activeRun && this.inBuildPhase) return;
     this.disposeTitle();
-    this.title = new TitleScreen(this.root, this.renderer, hasSave, {
-      onNewGame: () => this.beginNewGame(),
-      onContinue: () => this.beginContinueGame(),
-    });
+    this.title = new TitleScreen(
+      this.root,
+      this.renderer,
+      hasSave,
+      {
+        onNewGame: () => this.beginNewGame(),
+        onContinue: () => this.beginContinueGame(),
+        onResumeRun: () => this.resumeSavedRun(),
+      },
+      runSaveStore.load(),
+    );
   }
 
   private returnToTitle(): void {
@@ -174,6 +239,11 @@ export class App {
   }
 
   private resetSessionState(): void {
+    runSaveStore.clear();
+    this.clearSessionState();
+  }
+
+  private clearSessionState(): void {
     this.history.clear();
     this.savedView = undefined;
     this.activeRun = null;
@@ -228,6 +298,7 @@ export class App {
   }
 
   private startRun(bp: VehicleBlueprint): void {
+    runSaveStore.clear();
     this.runMoneyEarned = 0;
     this.runSummary = undefined;
     this.activeRun = { wave: 1 };
@@ -264,6 +335,7 @@ export class App {
       onResetWave: (state, waveEarnings) =>
         this.resetSurvivalWave(state, waveEarnings),
       onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
+      onSaveAndQuit: (snapshot) => this.saveAndQuitRun(snapshot),
     });
     this.survival.resize(this.root.clientWidth, this.root.clientHeight);
   }
@@ -285,6 +357,7 @@ export class App {
   }
 
   private finishRun(run: RunState): void {
+    runSaveStore.clear();
     this.flushProfile();
     this.runSummary = {
       wavesSurvived: Math.max(0, run.wave - 1),
@@ -434,6 +507,14 @@ export class App {
               : 'editor',
       newGame: () => this.title?.requestNewGame() ?? false,
       continueGame: () => this.title?.continueGame() ?? false,
+      hasStoredRun: () => this.hasStoredRun(),
+      saveAndQuitRun: (snapshot: {
+        wave: number;
+        kills: number;
+        partHp: Record<string, number>;
+      }) => this.saveAndQuitRun(snapshot),
+      resumeSavedRun: () => this.resumeSavedRun(),
+      clearRunSave: () => runSaveStore.clear(),
       getBlueprintJson: () =>
         serializeBlueprint(this.editor?.blueprint() ?? this.bp),
       loadBlueprintJson: (json: string) =>

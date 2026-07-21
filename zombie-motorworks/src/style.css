@@ -1965,3 +1965,38 @@ button:disabled {
     padding-top: 7px;
   }
 }
+
+/* Survival minimap */
+.minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 14;
+  width: 188px;
+  height: 188px;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: var(--panel-radius);
+  box-shadow: 6px 7px 0 rgb(0 0 0 / 0.32);
+}
+
+.minimap__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * On narrow viewports the driver HUD stretches across the whole bottom edge, so
+ * the bottom-right corner is no longer free. Tuck the minimap under the wave HUD
+ * in the top-right instead, where nothing else is anchored.
+ */
+@media (max-width: 560px) {
+  .minimap {
+    top: 92px;
+    right: 8px;
+    bottom: auto;
+    width: 104px;
+    height: 104px;
+  }
+}

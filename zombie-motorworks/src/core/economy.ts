@@ -6,6 +6,7 @@ import type { PartDefinition, PlacedPart } from './types.ts';
 /** Persistent run progress. Spendable money belongs only to PlayerProfile. */
 export interface RunState {
   wave: number;
+  partHp?: Record<string, number>;
 }
 
 function placedLevel(placed: PlacedPart): number {
