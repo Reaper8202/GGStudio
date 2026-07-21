@@ -61,13 +61,13 @@ export class AmmoPickups {
   private readonly haloMaterial = new THREE.MeshBasicMaterial({
     color: GLOW_COLOR,
     transparent: true,
-    opacity: 0.85,
+    opacity: 1,
   });
   private readonly beamGeometry = new THREE.CylinderGeometry(0.32, 0.32, 6, 12, 1, true);
   private readonly beamMaterial = new THREE.MeshBasicMaterial({
     color: GLOW_COLOR,
     transparent: true,
-    opacity: 0.14,
+    opacity: 0.22,
     side: THREE.DoubleSide,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
@@ -96,9 +96,10 @@ export class AmmoPickups {
     beam.position.y = 3;
     group.add(beam);
 
-    const light = new THREE.PointLight(GLOW_COLOR, 14, 8, 2);
-    light.position.y = 1;
-    group.add(light);
+    // No real light source here on purpose: toggling a light's visibility
+    // changes the scene's active-light count, which makes three.js recompile
+    // every material in the scene (a hard frame spike on spawn/collect). The
+    // unlit glow meshes above read as a beacon without touching lighting.
 
     this.root.add(group);
 
