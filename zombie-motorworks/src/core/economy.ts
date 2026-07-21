@@ -1,5 +1,6 @@
 import { getPartDef } from './parts.ts';
 import { STARTER_UNLOCKS } from './profile.ts';
+import { turretModuleInvestment } from './turretModules.ts';
 import { getEffectiveDef, upgradePrice } from './upgrades.ts';
 import type { PartDefinition, PlacedPart } from './types.ts';
 
@@ -18,14 +19,15 @@ function placedLevel(placed: PlacedPart): number {
 /** Total purchase price already paid for a placed part and its upgrades. */
 export function partInvestment(placed: PlacedPart): number {
   const def = getEffectiveDef(placed);
-  if (def.upgrade === undefined) return def.cost;
+  const moduleInvestment = turretModuleInvestment(placed);
+  if (def.upgrade === undefined) return def.cost + moduleInvestment;
 
   let investment = def.cost;
   for (let level = 2; level <= placedLevel(placed); level += 1) {
     const price = upgradePrice(def, level);
     if (price !== undefined) investment += price;
   }
-  return investment;
+  return investment + moduleInvestment;
 }
 
 export function sellRefund(placed: PlacedPart): number {
