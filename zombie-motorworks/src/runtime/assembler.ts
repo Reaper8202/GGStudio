@@ -25,7 +25,10 @@ import {
 import { cellCentreM, placedCellMasses } from '../core/mass.ts';
 import { getPartDef } from '../core/parts.ts';
 import { effectivePartDef, getEffectiveDef } from '../core/upgrades.ts';
-import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
+import {
+  deriveAutomaticWheelLayout,
+  resolveDrivenPartIds,
+} from '../core/wheelLayout.ts';
 
 export type GetDef = (defId: string) => PartDefinition;
 
@@ -43,6 +46,7 @@ export const DEBRIS_GROUPS =
   (GROUP_DEBRIS << 16) |
   (GROUP_TERRAIN | GROUP_DEBRIS | GROUP_ZOMBIE | GROUP_VEHICLE);
 export const WHEEL_RAY_GROUPS = (0xffff << 16) | GROUP_TERRAIN;
+const CHASSIS_LINEAR_DAMPING = 0.05;
 
 export interface RuntimePart {
   placed: PlacedPart;
@@ -165,7 +169,8 @@ export function assembleVehicle(
     // tire lateral force while airborne to bleed it off). Kept low so it
     // doesn't fight legitimate rollover dynamics (RuntimeVehicle adds
     // post-solve energy guards for the worst contact spikes).
-    .setAngularDamping(0.38);
+    .setAngularDamping(0.38)
+    .setLinearDamping(CHASSIS_LINEAR_DAMPING);
   const body = world.createRigidBody(bodyDesc);
 
   const parts = new Map<string, RuntimePart>();
@@ -288,8 +293,15 @@ export function assembleVehicle(
   // blueprint that never passed through the editor normalizer (an old save, a
   // rig rebuilt after the build phase) still gets a working steering axle.
   const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
+  const drivenPartIds = resolveDrivenPartIds(bp, getDef);
   for (const wheel of wheels) {
-    wheel.driven = wheelLayout.drivenPartIds.has(wheel.partId);
+    // An explicit player choice wins; otherwise fall back to the derived
+    // layout so legacy and mid-run-rebuilt blueprints still drive. Shared with
+    // analysis so the build report cannot disagree with the runtime.
+    wheel.driven = drivenPartIds.has(wheel.partId);
+    // Steering is always derived: deriveAutomaticWheelLayout already honours
+    // an explicit config.steering, and deriving here is what rescues a wheel
+    // remounted mid-run (which would otherwise fight the axle that steers).
     wheel.steering = wheelLayout.steeringPartIds.has(wheel.partId);
   }
 

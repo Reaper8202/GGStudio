@@ -23,13 +23,13 @@ function placed(defId: string, level?: number): PlacedPart {
 
 describe('economy helpers', () => {
   it('calculates investment, a floored half refund, and default level cost', () => {
-    expect(partInvestment(placed('turret', 3))).toBe(90 + 54 + 86);
-    expect(sellRefund(placed('turret', 3))).toBe(115);
-    expect(partInvestment(placed('turret'))).toBe(90);
+    expect(partInvestment(placed('turret', 3))).toBe(150 + 90 + 144);
+    expect(sellRefund(placed('turret', 3))).toBe(192);
+    expect(partInvestment(placed('turret'))).toBe(150);
   });
 
   it('returns the next upgrade price and stops at the maximum level', () => {
-    expect(nextUpgrade(placed('turret'))).toEqual({ targetLevel: 2, price: 54 });
+    expect(nextUpgrade(placed('turret'))).toEqual({ targetLevel: 2, price: 90 });
     expect(nextUpgrade(placed('turret', 5))).toBeNull();
   });
 

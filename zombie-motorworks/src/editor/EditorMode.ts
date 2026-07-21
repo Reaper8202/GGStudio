@@ -5,7 +5,13 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { PartConfig, PlacedPart, Vec3i, VehicleBlueprint } from '../core/types.ts';
+import type {
+  PartConfig,
+  PartDefinition,
+  PlacedPart,
+  Vec3i,
+  VehicleBlueprint,
+} from '../core/types.ts';
 import { CELL_SIZE, GRID_MAX, GRID_MIN } from '../core/types.ts';
 import { PART_CATALOG, getPartDef } from '../core/parts.ts';
 import {
@@ -54,6 +60,26 @@ import type { PlayerProfile } from '../core/profile.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
+
+/**
+ * Seed a freshly placed part's config. Wheels arrive powered and braked so a
+ * new wheel contributes immediately instead of mounting inert.
+ *
+ * `steering` is deliberately left undecided: deriveAutomaticWheelLayout picks
+ * the axle ahead of the wheelbase midpoint, which is what makes the rig turn.
+ * Forcing every wheel to steer would steer the rear axle the same way as the
+ * front and crab the vehicle sideways instead of rotating it.
+ */
+export function defaultConfigForDef(def: PartDefinition): PartConfig {
+  return def.wheel
+    ? {
+        driven: true,
+        braking: true,
+        steerInverted: false,
+        suspensionPreset: 'standard',
+      }
+    : {};
+}
 
 interface GhostState {
   defId: string;
@@ -862,7 +888,7 @@ export class EditorMode {
       return;
     }
     const id = nextPartId(this.bp);
-    const config: PartConfig = {};
+    const config = defaultConfigForDef(def);
     const part: PlacedPart = { id, defId: this.ghost.defId, pos, orient: this.ghost.orient, config };
     const cmds: EditorCommand[] = [placeCommand(part)];
 
@@ -973,7 +999,9 @@ export class EditorMode {
       nextUpgradePrice: upgrade?.price ?? null,
       canUpgrade: upgrade !== null && canAfford(this.profile.money, upgrade.price),
       sellRefund: selectionRefund,
-    }, part.config);
+    }, part.config, def.wheel
+      ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
+      : undefined);
     this.refreshOverlays();
   }
 
@@ -1223,7 +1251,8 @@ export class EditorMode {
       this.deny(`${getPartDef(defId).name} is locked`);
       return { ok: false, issues: [`LOCKED_PART: ${defId}`] };
     }
-    const baseConfig = { ...config };
+    const def = getPartDef(defId);
+    const baseConfig = { ...defaultConfigForDef(def), ...config };
     delete baseConfig.level;
     const result = canPlacePart(this.bp, getPartDef, defId, pos, orient, baseConfig);
     if (!result.ok) {
@@ -1274,21 +1303,15 @@ export class EditorMode {
   }
 }
 
-/**
- * Mirror the automatic drive and steer layout into saved config for editor
- * inspection. Steering stays player-owned once decided: the derived value only
- * fills in wheels whose config never had it set, which is every freshly placed
- * wheel. Ticking or unticking the box in the inspector always wins.
- */
-function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
+/** Fill missing persistent wheel defaults without freezing derived steering. */
+export function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
   const layout = deriveAutomaticWheelLayout(bp, getPartDef);
   let changed = false;
   const parts = bp.parts.map((part) => {
     if (!getPartDef(part.defId).wheel) return part;
     const config = { ...part.config };
-    config.driven = layout.drivenPartIds.has(part.id);
-    if (config.steering === undefined) {
-      config.steering = layout.steeringPartIds.has(part.id);
+    if (config.driven === undefined) {
+      config.driven = layout.drivenPartIds.has(part.id);
     }
     if (config.braking === undefined) config.braking = true;
     if (config.steerInverted === undefined) config.steerInverted = false;

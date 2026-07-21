@@ -22,12 +22,12 @@ export interface WaveComposition {
 export function zombieCompositionForWave(wave: number): WaveComposition {
   const safeWave = Math.max(1, Math.floor(Number.isFinite(wave) ? wave : 1));
   return {
-    walker: 25 + safeWave * 6,
+    walker: 10 + safeWave * 4,
     thrower:
-      safeWave >= 2 ? Math.min(3 + Math.floor((safeWave - 2) / 2), 12) : 0,
-    worker: safeWave >= 6 ? Math.min(2 + Math.floor((safeWave - 6) / 3), 7) : 0,
+      safeWave >= 4 ? Math.min(2 + Math.floor((safeWave - 4) / 2), 10) : 0,
+    worker: safeWave >= 7 ? Math.min(1 + Math.floor((safeWave - 7) / 3), 6) : 0,
     'phone-addict':
-      safeWave >= 9 ? Math.min(2 + Math.floor((safeWave - 9) / 4), 7) : 0,
+      safeWave >= 10 ? Math.min(1 + Math.floor((safeWave - 10) / 4), 6) : 0,
   };
 }
 
@@ -50,8 +50,12 @@ export function speedMultiplierForWave(wave: number): number {
   return 1 + Math.min((wave - 1) * 0.035, 0.6);
 }
 
+export function attackDamageMultiplierForWave(wave: number): number {
+  return 1 + Math.min((Math.max(1, Math.floor(wave)) - 1) * 0.08, 1.5);
+}
+
 export function waveRewardForWave(wave: number): number {
-  return 100 + wave * 25;
+  return 40 + wave * 10;
 }
 
 function hordeSizeForWave(wave: number): number {
@@ -130,6 +134,7 @@ export class WaveManager {
     this.zombies.setWaveMultipliers(
       healthMultiplierForWave(this.waveNumber),
       speedMultiplierForWave(this.waveNumber),
+      attackDamageMultiplierForWave(this.waveNumber),
     );
     this.emitRemaining();
   }

@@ -19,6 +19,7 @@ describe('player profile codec', () => {
     expect(decodeProfile(encodeProfile(profile))).toEqual({
       ...profile,
       unlockedDefIds: [...STARTER_UNLOCKS, ...profile.unlockedDefIds],
+      inventory: {},
     });
   });
 
@@ -87,6 +88,7 @@ describe('player profile codec', () => {
       schemaVersion: 1,
       money: 25,
       unlockedDefIds: [...STARTER_UNLOCKS],
+      inventory: {},
     });
     expect(
       decodeProfile(

@@ -17,7 +17,7 @@ import {
 } from './mass.ts';
 import { getPartDef } from './parts.ts';
 import { effectivePartDef, getEffectiveDef } from './upgrades.ts';
-import { deriveAutomaticWheelLayout } from './wheelLayout.ts';
+import { resolveDrivenPartIds } from './wheelLayout.ts';
 
 type Point2 = { x: number; z: number };
 
@@ -253,9 +253,9 @@ export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => Par
       weapon.damage * weapon.fireRate * (weapon.raysPerShot ?? 1) * dutyCycle
     );
   }, 0);
-  const wheelLayout = deriveAutomaticWheelLayout(bp, getDef);
+  const drivenPartIds = resolveDrivenPartIds(bp, getDef);
   const drivenWheels = wheelEntries.filter((wheel) =>
-    wheelLayout.drivenPartIds.has(wheel.part.id),
+    drivenPartIds.has(wheel.part.id),
   );
   const groundedDrivenWheels = drivenWheels.filter((wheel) => wheel.contact.grounded);
   const drivenWheelLoad = groundedDrivenWheels.reduce((sum, wheel) => sum + wheel.contact.load, 0);

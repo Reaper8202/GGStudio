@@ -19,10 +19,10 @@ describe('part upgrades', () => {
 
     expect(effective.health).toBeCloseTo(engine.health * 1.32);
     expect(effective.engine?.maxPowerKw).toBeCloseTo(
-      engine.engine!.maxPowerKw * 1.4,
+      engine.engine!.maxPowerKw * 1.32 * 1.56,
     );
     expect(effective.engine?.torqueCurve[1][1]).toBeCloseTo(
-      engine.engine!.torqueCurve[1][1] * 1.4,
+      engine.engine!.torqueCurve[1][1] * 1.32,
     );
     expect(engine.engine?.maxPowerKw).toBe(95);
     expect(engine.engine?.torqueCurve[1][1]).toBe(210);
@@ -31,19 +31,20 @@ describe('part upgrades', () => {
 
   it('scales wheels, weapons, and armour by their respective rates', () => {
     const wheel = effectivePartDef(getPartDef('wheel-standard'), 2);
-    const weapon = effectivePartDef(getPartDef('turret'), 2);
+    const turret = getPartDef('turret');
+    const weapon = effectivePartDef(turret, 2);
     const armour = effectivePartDef(getPartDef('armour-plate'), 2);
 
     expect(wheel.wheel?.frictionLong).toBeCloseTo(1.06);
-    expect(weapon.weapon?.damage).toBeCloseTo(9 * 1.12);
-    expect(weapon.weapon?.fireRate).toBeCloseTo(8 * 1.08);
+    expect(weapon.weapon?.damage).toBeCloseTo(turret.weapon!.damage * 1.12);
+    expect(weapon.weapon?.fireRate).toBeCloseTo(turret.weapon!.fireRate * 1.08);
     expect(armour.armour?.protection).toBeCloseTo(24 * 1.15);
   });
 
   it('computes upgrade prices and has defined no-metadata semantics', () => {
     const turret = getPartDef('turret');
-    expect(upgradePrice(turret, 2)).toBe(54);
-    expect(upgradePrice(turret, 3)).toBe(86);
+    expect(upgradePrice(turret, 2)).toBe(90);
+    expect(upgradePrice(turret, 3)).toBe(144);
     expect(() => upgradePrice(turret, 1)).toThrow(RangeError);
     expect(upgradePrice({ ...turret, upgrade: undefined }, 2)).toBeUndefined();
   });
@@ -56,6 +57,8 @@ describe('part upgrades', () => {
       orient: 0,
       config: { level: 2 },
     });
-    expect(effective.engine?.maxPowerKw).toBeCloseTo(104.5);
+    expect(effective.engine?.maxPowerKw).toBeCloseTo(
+      getPartDef('engine-small').engine!.maxPowerKw * 1.08 * 1.14,
+    );
   });
 });

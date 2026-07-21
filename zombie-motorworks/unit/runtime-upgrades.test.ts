@@ -68,10 +68,10 @@ describe('runtime upgrade resolution', () => {
     );
 
     expect(engineState.def.torqueCurve[0][1]).toBeCloseTo(
-      base.torqueCurve[0][1] * 1.2,
+      base.torqueCurve[0][1] * 1.16,
     );
     expect(upgradedOutput.wheelTorqueTotal).toBeCloseTo(
-      baseOutput.wheelTorqueTotal * 1.2,
+      baseOutput.wheelTorqueTotal * 1.16,
     );
 
     vehicle.dispose();

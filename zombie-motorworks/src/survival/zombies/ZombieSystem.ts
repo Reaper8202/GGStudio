@@ -107,6 +107,7 @@ export class ZombieSystem {
   };
   private healthMultiplier = 1;
   private speedMultiplier = 1;
+  private attackDamageMultiplier = 1;
   private disposed = false;
 
   constructor(
@@ -153,9 +154,14 @@ export class ZombieSystem {
   }
 
   /** Applies only to zombies spawned after this call. */
-  setWaveMultipliers(healthMultiplier: number, speedMultiplier: number): void {
+  setWaveMultipliers(
+    healthMultiplier: number,
+    speedMultiplier: number,
+    attackDamageMultiplier: number,
+  ): void {
     this.healthMultiplier = Math.max(0, healthMultiplier);
     this.speedMultiplier = Math.max(0, speedMultiplier);
+    this.attackDamageMultiplier = Math.max(0, attackDamageMultiplier);
   }
 
   getActiveCount(): number {
@@ -209,6 +215,7 @@ export class ZombieSystem {
         this.spawnScratch,
         this.healthMultiplier,
         this.speedMultiplier,
+        this.attackDamageMultiplier,
       );
       this.resetWatchdog(zombie);
       spawned++;

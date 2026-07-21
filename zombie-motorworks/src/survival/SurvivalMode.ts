@@ -14,6 +14,7 @@ import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
 import {
   RuntimeVehicle,
+  brakeInputWithAutoHold,
   type VehicleControls,
   type WeaponAmmoTelemetry,
 } from '../runtime/vehicle.ts';
@@ -953,7 +954,8 @@ export class SurvivalMode {
     const forward = this.keys.has('w') || this.keys.has('arrowup') ? 1 : 0;
     const reverse = this.keys.has('s') || this.keys.has('arrowdown') ? 1 : 0;
     // S brakes while rolling forward, reverses once (near-)stopped.
-    const movingForward = this.vehicle.forwardSpeed() > 0.6;
+    const forwardSpeed = this.vehicle.forwardSpeed();
+    const movingForward = forwardSpeed > 0.6;
     this.controls.throttle = forward;
     this.controls.reverse = reverse && !forward && !movingForward ? 1 : 0;
     this.controls.brake = this.keys.has(' ')
@@ -961,6 +963,7 @@ export class SurvivalMode {
       : reverse && movingForward
         ? 1
         : 0;
+    this.controls.brake = brakeInputWithAutoHold(this.controls, forwardSpeed);
     this.controls.steer =
       (this.keys.has('a') || this.keys.has('arrowleft') ? -1 : 0) +
       (this.keys.has('d') || this.keys.has('arrowright') ? 1 : 0);
@@ -1249,14 +1252,18 @@ export class SurvivalMode {
         this.ammoList.appendChild(row.root);
         this.ammoRows.set(weapon.partId, row);
       }
-      if (row.lastAmmo === weapon.ammo) continue;
-      row.lastAmmo = weapon.ammo;
-      const pct = weapon.capacity > 0 ? (weapon.ammo / weapon.capacity) * 100 : 0;
-      row.value.textContent = `${weapon.ammo} / ${weapon.capacity}`;
+      // Magazines regenerate continuously, so ammo is fractional. Show whole
+      // rounds — a part-formed round cannot be fired — and cache on the
+      // rounded value so this stops rewriting the DOM every single frame.
+      const rounds = Math.floor(weapon.ammo);
+      if (row.lastAmmo === rounds) continue;
+      row.lastAmmo = rounds;
+      const pct = weapon.capacity > 0 ? (rounds / weapon.capacity) * 100 : 0;
+      row.value.textContent = `${rounds} / ${weapon.capacity}`;
       row.fill.style.width = `${pct}%`;
-      row.fill.parentElement?.setAttribute('aria-valuenow', String(weapon.ammo));
-      row.root.classList.toggle('is-low', weapon.ammo > 0 && pct <= 25);
-      row.root.classList.toggle('is-empty', weapon.ammo <= 0);
+      row.fill.parentElement?.setAttribute('aria-valuenow', String(rounds));
+      row.root.classList.toggle('is-low', rounds > 0 && pct <= 25);
+      row.root.classList.toggle('is-empty', rounds <= 0);
     }
     if (this.ammoRows.size !== weaponAmmo.length) {
       const live = new Set(weaponAmmo.map((w) => w.partId));

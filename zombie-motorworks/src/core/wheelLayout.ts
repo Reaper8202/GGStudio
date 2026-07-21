@@ -7,6 +7,31 @@ export interface AutomaticWheelLayout {
 }
 
 /**
+ * Which wheels actually receive drive torque: an explicit config.driven wins,
+ * otherwise the automatic 2WD layout decides.
+ *
+ * Both the runtime assembler and the editor's analysis read drive through
+ * here, so the build report can never disagree with what the vehicle does.
+ */
+export function resolveDrivenPartIds(
+  blueprint: VehicleBlueprint,
+  getDef: (id: string) => PartDefinition,
+): ReadonlySet<string> {
+  const layout = deriveAutomaticWheelLayout(blueprint, getDef);
+  const driven = new Set<string>();
+  for (const part of blueprint.parts) {
+    if (getDef(part.defId).wheel === undefined) continue;
+    const explicit = part.config.driven;
+    const isDriven =
+      typeof explicit === 'boolean'
+        ? explicit
+        : layout.drivenPartIds.has(part.id);
+    if (isDriven) driven.add(part.id);
+  }
+  return driven;
+}
+
+/**
  * Automatic steer + 2WD drive layout.
  *
  * Steering defaults to the wheels ahead of the axle midpoint (vehicle forward
