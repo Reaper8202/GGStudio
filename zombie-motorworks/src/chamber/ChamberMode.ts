@@ -9,7 +9,11 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import type { VehicleBlueprint } from '../core/types.ts';
 import { getPartDef } from '../core/parts.ts';
 import { deriveConnections } from '../core/structural.ts';
-import { RuntimeVehicle, type VehicleControls } from '../runtime/vehicle.ts';
+import {
+  RuntimeVehicle,
+  brakeInputWithAutoHold,
+  type VehicleControls,
+} from '../runtime/vehicle.ts';
 import { lowestPointM, GROUP_TERRAIN, GROUP_ZOMBIE } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
@@ -212,10 +216,10 @@ export class ChamberMode {
       if (part.def.wheel) {
         // Wheels are positioned per-frame in world space (suspension travel).
         const spin = mesh.getObjectByName('wheel-spin');
-        if (spin) {
-          spin.userData.baseQuat = spin.quaternion.clone();
-          spin.position.set(0, 0, 0); // outer group is placed at the wheel centre
-        }
+        if (spin) spin.userData.baseQuat = spin.quaternion.clone();
+        // Outer group is placed at the wheel centre, so every child sits on
+        // the origin — a tread's static belt as well as its spinning rollers.
+        for (const child of mesh.children) child.position.set(0, 0, 0);
         this.wheelMeshes.set(id, mesh);
         this.scene.add(mesh);
       } else {
@@ -339,10 +343,12 @@ export class ChamberMode {
     const fwd = k.has('w') || k.has('arrowup') ? 1 : 0;
     const rev = k.has('s') || k.has('arrowdown') ? 1 : 0;
     // S brakes while rolling forward, reverses once (near-)stopped.
-    const movingForward = this.vehicle.forwardSpeed() > 0.6;
+    const forwardSpeed = this.vehicle.forwardSpeed();
+    const movingForward = forwardSpeed > 0.6;
     this.controls.throttle = fwd;
     this.controls.reverse = rev && !fwd && !movingForward ? 1 : 0;
     this.controls.brake = k.has(' ') ? 1 : rev && movingForward ? 1 : 0;
+    this.controls.brake = brakeInputWithAutoHold(this.controls, forwardSpeed);
     this.controls.steer = (k.has('a') || k.has('arrowleft') ? -1 : 0) + (k.has('d') || k.has('arrowright') ? 1 : 0);
 
     this.vehicle.preStep(FIXED_DT, this.controls, (h) => this.surfaceByCollider.get(h) ?? 'asphalt');

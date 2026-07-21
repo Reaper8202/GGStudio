@@ -18,6 +18,8 @@ const COLORS: Record<string, number> = {
   'fuel-tank': 0xb0803a,
   'wheel-standard': 0x23262b,
   'wheel-offroad': 0x1b1e22,
+  'wheel-moto': 0x2c3038,
+  'tread-tank': 0x3a3f36,
   turret: 0x39424e,
   'armour-plate': 0x69737a,
   'cannon-heavy': 0x303840,
@@ -61,6 +63,105 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
   group.name = `part:${placed.id}`;
   const color = placed.config.paint ? PAINT_COLORS[placed.config.paint] : partColor(def);
   const s = CELL_SIZE;
+
+  if (def.wheel?.skidSteer) {
+    // Tank tread: a static belt spanning the part's cells along local Z, with
+    // rollers inside it that spin. Only the rollers go in 'wheel-spin' —
+    // rotating the belt itself would read as a giant wheel.
+    const w = def.wheel;
+    const centre = cellCentreM(placed.pos);
+    const span = (def.cells.length - 1) * s; // end-roller centre separation
+    const rollerR = w.radius * 0.86;
+    const beltMaterial = new THREE.MeshLambertMaterial({
+      color: partColor(def),
+      transparent: opacity < 1,
+      opacity,
+    });
+    const treadGroup = new THREE.Group();
+
+    // Belt: a slab between the end caps, plus a rounded cap at each end.
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(w.width, rollerR * 2, span),
+      beltMaterial,
+    );
+    slab.userData.placementSurface = true;
+    treadGroup.add(slab);
+    for (const end of [-1, 1]) {
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(rollerR, rollerR, w.width, 14),
+        beltMaterial,
+      );
+      cap.rotation.z = Math.PI / 2; // cylinder +Y -> local X (the axle)
+      cap.position.set(0, 0, (end * span) / 2);
+      cap.userData.placementSurface = true;
+      treadGroup.add(cap);
+    }
+
+    // Cleats around the belt perimeter, in the paint colour so a painted
+    // tread still reads as the player's.
+    const cleatMaterial = new THREE.MeshLambertMaterial({
+      color,
+      transparent: opacity < 1,
+      opacity,
+    });
+    const cleatGeometry = new THREE.BoxGeometry(w.width * 1.08, s * 0.1, s * 0.16);
+    const cleatsPerSide = def.cells.length * 2;
+    for (let i = 0; i < cleatsPerSide; i++) {
+      const z = -span / 2 + ((i + 0.5) / cleatsPerSide) * span;
+      for (const side of [-1, 1]) {
+        const cleat = new THREE.Mesh(cleatGeometry, cleatMaterial);
+        cleat.position.set(0, side * rollerR, z);
+        treadGroup.add(cleat);
+      }
+    }
+
+    // Spinning rollers, visible through the gap between the cleats.
+    const rollerGroup = new THREE.Group();
+    const rollerMaterial = new THREE.MeshLambertMaterial({
+      color: 0x2b2e33,
+      transparent: opacity < 1,
+      opacity,
+    });
+    const rollerGeometry = new THREE.CylinderGeometry(
+      rollerR * 0.55,
+      rollerR * 0.55,
+      w.width * 1.12,
+      10,
+    );
+    for (let i = 0; i < def.cells.length; i++) {
+      const roller = new THREE.Mesh(rollerGeometry, rollerMaterial);
+      // Cylinder axis is +Y, which the roller basis below puts on the axle.
+      roller.position.set(0, 0, -span / 2 + (i / (def.cells.length - 1)) * span);
+      rollerGroup.add(roller);
+    }
+    rollerGroup.name = 'wheel-spin';
+
+    const axle = rotateVec(placed.orient, w.axleAxis);
+    const long = rotateVec(placed.orient, { x: 0, y: 0, z: 1 });
+    const axleV = new THREE.Vector3(axle.x, axle.y, axle.z).normalize();
+    const longV = new THREE.Vector3(long.x, long.y, long.z).normalize();
+    const upV = new THREE.Vector3().crossVectors(longV, axleV).normalize();
+
+    // Belt basis: local X is the axle, local Z the belt's long axis, matching
+    // how the slab and caps were built above.
+    treadGroup.quaternion.setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(axleV, upV, longV),
+    );
+    // Roller basis: local Y is the axle, because the shared per-frame code
+    // spins wheels with rotateY.
+    rollerGroup.quaternion.setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(
+        new THREE.Vector3().crossVectors(axleV, longV).normalize(),
+        axleV,
+        longV,
+      ),
+    );
+    for (const part of [treadGroup, rollerGroup]) {
+      part.position.set(centre.x, centre.y, centre.z);
+      group.add(part);
+    }
+    return group;
+  }
 
   if (def.wheel) {
     const w = def.wheel;

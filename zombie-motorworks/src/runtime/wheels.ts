@@ -33,6 +33,8 @@ const TIRE_LONGITUDINAL_GRIP_MULTIPLIER = 1.4;
 const TIRE_LATERAL_GRIP_MULTIPLIER = 1.65;
 const LONG_SLIP_SATURATION = 1.15; // m/s of slip for full longitudinal force
 const LAT_SLIP_SATURATION = 0.5; // m/s lateral speed for full lateral force
+const WHEEL_REST_EPSILON = 0.001; // m/s
+const BRAKE_STOP_RESPONSE_STEPS = 1;
 const GRAVITY_MPS2 = 9.81;
 // Suspension: rest sag sets the base spring rate (k = cornerWeight / sag), so
 // the ride frequency is the same for every build (~1.8 Hz) regardless of
@@ -279,9 +281,30 @@ export function stepWheels(
     const vLong = dot(vContact, fwd);
     const vLat = dot(vContact, lat);
 
-    // Longitudinal: slip between wheel surface speed and ground speed.
+    const drive = input.driveTorques.get(w.partId) ?? 0;
+    const wheelSurfaceSpeed = w.omega * w.radius;
+    const atRest =
+      drive === 0 &&
+      Math.abs(wheelSurfaceSpeed) < WHEEL_REST_EPSILON &&
+      Math.abs(vLong) < WHEEL_REST_EPSILON;
+    if (atRest) w.omega = 0;
+
+    // Longitudinal: slip between wheel surface speed and ground speed. At rest,
+    // suppress tiny residual slip so the tire cannot manufacture creep.
     const slip = w.omega * w.radius - vLong;
-    const fLong = muLong * N * clamp(slip / LONG_SLIP_SATURATION, -1, 1);
+    let fLong = atRest
+      ? 0
+      : muLong * N * clamp(slip / LONG_SLIP_SATURATION, -1, 1);
+    if (!atRest && w.braking && input.brake > 0) {
+      const brakeAmount = clamp(input.brake, 0, 1);
+      const maxBrakeGrip = Math.min(
+        muLong * N * brakeAmount,
+        (w.wheelDef.brakeTorque * brakeAmount) / w.radius,
+      );
+      const stopForce =
+        (-vLong * cornerMass) / (dt * BRAKE_STOP_RESPONSE_STEPS);
+      fLong = clamp(stopForce, -maxBrakeGrip, maxBrakeGrip);
+    }
     // Lateral: resist sliding, saturating at μN.
     const fLat = -muLat * N * clamp(vLat / LAT_SLIP_SATURATION, -1, 1);
 
@@ -298,7 +321,6 @@ export function stepWheels(
     // Wheel spin integration: drive + ground reaction + rolling resistance,
     // then brake as a no-reversal clamp (locks cleanly instead of
     // oscillating when brakeTorque·dt/I exceeds ω).
-    const drive = input.driveTorques.get(w.partId) ?? 0;
     const brakeT = w.braking ? input.brake * w.wheelDef.brakeTorque : 0;
     const rollRes = surface.rollingResistance * N * w.radius;
     w.omega +=

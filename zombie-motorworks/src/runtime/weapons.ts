@@ -21,6 +21,7 @@ import type {
 import { rotateVec } from '../core/grid.ts';
 import { cellCentreM } from '../core/mass.ts';
 import { getPartDef } from '../core/parts.ts';
+import { KID_LABELS } from '../core/tutorial.ts';
 import {
   add,
   clamp,
@@ -34,6 +35,8 @@ import {
 export interface RuntimeWeapon {
   partId: string;
   def: WeaponDefinition;
+  /** Display name of the mounting part, for the ammo HUD. */
+  label: string;
   mountLocal: Vec3;
   forwardLocal: Vec3;
   yaw: number; // turret yaw relative to mounted forward, rad
@@ -41,6 +44,10 @@ export interface RuntimeWeapon {
   /** Elapsed time in the current burst cycle for periodic burst weapons, s. */
   cycleTime: number;
   shotsFired: number;
+  /** Rounds left in this weapon's own magazine. */
+  ammo: number;
+  /** Magazine size, from the mounting part's ammoCapacity. */
+  ammoCapacity: number;
 }
 
 export interface TracerShot {
@@ -56,23 +63,29 @@ export function createWeapon(
   placed: PlacedPart,
   getDef: GetDef = getPartDef,
 ): RuntimeWeapon {
-  const def = resolvePlacedDef(placed, getDef).weapon;
+  const partDef = resolvePlacedDef(placed, getDef);
+  const def = partDef.weapon;
   if (def === undefined) {
     throw new Error(`Part definition ${placed.defId} is not a weapon`);
   }
+  const ammoCapacity = partDef.ammoCapacity ?? 0;
   return {
     partId: placed.id,
     def,
+    label: KID_LABELS[partDef.id]?.name ?? partDef.name,
     mountLocal: cellCentreM(placed.pos),
     forwardLocal: rotateVec(placed.orient, { x: 0, y: 0, z: 1 }),
     yaw: 0,
     cooldown: 0,
     cycleTime: 0,
     shotsFired: 0,
+    ammo: ammoCapacity,
+    ammoCapacity,
   };
 }
 
 const TURRET_YAW_RATE = 3.2; // rad/s
+const AMMO_RECHARGE_FRACTION_PER_S = 0.02;
 const WEAPON_RAY_GROUPS =
   (0xffff << 16) | (GROUP_TERRAIN | GROUP_ZOMBIE | GROUP_DEBRIS);
 
@@ -99,7 +112,6 @@ export function stepWeapons(
   weapons: RuntimeWeapon[],
   attachedAliveIds: Set<string>,
   input: WeaponStepInput,
-  ammoAvailable: number,
   powerAvailable: number,
   dt: number,
 ): WeaponStepResult {
@@ -113,6 +125,10 @@ export function stepWeapons(
   for (const wpn of weapons) {
     wpn.cooldown = Math.max(0, wpn.cooldown - dt);
     if (!attachedAliveIds.has(wpn.partId)) continue;
+    wpn.ammo = Math.min(
+      wpn.ammoCapacity,
+      wpn.ammo + wpn.ammoCapacity * AMMO_RECHARGE_FRACTION_PER_S * dt,
+    );
     const weaponInput = input.weaponAim?.get(wpn.partId) ?? input;
 
     const up = norm(rotateByQuat(rot, v3(0, 1, 0)));
@@ -157,7 +173,8 @@ export function stepWeapons(
       wantsFire = weaponInput.fire;
     }
     if (!wantsFire || wpn.cooldown > 0) continue;
-    if (ammoAvailable - ammoUsed < wpn.def.ammoPerShot) continue;
+    // Each weapon draws from its own magazine; battery power stays shared.
+    if (wpn.ammo < wpn.def.ammoPerShot) continue;
     if (powerAvailable - powerUsed < wpn.def.powerPerShot) continue;
 
     const yawDir =
@@ -219,6 +236,7 @@ export function stepWeapons(
       true,
     );
 
+    wpn.ammo -= wpn.def.ammoPerShot;
     ammoUsed += wpn.def.ammoPerShot;
     powerUsed += wpn.def.powerPerShot;
     wpn.cooldown = 1 / wpn.def.fireRate;

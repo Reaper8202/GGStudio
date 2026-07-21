@@ -100,7 +100,7 @@ describe('analyzeVehicle mass properties', () => {
     );
 
     expect(upgraded.powerToWeightKwPerT).toBeCloseTo(
-      base.powerToWeightKwPerT * 1.1,
+      base.powerToWeightKwPerT * 1.08 * 1.14,
     );
   });
 });
@@ -177,7 +177,10 @@ describe('analyzeVehicle wheels and stability', () => {
 
   it('reports wheels without driven configuration', () => {
     const report = analyzeVehicle(
-      blueprint([...symmetricFrameParts(), ...fourWheels({ steering: true })]),
+      blueprint([
+        ...symmetricFrameParts(),
+        ...fourWheels({ steering: true, driven: false }),
+      ]),
       getPartDef,
     );
 
@@ -246,7 +249,7 @@ describe('analyzeVehicle wheels and stability', () => {
       getPartDef,
     );
 
-    expect(codes(report)).toContain('SUSPENSION_OVERLOAD');
+    expect(codes(report)).toContain('WHEEL_OVERLOAD');
   });
 });
 

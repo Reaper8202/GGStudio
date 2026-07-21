@@ -14,7 +14,10 @@ import { deserializeBlueprint } from '../src/core/serialize.ts';
 import { deriveConnections } from '../src/core/structural.ts';
 import { GROUP_TERRAIN, lowestPointM } from '../src/runtime/assembler.ts';
 import type { VehicleControls } from '../src/runtime/vehicle.ts';
-import { RuntimeVehicle } from '../src/runtime/vehicle.ts';
+import {
+  RuntimeVehicle,
+  brakeInputWithAutoHold,
+} from '../src/runtime/vehicle.ts';
 import { rotateByQuat } from '../src/runtime/vec.ts';
 
 const DT = 1 / 60;
@@ -86,6 +89,13 @@ function run(
   return minUpY;
 }
 
+function horizontalDistance(
+  from: { x: number; z: number },
+  to: { x: number; z: number },
+): number {
+  return Math.hypot(to.x - from.x, to.z - from.z);
+}
+
 describe('suspension stability simulation', () => {
   it('settles level and grounded at rest', () => {
     const world = makeWorld();
@@ -136,6 +146,46 @@ describe('suspension stability simulation', () => {
     expect(minUpY).toBeGreaterThan(0.7);
     expect(vehicle.body.translation().z).toBeGreaterThan(20);
     expect(vehicle.isDestroyed()).toBe(false);
+    world.free();
+  });
+});
+
+describe('vehicle idle settling simulation', () => {
+  it('holds only at low speed without drive input', () => {
+    expect(brakeInputWithAutoHold(idleControls, 1.49)).toBe(1);
+    expect(brakeInputWithAutoHold(idleControls, 1.5)).toBe(0);
+    expect(
+      brakeInputWithAutoHold({ ...idleControls, throttle: 1 }, 0),
+    ).toBe(0);
+    expect(
+      brakeInputWithAutoHold({ ...idleControls, reverse: 1 }, 0),
+    ).toBe(0);
+  });
+
+  it('stays in place on flat ground with zero input', () => {
+    const world = makeWorld();
+    const vehicle = spawnVehicle(world);
+    const start = vehicle.body.translation();
+
+    run(world, vehicle, {}, 5);
+    expect(horizontalDistance(start, vehicle.body.translation())).toBeLessThan(0.03);
+    world.free();
+  });
+
+  it('stops a low-speed roll and does not resume creeping', () => {
+    const world = makeWorld();
+    const vehicle = spawnVehicle(world);
+    run(world, vehicle, {}, 1);
+    const verticalSpeed = vehicle.body.linvel().y;
+    vehicle.body.setLinvel({ x: 0, y: verticalSpeed, z: 1 }, true);
+
+    run(world, vehicle, {}, 2);
+
+    expect(Math.abs(vehicle.forwardSpeed())).toBeLessThan(0.02);
+    const stoppedAt = vehicle.body.translation();
+    run(world, vehicle, {}, 2);
+    expect(Math.abs(vehicle.forwardSpeed())).toBeLessThan(0.02);
+    expect(horizontalDistance(stoppedAt, vehicle.body.translation())).toBeLessThan(0.02);
     world.free();
   });
 });

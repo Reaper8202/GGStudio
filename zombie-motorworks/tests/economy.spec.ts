@@ -125,7 +125,7 @@ test('locked, unlocked, and insufficient-funds placement paths are enforced', as
   const beforeDeniedPlacement = await blueprint(page);
   const denied = await place(page, 'turret', { x: 0, y: 2, z: 0 });
   expect(denied.ok).toBe(false);
-  expect(denied.issues).toContain('INSUFFICIENT_FUNDS: need $90');
+  expect(denied.issues).toContain('INSUFFICIENT_FUNDS: need $150');
   expect(await blueprint(page)).toEqual(beforeDeniedPlacement);
   expect(await page.evaluate(() => window.__scrapRig.profile().money)).toBe(
     startingProfile.money - 175,

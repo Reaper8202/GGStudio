@@ -1,10 +1,10 @@
-/** Wave-one zombie stats. WaveManager supplies health/speed multipliers. */
+/** Wave-one zombie stats. WaveManager supplies health/speed/damage multipliers. */
 export const BASE_ZOMBIE_STATS = {
   health: 40,
   speed: 3.2,
   attackDamage: 10,
   attackInterval: 1,
-  reward: 10,
+  reward: 3,
 } as const;
 
 /**
@@ -70,7 +70,7 @@ export const SWARM_DRAG_ACCELERATION = 9;
 // slow box projectiles at the vehicle.
 export const THROWER_SPEED_MULTIPLIER = 0.5;
 export const THROWER_HEALTH_MULTIPLIER = 1.6;
-export const THROWER_REWARD = 25;
+export const THROWER_REWARD = 8;
 export const THROWER_ATTACK_RANGE = 13;
 export const THROWER_ATTACK_EXIT_MARGIN = 2;
 export const THROWER_ATTACK_INTERVAL = 2.8;
@@ -81,7 +81,7 @@ export const THROWER_VISUAL_HEIGHT = 1; // pre-baseScale model height, m
 // contact hurt it.
 export const PHONE_ADDICT_HEALTH_MULTIPLIER = 1.2;
 export const PHONE_ADDICT_SPEED_MULTIPLIER = 0.9;
-export const PHONE_ADDICT_REWARD = 30;
+export const PHONE_ADDICT_REWARD = 10;
 export const PHONE_ADDICT_VISUAL_HEIGHT = 1.4; // pre-baseScale model height, m
 /** Red ground-glow disc marking a shielded zombie, world metres. */
 export const PHONE_ADDICT_GLOW_RADIUS = 1.15;
@@ -93,7 +93,7 @@ export const PHONE_ADDICT_GLOW_OPACITY = 0.65;
 // to plant range again before the next mine.
 export const WORKER_HEALTH_MULTIPLIER = 1.3;
 export const WORKER_SPEED_MULTIPLIER = 0.85;
-export const WORKER_REWARD = 35;
+export const WORKER_REWARD = 12;
 export const WORKER_VISUAL_HEIGHT = 1.4; // pre-baseScale model height, m
 /** Reaching this close to the vehicle triggers the arming channel. */
 export const WORKER_PLANT_RANGE = 10;

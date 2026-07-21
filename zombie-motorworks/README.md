@@ -34,7 +34,9 @@ The game is a static Three.js + Rapier web build: no game engine and no server.
 
 ## Build rules
 
-Every part must stay within the grid and connect to the Chassis Core through face-to-face structural sockets. The editor tracks a 24-orientation integer grid, so rotations and mirrored builds remain exact. Wheels are normalized as driven and braking; wheels ahead of the axle midpoint steer. The play gate requires a root chassis, a control part, an engine, and one connected structure; analysis warns about poor wheel setups.
+Every part must stay within the grid and connect to the Chassis Core through face-to-face structural sockets. The editor tracks a 24-orientation integer grid, so rotations and mirrored builds remain exact. Wheels are normalized as driven and braking, and wheels ahead of the axle midpoint steer unless you tick the box yourself — an explicit choice is never overwritten. The play gate requires a root chassis, a control part, an engine, and one connected structure; analysis warns about poor wheel setups.
+
+Movement parts trade off against each other. The **Standard** and **Monster** wheels are the all-rounders; the **Speedy Wheel** is light with a big steering lock but a low load rating, so it buckles under a heavy rig; the **Tank Tread** is a three-block belt that is slow and very tough. Treads do not angle their hubs — they skid-steer, turning by driving one side of the vehicle harder than the other, so a fully tracked rig pivots on the spot. Mixing treads and wheels gives you both behaviours at once.
 
 The build card reports weight, rollover risk, validation errors, and analysis warnings. Warnings are advice; errors block **TEST DRIVE** and **Fight Zombies**.
 

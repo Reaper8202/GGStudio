@@ -82,6 +82,11 @@ export interface WheelDefinition {
   /** Local suspension travel direction at orientation 0 (usually -Y). */
   suspensionDir: Vec3i;
   maxSteerAngleDeg: number; // usable only when configured as steering
+  /**
+   * Turns by driving each side of the vehicle at a different speed instead of
+   * angling the hub — tank treads. Set alongside maxSteerAngleDeg 0.
+   */
+  skidSteer?: boolean;
   driveTorqueLimit: number; // N·m the hub survives
   brakeTorque: number; // N·m
   frictionLong: number; // longitudinal friction coefficient multiplier

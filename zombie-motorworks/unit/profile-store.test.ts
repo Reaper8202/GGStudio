@@ -48,6 +48,7 @@ describe('profile store', () => {
       schemaVersion: 1,
       money: 340,
       unlockedDefIds: [...STARTER_UNLOCKS, 'frame-reinforced'],
+      inventory: {},
     });
     expect(second).toBe(first);
     expect(storage.reads).toBe(1);

@@ -12,7 +12,12 @@ import type { VehicleBlueprint } from '../core/types.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
-import { RuntimeVehicle, type VehicleControls } from '../runtime/vehicle.ts';
+import {
+  RuntimeVehicle,
+  brakeInputWithAutoHold,
+  type VehicleControls,
+  type WeaponAmmoTelemetry,
+} from '../runtime/vehicle.ts';
 import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
@@ -95,6 +100,7 @@ interface SurvivalUi {
   speedKillLabel: HTMLSpanElement;
   integrityValue: HTMLSpanElement;
   integrityFill: HTMLSpanElement;
+  ammoList: HTMLDivElement;
   waveValue: HTMLSpanElement;
   remainingValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
@@ -170,6 +176,12 @@ export class SurvivalMode {
   private readonly speedKillLabel: HTMLSpanElement;
   private readonly integrityValue: HTMLSpanElement;
   private readonly integrityFill: HTMLSpanElement;
+  private readonly ammoList: HTMLDivElement;
+  /** Live magazine rows, keyed by weapon part id. */
+  private readonly ammoRows = new Map<
+    string,
+    { root: HTMLDivElement; fill: HTMLSpanElement; value: HTMLSpanElement; lastAmmo: number }
+  >();
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
@@ -302,6 +314,7 @@ export class SurvivalMode {
     this.speedKillLabel = builtUi.speedKillLabel;
     this.integrityValue = builtUi.integrityValue;
     this.integrityFill = builtUi.integrityFill;
+    this.ammoList = builtUi.ammoList;
     this.waveValue = builtUi.waveValue;
     this.remainingValue = builtUi.remainingValue;
     this.moneyValue = builtUi.moneyValue;
@@ -360,10 +373,12 @@ export class SurvivalMode {
       const mesh = buildPartMesh(part.def, part.placed);
       if (part.def.wheel) {
         const spin = mesh.getObjectByName('wheel-spin');
-        if (spin) {
-          spin.userData.baseQuat = spin.quaternion.clone();
-          spin.position.set(0, 0, 0);
-        }
+        if (spin) spin.userData.baseQuat = spin.quaternion.clone();
+        // The part group is moved to the wheel's suspension-travelled centre
+        // every frame, so its children must sit on the group origin. A tread
+        // has a static belt alongside its spinning rollers, so zero them all
+        // rather than just the spin group.
+        for (const child of mesh.children) child.position.set(0, 0, 0);
         this.wheelMeshes.set(id, mesh);
         this.wheelSpin.set(id, 0);
         this.scene.add(mesh);
@@ -473,13 +488,18 @@ export class SurvivalMode {
     integrityFill.className = 'survival-health__fill';
     healthTrack.appendChild(integrityFill);
     health.append(healthHeader, healthTrack);
+    // One magazine row per weapon, filled in by syncHud as weapons are
+    // mounted and lost.
+    const ammoList = document.createElement('div');
+    ammoList.className = 'survival-ammo';
+    ammoList.style.display = 'none';
     const moneyRow = document.createElement('div');
     moneyRow.className = 'survival-earned';
     const moneyLabel = document.createElement('span');
     moneyLabel.textContent = 'Money Earned';
     const moneyValue = document.createElement('span');
     moneyRow.append(moneyLabel, moneyValue);
-    hud.append(speedRow, health, moneyRow);
+    hud.append(speedRow, health, ammoList, moneyRow);
     root.appendChild(hud);
 
     const stuckPrompt = document.createElement('div');
@@ -649,6 +669,7 @@ export class SurvivalMode {
       speedKillLabel,
       integrityValue,
       integrityFill,
+      ammoList,
       waveValue,
       remainingValue,
       moneyValue,
@@ -933,7 +954,8 @@ export class SurvivalMode {
     const forward = this.keys.has('w') || this.keys.has('arrowup') ? 1 : 0;
     const reverse = this.keys.has('s') || this.keys.has('arrowdown') ? 1 : 0;
     // S brakes while rolling forward, reverses once (near-)stopped.
-    const movingForward = this.vehicle.forwardSpeed() > 0.6;
+    const forwardSpeed = this.vehicle.forwardSpeed();
+    const movingForward = forwardSpeed > 0.6;
     this.controls.throttle = forward;
     this.controls.reverse = reverse && !forward && !movingForward ? 1 : 0;
     this.controls.brake = this.keys.has(' ')
@@ -941,6 +963,7 @@ export class SurvivalMode {
       : reverse && movingForward
         ? 1
         : 0;
+    this.controls.brake = brakeInputWithAutoHold(this.controls, forwardSpeed);
     this.controls.steer =
       (this.keys.has('a') || this.keys.has('arrowleft') ? -1 : 0) +
       (this.keys.has('d') || this.keys.has('arrowright') ? 1 : 0);
@@ -1201,6 +1224,7 @@ export class SurvivalMode {
       this.lastHudRemaining = zombiesOnField;
       this.remainingValue.textContent = String(zombiesOnField);
     }
+    this.syncAmmoHud(telemetry.weaponAmmo);
     const money = this.callbacks.runEarnings();
     if (money !== this.lastHudMoney) {
       this.lastHudMoney = money;
@@ -1213,6 +1237,70 @@ export class SurvivalMode {
         this.countdownValue.textContent = String(second);
       }
     }
+  }
+
+  /**
+   * Reconcile one magazine row per live weapon. Rows are created on first
+   * sight and dropped when the weapon is destroyed or detached, so the HUD
+   * always matches what is actually bolted to the rig.
+   */
+  private syncAmmoHud(weaponAmmo: readonly WeaponAmmoTelemetry[]): void {
+    for (const weapon of weaponAmmo) {
+      let row = this.ammoRows.get(weapon.partId);
+      if (!row) {
+        row = this.createAmmoRow(weapon.label);
+        this.ammoList.appendChild(row.root);
+        this.ammoRows.set(weapon.partId, row);
+      }
+      // Magazines regenerate continuously, so ammo is fractional. Show whole
+      // rounds — a part-formed round cannot be fired — and cache on the
+      // rounded value so this stops rewriting the DOM every single frame.
+      const rounds = Math.floor(weapon.ammo);
+      if (row.lastAmmo === rounds) continue;
+      row.lastAmmo = rounds;
+      const pct = weapon.capacity > 0 ? (rounds / weapon.capacity) * 100 : 0;
+      row.value.textContent = `${rounds} / ${weapon.capacity}`;
+      row.fill.style.width = `${pct}%`;
+      row.fill.parentElement?.setAttribute('aria-valuenow', String(rounds));
+      row.root.classList.toggle('is-low', rounds > 0 && pct <= 25);
+      row.root.classList.toggle('is-empty', rounds <= 0);
+    }
+    if (this.ammoRows.size !== weaponAmmo.length) {
+      const live = new Set(weaponAmmo.map((w) => w.partId));
+      for (const [partId, row] of this.ammoRows) {
+        if (live.has(partId)) continue;
+        row.root.remove();
+        this.ammoRows.delete(partId);
+      }
+    }
+    this.ammoList.style.display = weaponAmmo.length > 0 ? '' : 'none';
+  }
+
+  private createAmmoRow(label: string): {
+    root: HTMLDivElement;
+    fill: HTMLSpanElement;
+    value: HTMLSpanElement;
+    lastAmmo: number;
+  } {
+    const root = document.createElement('div');
+    root.className = 'survival-ammo__row';
+    const header = document.createElement('div');
+    header.className = 'survival-ammo__header';
+    const name = document.createElement('span');
+    name.textContent = label;
+    const value = document.createElement('span');
+    value.className = 'survival-ammo__value';
+    header.append(name, value);
+    const track = document.createElement('div');
+    track.className = 'survival-ammo__track';
+    track.setAttribute('role', 'progressbar');
+    track.setAttribute('aria-label', `${label} ammo`);
+    track.setAttribute('aria-valuemin', '0');
+    const fill = document.createElement('span');
+    fill.className = 'survival-ammo__fill';
+    track.appendChild(fill);
+    root.append(header, track);
+    return { root, fill, value, lastAmmo: -1 };
   }
 
   private syncSpeedGaugeThresholds(): void {

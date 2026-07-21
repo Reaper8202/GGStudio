@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { PART_CATALOG } from '../src/core/parts.ts';
 import type { RuntimeVehicle } from '../src/runtime/vehicle.ts';
 import type { RuntimeWeapon } from '../src/runtime/weapons.ts';
@@ -18,6 +18,9 @@ describe('AutoAim', () => {
       cooldown: 0,
       cycleTime: 0,
       shotsFired: 0,
+      label: 'Test Weapon',
+      ammo: 100,
+      ammoCapacity: 100,
     };
     const manualWeapon: RuntimeWeapon = {
       partId: 'manual',
@@ -28,6 +31,9 @@ describe('AutoAim', () => {
       cooldown: 0,
       cycleTime: 0,
       shotsFired: 0,
+      label: 'Test Weapon',
+      ammo: 100,
+      ammoCapacity: 100,
     };
     const vehicle = {
       body: {
@@ -86,6 +92,9 @@ describe('AutoAim', () => {
       cooldown: 0,
       cycleTime: 0,
       shotsFired: 0,
+      label: 'Test Weapon',
+      ammo: 100,
+      ammoCapacity: 100,
     };
     const vehicle = {
       body: {
@@ -116,7 +125,7 @@ describe('AutoAim', () => {
   it('holds fire when all bounded candidates are occluded', () => {
     const weapon: RuntimeWeapon = {
       partId: 'auto', def: PART_CATALOG.turret.weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -133,7 +142,7 @@ describe('AutoAim', () => {
   it('prefers an in-range thrower over a nearer walker for ranged-priority weapons', () => {
     const weapon: RuntimeWeapon = {
       partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -160,7 +169,7 @@ describe('AutoAim', () => {
   it('holds fire when the only target sits inside the minimum range', () => {
     const weapon: RuntimeWeapon = {
       partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
