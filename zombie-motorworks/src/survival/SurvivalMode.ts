@@ -21,6 +21,7 @@ import {
 import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
+import { AmmoPickups } from './AmmoPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import { GRAVEYARD_HALF_SIZE, Graveyard } from './Graveyard.ts';
@@ -137,6 +138,7 @@ export class SurvivalMode {
   private readonly vehicle: RuntimeVehicle;
   private readonly zombies: ZombieSystem;
   private readonly autoAim: AutoAim;
+  private readonly ammoPickups: AmmoPickups;
   private readonly waves: WaveManager;
   private readonly followCamera: FollowCamera;
   private readonly vehicleGroup = new THREE.Group();
@@ -297,6 +299,11 @@ export class SurvivalMode {
       this.handleZombieKilled,
     );
     this.autoAim = new AutoAim(this.vehicle, this.zombies, this.world);
+    this.ammoPickups = new AmmoPickups(
+      this.scene,
+      this.vehicle,
+      this.graveyard.bounds,
+    );
     this.waves = new WaveManager(this.zombies, {
       onRemainingChanged: () => {
         this.lastHudRemaining = -1;
@@ -820,6 +827,7 @@ export class SurvivalMode {
         this.surfaceByCollider.get(colliderHandle) ?? 'asphalt',
     );
 
+    this.ammoPickups.step(FIXED_DT);
     this.waves.fixedUpdate(FIXED_DT);
     this.zombies.step(FIXED_DT);
 
@@ -1188,6 +1196,7 @@ export class SurvivalMode {
     }
 
     this.zombies.updateVisuals(frameDt);
+    this.ammoPickups.updateVisuals(frameDt);
     this.syncTracers(frameDt);
     this.followCamera.update(frameDt);
     this.graveyard.follow(this.vehicleGroup);
@@ -1252,9 +1261,10 @@ export class SurvivalMode {
         this.ammoList.appendChild(row.root);
         this.ammoRows.set(weapon.partId, row);
       }
-      // Magazines regenerate continuously, so ammo is fractional. Show whole
-      // rounds — a part-formed round cannot be fired — and cache on the
-      // rounded value so this stops rewriting the DOM every single frame.
+      // Ammo-box pickups add a fractional chunk of capacity, so ammo is not
+      // always whole. Show whole rounds — a part-formed round cannot be fired
+      // — and cache on the rounded value so this stops rewriting the DOM every
+      // single frame.
       const rounds = Math.floor(weapon.ammo);
       if (row.lastAmmo === rounds) continue;
       row.lastAmmo = rounds;
@@ -1532,6 +1542,7 @@ export class SurvivalMode {
       'pointerdown',
       this.onFireDown,
     );
+    this.ammoPickups.dispose();
     this.zombies.dispose();
     this.graveyard.dispose();
     this.vehicle.dispose();

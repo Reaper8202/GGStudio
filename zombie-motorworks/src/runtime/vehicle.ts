@@ -709,6 +709,29 @@ export class RuntimeVehicle {
     // Ammo needs no clamping: a magazine dies with the weapon that holds it.
   }
 
+  /**
+   * Top up every attached, living weapon's magazine by a fraction of its
+   * capacity (ammo-box pickups). Returns the total rounds added, so the caller
+   * can decide whether the pickup was actually useful (nothing added means
+   * every gun was already full and the box should be left in place).
+   */
+  refillWeapons(fraction: number): number {
+    if (fraction <= 0) return 0;
+    const attached = this.attachedAliveIds();
+    let added = 0;
+    for (const wpn of this.weapons) {
+      if (wpn.ammoCapacity <= 0) continue; // Melee mounts carry no rounds.
+      if (!attached.has(wpn.partId)) continue;
+      const before = wpn.ammo;
+      wpn.ammo = Math.min(
+        wpn.ammoCapacity,
+        wpn.ammo + wpn.ammoCapacity * fraction,
+      );
+      added += wpn.ammo - before;
+    }
+    return added;
+  }
+
   /** Magazines of every weapon still attached and alive. */
   private liveWeaponAmmo(): WeaponAmmoTelemetry[] {
     const out: WeaponAmmoTelemetry[] = [];

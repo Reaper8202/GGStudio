@@ -50,10 +50,13 @@ const SUSPENSION_RELAX_PER_S = 12; // visual compression decay while airborne
 // are unchanged, but grip can no longer roll the body over in corners or
 // pitch-flip it under hard acceleration.
 const TIRE_FORCE_ANCHOR_LIFT = 0.75;
-const STEER_RATE = 8; // rad/s
+// Steering feel. A brisker slew rate makes the wheels reach the commanded
+// angle quickly so turn-in no longer lags the key press, and a gentler
+// high-speed fade keeps the response consistent instead of going numb.
+const STEER_RATE = 12; // rad/s
 const LOW_SPEED_STEER_MULTIPLIER = 1.02;
-const HIGH_SPEED_STEER_MULTIPLIER = 0.82;
-const STEER_FADE_PER_MPS = 0.009;
+const HIGH_SPEED_STEER_MULTIPLIER = 0.9;
+const STEER_FADE_PER_MPS = 0.006;
 
 export interface WheelStepInput {
   throttle: number; // 0..1
@@ -100,10 +103,17 @@ export function computeAckermann(wheels: RuntimeWheel[]): AckermannGeometry {
   };
 }
 
-/** Per-wheel target steer angles with Ackermann correction for detected pairs. */
+/**
+ * Per-wheel target steer angles. Each steering wheel is now fully independent:
+ * it simply turns to its own maxSteerAngle scaled by the input, with no
+ * left/right axle coupling. Dropping the old Ackermann pair correction removes
+ * the "wonky" behaviour that showed up when a mismatched or mid-run-remounted
+ * wheel got paired to the wrong mate and the two sides fought each other.
+ * `geom` is kept for signature stability but no longer influences the angles.
+ */
 export function steerTargets(
   wheels: RuntimeWheel[],
-  geom: AckermannGeometry,
+  _geom: AckermannGeometry,
   steerInput: number,
 ): Map<string, number> {
   const out = new Map<string, number>();
@@ -111,24 +121,6 @@ export function steerTargets(
     if (!w.steering || w.broken) continue;
     const sign = w.steerInverted ? -1 : 1;
     out.set(w.partId, sign * steerInput * (w.wheelDef.maxSteerAngleDeg * Math.PI) / 180);
-  }
-  const L = geom.wheelbase;
-  const T = geom.track;
-  for (const [leftId, rightId] of geom.pairs) {
-    const left = wheels.find((w) => w.partId === leftId);
-    const right = wheels.find((w) => w.partId === rightId);
-    if (!left || !right) continue;
-    const base = out.get(leftId) ?? 0;
-    if (Math.abs(base) < 1e-4) continue;
-    const delta = Math.abs(base);
-    const inner = Math.atan(L / (L / Math.tan(delta) - T / 2));
-    const outer = Math.atan(L / (L / Math.tan(delta) + T / 2));
-    const s = Math.sign(base);
-    // steering left (s>0 turns toward -x side): left wheel is inner.
-    const leftAngle = s > 0 ? inner : outer;
-    const rightAngle = s > 0 ? outer : inner;
-    out.set(leftId, s * leftAngle);
-    out.set(rightId, s * rightAngle);
   }
   return out;
 }

@@ -227,18 +227,23 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     // Three cells long, so it reads as a belt rather than a wheel and forces
     // the player to commit real chassis length to a tracked build.
     description:
-      'Three-block armoured belt. Crawls over anything and shrugs off mines, but slow.',
+      'Three-block armoured belt. Crawls over anything and shrugs off mines. Very slow flat-out, but launches hard and is nearly indestructible.',
     cells: [v(0, 0, -1), ORIGIN, v(0, 0, 1)],
     clearanceCells: [v(0, -1, -1), v(0, -1, 0), v(0, -1, 1)],
     sockets: frameSockets([v(0, 0, -1), ORIGIN, v(0, 0, 1)]),
     massKg: 190,
-    health: 460,
+    // Stronger: a tracked rig should be the tankiest way to roll.
+    health: 620,
     cost: 85,
     upgrade: upgrade(5, 85),
     unlockCost: 450,
-    reinforcement: 2,
+    reinforcement: 2.6,
     wheel: {
-      radius: 0.34,
+      // A smaller effective drive radius does two things at once: it lowers the
+      // flat-out top speed (surface speed = ω·r) while raising the tractive
+      // force for the same engine torque (F = torque/r). That is exactly the
+      // "slow but grunty" tread feel — more acceleration, lower top speed.
+      radius: 0.28,
       width: 0.34,
       axleAxis: WHEEL_AXLE_LOCAL,
       suspensionDir: WHEEL_SUSPENSION_LOCAL,
@@ -247,17 +252,19 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       // rig can pivot instead of digging in.
       maxSteerAngleDeg: 0,
       skidSteer: true,
-      driveTorqueLimit: 5600,
-      brakeTorque: 3400,
-      frictionLong: 1.45,
+      // Raised so more of the engine's low-gear torque actually reaches the
+      // ground before the per-wheel clamp bites: quicker launches.
+      driveTorqueLimit: 7200,
+      brakeTorque: 4200,
+      frictionLong: 1.5,
       frictionLat: 0.8,
-      maxLoad: 30000,
+      maxLoad: 36000,
       suspension: {
         restLength: 0.4,
         travel: 0.14,
         stiffness: 105000,
         damping: 7600,
-        maxLoad: 28000,
+        maxLoad: 34000,
       },
     },
   },

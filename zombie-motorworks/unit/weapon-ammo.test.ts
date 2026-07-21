@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { getPartDef } from '../src/core/parts.ts';
 import type { PlacedPart, VehicleBlueprint } from '../src/core/types.ts';
 import { assembleVehicle } from '../src/runtime/assembler.ts';
+import { RuntimeVehicle } from '../src/runtime/vehicle.ts';
 import { createWeapon, stepWeapons } from '../src/runtime/weapons.ts';
 
 function part(id: string, defId: string, x = 0): PlacedPart {
@@ -78,7 +79,7 @@ describe('per-weapon magazines', () => {
     world.free();
   });
 
-  it('waits to fire until regeneration restores a complete round', () => {
+  it('never auto-refills a spent magazine — ammo comes only from pickups', () => {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const blasterPart = part('blaster', 'turret');
     const assembled = assembleVehicle(
@@ -91,6 +92,7 @@ describe('per-weapon magazines', () => {
     const blaster = createWeapon(blasterPart);
     blaster.ammo = 0;
 
+    // A whole second of holding an attached, empty gun must add nothing.
     const result = stepWeapons(
       world,
       assembled,
@@ -98,70 +100,40 @@ describe('per-weapon magazines', () => {
       new Set([blaster.partId]),
       { aimYawWorld: 0, fire: true },
       1_000,
-      0.1,
+      1,
     );
 
     expect(result.shots).toHaveLength(0);
     expect(blaster.shotsFired).toBe(0);
-    expect(blaster.ammo).toBeCloseTo(blaster.ammoCapacity * 0.02 * 0.1);
+    expect(blaster.ammo).toBe(0);
 
     world.removeRigidBody(assembled.body);
     world.free();
   });
 
-  it('recharges an empty attached weapon until it can fire again', () => {
-    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
-    const blasterPart = part('blaster', 'turret');
-    const assembled = assembleVehicle(
+  it('refills every mounted weapon by a fixed chunk when a pickup is collected', () => {
+    const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    const vehicle = new RuntimeVehicle(
       world,
-      blueprint([blasterPart]),
+      blueprint([part('blaster', 'turret')]),
       getPartDef,
       [],
       { translation: { x: 0, y: 1, z: 0 } },
     );
-    const blaster = createWeapon(blasterPart);
-    const attachedAliveIds = new Set([blaster.partId]);
+    const [weapon] = vehicle.weaponStates();
+    weapon.ammo = 0;
 
-    while (blaster.ammo > 0) {
-      const result = stepWeapons(
-        world,
-        assembled,
-        [blaster],
-        attachedAliveIds,
-        { aimYawWorld: 0, fire: true },
-        1_000,
-        0,
-      );
-      expect(result.shots).toHaveLength(1);
-      blaster.cooldown = 0;
-    }
-    expect(blaster.ammo).toBe(0);
-    const shotsBeforeRecharge = blaster.shotsFired;
+    // One box adds half a magazine and reports how many rounds it restored.
+    const added = vehicle.refillWeapons(0.5);
+    expect(added).toBeCloseTo(weapon.ammoCapacity * 0.5);
+    expect(weapon.ammo).toBeCloseTo(weapon.ammoCapacity * 0.5);
 
-    stepWeapons(
-      world,
-      assembled,
-      [blaster],
-      attachedAliveIds,
-      { aimYawWorld: 0, fire: false },
-      1_000,
-      1,
-    );
-    expect(blaster.ammo).toBeGreaterThan(blaster.def.ammoPerShot);
+    // A second box tops up and clamps at capacity; a third finds nothing to add.
+    vehicle.refillWeapons(0.5);
+    expect(weapon.ammo).toBe(weapon.ammoCapacity);
+    expect(vehicle.refillWeapons(0.5)).toBe(0);
 
-    const resumed = stepWeapons(
-      world,
-      assembled,
-      [blaster],
-      attachedAliveIds,
-      { aimYawWorld: 0, fire: true },
-      1_000,
-      0,
-    );
-    expect(resumed.shots).toHaveLength(1);
-    expect(blaster.shotsFired).toBe(shotsBeforeRecharge + 1);
-
-    world.removeRigidBody(assembled.body);
+    vehicle.dispose();
     world.free();
   });
 
