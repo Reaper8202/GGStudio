@@ -662,7 +662,13 @@ export class EditorMode {
       return false;
     }
     this.refreshProfile();
-    this.ui.setStatus(`Unlocked ${def.name} (-$${price})`);
+    // Unlocking only lifts the gate — the part is not stocked yet. Spell out the
+    // second step and pulse the Store tile (now relabelled "Buy $cost") so the
+    // player does not think the unlock fee bought them the part.
+    this.ui.setStatus(
+      `Unlocked ${def.name}! Now click "Buy $${def.cost}" in the Store to add it to your Inventory.`,
+    );
+    this.ui.flashStorePart(defId);
     return true;
   }
 

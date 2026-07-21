@@ -70,6 +70,8 @@ export interface EditorUI {
   setRunContext(wave?: number, summary?: RunSummary): void;
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
+  /** Draw the eye to a just-unlocked Store tile so its second (buy) click is obvious. */
+  flashStorePart(defId: string): void;
   setStatus(text: string): void;
   setNotice(text: string): void;
   deny(text: string): void;
@@ -737,6 +739,25 @@ export function buildEditorUI(
       armed = defId;
       if (armed) (armed === 'erase' ? eraseButton : inventoryButtons.get(armed))?.classList.add('active');
       cancelButton.style.display = armed ? 'block' : 'none';
+    },
+    flashStorePart: (defId) => {
+      const button = storeButtons.get(defId);
+      if (!button) return;
+      // Reveal the tile (it may live on the other Store tab) then pulse it, so
+      // the player sees the price has dropped from "Unlock" to "Buy" and that a
+      // second click is what actually stocks the part.
+      setStoreFilter(
+        button.dataset.storeGroup === 'weapons' ? 'weapons' : 'essentials',
+      );
+      button.classList.remove('just-unlocked');
+      void button.offsetWidth; // reflow so the animation restarts on repeats
+      button.classList.add('just-unlocked');
+      button.addEventListener(
+        'animationend',
+        () => button.classList.remove('just-unlocked'),
+        { once: true },
+      );
+      button.scrollIntoView({ block: 'nearest' });
     },
     highlightPaletteButton: (defId) => {
       if (highlighted) inventoryButtons.get(highlighted)?.classList.remove('tutorial-glow');
