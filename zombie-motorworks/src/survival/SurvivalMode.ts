@@ -151,6 +151,7 @@ export class SurvivalMode {
   private readonly waves: WaveManager;
   private readonly followCamera: FollowCamera;
   private readonly vehicleGroup = new THREE.Group();
+  private readonly zombieVisualRoot = new THREE.Group();
   private readonly wheelMeshes = new Map<string, THREE.Group>();
   private readonly wheelSpin = new Map<string, number>();
   private readonly islandGroups = new Map<number, THREE.Group>();
@@ -302,6 +303,7 @@ export class SurvivalMode {
       this.vehicle,
       this.graveyard.bounds,
     );
+    const firstZombieVisualIndex = this.scene.children.length;
     this.zombies = new ZombieSystem(
       this.world,
       this.scene,
@@ -309,6 +311,10 @@ export class SurvivalMode {
       this.vehicle,
       this.handleZombieKilled,
     );
+    const zombieVisuals = this.scene.children.slice(firstZombieVisualIndex);
+    this.zombieVisualRoot.name = 'zombie-system-visuals';
+    this.zombieVisualRoot.add(...zombieVisuals);
+    this.scene.add(this.zombieVisualRoot);
     this.autoAim = new AutoAim(this.vehicle, this.zombies, this.world);
     this.waves = new WaveManager(this.zombies, {
       onRemainingChanged: () => {
@@ -348,6 +354,16 @@ export class SurvivalMode {
       this.ui,
       this.graveyard.bounds,
       this.graveyard.minimapFeatures,
+      {
+        renderer: this.renderer,
+        scene: this.scene,
+        hide: [
+          this.vehicleGroup,
+          ...this.wheelMeshes.values(),
+          this.zombieVisualRoot,
+        ],
+        ready: this.graveyard.whenReady(),
+      },
     );
 
     // A resumed run brings back the damage the vehicle had when it was saved.

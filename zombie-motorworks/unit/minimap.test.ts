@@ -18,15 +18,24 @@ describe('worldToMinimap', () => {
     expect(worldToMinimap(20, 10, BOUNDS, 160)).toEqual({ x: 80, y: 80 });
   });
 
-  it('maps north upward and the x-axis from left to right', () => {
+  it('maps north upward and the x-axis from right to left', () => {
     expect(worldToMinimap(BOUNDS.minX, BOUNDS.maxZ, BOUNDS, 160)).toEqual({
-      x: 0,
+      x: 160,
       y: 0,
     });
     expect(worldToMinimap(BOUNDS.maxX, BOUNDS.minZ, BOUNDS, 160)).toEqual({
-      x: 160,
+      x: 0,
       y: 160,
     });
+  });
+
+  it('mirrors world X because screen-right is world -X', () => {
+    const minimumX = worldToMinimap(BOUNDS.minX, 10, BOUNDS, 160);
+    const maximumX = worldToMinimap(BOUNDS.maxX, 10, BOUNDS, 160);
+
+    expect(minimumX.x).toBeCloseTo(160);
+    expect(maximumX.x).toBeCloseTo(0);
+    expect(minimumX.y).toBeCloseTo(maximumX.y);
   });
 
   it('is linear between two world points', () => {
@@ -47,11 +56,11 @@ describe('worldToMinimap', () => {
     };
 
     expect(worldToMinimap(-500, 30, nonSquareBounds, 200)).toEqual({
-      x: 0,
+      x: 200,
       y: 0,
     });
     expect(worldToMinimap(500, 10, nonSquareBounds, 200)).toEqual({
-      x: 200,
+      x: 0,
       y: 200,
     });
   });
@@ -64,7 +73,7 @@ describe('worldToMinimap', () => {
     const scaleZ = sizePx / (BOUNDS.maxZ - BOUNDS.minZ);
     const projected = worldToMinimap(worldX, worldZ, BOUNDS, sizePx);
 
-    expect(projected.x).toBeCloseTo((worldX - BOUNDS.minX) * scaleX);
+    expect(projected.x).toBeCloseTo((BOUNDS.maxX - worldX) * scaleX);
     expect(projected.y).toBeCloseTo((BOUNDS.maxZ - worldZ) * scaleZ);
   });
 
@@ -88,23 +97,23 @@ describe('worldToMinimap', () => {
     ];
 
     for (const feature of features) {
-      const topLeft = worldToMinimap(
+      const topRight = worldToMinimap(
         feature.minX,
         feature.maxZ,
         BOUNDS,
         sizePx,
       );
-      const bottomRight = worldToMinimap(
+      const bottomLeft = worldToMinimap(
         feature.maxX,
         feature.minZ,
         BOUNDS,
         sizePx,
       );
 
-      expect(topLeft.x).toBeGreaterThanOrEqual(0);
-      expect(topLeft.y).toBeGreaterThanOrEqual(0);
-      expect(bottomRight.x).toBeLessThanOrEqual(sizePx);
-      expect(bottomRight.y).toBeLessThanOrEqual(sizePx);
+      expect(topRight.x).toBeLessThanOrEqual(sizePx);
+      expect(topRight.y).toBeGreaterThanOrEqual(0);
+      expect(bottomLeft.x).toBeGreaterThanOrEqual(0);
+      expect(bottomLeft.y).toBeLessThanOrEqual(sizePx);
     }
   });
 

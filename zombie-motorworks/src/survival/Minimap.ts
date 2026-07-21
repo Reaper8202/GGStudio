@@ -13,10 +13,29 @@ export interface MinimapZombie {
   readonly position: THREE.Vector3;
 }
 
+export interface MinimapSnapshotSource {
+  renderer: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  /** Objects to hide for the capture (vehicle, zombies) — restored afterwards. */
+  hide: readonly THREE.Object3D[];
+  ready: Promise<void>;
+}
+
 export const MINIMAP_REDRAW_HZ = 15;
 
 const DEFAULT_SIZE_PX = 188;
 const MAX_DEVICE_PIXEL_RATIO = 2;
+const MAX_SNAPSHOT_SIZE_PX = 512;
+const SNAPSHOT_CAMERA_HEIGHT = 96;
+const SNAPSHOT_BRIGHTNESS_GAIN = 1.9;
+const SNAPSHOT_BRIGHTNESS_FLOOR = 12;
+const SNAPSHOT_DESATURATION = 0.22;
+/**
+ * The arena's night lighting is blue, which fights the warm olive HUD once the
+ * capture is brightened. Bias the lift per channel so the map sits in the same
+ * palette as the panels around it.
+ */
+const SNAPSHOT_TINT = [1.06, 1.02, 0.82] as const;
 const ZOMBIE_RADIUS_PX = 2.6;
 const PLAYER_LENGTH_PX = 14;
 const PLAYER_TIP_DISTANCE_PX = (PLAYER_LENGTH_PX * 2) / 3;
@@ -33,7 +52,9 @@ export function worldToMinimap(
   sizePx: number,
 ): { x: number; y: number } {
   return {
-    x: ((worldX - bounds.minX) / (bounds.maxX - bounds.minX)) * sizePx,
+    // FollowCamera's (0, 20, -12) offset looks along world +Z, making
+    // screen-right world -X. Keep the minimap aligned with that fixed view.
+    x: ((bounds.maxX - worldX) / (bounds.maxX - bounds.minX)) * sizePx,
     y: ((bounds.maxZ - worldZ) / (bounds.maxZ - bounds.minZ)) * sizePx,
   };
 }
@@ -45,6 +66,7 @@ export class Minimap {
   private context: CanvasRenderingContext2D | null;
   private backgroundCanvas: HTMLCanvasElement | null;
   private backgroundContext: CanvasRenderingContext2D | null;
+  private snapshotCanvas: HTMLCanvasElement | null = null;
   private readonly features: readonly MinimapFeature[];
   private readonly minX: number;
   private readonly maxX: number;
@@ -61,6 +83,7 @@ export class Minimap {
     parent: HTMLElement,
     bounds: MinimapBounds,
     features: readonly MinimapFeature[] = [],
+    snapshot?: MinimapSnapshotSource,
   ) {
     this.minX = bounds.minX;
     this.maxX = bounds.maxX;
@@ -89,6 +112,9 @@ export class Minimap {
     this.backgroundCanvas = backgroundCanvas;
     this.backgroundContext = backgroundContext;
     this.resizeBackingStore();
+    if (snapshot !== undefined) {
+      void this.captureSnapshotWhenReady(snapshot);
+    }
   }
 
   update(
@@ -127,7 +153,7 @@ export class Minimap {
         continue;
       }
 
-      const x = (position.x - this.minX) * this.scaleX;
+      const x = (this.maxX - position.x) * this.scaleX;
       const y = (this.maxZ - position.z) * this.scaleZ;
       context.moveTo(x + ZOMBIE_RADIUS_PX, y);
       context.arc(x, y, ZOMBIE_RADIUS_PX, 0, Math.PI * 2);
@@ -135,7 +161,7 @@ export class Minimap {
     context.fill();
     context.stroke();
 
-    const projectedPlayerX = (vehicleX - this.minX) * this.scaleX;
+    const projectedPlayerX = (this.maxX - vehicleX) * this.scaleX;
     const projectedPlayerY = (this.maxZ - vehicleZ) * this.scaleZ;
     const playerX = Math.min(
       sizePx - PLAYER_EDGE_MARGIN_PX,
@@ -145,7 +171,7 @@ export class Minimap {
       sizePx - PLAYER_EDGE_MARGIN_PX,
       Math.max(PLAYER_EDGE_MARGIN_PX, projectedPlayerY),
     );
-    const forwardX = Math.sin(yaw);
+    const forwardX = -Math.sin(yaw);
     const forwardY = -Math.cos(yaw);
     const sideX = -forwardY;
     const sideY = forwardX;
@@ -187,6 +213,7 @@ export class Minimap {
     this.context = null;
     this.backgroundCanvas = null;
     this.backgroundContext = null;
+    this.snapshotCanvas = null;
   }
 
   private resizeBackingStore(): void {
@@ -252,18 +279,25 @@ export class Minimap {
     context.fillStyle = 'rgba(12, 15, 13, 0.82)';
     context.fillRect(0, 0, sizePx, sizePx);
 
-    context.fillStyle = 'rgba(67, 78, 70, 0.88)';
+    if (this.snapshotCanvas !== null) {
+      context.drawImage(this.snapshotCanvas, 0, 0, sizePx, sizePx);
+      context.fillStyle = 'rgba(67, 78, 70, 0.22)';
+    } else {
+      context.fillStyle = 'rgba(67, 78, 70, 0.88)';
+    }
     for (let index = 0; index < this.features.length; index += 1) {
       const feature = this.features[index];
       if (feature.kind !== 'road') continue;
       this.fillFeature(context, feature);
     }
 
-    context.fillStyle = 'rgba(125, 130, 126, 0.55)';
-    for (let index = 0; index < this.features.length; index += 1) {
-      const feature = this.features[index];
-      if (feature.kind !== 'obstacle') continue;
-      this.fillFeature(context, feature);
+    if (this.snapshotCanvas === null) {
+      context.fillStyle = 'rgba(125, 130, 126, 0.55)';
+      for (let index = 0; index < this.features.length; index += 1) {
+        const feature = this.features[index];
+        if (feature.kind !== 'obstacle') continue;
+        this.fillFeature(context, feature);
+      }
     }
 
     context.strokeStyle = 'rgba(166, 177, 160, 0.46)';
@@ -275,10 +309,161 @@ export class Minimap {
     context: CanvasRenderingContext2D,
     feature: MinimapFeature,
   ): void {
-    const x = (feature.minX - this.minX) * this.scaleX;
+    const x = (this.maxX - feature.maxX) * this.scaleX;
     const y = (this.maxZ - feature.maxZ) * this.scaleZ;
     const width = (feature.maxX - feature.minX) * this.scaleX;
     const height = (feature.maxZ - feature.minZ) * this.scaleZ;
     context.fillRect(x, y, width, height);
   }
+
+  private async captureSnapshotWhenReady(
+    snapshot: MinimapSnapshotSource,
+  ): Promise<void> {
+    try {
+      await snapshot.ready;
+      if (this.root === null) return;
+      this.captureSnapshot(snapshot);
+    } catch {
+      // The vector layer is deliberately retained when readiness or capture fails.
+    }
+  }
+
+  private captureSnapshot(snapshot: MinimapSnapshotSource): void {
+    const backgroundCanvas = this.backgroundCanvas;
+    if (backgroundCanvas === null) return;
+
+    const width = Math.min(backgroundCanvas.width, MAX_SNAPSHOT_SIZE_PX);
+    const height = Math.min(backgroundCanvas.height, MAX_SNAPSHOT_SIZE_PX);
+    if (width <= 0 || height <= 0) return;
+
+    const worldWidth = this.maxX - this.minX;
+    const worldHeight = this.maxZ - this.minZ;
+    const centreX = (this.minX + this.maxX) / 2;
+    const centreZ = (this.minZ + this.maxZ) / 2;
+    const camera = new THREE.OrthographicCamera(
+      -worldWidth / 2,
+      worldWidth / 2,
+      worldHeight / 2,
+      -worldHeight / 2,
+      0.1,
+      SNAPSHOT_CAMERA_HEIGHT * 2,
+    );
+    camera.position.set(centreX, SNAPSHOT_CAMERA_HEIGHT, centreZ);
+    // Looking down with up +Z makes image-right -X and image-up +Z. Thus the
+    // road junction (-6, 8) lands at the exact pixel worldToMinimap returns.
+    camera.up.set(0, 0, 1);
+    camera.lookAt(centreX, 0, centreZ);
+    camera.updateMatrixWorld(true);
+
+    const renderTarget = new THREE.WebGLRenderTarget(width, height, {
+      depthBuffer: true,
+      stencilBuffer: false,
+    });
+    renderTarget.texture.colorSpace = snapshot.renderer.outputColorSpace;
+
+    const renderer = snapshot.renderer;
+    const previousRenderTarget = renderer.getRenderTarget();
+    const previousCubeFace = renderer.getActiveCubeFace();
+    const previousMipmapLevel = renderer.getActiveMipmapLevel();
+    const previousClearColor = renderer.getClearColor(new THREE.Color());
+    const previousClearAlpha = renderer.getClearAlpha();
+    const previousViewport = renderer.getViewport(new THREE.Vector4());
+    const previousScissor = renderer.getScissor(new THREE.Vector4());
+    const previousScissorTest = renderer.getScissorTest();
+    const previousVisibility = snapshot.hide.map((object) => object.visible);
+    const pixels = new Uint8Array(width * height * 4);
+
+    try {
+      for (const object of snapshot.hide) object.visible = false;
+      renderer.setRenderTarget(renderTarget);
+      renderer.setViewport(0, 0, width, height);
+      renderer.setScissor(0, 0, width, height);
+      renderer.setScissorTest(false);
+      renderer.setClearColor(0x080b14, 1);
+      renderer.clear(true, true, true);
+      renderer.render(snapshot.scene, camera);
+      renderer.readRenderTargetPixels(
+        renderTarget,
+        0,
+        0,
+        width,
+        height,
+        pixels,
+      );
+    } finally {
+      for (let index = 0; index < snapshot.hide.length; index += 1) {
+        snapshot.hide[index].visible = previousVisibility[index];
+      }
+      renderer.setRenderTarget(
+        previousRenderTarget,
+        previousCubeFace,
+        previousMipmapLevel,
+      );
+      renderer.setClearColor(previousClearColor, previousClearAlpha);
+      renderer.setViewport(previousViewport);
+      renderer.setScissor(previousScissor);
+      renderer.setScissorTest(previousScissorTest);
+      renderTarget.dispose();
+      // Three.js cameras own no disposable GPU resources; clear any children.
+      camera.clear();
+    }
+
+    const liftedPixels = new Uint8ClampedArray(pixels.length);
+    for (let sourceY = 0; sourceY < height; sourceY += 1) {
+      const destinationY = height - sourceY - 1;
+      for (let x = 0; x < width; x += 1) {
+        const sourceOffset = (sourceY * width + x) * 4;
+        const destinationOffset = (destinationY * width + x) * 4;
+        const red = pixels[sourceOffset];
+        const green = pixels[sourceOffset + 1];
+        const blue = pixels[sourceOffset + 2];
+        const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+        liftedPixels[destinationOffset] = liftSnapshotChannel(
+          red,
+          luminance,
+          SNAPSHOT_TINT[0],
+        );
+        liftedPixels[destinationOffset + 1] = liftSnapshotChannel(
+          green,
+          luminance,
+          SNAPSHOT_TINT[1],
+        );
+        liftedPixels[destinationOffset + 2] = liftSnapshotChannel(
+          blue,
+          luminance,
+          SNAPSHOT_TINT[2],
+        );
+        liftedPixels[destinationOffset + 3] = pixels[sourceOffset + 3];
+      }
+    }
+
+    const snapshotCanvas = document.createElement('canvas');
+    snapshotCanvas.width = width;
+    snapshotCanvas.height = height;
+    const snapshotContext = snapshotCanvas.getContext('2d');
+    if (snapshotContext === null) return;
+    snapshotContext.putImageData(
+      new ImageData(liftedPixels, width, height),
+      0,
+      0,
+    );
+    this.snapshotCanvas = snapshotCanvas;
+    this.rebuildBackgroundLayer();
+  }
+}
+
+function liftSnapshotChannel(
+  channel: number,
+  luminance: number,
+  tint: number,
+): number {
+  const desaturated =
+    channel + (luminance - channel) * SNAPSHOT_DESATURATION;
+  return Math.min(
+    255,
+    Math.round(
+      SNAPSHOT_BRIGHTNESS_FLOOR * tint +
+        desaturated * SNAPSHOT_BRIGHTNESS_GAIN * tint,
+    ),
+  );
 }

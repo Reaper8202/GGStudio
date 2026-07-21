@@ -89,6 +89,7 @@ export class Graveyard {
   private readonly staticBodies: RAPIER.RigidBody[] = [];
   private readonly minimapFeatureList: MinimapFeature[] = [];
   private readonly voxelBatches = new Map<string, VoxelPlacement[]>();
+  private readonly pendingPlacements: Promise<void>[] = [];
   private readonly failedAssets = new Set<string>();
   private readonly followPosition = new THREE.Vector3();
   private readonly fallbackGeometry = new THREE.BoxGeometry(1, 1, 1);
@@ -164,6 +165,12 @@ export class Graveyard {
     // Construction is the only mutation phase; consumers receive a stable layout.
     this.minimapFeatures = Object.freeze(this.minimapFeatureList);
     this.spawnPoints = this.computeSpawnPoints();
+  }
+
+  /** Resolves once every async prop, road and ground tile has been added. */
+  whenReady(): Promise<void> {
+    if (this.pendingPlacements.length === 0) return Promise.resolve();
+    return Promise.allSettled(this.pendingPlacements).then(() => undefined);
   }
 
   /** Move the warm focus pool to the supplied vehicle visual. Call per frame. */
@@ -339,7 +346,9 @@ export class Graveyard {
       }
     }
 
-    void loadVoxelInstanceSource(`${ASSET_ROOT}/SM-0-Ground`)
+    const pendingPlacement = loadVoxelInstanceSource(
+      `${ASSET_ROOT}/SM-0-Ground`,
+    )
       .then(({ geometry, material, pivot }) => {
         if (this.disposed) return;
         const mesh = new THREE.InstancedMesh(geometry, material, tiles.length);
@@ -371,6 +380,7 @@ export class Graveyard {
       .catch((error: unknown) => {
         this.reportAssetFailure('SM-0-Ground', error);
       });
+    this.pendingPlacements.push(pendingPlacement);
     return fallback;
   }
 
@@ -941,7 +951,9 @@ export class Graveyard {
       else this.voxelBatches.set(placement.asset, [placement]);
       return;
     }
-    void instantiateVoxelAsset(`${ASSET_ROOT}/${placement.asset}`)
+    const pendingPlacement = instantiateVoxelAsset(
+      `${ASSET_ROOT}/${placement.asset}`,
+    )
       .then((object) => {
         if (this.disposed) return;
         const scale = placement.scale ?? 1;
@@ -980,11 +992,12 @@ export class Graveyard {
         this.placeFallback(placement);
         this.reportAssetFailure(placement.asset, error);
       });
+    this.pendingPlacements.push(pendingPlacement);
   }
 
   private flushVoxelBatches(): void {
     for (const [asset, placements] of this.voxelBatches) {
-      void loadVoxelInstanceSource(`${ASSET_ROOT}/${asset}`)
+      const pendingPlacement = loadVoxelInstanceSource(`${ASSET_ROOT}/${asset}`)
         .then(({ geometry, material, pivot }) => {
           if (this.disposed) return;
           const batchMaterial = material.clone();
@@ -1034,6 +1047,7 @@ export class Graveyard {
           for (const placement of placements) this.placeFallback(placement);
           this.reportAssetFailure(asset, error);
         });
+      this.pendingPlacements.push(pendingPlacement);
     }
     this.voxelBatches.clear();
   }
