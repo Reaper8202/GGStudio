@@ -1,60 +1,300 @@
-# Zombie Motorworks — integration status
+# Zombie Motorworks Integration Contract
 
-This document records the implementation that exists in `zombie-motorworks/`. It supersedes the earlier forward-looking integration contract; paths are relative to this worktree. `../zombie-car/` is reference material only and is not imported by the game.
+This document records the current cross-Module contracts. It deliberately omits
+volatile tuning values and per-file inventories. Use `CONTEXT.md` for task
+routing, `ARCHITECTURE.md` for design rationale, and
+`generated/module-map.md` for structural lookup.
 
-## Completed phases
+## Sources Of Truth
 
-| Phase | Status | Delivered |
+| Concern | Authority | Contract tests |
 | --- | --- | --- |
-| 1 — vehicle editor core | Complete | Pure blueprint model, 24 grid orientations, catalog, placement/structural validation, analysis, reversible commands, and versioned serialization. |
-| 2 — survival mode | Complete | `SurvivalMode` builds the editor blueprint as a runtime vehicle in the graveyard and returns to the garage through `App`. |
-| 3 — zombie waves | Complete | Pooled capsule zombies, chase/attack/ram behavior, graveyard spawning, scaling wave director, follow camera, HUD, and countdown. |
-| 4 — schema v4, upgrades, weapons | Complete | Per-part levels, effective definition resolution, armour plate, Heavy Cannon, automatic turret aim, and manual weapon aiming. |
-| 5 — profile, economy, Build Phase | Complete | Persistent wallet/unlocks, placing/selling/upgrading, survivor pruning between waves, and the resume-wave loop. |
-| 6 — verification seams | Complete | Unit coverage, browser seam, deterministic fixed-step controls, fixtures, and Playwright scenarios. |
-| 7a — documentation | Complete | README, architecture reference, schema-v4 data model, and this status document. |
+| Serializable vehicle shape | `src/core/types.ts`, `src/core/serialize.ts` | `unit/serialize.test.ts`, `unit/blueprint.test.ts` |
+| Placement and play gate | `src/core/placement.ts` | `unit/placement.test.ts`, `tests/editor.spec.ts` |
+| Effective stats and prices | `src/core/upgrades.ts`, `src/core/economy.ts` | `unit/upgrades.test.ts`, `unit/economy.test.ts`, `unit/repair.test.ts` |
+| Run checkpoint lifecycle | `src/app/App.ts` | `unit/run-checkpoint.test.ts`, `unit/pending-rewards.test.ts`, `tests/runloop.spec.ts` |
+| Saved-run compatibility | `src/core/runSave.ts`, `src/app/runSaveStore.ts` | `unit/run-save.test.ts` |
+| Wave composition/tuning | `src/survival/WaveManager.ts`, `src/survival/zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/wave-balance.test.ts`, `unit/zombie-balance.test.ts` |
+| Survival phase behavior | `src/survival/SurvivalMode.ts` | `tests/runloop.spec.ts`, `tests/failure.spec.ts`, `tests/combat.spec.ts` |
+| Browser verification Seam | `src/app/App.ts` (`debugSeam`), `tests/seam.ts` | affected Playwright specs |
 
-## Implemented contracts
+## Blueprint Contract
 
-### Mode ownership
+`VehicleBlueprint` is engine-independent serialized data. A valid Blueprint has
+schema version 4, stable unique part IDs, known catalog definition IDs, integer
+grid positions, canonical orientation indices, and validated configuration.
 
-`App` owns the renderer, loaded `PlayerProfile`, active blueprint, command history, and mode transitions. Rapier initializes once in `App.start()`.
+Rules:
 
-- `EditorMode` receives the shared profile and either begins a fresh run or resumes the Build Phase's next wave.
-- `ChamberMode` is a sandbox. It clones/uses a runtime blueprint and **Back to editor** does not mutate the saved garage design.
-- `SurvivalMode` receives the blueprint and `RunState { wave }`, deep-clones it for runtime use, and reports rewards, wave clears, exits, or game-over through callbacks.
+- Runtime references, part HP, wallet state, and live resources never enter the
+  Blueprint schema.
+- `deserializeBlueprint` is the only supported untrusted-JSON entry. It validates
+  schema and content and runs migrations 1 -> 2 -> 3 -> 4.
+- Callers use immutable helpers in `blueprint.ts` or commands in `commands.ts`.
+- `validateBlueprint` is the play gate. `canPlacePart` is the per-placement gate.
+- Part IDs survive upgrades, repairs, mode transitions, and checkpoints. New
+  placement obtains a new ID; destroyed/sold parts do not retain HP entries.
 
-The implemented survival loop is: editor → survival countdown (three seconds) → active wave → cleared wave → Build Phase editor → next-wave countdown. Loss of the root chassis or every attached control provider selects game over. Wave clearing credits the bonus only after the fixed step confirms survival; the cleared-wave blueprint is then pruned to its surviving attached parts and command history is cleared.
+## Effective-Part Contract
 
-### Survival systems
+`getEffectiveDef(placed)` is the shared Interface for resolving upgrade effects.
+Consumers include analysis, runtime assembly, weapons, repair maxima, investment
+calculation, and upgrade preview.
 
-- `src/survival/Graveyard.ts` builds the graveyard world; `VoxelAssetLoader.ts` provides environment/zombie asset loading.
-- `src/survival/zombies/` owns a fixed pool of 34 zombie bodies, their visuals, chase/attack/knockback states, separation, spawn selection, and stuck recovery.
-- Base zombies have 30 health, 3.2 speed, 6 direct-damage attacks every second, and a `$10` kill reward. Vehicle impacts at speed 5 or above damage and knock back zombies.
-- `WaveManager` starts wave `w` with `8 + 3w` zombies, caps active zombies at `min(8 + w, 30)`, raises health by 12% per prior wave and speed by up to 50%, and pays `100 + 25w` on clear.
-- `AutoAim` supplies per-weapon inputs for auto weapons. Manual weapons use mouse yaw and mouse click or `F`; the runtime field is `weaponAim`, not the earlier proposed `perWeaponAim`.
+Rules:
 
-### Data, profile, and economy
+- Base catalog definitions remain immutable.
+- A missing/invalid level resolves safely to level 1.
+- Upgrade preview must run the real effective-definition and analysis paths on a
+  temporary Blueprint.
+- A damaged part upgraded during Build Phase preserves its HP percentage against
+  the new effective maximum.
 
-- Blueprints are schema v4. The actual migration chain is v1 → v2 → v3 → v4; v3 → v4 is a version pass-through because `PartConfig.level` is optional and defaults at resolution to level 1.
-- `scraprig.profile.v1` stores a version-1 profile. Missing/corrupt profiles reset safely to `$200` and starter unlocks.
-- `scraprig.blueprints.v1` stores named serialized blueprint slots; `currentBlueprintName` selects the active slot.
-- Placing charges catalog cost. Selling returns floored half of base plus paid-upgrade investment. Upgrade prices are `round(basePrice × priceGrowth^(targetLevel - 2))`; the current catalog helper uses 60% of base part cost and 1.6 growth. Locked parts charge their one-time unlock cost before normal placement.
+## Editor Contract
 
-### Runtime integration
+`App.openEditor` supplies `EditorMode` with:
 
-`deriveConnections` derives the structural graph from the one authoritative blueprint. `assembleVehicle` creates one compound Rapier body, attached mass-only wheel colliders, and raycast suspension. `RuntimeVehicle` owns drivetrain/resources/weapons; collision and zombie direct damage feed `resolveStructure`, which destroys parts and detaches non-root islands.
+- authoritative Blueprint
+- shared `CommandHistory`
+- shared mutable `PlayerProfile`
+- a persistence callback for Profile transactions
+- saved camera/layer view when available
+- optional active-run context and repair Adapter
+- optional run summary/notice
+- callbacks for Test Chamber, Survival, and Title
 
-Collision memberships are terrain `0x0001`, vehicle `0x0002`, wheel `0x0004`, debris `0x0008`, and zombie `0x0010`. Attached wheels deliberately filter all physical contacts and raycast terrain instead. Vehicle colliders contact terrain/debris/zombies; debris contacts terrain/debris/zombies/vehicles; zombies contact terrain/vehicles/zombies.
+Editor responsibilities:
 
-## Corrected divergences from the original proposal
+- Validate and execute Blueprint changes.
+- Keep Profile money, unlocks, and Inventory consistent with commands.
+- Autosave successful garage mutations into the selected Blueprint slot.
+- Preserve normal Inventory semantics while arming a purchased part immediately.
+- Expose in-run repair only when App provides a repair Adapter.
 
-- There is no VirtualJoystick port in this project; the implemented controls are keyboard and pointer input.
-- There is no separate `src/ui/` survival module or event bus. Survival UI is created in `SurvivalMode` and updated through direct state polling.
-- Current `armour-plate` is one occupied cell, not a face-mounted slab. The generic runtime code retains face-mounted support for future definitions.
-- Game over returns to the garage with a run summary. It does not prune the losses from the in-progress losing wave; pruning occurs only when a wave clears.
-- The required test commands are available as `npm run test:unit` and `npm test`; the package also provides `npm run build`, `npm run typecheck`, and `npm run lint`.
+Transaction requirements:
 
-## Verification scope
+- Unlock-and-buy is atomic: unlock, charge, Inventory grant, and armed placement
+  either all succeed or all roll back.
+- Placing consumes one Inventory copy; undo restores it.
+- Selling removes the part and refunds the pure `sellRefund` value; undo reverses
+  both changes.
+- `New Garage` requires explicit confirmation based on the calculated installed
+  investment/refund/forfeit summary.
+- Ordinary editor work may use undo/redo. A cleared wave clears history because
+  permanent destruction can invalidate referenced part IDs.
 
-Vitest covers core grid/parts/placement/structural/serialization/profile/economy/upgrade logic and survival helpers. Playwright uses `?debug=1` for editor, runtime, economy, and deterministic fixed-step seams, with fixture blueprints including balanced, unstable, bad-wheel, armoured, and multi-weapon rigs.
+The existing tutorial is an Editor-owned overlay and Blueprint reset. It uses a
+local completion flag and is not an isolated cross-mode tutorial session.
+
+## Test Chamber Contract
+
+`App.enterChamber` disposes the Editor after storing its view state and passes
+the current Blueprint to `ChamberMode`.
+
+- Chamber constructs its own Rapier world and Runtime Vehicle.
+- Chamber damage, movement, ammo, and reset state are transient.
+- Back to Garage recreates EditorMode with the authoritative Blueprint and
+  preserved command/view state.
+- Chamber never changes Profile money, progression, run saves, or Run Checkpoint.
+
+## Survival Construction Contract
+
+`App.enterSurvival` constructs `SurvivalMode` from:
+
+- the committed Blueprint
+- checkpoint-derived `{ wave, partHp, kills }`
+- callbacks for Profile/run balances, clear/failure transitions, progression,
+  reset, save/quit, and debug money
+
+`SurvivalMode` owns live phase state:
+
+```text
+countdown -> active -> cleared -> countdown
+                  \-> gameOver -> Garage
+```
+
+It creates a disposable physics world, Runtime Vehicle, Graveyard, ZombieSystem,
+WaveManager, AutoAim, Minimap, hazards, HUD, and overlays. `dispose` must remove
+listeners/DOM and release mode-owned resources before another mode is created.
+
+## Run Checkpoint Contract
+
+`RunCheckpoint` is App-owned and contains:
+
+```ts
+{
+  wave: number;                    // wave to play next
+  blueprint: VehicleBlueprint;     // committed survivors
+  partHp: Record<string, number>;  // committed HP by surviving part ID
+  kills: number;                   // committed cumulative kills
+  bankedEarnings: number;          // rewards already credited to Profile
+}
+```
+
+### New run
+
+1. App clears any resumable run save.
+2. `createInitialRunCheckpoint` clones/prunes the Garage Blueprint and records
+   full effective HP.
+3. Survival starts at wave 1 from that checkpoint.
+
+### Active wave reward
+
+1. A zombie death records a wave kill and adds its reward to
+   `pendingWaveKillReward`.
+2. The HUD labels this value as pending.
+3. Profile money, run banked earnings, and checkpoint earnings remain unchanged.
+
+### Clear
+
+1. `WaveManager` reports complete only after every assignment is spawned and no
+   active zombie remains.
+2. `SurvivalMode.onWaveComplete` records the clear bonus as pending.
+3. The completed physics step resolves before transition. Vehicle death wins
+   over a simultaneous clear.
+4. On a valid clear, `bankPendingWaveRewards` invokes App's reward callback once.
+5. App records lifetime wave progression/unlocks.
+6. App commits the next wave's checkpoint from surviving root-attached IDs,
+   current HP, cumulative kills, and banked earnings.
+7. The victory UI may now offer Continue or Garage; both consume the committed
+   checkpoint state.
+
+### Continue
+
+- `onWaveAdvance` supplies the shared wave-clear payload.
+- Survival begins the next countdown without rebuilding the scene.
+- Destroyed parts remain absent and surviving HP remains unchanged.
+
+### Garage / Repair
+
+- `onBuildPhase` supplies the same wave-clear payload.
+- App commits before opening EditorMode and persists the pruned Blueprint.
+- New parts begin at full HP. Selling removes their HP entry. Upgrading scales
+  carried HP by percentage. Repair mutates checkpoint HP only after payment.
+- Starting the next wave calls `prepareCheckpointForGarageFight` so garage edits
+  and HP are reconciled by stable part ID.
+
+### Failure
+
+- Survival reports the amount of current-wave pending reward discarded.
+- App restores the failed wave's starting checkpoint, not the run's first
+  Blueprint and not the live losing vehicle.
+- The run ends. Prior cleared-wave losses remain committed.
+- Surviving checkpoint parts recover to full HP for the ordinary Garage.
+- The next Fight Zombies action creates a fresh wave-1 run.
+
+### Reset Wave
+
+- Pending reward and live damage are discarded.
+- App reconstructs Survival from the current wave-start checkpoint.
+- No reward, progression, or part loss from the reset attempt is committed.
+
+### Save & Quit / Resume
+
+- App serializes the checkpoint, never the live wave.
+- Current-wave damage, kills, pending reward, zombies, mines, projectiles, and
+  elapsed time are intentionally absent.
+- Resume restores Blueprint, HP, committed kills/earnings, and wave, then starts
+  that wave from its countdown.
+
+## Survival Callback Ordering
+
+The `SurvivalCallbacks` Interface is an ordering contract, not just a group of
+functions.
+
+| Callback | Owner action | Ordering requirement |
+| --- | --- | --- |
+| `profileMoney`, `runEarnings` | Read App-owned balances | Read-only; Survival must not retain a second wallet |
+| `onReward` | Credit Profile and banked run earnings | Clear only, exactly once, before checkpoint commit |
+| `onWaveCleared` | Update highest wave and milestone unlocks | Valid clear only |
+| `onPhoneAddictKilled` | Update lifetime kill gate | Real kill only; debug suppression is explicit |
+| `onWaveCheckpoint` | Commit survivor Blueprint/HP after clear | Before a post-clear action can be processed |
+| `onWaveAdvance` | Continue in current Survival scene | Uses the already resolved clear payload |
+| `onBuildPhase` | Open run Garage | Commit/persist damage before editor actions |
+| `onGameOver` | End run and show failure summary | Receives discarded pending amount |
+| `onResetWave` | Rebuild from checkpoint | Must not use live HP/rewards |
+| `onSaveAndQuit` | Persist checkpoint and show Title | Must not use live wave snapshot beyond display context |
+
+Changing this sequence requires updates to the run checkpoint, pending reward,
+run-save, and Playwright run-loop tests.
+
+## Profile And Progression Contract
+
+Profile schema 1 contains safe-integer money, known unlocked definition IDs,
+positive Inventory counts, optional current Blueprint name, highest cleared wave,
+and lifetime Phone Addict kills.
+
+- Decode always restores starter unlocks and rejects unknown catalog IDs.
+- Corrupt or invalid top-level data returns a default Profile.
+- Money mutations are safe-integer checked and persisted through App's Profile
+  Adapter.
+- Mine Sweeper and turret-module gates are derived from Profile progression
+  helpers. Presentation should consume those helpers rather than restating
+  thresholds in independent UI logic.
+
+## Storage Contract
+
+| Key | Schema | Failure behavior |
+| --- | --- | --- |
+| `scraprig.profile.v1` | Profile 1 | Normalize valid fields; otherwise use default Profile |
+| `scraprig.blueprints.v1` | map of serialized Blueprint 4 slots | Preserve bad slot; load starter and display notice |
+| `scraprig.run.v1` | Saved Run 2, migration from 1 | Return null for malformed data; ordinary Title/Garage remains usable |
+
+Storage keys are versioned separately from payload schemas. A payload migration
+does not require renaming a key when its decoder remains backward compatible.
+
+## Wave And Enemy Contract
+
+`WaveManager` is the single source for wave composition, active cap, health,
+speed, damage, clear reward, and horde interval. `waveBalanceReport` derives
+effective total HP and possible reward for tests/debugging; production behavior
+does not depend on the report.
+
+`ZombieSystem` owns a fixed per-kind pool. `WaveManager` requests kinds
+explicitly, so specialist availability is not random. A wave clears only after
+all scheduled assignments have spawned and the active pool count reaches zero.
+
+Enemy kinds are `walker`, `thrower`, `worker`, and `phone-addict`. Kind-specific
+health/speed/reward and hazard constants live in `zombieConfig.ts`. Progression
+warnings derive from the same composition functions in `waveBalance.ts`.
+
+## Runtime Damage Contract
+
+- Vehicle contacts and zombie attacks resolve to a live attached part.
+- `RuntimeVehicle` owns per-part HP and returns structural/detachment results.
+- Root-island parts remain vehicle-owned; non-root islands become debris.
+- Survival checkpoint capture includes only alive, root-attached parts.
+- Weapon hits use `DamageType`; shield and module behavior keys off that type.
+- Runtime and analysis share effective definitions, mass, and wheel-layout rules.
+
+## Debug And Test Contract
+
+The browser Seam exists only when debug mode is enabled. Tests access it through
+`tests/seam.ts` rather than reimplementing boot or polling logic.
+
+The Seam may:
+
+- inspect Blueprint, Profile, Run State, checkpoint HP, and telemetry
+- place/configure/select/sell/upgrade/repair through real editor paths
+- enter modes and set deterministic controls/fixed steps
+- set explicit progression or money for scenario setup
+- start/complete waves and inspect zombie positions
+
+Debug operations should call the same production Interfaces where practical.
+They must not silently alter normal-mode behavior. Any new cross-mode behavior
+needs a unit test for its pure contract and a Playwright test for the integrated
+transition.
+
+## Compatibility Checklist
+
+Before merging a cross-Module change, check the affected items:
+
+- Blueprint/profile/run schema and migration behavior
+- App-to-mode callback ordering
+- undo/redo and Profile/Inventory atomicity
+- effective-definition reuse between UI, analysis, and runtime
+- checkpoint HP and pending/banked reward semantics
+- listener/DOM disposal across repeated mode transitions
+- debug Seam compatibility and focused Playwright coverage
+- `npm run context:generate` when TypeScript structure changed
+- `npm run context:check`, unit tests, lint, build, and relevant browser tests

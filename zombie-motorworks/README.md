@@ -10,9 +10,9 @@ The game is a static Three.js + Rapier web build: no game engine and no server.
 2. Place, rotate, paint, sell, and upgrade parts. The editor checks placement and shows structural/stability analysis; hard validation errors prevent driving.
 3. Use **TEST DRIVE** to try the current blueprint in the physics chamber. This is a safe sandbox: returning to the garage does not change the blueprint.
 4. Use **Fight Zombies** to begin a run. After a three-second countdown, drive the same blueprint through a graveyard wave.
-5. Kills pay money immediately; clearing a wave pays its wave bonus. Surviving parts are retained and destroyed or detached parts are removed before the **Build Phase**.
-6. In the Build Phase, spend the shared wallet to buy, sell, unlock, or upgrade parts, then choose **Start Wave N+1**.
-7. The run ends when the Chassis Core is lost or no attached control part remains. The garage shows the run summary; previously cleared-wave damage remains part of the current blueprint.
+5. Kill rewards stay pending during the active wave. Clearing banks those rewards plus the wave bonus, then checkpoints surviving parts and their current HP.
+6. Choose **Continue Now** with the current damage, or enter **Garage / Repair** to repair, replace, buy, sell, unlock, or upgrade before the next wave.
+7. Failure discards that wave's pending rewards and restores its start checkpoint. The run ends, earlier cleared-wave part losses remain committed, and checkpoint survivors recover for the ordinary garage.
 
 ## Controls
 
@@ -50,6 +50,7 @@ npm run dev
 npm run build
 npm run test:unit
 npm test
+npm run context:check
 ```
 
 `npm run dev` prints the local URL. `npm test` runs the Playwright browser suite. Add `?debug=1` to expose the browser-test seam during development.
@@ -70,8 +71,11 @@ npm test
 
 ## Documentation
 
+- [Agent entry point](AGENTS.md)
+- [Agent context and task router](CONTEXT.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Integration status and implementation contract](docs/INTEGRATION_SPEC.md)
+- [Integration contract](docs/INTEGRATION_SPEC.md)
+- [Generated TypeScript module map](docs/generated/module-map.md)
 - [Vehicle editor data model](docs/vehicle_editor/DATA_MODEL.md)
 - [Editor architecture](docs/vehicle_editor/ARCHITECTURE.md)
 - [How to build](docs/HOW_TO_BUILD.md)
