@@ -17,13 +17,11 @@ import {
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
   LANDMINE_BLAST_RADIUS,
-  LANDMINE_DAMAGE,
   LANDMINE_TRIGGER_RADIUS,
   LETHAL_IMPACT_SPEED,
   MAXIMUM_SWARM_DRAG,
   MIN_IMPACT_SPEED,
   MIN_SPAWN_DISTANCE_FROM_VEHICLE,
-  PROJECTILE_DAMAGE,
   PROJECTILE_HIT_RADIUS,
   PROJECTILE_LAUNCH_HEIGHT,
   SEPARATION_RADIUS,
@@ -38,6 +36,7 @@ import {
   ZOMBIE_POOL_SIZE,
   ZOMBIE_RADIUS,
 } from './zombieConfig.ts';
+import { devTuning } from '../devtuning/DevTuning.ts';
 
 interface VehiclePartAnchor {
   readonly partId: string;
@@ -84,7 +83,10 @@ export class ZombieSystem {
       const dy = anchor.worldY - y;
       const dz = anchor.worldZ - z;
       if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
-      this.vehicle.applyDirectDamage(anchor.partId, PROJECTILE_DAMAGE);
+      this.vehicle.applyDirectDamage(
+        anchor.partId,
+        devTuning.specialist.projectileDamage,
+      );
       return true;
     }
     return false;
@@ -117,7 +119,10 @@ export class ZombieSystem {
       const dy = anchor.worldY - y;
       const dz = anchor.worldZ - z;
       if (dx * dx + dy * dy + dz * dz > blastRadiusSq) continue;
-      this.vehicle.applyDirectDamage(anchor.partId, LANDMINE_DAMAGE);
+      this.vehicle.applyDirectDamage(
+        anchor.partId,
+        devTuning.specialist.landmineDamage,
+      );
     }
     return detonated;
   };
@@ -180,6 +185,22 @@ export class ZombieSystem {
     this.healthMultiplier = Math.max(0, healthMultiplier);
     this.speedMultiplier = Math.max(0, speedMultiplier);
     this.attackDamageMultiplier = Math.max(0, attackDamageMultiplier);
+  }
+
+  /**
+   * Dev-tuner live apply: recompute every living zombie's stats from the current
+   * tuning + stored wave multipliers, preserving each one's health fraction.
+   * New spawns already read the tuning, so this only touches those on the field.
+   */
+  reapplyTuningToAlive(): void {
+    for (const zombie of this.pool) {
+      if (!zombie.isAlive) continue;
+      zombie.reapplyStats(
+        this.healthMultiplier,
+        this.speedMultiplier,
+        this.attackDamageMultiplier,
+      );
+    }
   }
 
   getActiveCount(): number {

@@ -238,7 +238,11 @@ export class RuntimeVehicle {
     return v.x * fwd.x + v.y * fwd.y + v.z * fwd.z;
   }
 
+  /** Dev-tuner god mode: when true, all incoming part damage is ignored. */
+  invulnerable = false;
+
   applyDirectDamage(partId: string, amount: number): void {
+    if (this.invulnerable) return;
     damagePart(this.assembled, partId, amount);
   }
 

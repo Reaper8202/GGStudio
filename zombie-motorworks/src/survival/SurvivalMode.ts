@@ -30,12 +30,21 @@ import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import { GRAVEYARD_HALF_SIZE, Graveyard } from './Graveyard.ts';
 import { Minimap } from './Minimap.ts';
-import { WaveManager, zombieCompositionForWave } from './WaveManager.ts';
+import {
+  WaveManager,
+  attackDamageMultiplierForWave,
+  healthMultiplierForWave,
+  speedMultiplierForWave,
+  zombieCompositionForWave,
+} from './WaveManager.ts';
 import {
   formatWaveComposition,
   threatWarningsForWave,
 } from './waveBalance.ts';
 import { ZombieSystem } from './zombies/ZombieSystem.ts';
+import { isDevMode } from './devtuning/devMode.ts';
+import { devTuning, subscribeTuning } from './devtuning/DevTuning.ts';
+import { DevTunerPanel } from './devtuning/DevTunerPanel.ts';
 import {
   BASE_ZOMBIE_STATS,
   LETHAL_IMPACT_SPEED,
@@ -369,6 +378,8 @@ export class SurvivalMode {
   private recoverySettleSeconds = 0;
   private recoveryRequested = false;
   private debugProgressionSuppressed = false;
+  private devPanel: DevTunerPanel | null = null;
+  private tuningUnsubscribe: (() => void) | null = null;
   private readonly recoveryImpulse = { x: 0, y: 0, z: 0 };
   private readonly recoveryTranslation = { x: 0, y: 0, z: 0 };
   private readonly recoveryVelocity = { x: 0, y: 0, z: 0 };
@@ -520,6 +531,39 @@ export class SurvivalMode {
     window.addEventListener('pointercancel', this.onFireUp);
     this.renderer.domElement.addEventListener('pointermove', this.onAim);
     this.renderer.domElement.addEventListener('pointerdown', this.onFireDown);
+
+    if (isDevMode()) this.mountDevTuner();
+  }
+
+  /** Build the dev tuner panel and keep living zombies in sync with edits. */
+  private mountDevTuner(): void {
+    this.devPanel = new DevTunerPanel(this.ui, {
+      currentWave: () => this.currentWave,
+      aliveCount: () => this.zombies.getActiveCount(),
+      applyLiveTuning: () => this.applyLiveTuning(),
+      restartWave: () => this.debugStartWave(this.currentWave),
+      skipToWave: (wave) => this.debugStartWave(wave),
+      spawnOneOfEach: () => this.onSpawnEveryZombie(),
+      killAllZombies: () => this.debugKillAllZombies(),
+      grantInfiniteMoney: () => this.callbacks.onCheatInfiniteMoney(),
+    });
+    this.tuningUnsubscribe = subscribeTuning(() => this.applyLiveTuning());
+  }
+
+  /**
+   * Push a live tuning edit onto the running wave: refresh the wave multipliers
+   * from the (possibly edited) curves, then re-stat every living zombie. God
+   * mode / time scale are read each frame, so they need no work here.
+   */
+  private applyLiveTuning(): void {
+    if (this.disposed) return;
+    const wave = this.currentWave;
+    this.zombies.setWaveMultipliers(
+      healthMultiplierForWave(wave),
+      speedMultiplierForWave(wave),
+      attackDamageMultiplierForWave(wave),
+    );
+    this.zombies.reapplyTuningToAlive();
   }
 
   private buildGround(): void {
@@ -1039,6 +1083,13 @@ export class SurvivalMode {
       return;
     }
     frameDt = Math.min(Math.max(frameDt, 0), 0.1);
+    if (this.devPanel) {
+      // God mode and time scale are read live so they need no per-edit wiring.
+      this.vehicle.invulnerable = devTuning.cheats.godMode;
+      this.waves.setSpawnPaused(devTuning.cheats.freezeSpawns);
+      frameDt *= Math.max(0, devTuning.cheats.timeScale);
+      this.devPanel.refreshReadout();
+    }
     this.accumulator += frameDt;
 
     while (this.accumulator >= FIXED_DT) {
@@ -1988,6 +2039,10 @@ export class SurvivalMode {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.tuningUnsubscribe?.();
+    this.tuningUnsubscribe = null;
+    this.devPanel?.dispose();
+    this.devPanel = null;
     window.removeEventListener('keydown', this.keydown);
     window.removeEventListener('keyup', this.keyup);
     window.removeEventListener('blur', this.blur);
