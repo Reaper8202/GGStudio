@@ -16,6 +16,57 @@ import {
   WORKER_REWARD,
 } from './zombies/zombieConfig.ts';
 
+export type SpecialistZombieKind =
+  | 'thrower'
+  | 'worker'
+  | 'phone-addict';
+
+const SPECIALIST_KINDS: readonly SpecialistZombieKind[] = [
+  'thrower',
+  'worker',
+  'phone-addict',
+];
+
+const COMPOSITION_LABELS: Record<keyof WaveComposition, [string, string]> = {
+  walker: ['walker', 'walkers'],
+  thrower: ['thrower', 'throwers'],
+  worker: ['worker', 'workers'],
+  'phone-addict': ['phone-addict', 'phone-addicts'],
+};
+
+const THREAT_WARNINGS: Record<SpecialistZombieKind, string> = {
+  thrower: 'Ranged throwers next!',
+  worker: 'Mine-laying workers next — mines go hidden from wave 8',
+  'phone-addict':
+    'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage before wave 10.',
+};
+
+/** Specialist kinds that first appear on the requested wave. */
+export function newThreatsForWave(wave: number): SpecialistZombieKind[] {
+  const previous = zombieCompositionForWave(wave - 1);
+  const current = zombieCompositionForWave(wave);
+  return SPECIALIST_KINDS.filter(
+    (kind) => previous[kind] === 0 && current[kind] > 0,
+  );
+}
+
+/** Player-facing warnings for specialists introduced by a wave. */
+export function threatWarningsForWave(wave: number): string[] {
+  return newThreatsForWave(wave).map((kind) => THREAT_WARNINGS[kind]);
+}
+
+/** Exact, compact composition with zero-count kinds omitted. */
+export function formatWaveComposition(composition: WaveComposition): string {
+  return (Object.keys(COMPOSITION_LABELS) as (keyof WaveComposition)[])
+    .filter((kind) => composition[kind] > 0)
+    .map((kind) => {
+      const count = composition[kind];
+      const [singular, plural] = COMPOSITION_LABELS[kind];
+      return `${count} ${count === 1 ? singular : plural}`;
+    })
+    .join(' / ');
+}
+
 export interface WaveBalanceReport {
   wave: number;
   composition: WaveComposition;

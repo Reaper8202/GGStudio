@@ -30,7 +30,11 @@ import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import { GRAVEYARD_HALF_SIZE, Graveyard } from './Graveyard.ts';
 import { Minimap } from './Minimap.ts';
-import { WaveManager } from './WaveManager.ts';
+import { WaveManager, zombieCompositionForWave } from './WaveManager.ts';
+import {
+  formatWaveComposition,
+  threatWarningsForWave,
+} from './waveBalance.ts';
 import { ZombieSystem } from './zombies/ZombieSystem.ts';
 import {
   BASE_ZOMBIE_STATS,
@@ -72,7 +76,7 @@ export interface SurvivalCallbacks {
     partHp: Record<string, number>,
     kills: number,
   ): void;
-  onGameOver(run: RunState): void;
+  onGameOver(run: RunState, pendingMoneyDiscarded: number): void;
   onResetWave(run: RunState): void;
   onCheatInfiniteMoney(): void;
   /** Lifetime progression: a Phone Addict died, which unlocks the EMP module. */
@@ -205,8 +209,15 @@ interface SurvivalUi {
   victoryOverlay: HTMLDivElement;
   victorySubtitle: HTMLDivElement;
   victoryMoneyValue: HTMLElement;
+  victoryRunMoneyValue: HTMLElement;
+  victoryPendingMoneyValue: HTMLElement;
   victoryKillsValue: HTMLElement;
   victoryTimeValue: HTMLElement;
+  victoryIntegrityValue: HTMLElement;
+  victoryDamagedPartsValue: HTMLElement;
+  victoryLostPartsValue: HTMLElement;
+  victoryNextWaveValue: HTMLElement;
+  victoryWarning: HTMLDivElement;
   settingsOverlay: HTMLDivElement;
   settingsButton: HTMLButtonElement;
   settingsEyebrow: HTMLSpanElement;
@@ -222,7 +233,11 @@ type PendingTransition =
       partHp: Record<string, number>;
       kills: number;
     }
-  | { kind: 'gameOver'; run: RunState };
+  | {
+      kind: 'gameOver';
+      run: RunState;
+      pendingMoneyDiscarded: number;
+    };
 
 type SurvivalRunState = RunState & { kills?: number };
 
@@ -304,8 +319,15 @@ export class SurvivalMode {
   private readonly victoryOverlay: HTMLDivElement;
   private readonly victorySubtitle: HTMLDivElement;
   private readonly victoryMoneyValue: HTMLElement;
+  private readonly victoryRunMoneyValue: HTMLElement;
+  private readonly victoryPendingMoneyValue: HTMLElement;
   private readonly victoryKillsValue: HTMLElement;
   private readonly victoryTimeValue: HTMLElement;
+  private readonly victoryIntegrityValue: HTMLElement;
+  private readonly victoryDamagedPartsValue: HTMLElement;
+  private readonly victoryLostPartsValue: HTMLElement;
+  private readonly victoryNextWaveValue: HTMLElement;
+  private readonly victoryWarning: HTMLDivElement;
   private readonly settingsOverlay: HTMLDivElement;
   private readonly settingsButton: HTMLButtonElement;
   private readonly settingsEyebrow: HTMLSpanElement;
@@ -451,8 +473,15 @@ export class SurvivalMode {
     this.victoryOverlay = builtUi.victoryOverlay;
     this.victorySubtitle = builtUi.victorySubtitle;
     this.victoryMoneyValue = builtUi.victoryMoneyValue;
+    this.victoryRunMoneyValue = builtUi.victoryRunMoneyValue;
+    this.victoryPendingMoneyValue = builtUi.victoryPendingMoneyValue;
     this.victoryKillsValue = builtUi.victoryKillsValue;
     this.victoryTimeValue = builtUi.victoryTimeValue;
+    this.victoryIntegrityValue = builtUi.victoryIntegrityValue;
+    this.victoryDamagedPartsValue = builtUi.victoryDamagedPartsValue;
+    this.victoryLostPartsValue = builtUi.victoryLostPartsValue;
+    this.victoryNextWaveValue = builtUi.victoryNextWaveValue;
+    this.victoryWarning = builtUi.victoryWarning;
     this.settingsOverlay = builtUi.settingsOverlay;
     this.settingsButton = builtUi.settingsButton;
     this.settingsEyebrow = builtUi.settingsEyebrow;
@@ -705,25 +734,38 @@ export class SurvivalMode {
       victoryStats.appendChild(row);
       return rowValue;
     };
-    const victoryMoneyValue = statRow('Money Earned');
+    const victoryMoneyValue = statRow('This Wave Banked');
+    const victoryRunMoneyValue = statRow('Run Total Banked');
+    const victoryPendingMoneyValue = statRow('Pending');
     const victoryKillsValue = statRow('Zombies Killed');
     const victoryTimeValue = statRow('Time');
+    const victoryIntegrityValue = statRow('Vehicle Integrity');
+    const victoryDamagedPartsValue = statRow('Damaged Parts');
+    const victoryLostPartsValue = statRow('Parts Lost (base value)');
+    victoryLostPartsValue.className = 'survival-victory__losses';
+    const victoryNextWaveValue = statRow('Next Wave');
+    victoryNextWaveValue.className = 'survival-victory__composition';
+    const victoryWarning = document.createElement('div');
+    victoryWarning.className = 'survival-victory__warning';
+    victoryWarning.setAttribute('role', 'status');
+    victoryWarning.hidden = true;
     const victoryActions = document.createElement('div');
     victoryActions.className = 'survival-victory__actions';
     const nextWaveButton = document.createElement('button');
     nextWaveButton.type = 'button';
     nextWaveButton.className = 'primary';
-    nextWaveButton.textContent = 'Next Wave';
+    nextWaveButton.textContent = 'Continue Now';
     nextWaveButton.addEventListener('click', this.onNextWave);
     const garageButton = document.createElement('button');
     garageButton.type = 'button';
-    garageButton.textContent = 'Go to Garage';
+    garageButton.textContent = 'Garage / Repair';
     garageButton.addEventListener('click', this.onGoToGarage);
     victoryActions.append(nextWaveButton, garageButton);
     victoryOverlay.append(
       victoryTitle,
       victorySubtitle,
       victoryStats,
+      victoryWarning,
       victoryActions,
     );
     root.appendChild(victoryOverlay);
@@ -854,8 +896,15 @@ export class SurvivalMode {
       victoryOverlay,
       victorySubtitle,
       victoryMoneyValue,
+      victoryRunMoneyValue,
+      victoryPendingMoneyValue,
       victoryKillsValue,
       victoryTimeValue,
+      victoryIntegrityValue,
+      victoryDamagedPartsValue,
+      victoryLostPartsValue,
+      victoryNextWaveValue,
+      victoryWarning,
       settingsOverlay,
       settingsButton,
       settingsEyebrow,
@@ -1328,8 +1377,9 @@ export class SurvivalMode {
   private queueCompletedStepTransition(): void {
     if (this.pendingTransition !== null) return;
     if (this.vehicle.isDestroyed()) {
+      const pendingMoneyDiscarded = this.pendingWaveTotal();
       this.discardPendingWaveRewards();
-      this.queueGameOver();
+      this.queueGameOver(pendingMoneyDiscarded);
     } else if (this.phase === 'cleared') {
       this.bankPendingWaveRewards();
       if (this.callbacks.onWaveCheckpoint) {
@@ -1347,16 +1397,46 @@ export class SurvivalMode {
   }
 
   private showVictory(): void {
+    const survivingPartIds = new Set(this.vehicle.survivingPartIds());
+    const damagedPartCount = [...this.vehicle.assembled.parts].filter(
+      ([partId, part]) =>
+        survivingPartIds.has(partId) &&
+        part.alive &&
+        !part.detached &&
+        part.health < part.def.health,
+    ).length;
+    const lostParts = [...this.vehicle.assembled.parts]
+      .filter(([partId]) => !survivingPartIds.has(partId))
+      .map(([, part]) => {
+        const def = getPartDef(part.placed.defId);
+        return `${def.name} ($${def.cost})`;
+      });
+    const nextWave = this.currentWave + 1;
+    const warnings = threatWarningsForWave(nextWave);
+
     this.victorySubtitle.textContent = `Wave ${this.currentWave} Cleared`;
     this.victoryMoneyValue.textContent = `$${this.waveMoneyEarned}`;
+    this.victoryRunMoneyValue.textContent = `$${this.callbacks.runEarnings()}`;
+    this.victoryPendingMoneyValue.textContent = '$0';
     this.victoryKillsValue.textContent = String(
       Math.max(0, this.kills - this.waveStartKills),
     );
     this.victoryTimeValue.textContent = formatDuration(this.waveElapsedSeconds);
+    this.victoryIntegrityValue.textContent = `${Math.round(
+      this.vehicle.integrityPct(),
+    )}%`;
+    this.victoryDamagedPartsValue.textContent = String(damagedPartCount);
+    this.victoryLostPartsValue.textContent =
+      lostParts.length > 0 ? lostParts.join(', ') : 'None';
+    this.victoryNextWaveValue.textContent = formatWaveComposition(
+      zombieCompositionForWave(nextWave),
+    );
+    this.victoryWarning.textContent = warnings.join(' ');
+    this.victoryWarning.hidden = warnings.length === 0;
     this.victoryOverlay.style.display = 'block';
   }
 
-  private queueGameOver(): void {
+  private queueGameOver(pendingMoneyDiscarded = 0): void {
     if (this.pendingTransition !== null || this.phase === 'gameOver') return;
     this.phase = 'gameOver';
     this.controls.throttle = 0;
@@ -1372,6 +1452,7 @@ export class SurvivalMode {
     this.pendingTransition = {
       kind: 'gameOver',
       run: this.currentRunState(),
+      pendingMoneyDiscarded,
     };
   }
 
@@ -1387,7 +1468,10 @@ export class SurvivalMode {
         pending.kills,
       );
     } else {
-      this.callbacks.onGameOver(pending.run);
+      this.callbacks.onGameOver(
+        pending.run,
+        pending.pendingMoneyDiscarded,
+      );
     }
   }
 

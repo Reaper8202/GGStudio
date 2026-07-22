@@ -46,6 +46,8 @@ import { Overlays, defaultToggles, type OverlayToggles } from './overlays.ts';
 import {
   buildEditorUI,
   type EditorUI,
+  type NewGarageDisposalSummary,
+  type RunSummary,
   type TurretModuleEconomy,
 } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
@@ -55,6 +57,7 @@ import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
 import {
   canAfford,
   nextUpgrade,
+  partInvestment,
   partRepairCost,
   placeCost,
   repairPlan,
@@ -71,9 +74,35 @@ import {
   turretModulePrice,
   type TurretModule,
 } from '../core/turretModules.ts';
+import { threatWarningsForWave } from '../survival/waveBalance.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
+
+/** Exact consequences of selling an installed build before starting over. */
+export function newGarageDisposalSummary(
+  parts: readonly PlacedPart[],
+  getDef: (defId: string) => PartDefinition,
+): NewGarageDisposalSummary {
+  const disposable = parts.filter((part) => {
+    const def = getDef(part.defId);
+    return def.isRoot !== true && def.providesControl !== true;
+  });
+  const investment = disposable.reduce(
+    (total, part) => total + partInvestment(part),
+    0,
+  );
+  const refund = disposable.reduce(
+    (total, part) => total + sellRefund(part),
+    0,
+  );
+  return {
+    partCount: disposable.length,
+    investment,
+    refund,
+    forfeited: investment - refund,
+  };
+}
 
 /**
  * Seed a freshly placed part's config. Wheels arrive powered and braked so a
@@ -242,7 +271,7 @@ export interface EditorModeContext {
     repairPart(id: string): boolean;
     repairAll(): boolean;
   };
-  runSummary?: { wavesSurvived: number; moneyEarned: number };
+  runSummary?: RunSummary;
 }
 
 export class EditorMode {
@@ -277,7 +306,7 @@ export class EditorMode {
   private readonly runContext: RunState | undefined;
   private readonly runRepair: EditorModeContext['runRepair'];
   private readonly runPartMaxHpAtEntry: ReadonlyMap<string, number>;
-  private readonly runSummary: { wavesSurvived: number; moneyEarned: number } | undefined;
+  private readonly runSummary: RunSummary | undefined;
   private readonly keyHandler = (e: KeyboardEvent) => this.onKey(e);
 
   constructor(
@@ -335,6 +364,8 @@ export class EditorMode {
       onPurchasePart: (defId) => this.buyAndArmPart(defId),
       onBuyPart: (defId) => this.buyInventoryPart(defId),
       onArmPart: (defId) => this.armGhost(defId),
+      newGarageDisposalSummary: () =>
+        newGarageDisposalSummary(this.bp.parts, getPartDef),
       onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
       onMenu: context.onMenu,
       onRename: (name) => {
@@ -467,11 +498,10 @@ export class EditorMode {
   }
 
   private resetBlueprint(next: VehicleBlueprint, label: string): boolean {
-    const refund = this.bp.parts.reduce(
-      (total, part) =>
-        total + (getPartDef(part.defId).isRoot ? 0 : sellRefund(part)),
-      0,
-    );
+    const refund = newGarageDisposalSummary(
+      this.bp.parts,
+      getPartDef,
+    ).refund;
     const previousSelection = [...this.selected];
     this.selected.clear();
     if (!this.exec(replaceBlueprintCommand(next, refund, label))) {
@@ -1537,6 +1567,15 @@ export class EditorMode {
 
   private refreshRunContext(): void {
     const plan = this.currentRepairPlan();
+    const nextWave = (this.runContext?.wave ?? 0) + 1;
+    const threatNotice = threatWarningsForWave(nextWave).join(' ');
+    const nextWaveNotice =
+      threatNotice ||
+      (this.runContext !== undefined &&
+      nextWave === 9 &&
+      !isEmpUnlocked(this.profile)
+        ? 'EMP unlocks after clearing Wave 9.'
+        : undefined);
     this.ui.setRunContext(
       this.runContext?.wave,
       this.runSummary,
@@ -1547,6 +1586,7 @@ export class EditorMode {
             canRepairAll:
               plan.totalCost > 0 &&
               canAfford(this.profile.money, plan.totalCost),
+            nextWaveNotice,
           }
         : undefined,
     );

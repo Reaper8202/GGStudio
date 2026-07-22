@@ -28,6 +28,7 @@ import {
   EditorMode,
   type EditorViewState,
 } from '../editor/EditorMode.ts';
+import type { RunSummary } from '../editor/ui.ts';
 import { CommandHistory } from '../core/commands.ts';
 import { ChamberMode, type ScenarioName } from '../chamber/ChamberMode.ts';
 import type { VehicleControls } from '../runtime/vehicle.ts';
@@ -244,8 +245,8 @@ export class App {
   private checkpoint: RunCheckpoint | null = null;
   private inBuildPhase = false;
   private runMoneyEarned = 0;
-  private runSummary:
-    { wavesSurvived: number; moneyEarned: number } | undefined;
+  private runSummary: RunSummary | undefined;
+  private readonly committedDestroyedPartNames: string[] = [];
   private profileDirty = false;
   private profileFlushTimer: number | undefined;
   private saveFailureNotified = false;
@@ -438,6 +439,7 @@ export class App {
     this.inBuildPhase = false;
     this.runMoneyEarned = 0;
     this.runSummary = undefined;
+    this.committedDestroyedPartNames.length = 0;
   }
 
   private disposeTitle(): void {
@@ -489,6 +491,7 @@ export class App {
     runSaveStore.clear();
     this.runMoneyEarned = 0;
     this.runSummary = undefined;
+    this.committedDestroyedPartNames.length = 0;
     this.checkpoint = createInitialRunCheckpoint(bp);
     this.activeRun = { wave: this.checkpoint.wave };
     this.inBuildPhase = false;
@@ -545,7 +548,8 @@ export class App {
           kills,
         );
       },
-      onGameOver: (state) => this.finishRun(state),
+      onGameOver: (state, pendingMoneyDiscarded) =>
+        this.finishRun(state, pendingMoneyDiscarded),
       onResetWave: (state) => this.resetSurvivalWave(state),
       onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
       onPhoneAddictKilled: () => {
@@ -567,6 +571,12 @@ export class App {
     partHp: Record<string, number>,
     kills: number,
   ): void {
+    const survivors = new Set(survivingPartIds);
+    this.committedDestroyedPartNames.push(
+      ...this.bp.parts
+        .filter((part) => !survivors.has(part.id))
+        .map((part) => getPartDef(part.defId).name),
+    );
     this.checkpoint = createClearedWaveCheckpoint({
       blueprint: this.bp,
       nextWave,
@@ -601,7 +611,7 @@ export class App {
     this.editor?.persistGarage();
   }
 
-  private finishRun(run: RunState): void {
+  private finishRun(run: RunState, pendingMoneyDiscarded = 0): void {
     runSaveStore.clear();
     this.flushProfile();
     if (this.checkpoint !== null) {
@@ -609,8 +619,10 @@ export class App {
     }
     this.history.clear();
     this.runSummary = {
-      wavesSurvived: Math.max(0, run.wave - 1),
-      moneyEarned: this.runMoneyEarned,
+      failedWave: run.wave,
+      bankedMoneyRetained: this.runMoneyEarned,
+      pendingMoneyDiscarded,
+      destroyedPartNames: [...this.committedDestroyedPartNames],
     };
     this.activeRun = null;
     this.checkpoint = null;

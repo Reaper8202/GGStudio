@@ -38,7 +38,7 @@ interface PendingRewardsHarness {
   stuckPrompt: { classList: { remove(...tokens: string[]): void } };
   stopVehicleMotion(): void;
   showVictory(): void;
-  queueGameOver(): void;
+  queueGameOver(pendingMoneyDiscarded?: number): void;
   attachNewIslands(islands: never[]): void;
   syncView(dt: number): void;
   renderer: { render(scene: object, camera: object): void };
@@ -57,11 +57,13 @@ function createHarness(options: { destroyed?: boolean } = {}): {
   mode: PendingRewardsHarness;
   profile: { money: number };
   rewardCalls: number[];
+  discardedCalls: number[];
   resetCalls: number[];
   saveCalls: number[];
 } {
   const profile = { money: 100 };
   const rewardCalls: number[] = [];
+  const discardedCalls: number[] = [];
   const resetCalls: number[] = [];
   const saveCalls: number[] = [];
   const callbacks = {
@@ -121,11 +123,19 @@ function createHarness(options: { destroyed?: boolean } = {}): {
     scene: {},
     camera: {},
     flushPendingTransition: vi.fn(),
-    queueGameOver() {
+    queueGameOver(pendingMoneyDiscarded = 0) {
+      discardedCalls.push(pendingMoneyDiscarded);
       mode.phase = 'gameOver';
     },
   });
-  return { mode, profile, rewardCalls, resetCalls, saveCalls };
+  return {
+    mode,
+    profile,
+    rewardCalls,
+    discardedCalls,
+    resetCalls,
+    saveCalls,
+  };
 }
 
 describe('pending survival wave rewards', () => {
@@ -154,7 +164,9 @@ describe('pending survival wave rewards', () => {
   });
 
   it('discards current-wave kill rewards when the vehicle is destroyed', () => {
-    const { mode, profile, rewardCalls } = createHarness({ destroyed: true });
+    const { mode, profile, rewardCalls, discardedCalls } = createHarness({
+      destroyed: true,
+    });
     mode.handleZombieKilled(9, 'walker');
     mode.handleZombieKilled(12, 'walker');
 
@@ -163,12 +175,15 @@ describe('pending survival wave rewards', () => {
     expect(mode.phase).toBe('gameOver');
     expect(profile.money).toBe(100);
     expect(rewardCalls).toEqual([]);
+    expect(discardedCalls).toEqual([21]);
     expect(mode.pendingWaveKillReward).toBe(0);
     expect(mode.pendingWaveReward).toBe(0);
   });
 
   it('discards kills and clear bonus when destruction lands on the completing step', () => {
-    const { mode, profile, rewardCalls } = createHarness({ destroyed: true });
+    const { mode, profile, rewardCalls, discardedCalls } = createHarness({
+      destroyed: true,
+    });
     mode.handleZombieKilled(23, 'walker');
     mode.onWaveComplete(1, 50);
 
@@ -177,6 +192,7 @@ describe('pending survival wave rewards', () => {
     expect(mode.phase).toBe('gameOver');
     expect(profile.money).toBe(100);
     expect(rewardCalls).toEqual([]);
+    expect(discardedCalls).toEqual([73]);
     expect(mode.pendingWaveKillReward).toBe(0);
     expect(mode.pendingWaveReward).toBe(0);
   });

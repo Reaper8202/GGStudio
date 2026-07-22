@@ -20,6 +20,7 @@ export interface EditorUIHandlers {
   onArmPart(defId: string): void;
   onToggleErase(): void;
   onCancelTool(): void;
+  newGarageDisposalSummary(): NewGarageDisposalSummary;
   onNew(): void;
   onMenu(): void;
   onRename(name: string): void;
@@ -70,14 +71,24 @@ export interface TurretModuleEconomy {
 }
 
 export interface RunSummary {
-  wavesSurvived: number;
-  moneyEarned: number;
+  failedWave: number;
+  bankedMoneyRetained: number;
+  pendingMoneyDiscarded: number;
+  destroyedPartNames: string[];
+}
+
+export interface NewGarageDisposalSummary {
+  partCount: number;
+  investment: number;
+  refund: number;
+  forfeited: number;
 }
 
 export interface RunRepairEconomy {
   integrityPct: number;
   totalCost: number;
   canRepairAll: boolean;
+  nextWaveNotice?: string;
 }
 
 export interface EditorUI {
@@ -298,6 +309,79 @@ export function buildEditorUI(
     return button;
   };
 
+  const newGarageOverlay = document.createElement('div');
+  newGarageOverlay.className = 'garage-confirm-overlay';
+  newGarageOverlay.hidden = true;
+  newGarageOverlay.setAttribute('role', 'dialog');
+  newGarageOverlay.setAttribute('aria-modal', 'true');
+  newGarageOverlay.setAttribute('aria-labelledby', 'new-garage-title');
+  newGarageOverlay.setAttribute('aria-describedby', 'new-garage-description');
+  const newGarageDialog = document.createElement('section');
+  newGarageDialog.className = 'panel garage-confirm';
+  const newGarageTitle = document.createElement('h2');
+  newGarageTitle.id = 'new-garage-title';
+  newGarageTitle.textContent = 'Start a New Garage?';
+  const newGarageDescription = document.createElement('p');
+  newGarageDescription.id = 'new-garage-description';
+  newGarageDescription.textContent =
+    'Installed parts will be sold at their exact resale value before the current build is replaced.';
+  const newGarageStats = document.createElement('dl');
+  newGarageStats.className = 'garage-confirm__stats';
+  const summaryValue = (labelText: string): HTMLElement => {
+    const label = document.createElement('dt');
+    label.textContent = labelText;
+    const value = document.createElement('dd');
+    newGarageStats.append(label, value);
+    return value;
+  };
+  const newGaragePartCount = summaryValue('Installed non-root parts');
+  const newGarageInvestment = summaryValue('Total paid investment');
+  const newGarageRefund = summaryValue('Resale refund');
+  const newGarageForfeited = summaryValue('Value forfeited');
+  const newGarageActions = document.createElement('div');
+  newGarageActions.className = 'garage-confirm__actions';
+  let newGarageReturnFocus: HTMLElement | null = null;
+  const closeNewGarageDialog = (): void => {
+    newGarageOverlay.hidden = true;
+    newGarageReturnFocus?.focus();
+    newGarageReturnFocus = null;
+  };
+  const cancelNewGarage = btn('Cancel', closeNewGarageDialog);
+  const confirmNewGarage = btn('Sell Parts and Start New', () => {
+    newGarageOverlay.hidden = true;
+    handlers.onNew();
+    newGarageReturnFocus = null;
+  });
+  confirmNewGarage.className = 'danger';
+  newGarageActions.append(cancelNewGarage, confirmNewGarage);
+  newGarageDialog.append(
+    newGarageTitle,
+    newGarageDescription,
+    newGarageStats,
+    newGarageActions,
+  );
+  newGarageOverlay.appendChild(newGarageDialog);
+  newGarageOverlay.addEventListener('pointerdown', (event) => {
+    if (event.target === newGarageOverlay) closeNewGarageDialog();
+  });
+  newGarageOverlay.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    closeNewGarageDialog();
+    event.preventDefault();
+  });
+  root.appendChild(newGarageOverlay);
+
+  const openNewGarageDialog = (trigger: HTMLElement): void => {
+    const summary = handlers.newGarageDisposalSummary();
+    newGaragePartCount.textContent = String(summary.partCount);
+    newGarageInvestment.textContent = `$${summary.investment}`;
+    newGarageRefund.textContent = `$${summary.refund}`;
+    newGarageForfeited.textContent = `$${summary.forfeited}`;
+    newGarageReturnFocus = trigger;
+    newGarageOverlay.hidden = false;
+    cancelNewGarage.focus();
+  };
+
   const top = document.createElement('div');
   top.className = 'topbar';
   root.appendChild(top);
@@ -307,7 +391,11 @@ export function buildEditorUI(
   nameInput.title = 'Vehicle name';
   nameInput.addEventListener('change', () => handlers.onRename(nameInput.value));
   const menuBtn = btn('Menu', handlers.onMenu);
-  top.append(nameInput, btn('New Garage', handlers.onNew), menuBtn);
+  const newGarageBtn = btn('New Garage', () =>
+    openNewGarageDialog(newGarageBtn),
+  );
+  newGarageBtn.setAttribute('aria-haspopup', 'dialog');
+  top.append(nameInput, newGarageBtn, menuBtn);
   const undoBtn = btn('Undo', handlers.onUndo, 'Ctrl+Z');
   const redoBtn = btn('Redo', handlers.onRedo, 'Ctrl+Shift+Z');
   top.append(undoBtn, redoBtn);
@@ -347,6 +435,9 @@ export function buildEditorUI(
   runBanner.style.display = 'none';
   root.appendChild(runBanner);
   const runBannerText = document.createElement('span');
+  runBannerText.className = 'run-banner__text';
+  const runBannerWarning = document.createElement('span');
+  runBannerWarning.className = 'run-banner__warning';
   const repairAllBtn = btn('Repair All $0', handlers.onRepairAll);
   repairAllBtn.className = 'primary run-banner__repair';
   const noticeBanner = document.createElement('div');
@@ -893,8 +984,10 @@ export function buildEditorUI(
       menuBtn.style.display = wave === undefined ? '' : 'none';
       if (wave !== undefined) {
         runBannerText.textContent = repair
-          ? `Wave ${wave} cleared - Integrity ${Math.round(repair.integrityPct)}% - Next: Wave ${wave + 1}`
-          : `Wave ${wave} cleared - rebuild. Next: Wave ${wave + 1}`;
+          ? `Next: Wave ${wave + 1} · Integrity ${Math.round(repair.integrityPct)}%`
+          : `Next: Wave ${wave + 1} · Rebuild before continuing`;
+        runBannerWarning.textContent = repair?.nextWaveNotice ?? '';
+        runBannerWarning.hidden = repair?.nextWaveNotice === undefined;
         if (repair) {
           repairAllBtn.textContent = `Repair All $${repair.totalCost}`;
           repairAllBtn.disabled =
@@ -905,18 +998,42 @@ export function buildEditorUI(
               : repair.canRepairAll
                 ? 'Fully repair all surviving parts'
                 : 'Not enough money';
-          runBanner.replaceChildren(runBannerText, repairAllBtn);
+          runBanner.replaceChildren(
+            runBannerText,
+            runBannerWarning,
+            repairAllBtn,
+          );
         } else {
-          runBanner.replaceChildren(runBannerText);
+          runBanner.replaceChildren(runBannerText, runBannerWarning);
         }
         runBanner.style.display = 'block';
         runBanner.classList.remove('run-summary');
+        runBanner.classList.add('run-active');
         fightBtn.textContent = `Start Wave ${wave + 1}`;
         return;
       }
       fightBtn.textContent = 'Fight Zombies';
+      runBanner.classList.remove('run-active');
       if (summary) {
-        runBanner.textContent = `Run complete - ${summary.wavesSurvived} wave${summary.wavesSurvived === 1 ? '' : 's'} survived - $${summary.moneyEarned} earned`;
+        const primary = document.createElement('div');
+        primary.className = 'run-banner__summary-line';
+        primary.textContent =
+          `Run ended on Wave ${summary.failedWave} · ` +
+          `$${summary.bankedMoneyRetained} banked money retained · ` +
+          `$${summary.pendingMoneyDiscarded} failed-wave pending money discarded`;
+        const recovery = document.createElement('div');
+        recovery.className = 'run-banner__summary-line';
+        recovery.textContent =
+          `Wave ${summary.failedWave} checkpoint restored · ` +
+          'Survivors recovered to full HP';
+        const losses = document.createElement('div');
+        losses.className = 'run-banner__summary-line';
+        losses.textContent = `Earlier cleared-wave losses: ${
+          summary.destroyedPartNames.length > 0
+            ? summary.destroyedPartNames.join(', ')
+            : 'None'
+        }`;
+        runBanner.replaceChildren(primary, recovery, losses);
         runBanner.style.display = 'block';
         runBanner.classList.add('run-summary');
       } else {
