@@ -1,11 +1,86 @@
 import { getPartDef } from './parts.ts';
 import { STARTER_UNLOCKS } from './profile.ts';
+import { turretModuleInvestment } from './turretModules.ts';
 import { getEffectiveDef, upgradePrice } from './upgrades.ts';
 import type { PartDefinition, PlacedPart } from './types.ts';
 
 /** Persistent run progress. Spendable money belongs only to PlayerProfile. */
 export interface RunState {
   wave: number;
+  partHp?: Record<string, number>;
+}
+
+/** Cost to restore one part to its effective maximum HP. */
+export function partRepairCost(
+  baseCost: number,
+  currentHp: number,
+  maxHp: number,
+): number {
+  if (maxHp <= 0 || currentHp >= maxHp || baseCost <= 0) return 0;
+  const missingFraction = Math.min(
+    1,
+    Math.max(0, (maxHp - currentHp) / maxHp),
+  );
+  return Math.ceil(baseCost * missingFraction * 0.5);
+}
+
+export interface RepairLineItem {
+  id: string;
+  cost: number;
+  missingHp: number;
+}
+
+export interface RepairPlan {
+  items: RepairLineItem[];
+  totalCost: number;
+  integrityPct: number;
+}
+
+/** Summarize current vehicle integrity and all paid repair line items. */
+export function repairPlan(
+  parts: {
+    id: string;
+    baseCost: number;
+    currentHp: number;
+    maxHp: number;
+  }[],
+): RepairPlan {
+  const items: RepairLineItem[] = [];
+  let totalCost = 0;
+  let totalHp = 0;
+  let totalMaxHp = 0;
+
+  for (const part of parts) {
+    totalHp += Math.min(part.currentHp, part.maxHp);
+    totalMaxHp += part.maxHp;
+
+    const missingHp = Math.max(0, part.maxHp - part.currentHp);
+    const cost = partRepairCost(
+      part.baseCost,
+      part.currentHp,
+      part.maxHp,
+    );
+    if (cost <= 0 || missingHp <= 0) continue;
+    items.push({ id: part.id, cost, missingHp });
+    totalCost += cost;
+  }
+
+  return {
+    items,
+    totalCost,
+    integrityPct: totalMaxHp > 0 ? (100 * totalHp) / totalMaxHp : 0,
+  };
+}
+
+/** Preserve a part's HP percentage when its effective maximum HP changes. */
+export function scaledHpOnUpgrade(
+  currentHp: number,
+  oldMaxHp: number,
+  newMaxHp: number,
+): number {
+  if (oldMaxHp <= 0) return newMaxHp;
+  const hpFraction = Math.min(1, Math.max(0, currentHp / oldMaxHp));
+  return hpFraction * newMaxHp;
 }
 
 function placedLevel(placed: PlacedPart): number {
@@ -17,14 +92,15 @@ function placedLevel(placed: PlacedPart): number {
 /** Total purchase price already paid for a placed part and its upgrades. */
 export function partInvestment(placed: PlacedPart): number {
   const def = getEffectiveDef(placed);
-  if (def.upgrade === undefined) return def.cost;
+  const moduleInvestment = turretModuleInvestment(placed);
+  if (def.upgrade === undefined) return def.cost + moduleInvestment;
 
   let investment = def.cost;
   for (let level = 2; level <= placedLevel(placed); level += 1) {
     const price = upgradePrice(def, level);
     if (price !== undefined) investment += price;
   }
-  return investment;
+  return investment + moduleInvestment;
 }
 
 export function sellRefund(placed: PlacedPart): number {

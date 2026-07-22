@@ -1,20 +1,22 @@
-import RAPIER from "@dimforge/rapier3d-compat";
-import * as THREE from "three";
-import type { DamageType } from "../../core/types.ts";
-import type { RuntimePart } from "../../runtime/assembler.ts";
-import type { RuntimeVehicle } from "../../runtime/vehicle.ts";
+import RAPIER from '@dimforge/rapier3d-compat';
+import * as THREE from 'three';
+import type { DamageType } from '../../core/types.ts';
+import { empShieldLeak } from '../../core/turretModules.ts';
+import type { RuntimePart } from '../../runtime/assembler.ts';
+import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
 import {
   Zombie,
   ZombieState,
   type Vector3Like,
   type ZombieKind,
   type ZombieKilledCallback,
-} from "./Zombie.ts";
-import { Landmines } from "./Landmines.ts";
-import { ThrowerProjectiles } from "./ThrowerProjectiles.ts";
+} from './Zombie.ts';
+import { Landmines, type MineSnapshot } from './Landmines.ts';
+import { ThrowerProjectiles } from './ThrowerProjectiles.ts';
 import {
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
+  LANDMINE_BLAST_RADIUS,
   LANDMINE_DAMAGE,
   LANDMINE_TRIGGER_RADIUS,
   LETHAL_IMPACT_SPEED,
@@ -35,7 +37,7 @@ import {
   ZOMBIE_POOL_COUNTS,
   ZOMBIE_POOL_SIZE,
   ZOMBIE_RADIUS,
-} from "./zombieConfig.ts";
+} from './zombieConfig.ts';
 
 interface VehiclePartAnchor {
   readonly partId: string;
@@ -47,6 +49,8 @@ interface VehiclePartAnchor {
   worldY: number;
   worldZ: number;
 }
+
+export type ZombieHitResult = 'miss' | 'shielded' | 'damaged' | 'killed';
 
 /** Pooled zombie AI, handle routing, vehicle contacts, and spawn selection. */
 export class ZombieSystem {
@@ -85,13 +89,13 @@ export class ZombieSystem {
     }
     return false;
   };
-  /** Mine explosions damage every attached part inside the trigger radius. */
+  /** Mine trigger checks the vehicle proximity; blast damage then uses its own radius. */
   private readonly tryMineDetonation = (
     x: number,
     y: number,
     z: number,
   ): boolean => {
-    const radiusSq = LANDMINE_TRIGGER_RADIUS * LANDMINE_TRIGGER_RADIUS;
+    const triggerRadiusSq = LANDMINE_TRIGGER_RADIUS * LANDMINE_TRIGGER_RADIUS;
     let detonated = false;
     for (const anchor of this.vehicleAnchors) {
       if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
@@ -99,15 +103,29 @@ export class ZombieSystem {
       const dx = anchor.worldX - x;
       const dy = anchor.worldY - y;
       const dz = anchor.worldZ - z;
-      if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
-      this.vehicle.applyDirectDamage(anchor.partId, LANDMINE_DAMAGE);
+      if (dx * dx + dy * dy + dz * dz > triggerRadiusSq) continue;
       detonated = true;
+      break;
+    }
+    if (!detonated) return false;
+
+    const blastRadiusSq = LANDMINE_BLAST_RADIUS * LANDMINE_BLAST_RADIUS;
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      const dx = anchor.worldX - x;
+      const dy = anchor.worldY - y;
+      const dz = anchor.worldZ - z;
+      if (dx * dx + dy * dy + dz * dz > blastRadiusSq) continue;
+      this.vehicle.applyDirectDamage(anchor.partId, LANDMINE_DAMAGE);
     }
     return detonated;
   };
   private healthMultiplier = 1;
   private speedMultiplier = 1;
   private attackDamageMultiplier = 1;
+  private mineRevealRadiusM = 0;
+  private currentWave = 1;
   private disposed = false;
 
   constructor(
@@ -173,6 +191,27 @@ export class ZombieSystem {
   /** Targetable zombies, backed by a stable reused array. */
   getAliveTargets(): readonly Zombie[] {
     return this.aliveTargets;
+  }
+
+  /** 0 disables reveal; SurvivalMode recomputes it from the live Mine Sweeper part. */
+  setMineRevealRadius(radiusM: number): void {
+    this.mineRevealRadiusM = Math.max(
+      0,
+      Number.isFinite(radiusM) ? radiusM : 0,
+    );
+  }
+
+  /** Wave number, so the wave-7 tutorial rule can be evaluated. */
+  setCurrentWave(wave: number): void {
+    this.currentWave = Math.max(
+      1,
+      Math.floor(Number.isFinite(wave) ? wave : 1),
+    );
+  }
+
+  /** Pass-through for the minimap. */
+  activeMines(): readonly MineSnapshot[] {
+    return this.landmines.activeMines();
   }
 
   /** Debug seam positions from the current Rapier body translations. */
@@ -246,7 +285,13 @@ export class ZombieSystem {
 
     this.processVehicleContacts(this.activeScratch, dt);
     this.projectiles.update(dt, this.tryProjectileImpact);
-    this.landmines.update(dt, this.tryMineDetonation);
+    const vehiclePosition = this.vehicle.body.translation();
+    this.landmines.update(dt, this.tryMineDetonation, {
+      vehicleX: vehiclePosition.x,
+      vehicleZ: vehiclePosition.z,
+      wave: this.currentWave,
+      radiusM: this.mineRevealRadiusM,
+    });
     this.rebuildAliveTargets();
   }
 
@@ -285,25 +330,36 @@ export class ZombieSystem {
     this.swarmForce.z = 0;
   }
 
-  /** Route a RuntimeVehicle hitscan handle. Returns true only for a killing hit. */
+  /** True when the collider belongs to a shielded (Phone Addict) zombie. */
+  isShieldedTarget(handle: number): boolean {
+    return this.colliderToZombie.get(handle)?.kind === 'phone-addict';
+  }
+
+  /** Route a RuntimeVehicle hit while preserving shield and kill outcomes. */
   hitZombieHandle(
     handle: number,
     damage: number,
     direction?: Vector3Like,
-    damageType: DamageType = "hitscan",
-  ): boolean {
-    if (this.disposed || damage <= 0) return false;
+    damageType: DamageType = 'hitscan',
+    empLevel = 0,
+  ): ZombieHitResult {
+    if (this.disposed || damage <= 0) return 'miss';
     const zombie = this.colliderToZombie.get(handle);
-    if (!zombie) return false;
-    // The phone addict's bubble shield absorbs projectile and hitscan hits;
-    // aoe damage washes around it.
-    if (zombie.kind === "phone-addict" && damageType !== "aoe") {
+    if (!zombie) return 'miss';
+    // Gun damage leaks through the bubble according to EMP level, while aoe
+    // damage continues to wash around it at full strength.
+    if (zombie.kind === 'phone-addict' && damageType !== 'aoe') {
       zombie.flashShield();
-      return false;
+      const killed = zombie.takeDamage(
+        damage * empShieldLeak(empLevel),
+        direction,
+      );
+      if (killed) this.rebuildAliveTargets();
+      return killed ? 'killed' : 'shielded';
     }
     const killed = zombie.takeDamage(damage, direction);
     if (killed) this.rebuildAliveTargets();
-    return killed;
+    return killed ? 'killed' : 'damaged';
   }
 
   /** Debug seam: kill every active slot, including zombies still spawning. */
@@ -516,7 +572,7 @@ export class ZombieSystem {
   private updateWatchdog(zombie: Zombie, dt: number): void {
     // Workers deliberately stand still (arming, holding range); never teleport
     // them for lack of progress toward the vehicle.
-    if (zombie.state !== ZombieState.Chasing || zombie.kind === "worker") {
+    if (zombie.state !== ZombieState.Chasing || zombie.kind === 'worker') {
       this.resetWatchdog(zombie);
       return;
     }

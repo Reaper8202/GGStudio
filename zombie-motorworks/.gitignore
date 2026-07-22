@@ -7,3 +7,6 @@ test-results/
 .DS_Store
 *.local
 npm-debug.log*
+verify-minimap-save.mjs
+verify-balance-pass.mjs
+probe.mjs

@@ -6,6 +6,7 @@ import { getPartDef } from '../core/parts.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { BLUEPRINT_STORAGE_KEY } from '../editor/EditorMode.ts';
 import { Graveyard } from '../survival/Graveyard.ts';
+import type { SavedRun } from '../core/runSave.ts';
 import { profileStore } from './profileStore.ts';
 // buildStarterBlueprint is a plain function export; the cross-import back
 // into App.ts is safe because it is only invoked at call time, well after
@@ -15,6 +16,7 @@ import { buildStarterBlueprint } from './App.ts';
 export interface TitleScreenHandlers {
   onNewGame(): void;
   onContinue(): void;
+  onResumeRun(): void;
 }
 
 const ORBIT_RADIUS_M = 12;
@@ -88,6 +90,7 @@ function disposeObjectResources(root: THREE.Object3D): void {
 export class TitleScreen {
   readonly root = document.createElement('section');
 
+  private readonly resumeRunButton = document.createElement('button');
   private readonly newGameButton = document.createElement('button');
   private readonly continueButton = document.createElement('button');
   private readonly confirmation = document.createElement('div');
@@ -108,6 +111,10 @@ export class TitleScreen {
     this.requestNewGame();
   };
 
+  private readonly onResumeRunClick = (): void => {
+    this.resumeRun();
+  };
+
   private readonly onContinueClick = (): void => {
     this.continueGame();
   };
@@ -120,6 +127,7 @@ export class TitleScreen {
   private readonly onCancelClick = (): void => {
     if (this.disposed) return;
     this.confirmation.hidden = true;
+    this.resumeRunButton.disabled = this.savedRun === null;
     this.newGameButton.disabled = false;
     this.continueButton.disabled = !this.hasSave;
   };
@@ -129,6 +137,7 @@ export class TitleScreen {
     private readonly renderer: THREE.WebGLRenderer,
     private readonly hasSave: boolean,
     private readonly handlers: TitleScreenHandlers,
+    private readonly savedRun: SavedRun | null = null,
   ) {
     this.root.className = 'title-screen';
     this.root.setAttribute('aria-labelledby', 'game-title');
@@ -151,8 +160,16 @@ export class TitleScreen {
     const actions = document.createElement('div');
     actions.className = 'title-actions';
 
+    this.resumeRunButton.type = 'button';
+    this.resumeRunButton.className = 'primary title-action';
+    this.resumeRunButton.textContent =
+      savedRun === null ? 'Resume Run' : `Resume Run — Wave ${savedRun.wave}`;
+    this.resumeRunButton.hidden = savedRun === null;
+    this.resumeRunButton.disabled = savedRun === null;
+
     this.newGameButton.type = 'button';
-    this.newGameButton.className = 'primary title-action';
+    this.newGameButton.className =
+      savedRun === null ? 'primary title-action' : 'title-action';
     this.newGameButton.textContent = 'New Game';
 
     this.continueButton.type = 'button';
@@ -161,13 +178,18 @@ export class TitleScreen {
     this.continueButton.hidden = !hasSave;
     this.continueButton.disabled = !hasSave;
 
-    actions.append(this.newGameButton, this.continueButton);
+    actions.append(
+      this.resumeRunButton,
+      this.newGameButton,
+      this.continueButton,
+    );
 
     this.confirmation.className = 'title-confirm';
     this.confirmation.hidden = true;
     const warning = document.createElement('p');
-    warning.textContent =
-      'This erases your garage, money and unlocks. Start over?';
+    warning.textContent = savedRun
+      ? 'This discards your saved run and erases your garage, money and unlocks. Start over?'
+      : 'This erases your garage, money and unlocks. Start over?';
     const confirmActions = document.createElement('div');
     confirmActions.className = 'title-confirm-actions';
 
@@ -195,6 +217,7 @@ export class TitleScreen {
     this.root.appendChild(panel);
     container.appendChild(this.root);
 
+    this.resumeRunButton.addEventListener('click', this.onResumeRunClick);
     this.newGameButton.addEventListener('click', this.onNewGameClick);
     this.continueButton.addEventListener('click', this.onContinueClick);
     this.confirmButton.addEventListener('click', this.onConfirmClick);
@@ -246,13 +269,20 @@ export class TitleScreen {
   /** Starts immediately for a fresh profile, or asks before replacing a save. */
   requestNewGame(): boolean {
     if (this.disposed) return false;
-    if (this.hasSave) {
+    if (this.hasSave || this.savedRun !== null) {
       this.confirmation.hidden = false;
+      this.resumeRunButton.disabled = true;
       this.newGameButton.disabled = true;
       this.continueButton.disabled = true;
       return false;
     }
     this.handlers.onNewGame();
+    return true;
+  }
+
+  resumeRun(): boolean {
+    if (this.disposed || this.savedRun === null) return false;
+    this.handlers.onResumeRun();
     return true;
   }
 
@@ -265,6 +295,7 @@ export class TitleScreen {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.resumeRunButton.removeEventListener('click', this.onResumeRunClick);
     this.newGameButton.removeEventListener('click', this.onNewGameClick);
     this.continueButton.removeEventListener('click', this.onContinueClick);
     this.confirmButton.removeEventListener('click', this.onConfirmClick);

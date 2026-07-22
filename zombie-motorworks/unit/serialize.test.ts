@@ -30,6 +30,13 @@ function sampleBlueprint() {
       paint: 'blue',
     },
   });
+  bp = withPartAdded(bp, {
+    id: 'p3',
+    defId: 'turret',
+    pos: { x: 0, y: 1, z: 0 },
+    orient: 0,
+    config: { empLevel: 2, piercingLevel: 3 },
+  });
   return bp;
 }
 
@@ -159,24 +166,116 @@ describe('blueprint serialization', () => {
   });
 
   it('clamps future upgrade levels and strips invalid or unknown config fields', () => {
-    const result = deserializeBlueprint(JSON.stringify({
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-      id: 'bp',
-      name: 'sanitized',
-      parts: [{
-        id: 'p1', defId: 'wheel-standard', pos: { x: 0, y: 0, z: 0 }, orient: 0,
-        config: {
-          level: 99, driven: true, steering: 'yes', braking: false,
-          suspensionPreset: 'space', paint: 'invisible', injected: 'nope',
-        },
-      }],
-    }));
+    const result = deserializeBlueprint(
+      JSON.stringify({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        id: 'bp',
+        name: 'sanitized',
+        parts: [
+          {
+            id: 'p1',
+            defId: 'wheel-standard',
+            pos: { x: 0, y: 0, z: 0 },
+            orient: 0,
+            config: {
+              level: 99,
+              driven: true,
+              steering: 'yes',
+              braking: false,
+              suspensionPreset: 'space',
+              paint: 'invisible',
+              injected: 'nope',
+            },
+          },
+        ],
+      }),
+    );
 
     expect(result.parts[0].config).toEqual({
       level: 5,
       driven: true,
       braking: false,
     });
+  });
+
+  it('clamps turret module levels while dropping zero and non-turret modules', () => {
+    const result = deserializeBlueprint(
+      JSON.stringify({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        id: 'bp',
+        name: 'module sanitizing',
+        parts: [
+          {
+            id: 'turret-high',
+            defId: 'turret',
+            pos: { x: 0, y: 0, z: 0 },
+            orient: 0,
+            config: { empLevel: 99, piercingLevel: 99 },
+          },
+          {
+            id: 'turret-zero',
+            defId: 'turret',
+            pos: { x: 1, y: 0, z: 0 },
+            orient: 0,
+            config: { empLevel: 0, piercingLevel: 0 },
+          },
+          {
+            id: 'frame',
+            defId: 'frame-box',
+            pos: { x: 2, y: 0, z: 0 },
+            orient: 0,
+            config: { empLevel: 2, piercingLevel: 3 },
+          },
+        ],
+      }),
+    );
+
+    expect(result.parts.map((part) => part.config)).toEqual([
+      { empLevel: 3, piercingLevel: 3 },
+      {},
+      {},
+    ]);
+  });
+
+  it.each(['empLevel', 'piercingLevel'] as const)(
+    'rejects a non-number %s',
+    (moduleKey) => {
+      const json = JSON.stringify({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        id: 'bp',
+        name: 'invalid module',
+        parts: [
+          {
+            id: 'turret',
+            defId: 'turret',
+            pos: { x: 0, y: 0, z: 0 },
+            orient: 0,
+            config: { [moduleKey]: '2' },
+          },
+        ],
+      });
+
+      expect(() => deserializeBlueprint(json)).toThrow(BlueprintFormatError);
+    },
+  );
+
+  it('decodes a current turret blueprint saved before module fields existed', () => {
+    const legacy = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      id: 'pre-modules',
+      name: 'old turret rig',
+      parts: [
+        {
+          id: 'turret',
+          defId: 'turret',
+          pos: { x: 0, y: 0, z: 0 },
+          orient: 0,
+          config: {},
+        },
+      ],
+    };
+
+    expect(deserializeBlueprint(JSON.stringify(legacy))).toEqual(legacy);
   });
 
   it('migrates v1 type and rotation fields to v2 defId and orient', () => {

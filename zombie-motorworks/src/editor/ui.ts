@@ -8,12 +8,19 @@ import {
   type ValidationIssue,
   type VehicleAnalysisReport,
 } from '../core/types.ts';
+import {
+  TURRET_MODULE_MAX_LEVEL,
+  type TurretModule,
+} from '../core/turretModules.ts';
 
 export interface EditorUIHandlers {
+  /** Atomic production store action; old harnesses may omit this callback. */
+  onPurchasePart?(defId: string): void;
   onBuyPart(defId: string): void;
   onArmPart(defId: string): void;
   onToggleErase(): void;
   onCancelTool(): void;
+  newGarageDisposalSummary(): NewGarageDisposalSummary;
   onNew(): void;
   onMenu(): void;
   onRename(name: string): void;
@@ -27,6 +34,9 @@ export interface EditorUIHandlers {
   onStartTutorial(): void;
   onConfigChange(partId: string, key: string, value: boolean | string): void;
   onUpgradePart(partId: string): void;
+  onRepairPart(partId: string): void;
+  onRepairAll(): void;
+  onBuyTurretModule(partId: string, module: TurretModule): void;
   onDeleteSelected(): void;
   onRotateSelected(axis: 'y' | 'x'): void;
 }
@@ -35,11 +45,50 @@ export interface SelectedPartEconomy {
   nextUpgradePrice: number | null;
   canUpgrade: boolean;
   sellRefund: number;
+  repairCost: number | null;
+  canRepair: boolean;
+  turretModules?: Record<TurretModule, TurretModuleEconomy>;
+  upgradePreview?: {
+    before: {
+      totalDps: number;
+      integrity: number;
+      estimatedTopSpeedKph: number;
+    };
+    after: {
+      totalDps: number;
+      integrity: number;
+      estimatedTopSpeedKph: number;
+    };
+  };
+}
+
+export interface TurretModuleEconomy {
+  level: number;
+  targetLevel: number | null;
+  price: number | null;
+  unlocked: boolean;
+  canBuy: boolean;
 }
 
 export interface RunSummary {
-  wavesSurvived: number;
-  moneyEarned: number;
+  failedWave: number;
+  bankedMoneyRetained: number;
+  pendingMoneyDiscarded: number;
+  destroyedPartNames: string[];
+}
+
+export interface NewGarageDisposalSummary {
+  partCount: number;
+  investment: number;
+  refund: number;
+  forfeited: number;
+}
+
+export interface RunRepairEconomy {
+  integrityPct: number;
+  totalCost: number;
+  canRepairAll: boolean;
+  nextWaveNotice?: string;
 }
 
 export interface EditorUI {
@@ -67,7 +116,11 @@ export interface EditorUI {
     inventory: Readonly<Record<string, number>>,
     installedDefIds: readonly string[],
   ): void;
-  setRunContext(wave?: number, summary?: RunSummary): void;
+  setRunContext(
+    wave?: number,
+    summary?: RunSummary,
+    repair?: RunRepairEconomy,
+  ): void;
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
   setStatus(text: string): void;
@@ -256,6 +309,79 @@ export function buildEditorUI(
     return button;
   };
 
+  const newGarageOverlay = document.createElement('div');
+  newGarageOverlay.className = 'garage-confirm-overlay';
+  newGarageOverlay.hidden = true;
+  newGarageOverlay.setAttribute('role', 'dialog');
+  newGarageOverlay.setAttribute('aria-modal', 'true');
+  newGarageOverlay.setAttribute('aria-labelledby', 'new-garage-title');
+  newGarageOverlay.setAttribute('aria-describedby', 'new-garage-description');
+  const newGarageDialog = document.createElement('section');
+  newGarageDialog.className = 'panel garage-confirm';
+  const newGarageTitle = document.createElement('h2');
+  newGarageTitle.id = 'new-garage-title';
+  newGarageTitle.textContent = 'Start a New Garage?';
+  const newGarageDescription = document.createElement('p');
+  newGarageDescription.id = 'new-garage-description';
+  newGarageDescription.textContent =
+    'Installed parts will be sold at their exact resale value before the current build is replaced.';
+  const newGarageStats = document.createElement('dl');
+  newGarageStats.className = 'garage-confirm__stats';
+  const summaryValue = (labelText: string): HTMLElement => {
+    const label = document.createElement('dt');
+    label.textContent = labelText;
+    const value = document.createElement('dd');
+    newGarageStats.append(label, value);
+    return value;
+  };
+  const newGaragePartCount = summaryValue('Installed non-root parts');
+  const newGarageInvestment = summaryValue('Total paid investment');
+  const newGarageRefund = summaryValue('Resale refund');
+  const newGarageForfeited = summaryValue('Value forfeited');
+  const newGarageActions = document.createElement('div');
+  newGarageActions.className = 'garage-confirm__actions';
+  let newGarageReturnFocus: HTMLElement | null = null;
+  const closeNewGarageDialog = (): void => {
+    newGarageOverlay.hidden = true;
+    newGarageReturnFocus?.focus();
+    newGarageReturnFocus = null;
+  };
+  const cancelNewGarage = btn('Cancel', closeNewGarageDialog);
+  const confirmNewGarage = btn('Sell Parts and Start New', () => {
+    newGarageOverlay.hidden = true;
+    handlers.onNew();
+    newGarageReturnFocus = null;
+  });
+  confirmNewGarage.className = 'danger';
+  newGarageActions.append(cancelNewGarage, confirmNewGarage);
+  newGarageDialog.append(
+    newGarageTitle,
+    newGarageDescription,
+    newGarageStats,
+    newGarageActions,
+  );
+  newGarageOverlay.appendChild(newGarageDialog);
+  newGarageOverlay.addEventListener('pointerdown', (event) => {
+    if (event.target === newGarageOverlay) closeNewGarageDialog();
+  });
+  newGarageOverlay.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    closeNewGarageDialog();
+    event.preventDefault();
+  });
+  root.appendChild(newGarageOverlay);
+
+  const openNewGarageDialog = (trigger: HTMLElement): void => {
+    const summary = handlers.newGarageDisposalSummary();
+    newGaragePartCount.textContent = String(summary.partCount);
+    newGarageInvestment.textContent = `$${summary.investment}`;
+    newGarageRefund.textContent = `$${summary.refund}`;
+    newGarageForfeited.textContent = `$${summary.forfeited}`;
+    newGarageReturnFocus = trigger;
+    newGarageOverlay.hidden = false;
+    cancelNewGarage.focus();
+  };
+
   const top = document.createElement('div');
   top.className = 'topbar';
   root.appendChild(top);
@@ -265,7 +391,11 @@ export function buildEditorUI(
   nameInput.title = 'Vehicle name';
   nameInput.addEventListener('change', () => handlers.onRename(nameInput.value));
   const menuBtn = btn('Menu', handlers.onMenu);
-  top.append(nameInput, btn('New Garage', handlers.onNew), menuBtn);
+  const newGarageBtn = btn('New Garage', () =>
+    openNewGarageDialog(newGarageBtn),
+  );
+  newGarageBtn.setAttribute('aria-haspopup', 'dialog');
+  top.append(nameInput, newGarageBtn, menuBtn);
   const undoBtn = btn('Undo', handlers.onUndo, 'Ctrl+Z');
   const redoBtn = btn('Redo', handlers.onRedo, 'Ctrl+Shift+Z');
   top.append(undoBtn, redoBtn);
@@ -304,6 +434,12 @@ export function buildEditorUI(
   runBanner.className = 'panel run-banner';
   runBanner.style.display = 'none';
   root.appendChild(runBanner);
+  const runBannerText = document.createElement('span');
+  runBannerText.className = 'run-banner__text';
+  const runBannerWarning = document.createElement('span');
+  runBannerWarning.className = 'run-banner__warning';
+  const repairAllBtn = btn('Repair All $0', handlers.onRepairAll);
+  repairAllBtn.className = 'primary run-banner__repair';
   const noticeBanner = document.createElement('div');
   noticeBanner.className = 'panel editor-notice';
   noticeBanner.style.display = 'none';
@@ -340,6 +476,8 @@ export function buildEditorUI(
 
   const storeButtons = new Map<string, HTMLButtonElement>();
   const storePriceLabels = new Map<string, HTMLElement>();
+  const storePriceBreakdowns = new Map<string, HTMLElement>();
+  const storeUnlockMilestones = new Map<string, HTMLElement>();
   const inventoryButtons = new Map<string, HTMLButtonElement>();
   const inventoryCountLabels = new Map<string, HTMLElement>();
   let armed: string | null = null;
@@ -363,11 +501,29 @@ export function buildEditorUI(
     storeBlurb.textContent = description;
     const price = document.createElement('small');
     price.className = 'part-price';
-    storeButton.append(storeName, storePreview, storeBlurb, price);
-    storeButton.addEventListener('click', () => handlers.onBuyPart(id));
+    const priceBreakdown = document.createElement('small');
+    priceBreakdown.className = 'part-price-breakdown';
+    priceBreakdown.hidden = true;
+    const unlockMilestone = document.createElement('small');
+    unlockMilestone.className = 'part-unlock-milestone';
+    unlockMilestone.hidden = true;
+    storeButton.append(
+      storeName,
+      storePreview,
+      storeBlurb,
+      price,
+      priceBreakdown,
+      unlockMilestone,
+    );
+    storeButton.addEventListener('click', () => {
+      if (handlers.onPurchasePart) handlers.onPurchasePart(id);
+      else handlers.onBuyPart(id);
+    });
     storeContent.appendChild(storeButton);
     storeButtons.set(id, storeButton);
     storePriceLabels.set(id, price);
+    storePriceBreakdowns.set(id, priceBreakdown);
+    storeUnlockMilestones.set(id, unlockMilestone);
 
     const inventoryButton = document.createElement('button');
     inventoryButton.className = 'part-btn inventory-item';
@@ -600,6 +756,10 @@ export function buildEditorUI(
       selectedContent.appendChild(statList);
 
       if (effectiveDef?.wheel) {
+        const advanced = document.createElement('details');
+        advanced.className = 'selected-part__wheel-advanced';
+        const advancedSummary = document.createElement('summary');
+        advancedSummary.textContent = 'Advanced wheel setup';
         const config = document.createElement('div');
         config.className = 'selected-part__config';
         for (const [labelText, key] of [['Driven', 'driven'], ['Steering', 'steering'], ['Braking', 'braking']] as const) {
@@ -613,7 +773,8 @@ export function buildEditorUI(
           label.append(input, labelText);
           config.appendChild(label);
         }
-        selectedContent.appendChild(config);
+        advanced.append(advancedSummary, config);
+        selectedContent.appendChild(advanced);
       }
 
       const paintSection = document.createElement('div');
@@ -637,7 +798,64 @@ export function buildEditorUI(
 
       const actions = document.createElement('div');
       actions.className = 'selected-part__actions';
+      const repairCost = economy?.repairCost ?? null;
+      if (repairCost !== null) {
+        const repairButton = btn(
+          repairCost === 0 ? 'Repair (free)' : `Repair  $${repairCost}`,
+          () => handlers.onRepairPart(partId),
+        );
+        repairButton.className = 'primary selected-upgrade';
+        repairButton.disabled = economy?.canRepair !== true;
+        if (economy?.canRepair === false) {
+          repairButton.title = 'Not enough money';
+        }
+        actions.appendChild(repairButton);
+      }
       const nextPrice = economy?.nextUpgradePrice ?? null;
+      const upgradePreview = economy?.upgradePreview;
+      if (nextPrice !== null && upgradePreview) {
+        const previewRows: [string, string][] = [];
+        if (upgradePreview.before.totalDps !== upgradePreview.after.totalDps) {
+          previewRows.push([
+            'DPS',
+            `${upgradePreview.before.totalDps.toFixed(1)} → ${upgradePreview.after.totalDps.toFixed(1)}`,
+          ]);
+        }
+        if (upgradePreview.before.integrity !== upgradePreview.after.integrity) {
+          previewRows.push([
+            'Integrity',
+            `${formatStat(upgradePreview.before.integrity)} → ${formatStat(upgradePreview.after.integrity)}`,
+          ]);
+        }
+        if (
+          upgradePreview.before.estimatedTopSpeedKph !==
+          upgradePreview.after.estimatedTopSpeedKph
+        ) {
+          previewRows.push([
+            'Top Speed',
+            `${upgradePreview.before.estimatedTopSpeedKph.toFixed(0)} → ${upgradePreview.after.estimatedTopSpeedKph.toFixed(0)} km/h`,
+          ]);
+        }
+        if (previewRows.length > 0) {
+          const preview = document.createElement('div');
+          preview.className = 'selected-part__upgrade-preview';
+          const previewHeading = document.createElement('span');
+          previewHeading.className = 'selected-part__upgrade-preview-title';
+          previewHeading.textContent = 'Next upgrade';
+          preview.appendChild(previewHeading);
+          for (const [labelText, valueText] of previewRows) {
+            const row = document.createElement('div');
+            row.className = 'selected-part__upgrade-preview-row';
+            const label = document.createElement('span');
+            label.textContent = labelText;
+            const value = document.createElement('strong');
+            value.textContent = valueText;
+            row.append(label, value);
+            preview.appendChild(row);
+          }
+          selectedContent.appendChild(preview);
+        }
+      }
       const upgradeButton = btn(
         nextPrice === null ? 'Max Level' : `Upgrade  $${nextPrice}`,
         () => handlers.onUpgradePart(partId),
@@ -654,6 +872,39 @@ export function buildEditorUI(
         );
       }
       selectedContent.appendChild(actions);
+
+      if (def.id === 'turret' && economy?.turretModules) {
+        const moduleSection = document.createElement('div');
+        moduleSection.className = 'selected-part__modules';
+        for (const module of ['emp', 'piercing'] as const) {
+          const moduleEconomy = economy.turretModules[module];
+          const displayName = module === 'emp' ? 'EMP' : 'Piercing';
+          const row = document.createElement('div');
+          row.className = 'selected-part__module-row';
+          const label = document.createElement('span');
+          label.textContent = `${displayName}  L${moduleEconomy.level} / ${TURRET_MODULE_MAX_LEVEL}`;
+          const buyButton = btn(
+            moduleEconomy.targetLevel === null || moduleEconomy.price === null
+              ? 'Max'
+              : `${displayName} L${moduleEconomy.targetLevel}  $${moduleEconomy.price}`,
+            () => handlers.onBuyTurretModule(partId, module),
+          );
+          buyButton.className = 'selected-part__module-buy';
+          buyButton.disabled = !moduleEconomy.canBuy;
+          if (!moduleEconomy.unlocked) {
+            buyButton.title =
+              'Clear wave 10 or kill a Phone Addict to unlock EMP';
+          } else if (
+            moduleEconomy.price !== null &&
+            !moduleEconomy.canBuy
+          ) {
+            buyButton.title = 'Not enough money';
+          }
+          row.append(label, buyButton);
+          moduleSection.appendChild(row);
+        }
+        selectedContent.appendChild(moduleSection);
+      }
     },
     setEconomy: (money, unlockedDefIds, currentInventory, installedDefIds) => {
       moneyReadout.textContent = `$${money}`;
@@ -679,50 +930,110 @@ export function buildEditorUI(
         if (countLabel) countLabel.textContent = `x${count}`;
 
         const locked = (def.unlockCost ?? 0) > 0 && !unlocked.has(def.id);
-        const price = locked ? def.unlockCost ?? 0 : def.cost;
+        const unlockPrice = def.unlockCost ?? 0;
+        const price = locked ? unlockPrice + def.cost : def.cost;
         const unaffordable = price > money;
         const atOwnershipLimit =
-          id === 'driver-seat' &&
+          def.unique === true &&
           count + (installedCounts.get(id) ?? 0) >= 1;
         storeButton?.classList.toggle('locked', locked);
         storeButton?.classList.toggle('unaffordable', unaffordable);
         storeButton?.classList.toggle('limit-reached', atOwnershipLimit);
+        storeButton?.classList.toggle(
+          'has-unlock-milestone',
+          locked && id === 'mine-sweeper',
+        );
         if (storeButton) {
           storeButton.disabled = unaffordable || atOwnershipLimit;
           storeButton.setAttribute('aria-label', atOwnershipLimit
             ? `${def.name}, ownership limit reached`
             : locked
-            ? `${def.name}, unlock for $${price}`
-            : `${def.name}, buy for $${price}`);
+            ? `${def.name} — Unlock & Buy $${price}`
+            : `${def.name} — Buy & Place $${price}`);
           storeButton.title = atOwnershipLimit
-            ? 'Driver Seat limit reached: 1 owned or installed'
+            ? `${def.name} limit reached: 1 owned or installed`
             : locked
-            ? `Unlock ${def.name} for $${price}`
-            : `Buy one ${def.name} for $${price}`;
+            ? `Unlock ${def.name} and buy one part for $${price}`
+            : `Buy one ${def.name} and arm it for placement for $${price}`;
         }
         const priceLabel = storePriceLabels.get(id);
         if (priceLabel) {
           priceLabel.textContent = atOwnershipLimit
             ? 'Limit 1'
             : locked
-              ? `Unlock $${price}`
-              : `Buy $${price}`;
+              ? `Unlock & Buy $${price}`
+              : `Buy & Place $${price}`;
+        }
+        const priceBreakdown = storePriceBreakdowns.get(id);
+        if (priceBreakdown) {
+          priceBreakdown.hidden = !locked || atOwnershipLimit;
+          priceBreakdown.textContent = id === 'mine-sweeper'
+            ? `Unlock early $${unlockPrice} + Part $${def.cost}`
+            : `Unlock $${unlockPrice} + Part $${def.cost}`;
+        }
+        const unlockMilestone = storeUnlockMilestones.get(id);
+        if (unlockMilestone) {
+          unlockMilestone.hidden =
+            !locked || atOwnershipLimit || id !== 'mine-sweeper';
+          unlockMilestone.textContent = 'Free after Wave 7';
         }
       }
       inventoryEmpty.style.display = stockCount > 0 ? 'none' : 'block';
     },
-    setRunContext: (wave, summary) => {
+    setRunContext: (wave, summary, repair) => {
       menuBtn.style.display = wave === undefined ? '' : 'none';
       if (wave !== undefined) {
-        runBanner.textContent = `Wave ${wave} cleared - rebuild. Next: Wave ${wave + 1}`;
+        runBannerText.textContent = repair
+          ? `Next: Wave ${wave + 1} · Integrity ${Math.round(repair.integrityPct)}%`
+          : `Next: Wave ${wave + 1} · Rebuild before continuing`;
+        runBannerWarning.textContent = repair?.nextWaveNotice ?? '';
+        runBannerWarning.hidden = repair?.nextWaveNotice === undefined;
+        if (repair) {
+          repairAllBtn.textContent = `Repair All $${repair.totalCost}`;
+          repairAllBtn.disabled =
+            repair.totalCost === 0 || !repair.canRepairAll;
+          repairAllBtn.title =
+            repair.totalCost === 0
+              ? 'Nothing to repair'
+              : repair.canRepairAll
+                ? 'Fully repair all surviving parts'
+                : 'Not enough money';
+          runBanner.replaceChildren(
+            runBannerText,
+            runBannerWarning,
+            repairAllBtn,
+          );
+        } else {
+          runBanner.replaceChildren(runBannerText, runBannerWarning);
+        }
         runBanner.style.display = 'block';
         runBanner.classList.remove('run-summary');
+        runBanner.classList.add('run-active');
         fightBtn.textContent = `Start Wave ${wave + 1}`;
         return;
       }
       fightBtn.textContent = 'Fight Zombies';
+      runBanner.classList.remove('run-active');
       if (summary) {
-        runBanner.textContent = `Run complete - ${summary.wavesSurvived} wave${summary.wavesSurvived === 1 ? '' : 's'} survived - $${summary.moneyEarned} earned`;
+        const primary = document.createElement('div');
+        primary.className = 'run-banner__summary-line';
+        primary.textContent =
+          `Run ended on Wave ${summary.failedWave} · ` +
+          `$${summary.bankedMoneyRetained} banked money retained · ` +
+          `$${summary.pendingMoneyDiscarded} failed-wave pending money discarded`;
+        const recovery = document.createElement('div');
+        recovery.className = 'run-banner__summary-line';
+        recovery.textContent =
+          `Wave ${summary.failedWave} checkpoint restored · ` +
+          'Survivors recovered to full HP';
+        const losses = document.createElement('div');
+        losses.className = 'run-banner__summary-line';
+        losses.textContent = `Earlier cleared-wave losses: ${
+          summary.destroyedPartNames.length > 0
+            ? summary.destroyedPartNames.join(', ')
+            : 'None'
+        }`;
+        runBanner.replaceChildren(primary, recovery, losses);
         runBanner.style.display = 'block';
         runBanner.classList.add('run-summary');
       } else {
@@ -822,8 +1133,8 @@ function buildHelpOverlay(): HTMLDivElement {
   wrap.innerHTML = `
     <div class="help-panel__header"><b>How to build a vehicle</b><button>Close</button></div>
     <div class="cat-title">quick start</div>
-    <ol><li>Buy parts in the Store. Purchased parts appear in Inventory.</li>
-    <li>Select an Inventory part, then place it on the model. Green can place; red explains why it cannot.</li>
+    <ol><li>Buy a part in the Store to add it to Inventory and arm it for immediate placement.</li>
+    <li>Place the armed part, or select any loose Inventory part later. Green can place; red explains why it cannot.</li>
     <li>Build blocks around the Truck Heart. Everything needs to connect face-to-face.</li>
     <li>Select a placed part to upgrade, rotate, paint, or sell it in the right inspector.</li>
     <li>Use Test Drive when the vehicle is ready.</li></ol>

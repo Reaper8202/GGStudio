@@ -240,6 +240,10 @@ export type PaintColor = keyof typeof PAINT_COLORS;
 export interface PartConfig {
   /** Upgrade level; omitted means the catalog base level (1). */
   level?: number;
+  /** Zombie Blaster EMP module level, 0..3. Independent of `level`. */
+  empLevel?: number;
+  /** Zombie Blaster piercing module level, 0..3. Independent of `level`. */
+  piercingLevel?: number;
   driven?: boolean;
   steering?: boolean;
   /** Invert steering direction (rear-steer axles). */

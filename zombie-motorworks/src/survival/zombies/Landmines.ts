@@ -1,17 +1,44 @@
 import * as THREE from 'three';
 import {
+  LANDMINE_ARM_SECONDS,
   LANDMINE_EXPLOSION_DURATION,
   LANDMINE_EXPLOSION_POOL_SIZE,
   LANDMINE_EXPLOSION_RADIUS,
+  LANDMINE_GLINT_RADIUS,
   LANDMINE_HEIGHT,
   LANDMINE_POOL_SIZE,
   LANDMINE_PULSE_AMPLITUDE,
   LANDMINE_PULSE_FREQUENCY,
   LANDMINE_RADIUS,
+  LANDMINE_VISIBLE_THROUGH_WAVE,
 } from './zombieConfig.ts';
+
+export type MineState = 'arming' | 'armed';
+
+export interface MineSnapshot {
+  readonly x: number;
+  readonly z: number;
+  readonly state: MineState;
+  /** True when the player can currently see it (wave rule, sweeper, or glint). */
+  readonly revealed: boolean;
+}
+
+interface MutableMineSnapshot {
+  x: number;
+  z: number;
+  state: MineState;
+  revealed: boolean;
+}
 
 interface Landmine {
   readonly mesh: THREE.Mesh;
+  /**
+   * Replaced on every plant rather than mutated in place. Consumers key
+   * per-mine state off snapshot identity (SurvivalMode's L3 warning pulse uses
+   * a WeakMap), so recycling one object across plants would leak the previous
+   * mine's state into the new one.
+   */
+  snapshot: MutableMineSnapshot;
   pulsePhase: number;
   age: number;
   active: boolean;
@@ -33,8 +60,11 @@ interface MineBlast {
 export class Landmines {
   private readonly pool: Landmine[] = [];
   private readonly blasts: MineBlast[] = [];
+  private readonly snapshots: MutableMineSnapshot[] = [];
   private readonly geometry: THREE.CylinderGeometry;
-  private readonly material: THREE.MeshLambertMaterial;
+  private readonly armedMaterial: THREE.MeshLambertMaterial;
+  private readonly armingMaterial: THREE.MeshLambertMaterial;
+  private readonly glintMaterial: THREE.MeshLambertMaterial;
   private readonly blastGeometry: THREE.SphereGeometry;
   private disposed = false;
 
@@ -45,17 +75,36 @@ export class Landmines {
       LANDMINE_HEIGHT,
       14,
     );
-    this.material = new THREE.MeshLambertMaterial({
+    this.armedMaterial = new THREE.MeshLambertMaterial({
       color: 0xd91f1f,
       emissive: 0x7a0505,
       flatShading: true,
     });
+    this.armingMaterial = new THREE.MeshLambertMaterial({
+      color: 0xffb347,
+      emissive: 0x8a4b08,
+      flatShading: true,
+    });
+    this.glintMaterial = new THREE.MeshLambertMaterial({
+      color: 0xffa23a,
+      emissive: 0x5a2b08,
+      transparent: true,
+      opacity: 0.28,
+      flatShading: true,
+      depthWrite: false,
+    });
     for (let i = 0; i < LANDMINE_POOL_SIZE; i++) {
-      const mesh = new THREE.Mesh(this.geometry, this.material);
+      const mesh = new THREE.Mesh(this.geometry, this.armingMaterial);
+      const snapshot = {
+        x: 0,
+        z: 0,
+        state: 'arming',
+        revealed: false,
+      } satisfies MutableMineSnapshot;
       mesh.castShadow = true;
       mesh.visible = false;
       this.scene.add(mesh);
-      this.pool.push({ mesh, pulsePhase: 0, age: 0, active: false });
+      this.pool.push({ mesh, snapshot, pulsePhase: 0, age: 0, active: false });
     }
 
     this.blastGeometry = new THREE.SphereGeometry(1, 16, 12);
@@ -90,9 +139,20 @@ export class Landmines {
     slot.pulsePhase = Math.random() * Math.PI * 2;
     slot.age = 0;
     slot.active = true;
+    slot.snapshot = { x, z, state: 'arming', revealed: true };
     slot.mesh.position.set(x, LANDMINE_HEIGHT / 2, z);
     slot.mesh.scale.setScalar(1);
+    slot.mesh.material = this.armingMaterial;
     slot.mesh.visible = true;
+  }
+
+  /** Read-only view for the minimap and for tests. Reuses its array; do not retain it. */
+  activeMines(): readonly MineSnapshot[] {
+    this.snapshots.length = 0;
+    for (const mine of this.pool) {
+      if (mine.active) this.snapshots.push(mine.snapshot);
+    }
+    return this.snapshots;
   }
 
   /**
@@ -103,18 +163,49 @@ export class Landmines {
   update(
     dt: number,
     tryDetonate: (x: number, y: number, z: number) => boolean,
+    reveal: {
+      vehicleX: number;
+      vehicleZ: number;
+      wave: number;
+      radiusM: number;
+    },
   ): void {
     if (this.disposed) return;
+    const revealRadiusSq = reveal.radiusM * reveal.radiusM;
+    const glintRadiusSq = LANDMINE_GLINT_RADIUS * LANDMINE_GLINT_RADIUS;
     for (const mine of this.pool) {
       if (!mine.active) continue;
       mine.age += dt;
       mine.pulsePhase += LANDMINE_PULSE_FREQUENCY * dt;
+      const state: MineState =
+        mine.age < LANDMINE_ARM_SECONDS ? 'arming' : 'armed';
+      mine.snapshot.state = state;
 
       const pulse = 1 + Math.sin(mine.pulsePhase) * LANDMINE_PULSE_AMPLITUDE;
       mine.mesh.scale.set(pulse, 1, pulse);
 
       const position = mine.mesh.position;
-      if (tryDetonate(position.x, position.y, position.z)) {
+      const dx = position.x - reveal.vehicleX;
+      const dz = position.z - reveal.vehicleZ;
+      const distanceSq = dx * dx + dz * dz;
+      const visibleByWave = reveal.wave <= LANDMINE_VISIBLE_THROUGH_WAVE;
+      const visibleBySweeper =
+        reveal.radiusM > 0 && distanceSq <= revealRadiusSq;
+      const visibleByGlint = distanceSq <= glintRadiusSq;
+      const revealed = state === 'arming' || visibleByWave || visibleBySweeper;
+      mine.snapshot.revealed = revealed;
+      mine.mesh.visible = revealed || visibleByGlint;
+      mine.mesh.material =
+        state === 'arming'
+          ? this.armingMaterial
+          : revealed
+            ? this.armedMaterial
+            : this.glintMaterial;
+
+      if (
+        state === 'armed' &&
+        tryDetonate(position.x, position.y, position.z)
+      ) {
         this.spawnBlast(position.x, position.z);
         this.despawn(mine);
       }
@@ -154,8 +245,11 @@ export class Landmines {
     }
     this.pool.length = 0;
     this.blasts.length = 0;
+    this.snapshots.length = 0;
     this.geometry.dispose();
-    this.material.dispose();
+    this.armedMaterial.dispose();
+    this.armingMaterial.dispose();
+    this.glintMaterial.dispose();
     this.blastGeometry.dispose();
   }
 

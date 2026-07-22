@@ -28,8 +28,20 @@ describe('economy helpers', () => {
     expect(partInvestment(placed('turret'))).toBe(150);
   });
 
+  it('includes both turret module investments in the sell refund', () => {
+    const turret = placed('turret', 3);
+    turret.config.empLevel = 2;
+    turret.config.piercingLevel = 1;
+
+    expect(partInvestment(turret)).toBe(150 + 90 + 144 + 100 + 175 + 125);
+    expect(sellRefund(turret)).toBe(392);
+  });
+
   it('returns the next upgrade price and stops at the maximum level', () => {
-    expect(nextUpgrade(placed('turret'))).toEqual({ targetLevel: 2, price: 90 });
+    expect(nextUpgrade(placed('turret'))).toEqual({
+      targetLevel: 2,
+      price: 90,
+    });
     expect(nextUpgrade(placed('turret', 5))).toBeNull();
   });
 

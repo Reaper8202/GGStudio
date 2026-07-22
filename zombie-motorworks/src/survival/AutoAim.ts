@@ -12,6 +12,7 @@ export type AutoAimEntry = WeaponAimInput;
 
 /** Larger than any squared weapon range, so it only reorders, never excludes. */
 const RANGED_PRIORITY_PENALTY = 1e9;
+const SHIELDED_PRIORITY_PENALTY = 1e9;
 
 interface AutoWeapon {
   readonly weapon: RuntimeWeapon;
@@ -116,6 +117,7 @@ export class AutoAim {
         weapon.def.rangeM,
         weapon.def.minRangeM ?? 0,
         weapon.def.targetPriority === 'ranged',
+        weapon.empLevel === 0,
       );
       let acquired = false;
 
@@ -167,6 +169,7 @@ export class AutoAim {
     rangeM: number,
     minRangeM: number,
     preferRanged: boolean,
+    deprioritizeShielded: boolean,
   ): number {
     let count = 0;
     const rangeSq = rangeM * rangeM;
@@ -184,6 +187,10 @@ export class AutoAim {
       // keeping their true distance ordering within each group.
       if (preferRanged && zombie.kind !== 'thrower')
         distanceSq += RANGED_PRIORITY_PENALTY;
+      // Keep shielded zombies eligible as a last resort so the baseline leak
+      // can always break a shield-only soft-lock.
+      if (deprioritizeShielded && zombie.kind === 'phone-addict')
+        distanceSq += SHIELDED_PRIORITY_PENALTY;
       let index = count;
       while (index > 0 && distanceSq < this.candidateDistances[index - 1]) {
         if (index < this.candidateTargets.length) {
