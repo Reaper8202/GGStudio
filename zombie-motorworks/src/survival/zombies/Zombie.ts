@@ -357,6 +357,11 @@ export class Zombie {
     return this.isAlive && this.state !== ZombieState.Spawning;
   }
 
+  /** Current hit points, for target-priority weapons that seek the toughest foe. */
+  get currentHealth(): number {
+    return this.health;
+  }
+
   /** A projectile bounced off this zombie's shield: flash the bubble. */
   flashShield(): void {
     if (!this.isTargetable) return;

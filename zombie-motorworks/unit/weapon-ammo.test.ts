@@ -79,6 +79,52 @@ describe('per-weapon magazines', () => {
     world.free();
   });
 
+  it('fires a manual-fire cannon only when acquisition and the player trigger agree', () => {
+    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    const cannonPart = part('cannon', 'cannon-heavy');
+    const assembled = assembleVehicle(
+      world,
+      blueprint([cannonPart]),
+      getPartDef,
+      [],
+      { translation: { x: 0, y: 1, z: 0 } },
+    );
+    const cannon = createWeapon(cannonPart);
+    const attached = new Set([cannon.partId]);
+    // Auto-aim reports an acquired target via the per-weapon entry's fire flag.
+    const acquired = new Map([[cannon.partId, { aimYawWorld: 0, fire: true }]]);
+
+    // Target acquired, but the player is not holding fire: the cannon holds.
+    const held = stepWeapons(
+      world,
+      assembled,
+      [cannon],
+      attached,
+      { aimYawWorld: 0, fire: false, weaponAim: acquired },
+      1_000,
+      0.1,
+    );
+    expect(held.shots).toHaveLength(0);
+    expect(cannon.shotsFired).toBe(0);
+
+    cannon.cooldown = 0;
+    // Player holds fire with a target acquired: it discharges.
+    const fired = stepWeapons(
+      world,
+      assembled,
+      [cannon],
+      attached,
+      { aimYawWorld: 0, fire: true, weaponAim: acquired },
+      1_000,
+      0.1,
+    );
+    expect(fired.shots.length).toBeGreaterThan(0);
+    expect(cannon.shotsFired).toBe(1);
+
+    world.removeRigidBody(assembled.body);
+    world.free();
+  });
+
   it('never auto-refills a spent magazine — ammo comes only from pickups', () => {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const blasterPart = part('blaster', 'turret');

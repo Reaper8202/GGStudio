@@ -110,7 +110,10 @@ describe('part catalog integrity', () => {
     expect(PART_CATALOG.turret.batteryCapacity).toBe(500);
     expect(PART_CATALOG.turret.weapon?.aimMode).toBe('auto');
     expect(PART_CATALOG['armour-plate'].armour?.protection).toBeGreaterThan(0);
-    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('manual');
+    // The Heavy Cannon auto-aims (at the toughest zombie) but fires on demand.
+    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('auto');
+    expect(PART_CATALOG['cannon-heavy'].weapon?.targetPriority).toBe('strongest');
+    expect(PART_CATALOG['cannon-heavy'].weapon?.manualFire).toBe(true);
   });
 });
 

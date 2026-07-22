@@ -380,7 +380,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     id: 'cannon-heavy',
     name: 'Heavy Cannon',
     category: 'weapon',
-    description: 'Slow, powerful manually aimed cannon with a long barrel.',
+    description:
+      'Slow, powerful cannon. Auto-locks onto the toughest zombie; you pull the trigger.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -394,8 +395,10 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     batteryCapacity: 600,
     weapon: {
       mountType: 'turret',
-      aimMode: 'manual',
-      arcDeg: 120,
+      // Same auto-aim turret as the Zombie Blaster, but it holds fire until the
+      // player pulls the trigger and locks onto the toughest zombie in range.
+      aimMode: 'auto',
+      arcDeg: 360,
       damageType: 'projectile',
       damage: 40,
       fireRate: 0.7,
@@ -404,6 +407,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       recoilImpulse: 520,
       projectileSpeed: 260,
       rangeM: 30,
+      targetPriority: 'strongest',
+      manualFire: true,
     },
   },
   'barrel-drum': {

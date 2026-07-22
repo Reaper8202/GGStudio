@@ -152,8 +152,18 @@ export interface WeaponDefinition {
    */
   burstSeconds?: number;
   burstIntervalSeconds?: number;
-  /** Auto-aim preference: 'ranged' targets thrower zombies before walkers. */
-  targetPriority?: 'ranged';
+  /**
+   * Auto-aim preference: 'ranged' targets thrower zombies before walkers;
+   * 'strongest' locks onto the zombie with the most current health.
+   */
+  targetPriority?: 'ranged' | 'strongest';
+  /**
+   * Auto-aim weapon that still waits for the player's trigger: the auto-aim
+   * system tracks a target and keeps the mount pointed at it, but the weapon
+   * only fires while the player holds fire (left click / F) instead of firing
+   * itself the instant a target is acquired. Used for slow, precious shots.
+   */
+  manualFire?: boolean;
 }
 
 /** Contact weapon (grinder drum): damages any zombie touching the part. */

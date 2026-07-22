@@ -167,6 +167,11 @@ export function stepWeapons(
       } else {
         wantsFire = true;
       }
+    } else if (wpn.def.manualFire) {
+      // Auto-aim, manual trigger: the mount tracks its target and reports
+      // acquisition in weaponInput.fire, but it only discharges while the
+      // player is also holding their own fire button.
+      wantsFire = weaponInput.fire && input.fire;
     } else {
       wantsFire = weaponInput.fire;
     }
