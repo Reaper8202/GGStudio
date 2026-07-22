@@ -36,3 +36,21 @@ Baseline at start: 257 unit tests green, build clean, branch `feat/turret-module
 6. Playwright visual QA (desktop + narrow), balance report seam, docs + final report `docs/agent-reports/game-feel-implementation.md`.
 
 Gate after every task: `npm run typecheck && npm run lint && npm run test:unit && npm run build` + browser exercise for UI slices.
+
+## Progress log
+
+- ✅ Slice 2 balance — `a6452c4` (266 unit)
+- ✅ Slice 1a pending rewards — `19aae1e` (272 unit)
+- ✅ Slice 1b checkpoint + failure recovery + save v2 — `e4b16b9` (280 unit)
+- ✅ Slice 1 repair economy + garage UI — `89dfbad` (287 unit)
+- ⏳ Slice 3 store/upgrade UI, Slice 4 tutorial, Slice 5 summaries/confirm, final QA + docs
+
+## KNOWN ISSUE — stale e2e suite (pre-existing, not from this work)
+
+`npm test` (Playwright) shows 13/43 failing on a CLEAN base (commit `e7f2ebc`, before any overhaul work).
+Root cause: the "radically simple editor" rewrite (`526a5ba`) replaced the old `.palette` editor UI with
+`.garage-dock`, and renamed title buttons (e.g. `New` → `New Game`), but the e2e specs were never updated.
+Failing specs assert `locator('.palette')` / `getByRole('button', {name:'New', exact:true})` etc. The 30
+passing specs are survival/debug-seam-driven (where this overhaul's changes live) and all pass.
+Action: repair the stale selectors (`.palette`→`.garage-dock`, title button names) + add fresh Playwright
+checks for the new garage/repair/victory/tutorial UI during final QA. Do NOT treat these as overhaul regressions.
