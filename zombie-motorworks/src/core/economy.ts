@@ -10,6 +10,79 @@ export interface RunState {
   partHp?: Record<string, number>;
 }
 
+/** Cost to restore one part to its effective maximum HP. */
+export function partRepairCost(
+  baseCost: number,
+  currentHp: number,
+  maxHp: number,
+): number {
+  if (maxHp <= 0 || currentHp >= maxHp || baseCost <= 0) return 0;
+  const missingFraction = Math.min(
+    1,
+    Math.max(0, (maxHp - currentHp) / maxHp),
+  );
+  return Math.ceil(baseCost * missingFraction * 0.5);
+}
+
+export interface RepairLineItem {
+  id: string;
+  cost: number;
+  missingHp: number;
+}
+
+export interface RepairPlan {
+  items: RepairLineItem[];
+  totalCost: number;
+  integrityPct: number;
+}
+
+/** Summarize current vehicle integrity and all paid repair line items. */
+export function repairPlan(
+  parts: {
+    id: string;
+    baseCost: number;
+    currentHp: number;
+    maxHp: number;
+  }[],
+): RepairPlan {
+  const items: RepairLineItem[] = [];
+  let totalCost = 0;
+  let totalHp = 0;
+  let totalMaxHp = 0;
+
+  for (const part of parts) {
+    totalHp += Math.min(part.currentHp, part.maxHp);
+    totalMaxHp += part.maxHp;
+
+    const missingHp = Math.max(0, part.maxHp - part.currentHp);
+    const cost = partRepairCost(
+      part.baseCost,
+      part.currentHp,
+      part.maxHp,
+    );
+    if (cost <= 0 || missingHp <= 0) continue;
+    items.push({ id: part.id, cost, missingHp });
+    totalCost += cost;
+  }
+
+  return {
+    items,
+    totalCost,
+    integrityPct: totalMaxHp > 0 ? (100 * totalHp) / totalMaxHp : 0,
+  };
+}
+
+/** Preserve a part's HP percentage when its effective maximum HP changes. */
+export function scaledHpOnUpgrade(
+  currentHp: number,
+  oldMaxHp: number,
+  newMaxHp: number,
+): number {
+  if (oldMaxHp <= 0) return newMaxHp;
+  const hpFraction = Math.min(1, Math.max(0, currentHp / oldMaxHp));
+  return hpFraction * newMaxHp;
+}
+
 function placedLevel(placed: PlacedPart): number {
   const configuredLevel = placed.config.level ?? 1;
   if (!Number.isFinite(configuredLevel)) return 1;

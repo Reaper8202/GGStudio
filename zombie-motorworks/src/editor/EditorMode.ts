@@ -55,7 +55,10 @@ import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
 import {
   canAfford,
   nextUpgrade,
+  partRepairCost,
   placeCost,
+  repairPlan,
+  scaledHpOnUpgrade,
   sellRefund,
   unlockCost,
   type RunState,
@@ -164,6 +167,11 @@ export interface EditorModeContext {
   onMenu(): void;
   notice?: string;
   runContext?: RunState;
+  runRepair?: {
+    partHp(): Record<string, number>;
+    repairPart(id: string): boolean;
+    repairAll(): boolean;
+  };
   runSummary?: { wavesSurvived: number; moneyEarned: number };
 }
 
@@ -197,6 +205,8 @@ export class EditorMode {
   private readonly profile: PlayerProfile;
   private readonly persistProfile: () => void;
   private readonly runContext: RunState | undefined;
+  private readonly runRepair: EditorModeContext['runRepair'];
+  private readonly runPartMaxHpAtEntry: ReadonlyMap<string, number>;
   private readonly runSummary: { wavesSurvived: number; moneyEarned: number } | undefined;
   private readonly keyHandler = (e: KeyboardEvent) => this.onKey(e);
 
@@ -212,6 +222,10 @@ export class EditorMode {
     this.profile = context.profile;
     this.persistProfile = context.persistProfile;
     this.runContext = context.runContext;
+    this.runRepair = context.runRepair;
+    this.runPartMaxHpAtEntry = new Map(
+      initial.parts.map((part) => [part.id, getEffectiveDef(part).health]),
+    );
     this.runSummary = context.runSummary;
     this.history = context.history ?? new CommandHistory((moneyDelta) => this.mutateMoney(moneyDelta));
     this.scene.background = new THREE.Color(0x1a1e26);
@@ -292,6 +306,8 @@ export class EditorMode {
       onStartTutorial: () => this.startTutorial(),
       onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
       onUpgradePart: (partId) => this.buyUpgrade(partId),
+      onRepairPart: (partId) => this.repairPart(partId),
+      onRepairAll: () => this.repairAll(),
       onBuyTurretModule: (partId, module) =>
         this.buyTurretModule(partId, module),
       onDeleteSelected: () => this.deleteSelected(),
@@ -311,7 +327,6 @@ export class EditorMode {
       this.controls.target.set(context.view.target.x, context.view.target.y, context.view.target.z);
       this.layer = context.view.layer;
     }
-    this.ui.setRunContext(this.runContext?.wave, this.runSummary);
     this.refresh();
     if (context.notice) this.ui.setNotice(context.notice);
   }
@@ -640,6 +655,88 @@ export class EditorMode {
       this.ui.setStatus(`${getPartDef(part.defId).name} upgraded to level ${upgrade.targetLevel} (-$${upgrade.price})`);
     }
     return upgraded;
+  }
+
+  private currentRunPartHp(
+    part: PlacedPart,
+    partHp: Readonly<Record<string, number>>,
+  ): number {
+    const maxHp = getEffectiveDef(part).health;
+    const storedHp = partHp[part.id];
+    if (storedHp === undefined) return maxHp;
+    const oldMaxHp = this.runPartMaxHpAtEntry.get(part.id) ?? maxHp;
+    return scaledHpOnUpgrade(storedHp, oldMaxHp, maxHp);
+  }
+
+  private selectedRepairEconomy(part: PlacedPart): {
+    cost: number;
+    canRepair: boolean;
+  } | null {
+    if (!this.runRepair) return null;
+    const partHp = this.runRepair.partHp();
+    const storedHp = partHp[part.id];
+    if (storedHp === undefined || storedHp <= 0) return null;
+    const maxHp = getEffectiveDef(part).health;
+    const currentHp = this.currentRunPartHp(part, partHp);
+    if (currentHp >= maxHp) return null;
+    const cost = partRepairCost(
+      getPartDef(part.defId).cost,
+      currentHp,
+      maxHp,
+    );
+    return { cost, canRepair: canAfford(this.profile.money, cost) };
+  }
+
+  private repairPart(partId: string): boolean {
+    const part = getPart(this.bp, partId);
+    const repair = part ? this.selectedRepairEconomy(part) : null;
+    if (!part || !repair || !this.runRepair) return false;
+    if (!repair.canRepair) {
+      this.deny(`Not enough money - need $${repair.cost}`);
+      return false;
+    }
+    if (!this.runRepair.repairPart(partId)) {
+      this.deny('Repair could not be completed');
+      return false;
+    }
+    this.refreshProfile();
+    this.ui.setStatus(
+      repair.cost === 0
+        ? `${getPartDef(part.defId).name} repaired for free`
+        : `${getPartDef(part.defId).name} repaired (-$${repair.cost})`,
+    );
+    return true;
+  }
+
+  private currentRepairPlan(): ReturnType<typeof repairPlan> | undefined {
+    if (!this.runRepair) return undefined;
+    const partHp = this.runRepair.partHp();
+    return repairPlan(
+      this.bp.parts
+        .filter((part) => partHp[part.id] === undefined || partHp[part.id] > 0)
+        .map((part) => ({
+          id: part.id,
+          baseCost: getPartDef(part.defId).cost,
+          currentHp: this.currentRunPartHp(part, partHp),
+          maxHp: getEffectiveDef(part).health,
+        })),
+    );
+  }
+
+  private repairAll(): boolean {
+    const plan = this.currentRepairPlan();
+    if (!plan || plan.totalCost <= 0 || !this.runRepair) return false;
+    if (!canAfford(this.profile.money, plan.totalCost)) {
+      this.deny(`Not enough money - need $${plan.totalCost}`);
+      return false;
+    }
+    if (!this.runRepair.repairAll()) {
+      this.deny('Repairs could not be completed');
+      return false;
+    }
+    this.refreshProfile();
+    this.ui.setStatus(`Vehicle fully repaired (-$${plan.totalCost})`);
+    return true;
   }
 
   private buyTurretModule(
@@ -1097,10 +1194,13 @@ export class EditorMode {
       (total, selectedPart) => total + sellRefund(selectedPart),
       0,
     );
+    const repair = this.selectedRepairEconomy(part);
     this.ui.setSelectedPart(def, part.id, level, getEffectiveDef(part), {
       nextUpgradePrice: upgrade?.price ?? null,
       canUpgrade: upgrade !== null && canAfford(this.profile.money, upgrade.price),
       sellRefund: selectionRefund,
+      repairCost: repair?.cost ?? null,
+      canRepair: repair?.canRepair ?? false,
       turretModules:
         def.id === 'turret'
           ? turretModuleEconomy(part.config, this.profile.money, this.profile)
@@ -1278,6 +1378,7 @@ export class EditorMode {
       this.inventory(),
       this.bp.parts.map((part) => part.defId),
     );
+    this.refreshRunContext();
     this.refreshSelectionUI();
     if (this.tutorialActive) this.tutorialOverlay?.update(this.bp, getPartDef);
   }
@@ -1290,7 +1391,25 @@ export class EditorMode {
       this.inventory(),
       this.bp.parts.map((part) => part.defId),
     );
+    this.refreshRunContext();
     this.refreshSelectionUI();
+  }
+
+  private refreshRunContext(): void {
+    const plan = this.currentRepairPlan();
+    this.ui.setRunContext(
+      this.runContext?.wave,
+      this.runSummary,
+      plan
+        ? {
+            integrityPct: plan.integrityPct,
+            totalCost: plan.totalCost,
+            canRepairAll:
+              plan.totalCost > 0 &&
+              canAfford(this.profile.money, plan.totalCost),
+          }
+        : undefined,
+    );
   }
 
   private rebuildMeshes(): void {

@@ -32,7 +32,13 @@ import { CommandHistory } from '../core/commands.ts';
 import { ChamberMode, type ScenarioName } from '../chamber/ChamberMode.ts';
 import type { VehicleControls } from '../runtime/vehicle.ts';
 import { SurvivalMode } from '../survival/SurvivalMode.ts';
-import type { RunState } from '../core/economy.ts';
+import {
+  canAfford,
+  partRepairCost,
+  repairPlan,
+  scaledHpOnUpgrade,
+  type RunState,
+} from '../core/economy.ts';
 import {
   defaultProfile,
   MINE_SWEEPER_UNLOCK_WAVE,
@@ -127,10 +133,25 @@ export function prepareCheckpointForGarageFight(
     bp,
     bp.parts.map((part) => part.id),
   );
+  const checkpointParts = new Map(
+    checkpoint.blueprint.parts.map((part) => [part.id, part]),
+  );
   return {
     ...checkpoint,
     blueprint,
-    partHp: partHpForBlueprint(blueprint, checkpoint.partHp),
+    partHp: Object.fromEntries(
+      blueprint.parts.map((part) => {
+        const checkpointPart = checkpointParts.get(part.id);
+        const newMaxHp = getEffectiveDef(part).health;
+        if (!checkpointPart) return [part.id, newMaxHp];
+        const oldMaxHp = getEffectiveDef(checkpointPart).health;
+        const currentHp = checkpoint.partHp[part.id] ?? oldMaxHp;
+        return [
+          part.id,
+          scaledHpOnUpgrade(currentHp, oldMaxHp, newMaxHp),
+        ];
+      }),
+    ),
   };
 }
 
@@ -339,6 +360,14 @@ export class App {
         onMenu: () => this.returnToTitle(),
         runContext:
           this.activeRun && this.inBuildPhase ? this.activeRun : undefined,
+        runRepair:
+          this.activeRun && this.inBuildPhase && this.checkpoint
+            ? {
+                partHp: () => ({ ...this.checkpoint?.partHp }),
+                repairPart: (id) => this.repairPart(id),
+                repairAll: () => this.repairAll(),
+              }
+            : undefined,
         runSummary: this.runSummary,
         notice: this.pendingEditorNotice,
       },
@@ -609,6 +638,78 @@ export class App {
     this.editor?.refreshProfile();
   }
 
+  private checkpointRepairParts(): {
+    id: string;
+    baseCost: number;
+    currentHp: number;
+    maxHp: number;
+  }[] {
+    if (this.checkpoint === null) return [];
+    const checkpointParts = new Map(
+      this.checkpoint.blueprint.parts.map((part) => [part.id, part]),
+    );
+    const currentBlueprint = this.editor?.blueprint() ?? this.bp;
+    return currentBlueprint.parts.flatMap((part) => {
+      const checkpointPart = checkpointParts.get(part.id);
+      if (!checkpointPart) return [];
+      const oldMaxHp = getEffectiveDef(checkpointPart).health;
+      const storedHp = this.checkpoint?.partHp[part.id] ?? oldMaxHp;
+      if (storedHp <= 0) return [];
+      const maxHp = getEffectiveDef(part).health;
+      return [
+        {
+          id: part.id,
+          baseCost: getPartDef(part.defId).cost,
+          currentHp: scaledHpOnUpgrade(storedHp, oldMaxHp, maxHp),
+          maxHp,
+        },
+      ];
+    });
+  }
+
+  private repairPart(id: string): boolean {
+    if (!this.activeRun || !this.inBuildPhase || this.checkpoint === null) {
+      return false;
+    }
+    const part = this.checkpointRepairParts().find(
+      (candidate) => candidate.id === id,
+    );
+    if (!part || part.currentHp >= part.maxHp) return false;
+    const cost = partRepairCost(part.baseCost, part.currentHp, part.maxHp);
+    if (!canAfford(this.profile.money, cost)) return false;
+
+    try {
+      this.changeMoney(-cost, true);
+    } catch {
+      return false;
+    }
+    this.checkpoint.partHp[id] = part.maxHp;
+    this.editor?.refreshProfile();
+    return true;
+  }
+
+  private repairAll(): boolean {
+    if (!this.activeRun || !this.inBuildPhase || this.checkpoint === null) {
+      return false;
+    }
+    const parts = this.checkpointRepairParts();
+    const damaged = parts.filter((part) => part.currentHp < part.maxHp);
+    if (damaged.length === 0) return false;
+    const plan = repairPlan(parts);
+    if (!canAfford(this.profile.money, plan.totalCost)) return false;
+
+    try {
+      this.changeMoney(-plan.totalCost, true);
+    } catch {
+      return false;
+    }
+    for (const part of damaged) {
+      this.checkpoint.partHp[part.id] = part.maxHp;
+    }
+    this.editor?.refreshProfile();
+    return true;
+  }
+
   private creditRunReward(amount: number): number {
     const credited = Math.min(
       amount,
@@ -820,6 +921,10 @@ export class App {
       buyUpgrade: (partId: string) =>
         this.editor?.debugBuyUpgrade(partId) ?? false,
       sellPart: (partId: string) => this.editor?.debugSellPart(partId) ?? false,
+      repairPart: (partId: string) => this.repairPart(partId),
+      repairAll: () => this.repairAll(),
+      checkpointPartHp: () =>
+        this.checkpoint ? { ...this.checkpoint.partHp } : null,
       unlockPart: (defId: string) =>
         this.editor?.debugUnlockPart(defId) ?? false,
       selectPart: (partId: string) =>

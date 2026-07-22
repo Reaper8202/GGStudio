@@ -31,6 +31,8 @@ export interface EditorUIHandlers {
   onStartTutorial(): void;
   onConfigChange(partId: string, key: string, value: boolean | string): void;
   onUpgradePart(partId: string): void;
+  onRepairPart(partId: string): void;
+  onRepairAll(): void;
   onBuyTurretModule(partId: string, module: TurretModule): void;
   onDeleteSelected(): void;
   onRotateSelected(axis: 'y' | 'x'): void;
@@ -40,6 +42,8 @@ export interface SelectedPartEconomy {
   nextUpgradePrice: number | null;
   canUpgrade: boolean;
   sellRefund: number;
+  repairCost: number | null;
+  canRepair: boolean;
   turretModules?: Record<TurretModule, TurretModuleEconomy>;
 }
 
@@ -54,6 +58,12 @@ export interface TurretModuleEconomy {
 export interface RunSummary {
   wavesSurvived: number;
   moneyEarned: number;
+}
+
+export interface RunRepairEconomy {
+  integrityPct: number;
+  totalCost: number;
+  canRepairAll: boolean;
 }
 
 export interface EditorUI {
@@ -81,7 +91,11 @@ export interface EditorUI {
     inventory: Readonly<Record<string, number>>,
     installedDefIds: readonly string[],
   ): void;
-  setRunContext(wave?: number, summary?: RunSummary): void;
+  setRunContext(
+    wave?: number,
+    summary?: RunSummary,
+    repair?: RunRepairEconomy,
+  ): void;
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
   setStatus(text: string): void;
@@ -318,6 +332,9 @@ export function buildEditorUI(
   runBanner.className = 'panel run-banner';
   runBanner.style.display = 'none';
   root.appendChild(runBanner);
+  const runBannerText = document.createElement('span');
+  const repairAllBtn = btn('Repair All $0', handlers.onRepairAll);
+  repairAllBtn.className = 'primary run-banner__repair';
   const noticeBanner = document.createElement('div');
   noticeBanner.className = 'panel editor-notice';
   noticeBanner.style.display = 'none';
@@ -651,6 +668,19 @@ export function buildEditorUI(
 
       const actions = document.createElement('div');
       actions.className = 'selected-part__actions';
+      const repairCost = economy?.repairCost ?? null;
+      if (repairCost !== null) {
+        const repairButton = btn(
+          repairCost === 0 ? 'Repair (free)' : `Repair  $${repairCost}`,
+          () => handlers.onRepairPart(partId),
+        );
+        repairButton.className = 'primary selected-upgrade';
+        repairButton.disabled = economy?.canRepair !== true;
+        if (economy?.canRepair === false) {
+          repairButton.title = 'Not enough money';
+        }
+        actions.appendChild(repairButton);
+      }
       const nextPrice = economy?.nextUpgradePrice ?? null;
       const upgradeButton = btn(
         nextPrice === null ? 'Max Level' : `Upgrade  $${nextPrice}`,
@@ -758,10 +788,26 @@ export function buildEditorUI(
       }
       inventoryEmpty.style.display = stockCount > 0 ? 'none' : 'block';
     },
-    setRunContext: (wave, summary) => {
+    setRunContext: (wave, summary, repair) => {
       menuBtn.style.display = wave === undefined ? '' : 'none';
       if (wave !== undefined) {
-        runBanner.textContent = `Wave ${wave} cleared - rebuild. Next: Wave ${wave + 1}`;
+        runBannerText.textContent = repair
+          ? `Wave ${wave} cleared - Integrity ${Math.round(repair.integrityPct)}% - Next: Wave ${wave + 1}`
+          : `Wave ${wave} cleared - rebuild. Next: Wave ${wave + 1}`;
+        if (repair) {
+          repairAllBtn.textContent = `Repair All $${repair.totalCost}`;
+          repairAllBtn.disabled =
+            repair.totalCost === 0 || !repair.canRepairAll;
+          repairAllBtn.title =
+            repair.totalCost === 0
+              ? 'Nothing to repair'
+              : repair.canRepairAll
+                ? 'Fully repair all surviving parts'
+                : 'Not enough money';
+          runBanner.replaceChildren(runBannerText, repairAllBtn);
+        } else {
+          runBanner.replaceChildren(runBannerText);
+        }
         runBanner.style.display = 'block';
         runBanner.classList.remove('run-summary');
         fightBtn.textContent = `Start Wave ${wave + 1}`;

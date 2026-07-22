@@ -232,6 +232,10 @@ canvas.viewport {
   border-color: var(--ui-edge);
 }
 
+.run-banner__repair {
+  margin-left: 10px;
+}
+
 .editor-notice {
   position: absolute;
   top: 64px;
