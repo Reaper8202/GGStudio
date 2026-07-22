@@ -28,7 +28,7 @@ describe('wave formulas', () => {
       wave: 5,
       zombies: 27,
       maxActive: 34,
-      healthMultiplier: 1.4,
+      healthMultiplier: 1.24,
       speedMultiplier: 1.1,
       attackDamageMultiplier: 1.24,
       reward: 90,
@@ -55,11 +55,11 @@ describe('wave formulas', () => {
     expect(zombieCompositionForWave(50).walker).toBe(70);
   });
 
-  it('caps health multiplier at 2.8x', () => {
+  it('caps health multiplier at 2.2x', () => {
     expect(healthMultiplierForWave(1)).toBe(1);
-    expect(healthMultiplierForWave(10)).toBeCloseTo(1.9);
-    expect(healthMultiplierForWave(19)).toBeCloseTo(2.8);
-    expect(healthMultiplierForWave(50)).toBe(2.8);
+    expect(healthMultiplierForWave(10)).toBeCloseTo(1.54);
+    expect(healthMultiplierForWave(21)).toBeCloseTo(2.2);
+    expect(healthMultiplierForWave(50)).toBe(2.2);
   });
 
   it('caps speed multiplier at 1.45x', () => {
@@ -131,7 +131,7 @@ describe('wave formulas', () => {
     });
     expect(zombieCompositionForWave(4)).toEqual({
       walker: 22,
-      thrower: 2,
+      thrower: 1,
       worker: 0,
       'phone-addict': 0,
     });
@@ -143,21 +143,21 @@ describe('wave formulas', () => {
     });
     expect(zombieCompositionForWave(10)).toEqual({
       walker: 40,
-      thrower: 5,
+      thrower: 4,
       worker: 2,
       'phone-addict': 1,
     });
     expect(zombieCompositionForWave(20)).toEqual({
       walker: 70,
-      thrower: 10,
+      thrower: 9,
       worker: 5,
       'phone-addict': 3,
     });
   });
 
   it('does not unlock specialists before their milestone waves', () => {
-    expect(zombieCompositionForWave(3)).toEqual({
-      walker: 19,
+    expect(zombieCompositionForWave(2)).toEqual({
+      walker: 16,
       worker: 0,
       thrower: 0,
       'phone-addict': 0,

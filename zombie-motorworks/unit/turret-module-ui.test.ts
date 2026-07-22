@@ -56,6 +56,9 @@ describe('turret module garage logic', () => {
     ).toBe(true);
     expect(
       turretModuleEconomy({}, money, { highestWaveCleared: 9 }).emp.unlocked,
+    ).toBe(true);
+    expect(
+      turretModuleEconomy({}, money, { highestWaveCleared: 8 }).emp.unlocked,
     ).toBe(false);
   });
 

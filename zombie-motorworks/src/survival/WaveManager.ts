@@ -23,7 +23,7 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
   return {
     walker: Math.min(10 + safeWave * 3, 70),
     thrower:
-      safeWave >= 4 ? Math.min(2 + Math.floor((safeWave - 4) / 2), 10) : 0,
+      safeWave >= 3 ? Math.min(1 + Math.floor((safeWave - 3) / 2), 10) : 0,
     worker: safeWave >= 7 ? Math.min(1 + Math.floor((safeWave - 7) / 3), 6) : 0,
     'phone-addict':
       safeWave >= 10 ? Math.min(1 + Math.floor((safeWave - 10) / 4), 6) : 0,
@@ -44,7 +44,7 @@ export function maxActiveZombiesForWave(wave: number): number {
 
 export function healthMultiplierForWave(wave: number): number {
   const safeWave = safeWaveNumber(wave);
-  return Math.min(1 + 0.1 * (safeWave - 1), 2.8);
+  return Math.min(1 + 0.06 * (safeWave - 1), 2.2);
 }
 
 export function speedMultiplierForWave(wave: number): number {

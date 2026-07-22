@@ -85,13 +85,13 @@ export function piercingDamageFraction(piercingLevel: number): number {
   ];
 }
 
-/** EMP is buyable once the player has cleared wave 10 or killed a Phone Addict. */
+/** EMP is buyable once the player has cleared wave 9 or killed a Phone Addict. */
 export function isEmpUnlocked(progress: {
   highestWaveCleared?: number;
   phoneAddictsKilled?: number;
 }): boolean {
   return (
-    (progress.highestWaveCleared ?? 0) >= 10 ||
+    (progress.highestWaveCleared ?? 0) >= 9 ||
     (progress.phoneAddictsKilled ?? 0) >= 1
   );
 }

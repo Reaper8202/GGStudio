@@ -40,8 +40,8 @@ describe('turret modules', () => {
 
   it('unlocks EMP through wave or Phone Addict progress while piercing is ungated', () => {
     expect(isEmpUnlocked({})).toBe(false);
-    expect(isEmpUnlocked({ highestWaveCleared: 10 })).toBe(true);
-    expect(isEmpUnlocked({ highestWaveCleared: 9 })).toBe(false);
+    expect(isEmpUnlocked({ highestWaveCleared: 8 })).toBe(false);
+    expect(isEmpUnlocked({ highestWaveCleared: 9 })).toBe(true);
     expect(isEmpUnlocked({ phoneAddictsKilled: 1 })).toBe(true);
     expect(isPiercingUnlocked()).toBe(true);
   });
