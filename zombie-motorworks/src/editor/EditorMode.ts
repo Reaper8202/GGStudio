@@ -95,6 +95,76 @@ export function defaultConfigForDef(def: PartDefinition): PartConfig {
     : {};
 }
 
+/** Full one-click price for a part that still needs its catalog unlock. */
+export function atomicStorePurchaseTotal(defId: string): number {
+  return unlockCost(defId) + placeCost(defId);
+}
+
+/** Aggregate effective maximum health used by whole-vehicle upgrade previews. */
+export function vehicleIntegrity(bp: VehicleBlueprint): number {
+  return bp.parts.reduce(
+    (total, part) => total + getEffectiveDef(part).health,
+    0,
+  );
+}
+
+/** Clone a blueprint with only the requested part advanced to its next level. */
+export function previewUpgradedBlueprint(
+  bp: VehicleBlueprint,
+  partId: string,
+): VehicleBlueprint | null {
+  const selected = bp.parts.find((part) => part.id === partId);
+  if (!selected) return null;
+  const upgrade = nextUpgrade(selected);
+  if (!upgrade) return null;
+
+  return {
+    ...bp,
+    parts: bp.parts.map((part) => ({
+      ...part,
+      pos: { ...part.pos },
+      config: {
+        ...part.config,
+        ...(part.id === partId ? { level: upgrade.targetLevel } : {}),
+      },
+    })),
+  };
+}
+
+export interface VehicleUpgradeMetrics {
+  totalDps: number;
+  integrity: number;
+  estimatedTopSpeedKph: number;
+}
+
+export interface UpgradeMetricsPreview {
+  before: VehicleUpgradeMetrics;
+  after: VehicleUpgradeMetrics;
+}
+
+/** Analyze the live and cloned next-level blueprints through the real model. */
+export function previewUpgradeMetrics(
+  bp: VehicleBlueprint,
+  partId: string,
+): UpgradeMetricsPreview | null {
+  const upgraded = previewUpgradedBlueprint(bp, partId);
+  if (!upgraded) return null;
+  const beforeReport = analyzeVehicle(bp, getPartDef);
+  const afterReport = analyzeVehicle(upgraded, getPartDef);
+  return {
+    before: {
+      totalDps: beforeReport.totalDps,
+      integrity: vehicleIntegrity(bp),
+      estimatedTopSpeedKph: beforeReport.estimatedTopSpeedKph,
+    },
+    after: {
+      totalDps: afterReport.totalDps,
+      integrity: vehicleIntegrity(upgraded),
+      estimatedTopSpeedKph: afterReport.estimatedTopSpeedKph,
+    },
+  };
+}
+
 export interface TurretModulePurchase {
   config: PartConfig;
   targetLevel: number;
@@ -262,6 +332,7 @@ export class EditorMode {
     this.scene.add(this.overlays.group);
 
     this.ui = buildEditorUI(container, PART_CATALOG, {
+      onPurchasePart: (defId) => this.buyAndArmPart(defId),
       onBuyPart: (defId) => this.buyInventoryPart(defId),
       onArmPart: (defId) => this.armGhost(defId),
       onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
@@ -908,6 +979,74 @@ export class EditorMode {
     return true;
   }
 
+  /**
+   * Unlock (when needed), buy one inventory copy, and arm its placement ghost
+   * as one persisted transaction. Profile mutations roll back together.
+   */
+  private buyAndArmPart(defId: string): boolean {
+    let def: ReturnType<typeof getPartDef>;
+    try {
+      def = getPartDef(defId);
+    } catch {
+      this.deny(`Unknown store part: ${defId}`);
+      return false;
+    }
+
+    const stock = this.inventory();
+    const previousCount = stock[defId] ?? 0;
+    const installedCount = this.bp.parts.filter(
+      (part) => part.defId === defId,
+    ).length;
+    if (def.unique === true && previousCount + installedCount >= 1) {
+      this.deny(
+        `${def.name} limit reached - only one can be owned or installed`,
+      );
+      return false;
+    }
+
+    const wasUnlocked = this.isUnlocked(defId);
+    const total = wasUnlocked
+      ? placeCost(defId)
+      : atomicStorePurchaseTotal(defId);
+    if (!canAfford(this.profile.money, total)) {
+      this.deny(
+        `Not enough money to ${wasUnlocked ? 'buy' : 'unlock and buy'} ${def.name} - need $${total}`,
+      );
+      return false;
+    }
+
+    const previousMoney = this.profile.money;
+    const previousUnlocks = [...this.profile.unlockedDefIds];
+    this.profile.money -= total;
+    if (!wasUnlocked) this.profile.unlockedDefIds.push(defId);
+    stock[defId] = previousCount + 1;
+
+    try {
+      this.persistProfile();
+    } catch (err) {
+      this.profile.money = previousMoney;
+      this.profile.unlockedDefIds.splice(
+        0,
+        this.profile.unlockedDefIds.length,
+        ...previousUnlocks,
+      );
+      const restoredStock = this.inventory();
+      if (previousCount === 0) delete restoredStock[defId];
+      else restoredStock[defId] = previousCount;
+      this.deny(`Purchase could not be saved: ${this.errorMessage(err)}`);
+      return false;
+    }
+
+    this.refreshProfile();
+    this.armGhost(defId);
+    this.ui.setStatus(
+      wasUnlocked
+        ? `Bought ${def.name} and armed placement (-$${total})`
+        : `Unlocked and bought ${def.name}; placement armed (-$${total})`,
+    );
+    return true;
+  }
+
   private changeInventory(defId: string, delta: number): boolean {
     const stock = this.inventory();
     const previousCount = stock[defId] ?? 0;
@@ -1205,6 +1344,7 @@ export class EditorMode {
         def.id === 'turret'
           ? turretModuleEconomy(part.config, this.profile.money, this.profile)
           : undefined,
+      upgradePreview: previewUpgradeMetrics(this.bp, part.id) ?? undefined,
     }, part.config, def.wheel
       ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
       : undefined);

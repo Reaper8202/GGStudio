@@ -949,6 +949,46 @@ button:disabled {
   text-align: left;
 }
 
+.store-item .part-price-breakdown,
+.store-item .part-unlock-milestone {
+  position: absolute;
+  right: 82px;
+  bottom: 7px;
+  left: 10px;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store-item.locked {
+  min-height: 94px;
+  padding-bottom: 38px;
+}
+
+.store-item.locked .part-price {
+  bottom: 20px;
+}
+
+.store-item.has-unlock-milestone {
+  min-height: 108px;
+  padding-bottom: 51px;
+}
+
+.store-item.has-unlock-milestone .part-price {
+  bottom: 34px;
+}
+
+.store-item.has-unlock-milestone .part-price-breakdown {
+  bottom: 20px;
+}
+
+.store-item .part-unlock-milestone {
+  color: var(--gold);
+}
+
 .inventory-empty {
   margin: auto;
   padding: 16px;
@@ -1093,6 +1133,48 @@ button:disabled {
   margin-top: 12px;
 }
 
+.selected-part__wheel-advanced {
+  margin-top: 12px;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-recess);
+}
+
+.selected-part__wheel-advanced summary {
+  position: relative;
+  min-height: 34px;
+  padding: 10px 34px 8px 10px;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  list-style: none;
+  text-transform: uppercase;
+}
+
+.selected-part__wheel-advanced summary::-webkit-details-marker {
+  display: none;
+}
+
+.selected-part__wheel-advanced summary::before,
+.selected-part__wheel-advanced summary::after {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  width: 10px;
+  height: 2px;
+  content: '';
+  background: var(--ui-text-muted);
+  transform: translateY(-50%);
+}
+
+.selected-part__wheel-advanced:not([open]) summary::after {
+  transform: translateY(-50%) rotate(90deg);
+}
+
+.selected-part__wheel-advanced .selected-part__config {
+  margin: 0;
+  padding: 0 10px 10px;
+}
+
 .selected-part__config label {
   display: flex;
   min-width: 0;
@@ -1162,6 +1244,36 @@ button:disabled {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--ui-edge);
+}
+
+.selected-part__upgrade-preview {
+  display: grid;
+  gap: 0;
+  margin-top: 14px;
+  border-top: 1px solid var(--ui-edge);
+}
+
+.selected-part__upgrade-preview-title {
+  padding: 10px 0 6px;
+  color: var(--ui-signal);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.selected-part__upgrade-preview-row {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1 var(--ui-font-body);
+}
+
+.selected-part__upgrade-preview-row strong {
+  color: var(--ui-text);
+  font: var(--ui-text-11)/1 var(--ui-font-display);
 }
 
 .selected-part__actions .selected-upgrade {
@@ -1382,7 +1494,7 @@ button:disabled {
     display: none;
   }
 
-  .part-btn small:not(.part-price, .inventory-count) {
+  .part-btn small:not(.part-price, .part-price-breakdown, .part-unlock-milestone, .inventory-count) {
     display: none;
   }
 

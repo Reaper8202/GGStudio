@@ -14,6 +14,8 @@ import {
 } from '../core/turretModules.ts';
 
 export interface EditorUIHandlers {
+  /** Atomic production store action; old harnesses may omit this callback. */
+  onPurchasePart?(defId: string): void;
   onBuyPart(defId: string): void;
   onArmPart(defId: string): void;
   onToggleErase(): void;
@@ -45,6 +47,18 @@ export interface SelectedPartEconomy {
   repairCost: number | null;
   canRepair: boolean;
   turretModules?: Record<TurretModule, TurretModuleEconomy>;
+  upgradePreview?: {
+    before: {
+      totalDps: number;
+      integrity: number;
+      estimatedTopSpeedKph: number;
+    };
+    after: {
+      totalDps: number;
+      integrity: number;
+      estimatedTopSpeedKph: number;
+    };
+  };
 }
 
 export interface TurretModuleEconomy {
@@ -371,6 +385,8 @@ export function buildEditorUI(
 
   const storeButtons = new Map<string, HTMLButtonElement>();
   const storePriceLabels = new Map<string, HTMLElement>();
+  const storePriceBreakdowns = new Map<string, HTMLElement>();
+  const storeUnlockMilestones = new Map<string, HTMLElement>();
   const inventoryButtons = new Map<string, HTMLButtonElement>();
   const inventoryCountLabels = new Map<string, HTMLElement>();
   let armed: string | null = null;
@@ -394,11 +410,29 @@ export function buildEditorUI(
     storeBlurb.textContent = description;
     const price = document.createElement('small');
     price.className = 'part-price';
-    storeButton.append(storeName, storePreview, storeBlurb, price);
-    storeButton.addEventListener('click', () => handlers.onBuyPart(id));
+    const priceBreakdown = document.createElement('small');
+    priceBreakdown.className = 'part-price-breakdown';
+    priceBreakdown.hidden = true;
+    const unlockMilestone = document.createElement('small');
+    unlockMilestone.className = 'part-unlock-milestone';
+    unlockMilestone.hidden = true;
+    storeButton.append(
+      storeName,
+      storePreview,
+      storeBlurb,
+      price,
+      priceBreakdown,
+      unlockMilestone,
+    );
+    storeButton.addEventListener('click', () => {
+      if (handlers.onPurchasePart) handlers.onPurchasePart(id);
+      else handlers.onBuyPart(id);
+    });
     storeContent.appendChild(storeButton);
     storeButtons.set(id, storeButton);
     storePriceLabels.set(id, price);
+    storePriceBreakdowns.set(id, priceBreakdown);
+    storeUnlockMilestones.set(id, unlockMilestone);
 
     const inventoryButton = document.createElement('button');
     inventoryButton.className = 'part-btn inventory-item';
@@ -631,6 +665,10 @@ export function buildEditorUI(
       selectedContent.appendChild(statList);
 
       if (effectiveDef?.wheel) {
+        const advanced = document.createElement('details');
+        advanced.className = 'selected-part__wheel-advanced';
+        const advancedSummary = document.createElement('summary');
+        advancedSummary.textContent = 'Advanced wheel setup';
         const config = document.createElement('div');
         config.className = 'selected-part__config';
         for (const [labelText, key] of [['Driven', 'driven'], ['Steering', 'steering'], ['Braking', 'braking']] as const) {
@@ -644,7 +682,8 @@ export function buildEditorUI(
           label.append(input, labelText);
           config.appendChild(label);
         }
-        selectedContent.appendChild(config);
+        advanced.append(advancedSummary, config);
+        selectedContent.appendChild(advanced);
       }
 
       const paintSection = document.createElement('div');
@@ -682,6 +721,50 @@ export function buildEditorUI(
         actions.appendChild(repairButton);
       }
       const nextPrice = economy?.nextUpgradePrice ?? null;
+      const upgradePreview = economy?.upgradePreview;
+      if (nextPrice !== null && upgradePreview) {
+        const previewRows: [string, string][] = [];
+        if (upgradePreview.before.totalDps !== upgradePreview.after.totalDps) {
+          previewRows.push([
+            'DPS',
+            `${upgradePreview.before.totalDps.toFixed(1)} → ${upgradePreview.after.totalDps.toFixed(1)}`,
+          ]);
+        }
+        if (upgradePreview.before.integrity !== upgradePreview.after.integrity) {
+          previewRows.push([
+            'Integrity',
+            `${formatStat(upgradePreview.before.integrity)} → ${formatStat(upgradePreview.after.integrity)}`,
+          ]);
+        }
+        if (
+          upgradePreview.before.estimatedTopSpeedKph !==
+          upgradePreview.after.estimatedTopSpeedKph
+        ) {
+          previewRows.push([
+            'Top Speed',
+            `${upgradePreview.before.estimatedTopSpeedKph.toFixed(0)} → ${upgradePreview.after.estimatedTopSpeedKph.toFixed(0)} km/h`,
+          ]);
+        }
+        if (previewRows.length > 0) {
+          const preview = document.createElement('div');
+          preview.className = 'selected-part__upgrade-preview';
+          const previewHeading = document.createElement('span');
+          previewHeading.className = 'selected-part__upgrade-preview-title';
+          previewHeading.textContent = 'Next upgrade';
+          preview.appendChild(previewHeading);
+          for (const [labelText, valueText] of previewRows) {
+            const row = document.createElement('div');
+            row.className = 'selected-part__upgrade-preview-row';
+            const label = document.createElement('span');
+            label.textContent = labelText;
+            const value = document.createElement('strong');
+            value.textContent = valueText;
+            row.append(label, value);
+            preview.appendChild(row);
+          }
+          selectedContent.appendChild(preview);
+        }
+      }
       const upgradeButton = btn(
         nextPrice === null ? 'Max Level' : `Upgrade  $${nextPrice}`,
         () => handlers.onUpgradePart(partId),
@@ -756,7 +839,8 @@ export function buildEditorUI(
         if (countLabel) countLabel.textContent = `x${count}`;
 
         const locked = (def.unlockCost ?? 0) > 0 && !unlocked.has(def.id);
-        const price = locked ? def.unlockCost ?? 0 : def.cost;
+        const unlockPrice = def.unlockCost ?? 0;
+        const price = locked ? unlockPrice + def.cost : def.cost;
         const unaffordable = price > money;
         const atOwnershipLimit =
           def.unique === true &&
@@ -764,26 +848,43 @@ export function buildEditorUI(
         storeButton?.classList.toggle('locked', locked);
         storeButton?.classList.toggle('unaffordable', unaffordable);
         storeButton?.classList.toggle('limit-reached', atOwnershipLimit);
+        storeButton?.classList.toggle(
+          'has-unlock-milestone',
+          locked && id === 'mine-sweeper',
+        );
         if (storeButton) {
           storeButton.disabled = unaffordable || atOwnershipLimit;
           storeButton.setAttribute('aria-label', atOwnershipLimit
             ? `${def.name}, ownership limit reached`
             : locked
-            ? `${def.name}, unlock for $${price}`
-            : `${def.name}, buy for $${price}`);
+            ? `${def.name} — Unlock & Buy $${price}`
+            : `${def.name} — Buy & Place $${price}`);
           storeButton.title = atOwnershipLimit
             ? `${def.name} limit reached: 1 owned or installed`
             : locked
-            ? `Unlock ${def.name} for $${price}`
-            : `Buy one ${def.name} for $${price}`;
+            ? `Unlock ${def.name} and buy one part for $${price}`
+            : `Buy one ${def.name} and arm it for placement for $${price}`;
         }
         const priceLabel = storePriceLabels.get(id);
         if (priceLabel) {
           priceLabel.textContent = atOwnershipLimit
             ? 'Limit 1'
             : locked
-              ? `Unlock $${price}`
-              : `Buy $${price}`;
+              ? `Unlock & Buy $${price}`
+              : `Buy & Place $${price}`;
+        }
+        const priceBreakdown = storePriceBreakdowns.get(id);
+        if (priceBreakdown) {
+          priceBreakdown.hidden = !locked || atOwnershipLimit;
+          priceBreakdown.textContent = id === 'mine-sweeper'
+            ? `Unlock early $${unlockPrice} + Part $${def.cost}`
+            : `Unlock $${unlockPrice} + Part $${def.cost}`;
+        }
+        const unlockMilestone = storeUnlockMilestones.get(id);
+        if (unlockMilestone) {
+          unlockMilestone.hidden =
+            !locked || atOwnershipLimit || id !== 'mine-sweeper';
+          unlockMilestone.textContent = 'Free after Wave 7';
         }
       }
       inventoryEmpty.style.display = stockCount > 0 ? 'none' : 'block';
@@ -915,8 +1016,8 @@ function buildHelpOverlay(): HTMLDivElement {
   wrap.innerHTML = `
     <div class="help-panel__header"><b>How to build a vehicle</b><button>Close</button></div>
     <div class="cat-title">quick start</div>
-    <ol><li>Buy parts in the Store. Purchased parts appear in Inventory.</li>
-    <li>Select an Inventory part, then place it on the model. Green can place; red explains why it cannot.</li>
+    <ol><li>Buy a part in the Store to add it to Inventory and arm it for immediate placement.</li>
+    <li>Place the armed part, or select any loose Inventory part later. Green can place; red explains why it cannot.</li>
     <li>Build blocks around the Truck Heart. Everything needs to connect face-to-face.</li>
     <li>Select a placed part to upgrade, rotate, paint, or sell it in the right inspector.</li>
     <li>Use Test Drive when the vehicle is ready.</li></ol>
