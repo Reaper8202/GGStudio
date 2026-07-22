@@ -21,6 +21,7 @@ import { serializeBlueprint, deserializeBlueprint } from '../core/serialize.ts';
 import { validateBlueprint } from '../core/placement.ts';
 import { analyzeVehicle } from '../core/analysis.ts';
 import { getPartDef } from '../core/parts.ts';
+import { getEffectiveDef } from '../core/upgrades.ts';
 import { composeOrientations, orientationFromSteps } from '../core/grid.ts';
 import {
   BLUEPRINT_STORAGE_KEY,
@@ -41,6 +42,136 @@ import type { SavedRun } from '../core/runSave.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
 import { runSaveStore } from './runSaveStore.ts';
 import { TitleScreen } from './TitleScreen.ts';
+
+export interface RunCheckpoint {
+  /** Wave the player will play next. */
+  wave: number;
+  /** Vehicle state committed at the start of `wave`. */
+  blueprint: VehicleBlueprint;
+  /** Per-part HP committed at the start of `wave`. */
+  partHp: Record<string, number>;
+  /** Cumulative kills committed before `wave`. */
+  kills: number;
+  /** Run earnings already credited before `wave`. */
+  bankedEarnings: number;
+}
+
+export interface CheckpointRunState extends RunState {
+  partHp: Record<string, number>;
+  kills: number;
+}
+
+/** Effective maximum HP for every placed part in a blueprint. */
+export function fullPartHp(bp: VehicleBlueprint): Record<string, number> {
+  return Object.fromEntries(
+    bp.parts.map((part) => [part.id, getEffectiveDef(part).health]),
+  );
+}
+
+/** The immutable wave-start state for a brand-new run. */
+export function createInitialRunCheckpoint(
+  bp: VehicleBlueprint,
+): RunCheckpoint {
+  return {
+    wave: 1,
+    blueprint: pruneBlueprintToSurvivors(
+      bp,
+      bp.parts.map((part) => part.id),
+    ),
+    partHp: fullPartHp(bp),
+    kills: 0,
+    bankedEarnings: 0,
+  };
+}
+
+function partHpForBlueprint(
+  bp: VehicleBlueprint,
+  partHp: Readonly<Record<string, number>>,
+): Record<string, number> {
+  return Object.fromEntries(
+    bp.parts.map((part) => [
+      part.id,
+      partHp[part.id] ?? getEffectiveDef(part).health,
+    ]),
+  );
+}
+
+/** Commit permanent wave damage and prepare the vehicle's next-wave state. */
+export function createClearedWaveCheckpoint(input: {
+  blueprint: VehicleBlueprint;
+  nextWave: number;
+  survivingPartIds: readonly string[];
+  partHp: Readonly<Record<string, number>>;
+  kills: number;
+  bankedEarnings: number;
+}): RunCheckpoint {
+  const blueprint = pruneBlueprintToSurvivors(
+    input.blueprint,
+    input.survivingPartIds,
+  );
+  return {
+    wave: input.nextWave,
+    blueprint,
+    partHp: partHpForBlueprint(blueprint, input.partHp),
+    kills: input.kills,
+    bankedEarnings: input.bankedEarnings,
+  };
+}
+
+/** Include garage edits in the checkpoint while preserving carried damage. */
+export function prepareCheckpointForGarageFight(
+  checkpoint: RunCheckpoint,
+  bp: VehicleBlueprint,
+): RunCheckpoint {
+  const blueprint = pruneBlueprintToSurvivors(
+    bp,
+    bp.parts.map((part) => part.id),
+  );
+  return {
+    ...checkpoint,
+    blueprint,
+    partHp: partHpForBlueprint(blueprint, checkpoint.partHp),
+  };
+}
+
+/** Survival input derived only from the committed wave-start checkpoint. */
+export function runStateFromCheckpoint(
+  checkpoint: RunCheckpoint,
+): CheckpointRunState {
+  return {
+    wave: checkpoint.wave,
+    partHp: { ...checkpoint.partHp },
+    kills: checkpoint.kills,
+  };
+}
+
+/** Failed-wave recovery keeps committed parts but restores all of their HP. */
+export function recoverRunFromCheckpoint(checkpoint: RunCheckpoint): {
+  blueprint: VehicleBlueprint;
+  partHp: Record<string, number>;
+} {
+  const blueprint = pruneBlueprintToSurvivors(
+    checkpoint.blueprint,
+    checkpoint.blueprint.parts.map((part) => part.id),
+  );
+  return { blueprint, partHp: fullPartHp(blueprint) };
+}
+
+/** Persistable schema derived only from a committed wave-start checkpoint. */
+export function savedRunFromCheckpoint(
+  checkpoint: RunCheckpoint,
+  savedAt: number,
+): SavedRun {
+  return {
+    schemaVersion: 2,
+    wave: checkpoint.wave,
+    kills: checkpoint.kills,
+    bankedEarnings: checkpoint.bankedEarnings,
+    blueprint: checkpoint.blueprint,
+    partHp: { ...checkpoint.partHp },
+    savedAt,
+  };
+}
 
 /** Apply permanent wave progress and its catalog unlock to a profile. */
 export function recordWaveCleared(
@@ -89,6 +220,7 @@ export class App {
   private readonly history: CommandHistory;
   private savedView: EditorViewState | undefined;
   private activeRun: RunState | null = null;
+  private checkpoint: RunCheckpoint | null = null;
   private inBuildPhase = false;
   private runMoneyEarned = 0;
   private runSummary:
@@ -145,22 +277,11 @@ export class App {
 
   /**
    * Persist the in-progress run and return to the title screen.
-   * Called from the survival pause overlay. `wave` is the wave to resume at.
+   * Called from the survival pause overlay; live mid-wave state is discarded.
    */
-  saveAndQuitRun(snapshot: {
-    wave: number;
-    kills: number;
-    partHp: Record<string, number>;
-  }): void {
-    const savedRun: SavedRun = {
-      schemaVersion: 1,
-      wave: snapshot.wave,
-      kills: snapshot.kills,
-      moneyEarned: this.runMoneyEarned,
-      blueprint: this.bp,
-      partHp: snapshot.partHp,
-      savedAt: Date.now(),
-    };
+  saveAndQuitRun(): void {
+    if (this.checkpoint === null) return;
+    const savedRun = savedRunFromCheckpoint(this.checkpoint, Date.now());
     try {
       runSaveStore.save(savedRun);
     } catch {
@@ -183,14 +304,18 @@ export class App {
     this.disposeTitle();
     this.clearSessionState();
     this.bp = savedRun.blueprint;
-    this.runMoneyEarned = savedRun.moneyEarned;
+    this.runMoneyEarned = savedRun.bankedEarnings;
     this.runSummary = undefined;
+    this.checkpoint = {
+      wave: savedRun.wave,
+      blueprint: savedRun.blueprint,
+      partHp: { ...savedRun.partHp },
+      kills: savedRun.kills,
+      bankedEarnings: savedRun.bankedEarnings,
+    };
     this.activeRun = { wave: savedRun.wave };
     this.inBuildPhase = false;
-    this.enterSurvival(this.bp, {
-      wave: savedRun.wave,
-      partHp: savedRun.partHp,
-    });
+    this.enterSurvival(this.bp, runStateFromCheckpoint(this.checkpoint));
     return true;
   }
 
@@ -280,6 +405,7 @@ export class App {
     this.history.clear();
     this.savedView = undefined;
     this.activeRun = null;
+    this.checkpoint = null;
     this.inBuildPhase = false;
     this.runMoneyEarned = 0;
     this.runSummary = undefined;
@@ -323,8 +449,8 @@ export class App {
   }
 
   private startOrResumeRun(bp: VehicleBlueprint): void {
-    if (this.activeRun && this.inBuildPhase) {
-      this.resumeRun(bp, this.activeRun);
+    if (this.checkpoint !== null) {
+      this.resumeRun(bp);
     } else {
       this.startRun(bp);
     }
@@ -334,15 +460,27 @@ export class App {
     runSaveStore.clear();
     this.runMoneyEarned = 0;
     this.runSummary = undefined;
-    this.activeRun = { wave: 1 };
+    this.checkpoint = createInitialRunCheckpoint(bp);
+    this.activeRun = { wave: this.checkpoint.wave };
     this.inBuildPhase = false;
-    this.enterSurvival(bp, this.activeRun);
+    this.enterSurvival(
+      this.checkpoint.blueprint,
+      runStateFromCheckpoint(this.checkpoint),
+    );
   }
 
-  private resumeRun(bp: VehicleBlueprint, run: RunState): void {
-    this.activeRun = { wave: run.wave + 1 };
+  private resumeRun(bp: VehicleBlueprint): void {
+    if (this.checkpoint === null) {
+      this.startRun(bp);
+      return;
+    }
+    this.checkpoint = prepareCheckpointForGarageFight(this.checkpoint, bp);
+    this.activeRun = { wave: this.checkpoint.wave };
     this.inBuildPhase = false;
-    this.enterSurvival(bp, this.activeRun);
+    this.enterSurvival(
+      this.checkpoint.blueprint,
+      runStateFromCheckpoint(this.checkpoint),
+    );
   }
 
   private enterSurvival(bp: VehicleBlueprint, run: RunState): void {
@@ -359,11 +497,25 @@ export class App {
       runEarnings: () => this.runMoneyEarned,
       onReward: (amount) => this.creditRunReward(amount),
       onExit: (state) => this.finishRun(state),
-      onWaveAdvance: (state) => {
+      onWaveAdvance: (state, survivingPartIds, partHp, kills) => {
+        this.commitClearedWaveCheckpoint(
+          state.wave,
+          survivingPartIds,
+          partHp,
+          kills,
+        );
         this.activeRun = { wave: state.wave };
       },
-      onBuildPhase: (state, survivingPartIds) =>
-        this.enterBuildPhase(state, survivingPartIds),
+      onBuildPhase: (state, survivingPartIds, partHp, kills) =>
+        this.enterBuildPhase(state, survivingPartIds, partHp, kills),
+      onWaveCheckpoint: (state, survivingPartIds, partHp, kills) => {
+        this.commitClearedWaveCheckpoint(
+          state.wave,
+          survivingPartIds,
+          partHp,
+          kills,
+        );
+      },
       onGameOver: (state) => this.finishRun(state),
       onResetWave: (state) => this.resetSurvivalWave(state),
       onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
@@ -375,18 +527,42 @@ export class App {
         recordWaveCleared(this.profile, wave);
         this.markProfileDirty();
       },
-      onSaveAndQuit: (snapshot) => this.saveAndQuitRun(snapshot),
+      onSaveAndQuit: () => this.saveAndQuitRun(),
     });
     this.survival.resize(this.root.clientWidth, this.root.clientHeight);
+  }
+
+  private commitClearedWaveCheckpoint(
+    nextWave: number,
+    survivingPartIds: readonly string[],
+    partHp: Record<string, number>,
+    kills: number,
+  ): void {
+    this.checkpoint = createClearedWaveCheckpoint({
+      blueprint: this.bp,
+      nextWave,
+      survivingPartIds,
+      partHp,
+      kills,
+      bankedEarnings: this.runMoneyEarned,
+    });
+    this.bp = this.checkpoint.blueprint;
+    this.history.clear();
   }
 
   private enterBuildPhase(
     run: RunState,
     survivingPartIds: readonly string[],
+    partHp: Record<string, number>,
+    kills: number,
   ): void {
     this.flushProfile();
-    this.bp = pruneBlueprintToSurvivors(this.bp, survivingPartIds);
-    this.history.clear();
+    this.commitClearedWaveCheckpoint(
+      run.wave + 1,
+      survivingPartIds,
+      partHp,
+      kills,
+    );
     this.activeRun = { wave: run.wave };
     this.inBuildPhase = true;
     this.runSummary = undefined;
@@ -399,16 +575,28 @@ export class App {
   private finishRun(run: RunState): void {
     runSaveStore.clear();
     this.flushProfile();
+    if (this.checkpoint !== null) {
+      this.bp = recoverRunFromCheckpoint(this.checkpoint).blueprint;
+    }
+    this.history.clear();
     this.runSummary = {
       wavesSurvived: Math.max(0, run.wave - 1),
       moneyEarned: this.runMoneyEarned,
     };
     this.activeRun = null;
+    this.checkpoint = null;
     this.inBuildPhase = false;
     this.openEditor();
   }
 
   private resetSurvivalWave(run: RunState): void {
+    if (this.checkpoint !== null) {
+      this.bp = this.checkpoint.blueprint;
+      this.activeRun = { wave: this.checkpoint.wave };
+      this.inBuildPhase = false;
+      this.enterSurvival(this.bp, runStateFromCheckpoint(this.checkpoint));
+      return;
+    }
     this.activeRun = { wave: run.wave };
     this.inBuildPhase = false;
     this.enterSurvival(this.bp, this.activeRun);
@@ -539,11 +727,7 @@ export class App {
       newGame: () => this.title?.requestNewGame() ?? false,
       continueGame: () => this.title?.continueGame() ?? false,
       hasStoredRun: () => this.hasStoredRun(),
-      saveAndQuitRun: (snapshot: {
-        wave: number;
-        kills: number;
-        partHp: Record<string, number>;
-      }) => this.saveAndQuitRun(snapshot),
+      saveAndQuitRun: () => this.saveAndQuitRun(),
       resumeSavedRun: () => this.resumeSavedRun(),
       clearRunSave: () => runSaveStore.clear(),
       getBlueprintJson: () =>

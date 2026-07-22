@@ -61,10 +61,10 @@ function sampleBlueprint(): VehicleBlueprint {
 
 function sampleRun(): SavedRun {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     wave: 7,
     kills: 42,
-    moneyEarned: 135,
+    bankedEarnings: 135,
     blueprint: sampleBlueprint(),
     partHp: { core: 80, frame: 12.5 },
     savedAt: 1_752_000_000_000,
@@ -72,7 +72,7 @@ function sampleRun(): SavedRun {
 }
 
 describe('saved run codec', () => {
-  it('round-trips supported saved-run fields', () => {
+  it('round-trips schema-2 checkpoint fields', () => {
     const run = sampleRun();
 
     expect(decodeSavedRun(encodeSavedRun(run))).toEqual(run);
@@ -84,7 +84,7 @@ describe('saved run codec', () => {
     ['missing fields', '{}'],
     [
       'wrong schema version',
-      JSON.stringify({ ...sampleRun(), schemaVersion: 2 }),
+      JSON.stringify({ ...sampleRun(), schemaVersion: 3 }),
     ],
     ['wave zero', JSON.stringify({ ...sampleRun(), wave: 0 })],
     ['fractional wave', JSON.stringify({ ...sampleRun(), wave: 2.5 })],
@@ -107,16 +107,28 @@ describe('saved run codec', () => {
     expect(decodeSavedRun(json)?.partHp).toEqual({ core: 50 });
   });
 
-  it('clamps negative kills and run money to zero', () => {
+  it('migrates schema-1 moneyEarned into schema-2 bankedEarnings', () => {
+    const current = sampleRun();
+    const legacy = {
+      ...current,
+      schemaVersion: 1,
+      moneyEarned: current.bankedEarnings,
+    };
+    delete (legacy as Partial<typeof legacy>).bankedEarnings;
+
+    expect(decodeSavedRun(JSON.stringify(legacy))).toEqual(current);
+  });
+
+  it('clamps negative kills and banked earnings to zero', () => {
     const json = JSON.stringify({
       ...sampleRun(),
       kills: -3,
-      moneyEarned: -25,
+      bankedEarnings: -25,
     });
 
     expect(decodeSavedRun(json)).toMatchObject({
       kills: 0,
-      moneyEarned: 0,
+      bankedEarnings: 0,
     });
   });
 });

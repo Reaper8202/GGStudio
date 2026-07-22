@@ -53,8 +53,25 @@ export interface SurvivalCallbacks {
   runEarnings(): number;
   onReward(amount: number): number;
   onExit(run: RunState): void;
-  onWaveAdvance(run: RunState): void;
-  onBuildPhase(run: RunState, survivingPartIds: readonly string[]): void;
+  onWaveAdvance(
+    run: RunState,
+    survivingPartIds: readonly string[],
+    partHp: Record<string, number>,
+    kills: number,
+  ): void;
+  onBuildPhase(
+    run: RunState,
+    survivingPartIds: readonly string[],
+    partHp: Record<string, number>,
+    kills: number,
+  ): void;
+  /** Commit the next wave's start state as soon as a clear is resolved. */
+  onWaveCheckpoint?(
+    run: RunState,
+    survivingPartIds: readonly string[],
+    partHp: Record<string, number>,
+    kills: number,
+  ): void;
   onGameOver(run: RunState): void;
   onResetWave(run: RunState): void;
   onCheatInfiniteMoney(): void;
@@ -64,14 +81,37 @@ export interface SurvivalCallbacks {
   onWaveCleared(wave: number): void;
   /**
    * Persist the run so the player can close the tab and pick it up later.
-   * Mid-wave zombie state is not restorable, so the saved wave restarts from
-   * its countdown on resume; the vehicle comes back with the damage it has now.
+   * Mid-wave zombie state is not restorable, so App persists its wave-start
+   * checkpoint rather than this live vehicle state.
    */
   onSaveAndQuit(snapshot: {
     wave: number;
     kills: number;
-    partHp: Record<string, number>;
   }): void;
+}
+
+export interface WaveClearPayload {
+  clearedRun: RunState;
+  nextRun: RunState;
+  survivingPartIds: readonly string[];
+  partHp: Record<string, number>;
+  kills: number;
+}
+
+/** Shared payload for both choices offered after a cleared wave. */
+export function createWaveClearPayload(
+  clearedWave: number,
+  survivingPartIds: readonly string[],
+  partHp: Readonly<Record<string, number>>,
+  kills: number,
+): WaveClearPayload {
+  return {
+    clearedRun: { wave: clearedWave },
+    nextRun: { wave: clearedWave + 1 },
+    survivingPartIds: [...survivingPartIds],
+    partHp: { ...partHp },
+    kills,
+  };
 }
 
 export type SurvivalPhase = 'countdown' | 'active' | 'cleared' | 'gameOver';
@@ -179,8 +219,12 @@ type PendingTransition =
       kind: 'buildPhase';
       run: RunState;
       survivingPartIds: string[];
+      partHp: Record<string, number>;
+      kills: number;
     }
   | { kind: 'gameOver'; run: RunState };
+
+type SurvivalRunState = RunState & { kills?: number };
 
 export class SurvivalMode {
   private readonly scene = new THREE.Scene();
@@ -347,7 +391,7 @@ export class SurvivalMode {
     private readonly container: HTMLElement,
     private readonly renderer: THREE.WebGLRenderer,
     bp: VehicleBlueprint,
-    run: RunState,
+    run: SurvivalRunState,
     private readonly callbacks: SurvivalCallbacks,
   ) {
     this.camera = new THREE.PerspectiveCamera(
@@ -430,7 +474,11 @@ export class SurvivalMode {
       },
     );
 
-    // A resumed run brings back the damage the vehicle had when it was saved.
+    if (Number.isFinite(run.kills) && (run.kills ?? 0) >= 0) {
+      this.kills = Math.floor(run.kills ?? 0);
+    }
+
+    // A resumed run begins from App's committed wave-start damage.
     if (run.partHp) {
       this.attachNewIslands(this.vehicle.applyPartHpSnapshot(run.partHp));
     }
@@ -864,24 +912,41 @@ export class SurvivalMode {
     this.callbacks.onSaveAndQuit({
       wave: this.currentWave,
       kills: this.kills,
-      partHp: this.vehicle.partHpSnapshot(),
     });
   }
 
   private readonly onNextWave = (): void => {
     if (this.disposed || this.phase !== 'cleared') return;
-    this.beginCountdown(this.currentWave + 1);
-    this.callbacks.onWaveAdvance(this.currentRunState());
+    const payload = this.clearedWavePayload();
+    this.beginCountdown(payload.nextRun.wave);
+    this.callbacks.onWaveAdvance(
+      payload.nextRun,
+      payload.survivingPartIds,
+      payload.partHp,
+      payload.kills,
+    );
   };
 
   private readonly onGoToGarage = (): void => {
     if (this.disposed || this.phase !== 'cleared') return;
+    const payload = this.clearedWavePayload();
     this.victoryOverlay.style.display = 'none';
     this.callbacks.onBuildPhase(
-      this.currentRunState(),
-      this.vehicle.survivingPartIds(),
+      payload.clearedRun,
+      payload.survivingPartIds,
+      payload.partHp,
+      payload.kills,
     );
   };
+
+  private clearedWavePayload(): WaveClearPayload {
+    return createWaveClearPayload(
+      this.currentWave,
+      this.vehicle.survivingPartIds(),
+      this.vehicle.partHpSnapshot(),
+      this.kills,
+    );
+  }
 
   private readonly onAim = (event: PointerEvent): void => {
     if (this.phase !== 'active' || this.settingsOpen) return;
@@ -1267,6 +1332,15 @@ export class SurvivalMode {
       this.queueGameOver();
     } else if (this.phase === 'cleared') {
       this.bankPendingWaveRewards();
+      if (this.callbacks.onWaveCheckpoint) {
+        const payload = this.clearedWavePayload();
+        this.callbacks.onWaveCheckpoint(
+          payload.nextRun,
+          payload.survivingPartIds,
+          payload.partHp,
+          payload.kills,
+        );
+      }
       this.stopVehicleMotion();
       this.showVictory();
     }
@@ -1306,7 +1380,12 @@ export class SurvivalMode {
     if (pending === null) return;
     this.pendingTransition = null;
     if (pending.kind === 'buildPhase') {
-      this.callbacks.onBuildPhase(pending.run, pending.survivingPartIds);
+      this.callbacks.onBuildPhase(
+        pending.run,
+        pending.survivingPartIds,
+        pending.partHp,
+        pending.kills,
+      );
     } else {
       this.callbacks.onGameOver(pending.run);
     }

@@ -1,0 +1,227 @@
+import { describe, expect, it } from 'vitest';
+import {
+  createClearedWaveCheckpoint,
+  createInitialRunCheckpoint,
+  fullPartHp,
+  prepareCheckpointForGarageFight,
+  recoverRunFromCheckpoint,
+  runStateFromCheckpoint,
+  savedRunFromCheckpoint,
+} from '../src/app/App.ts';
+import { BLUEPRINT_SCHEMA_VERSION } from '../src/core/types.ts';
+import type { VehicleBlueprint } from '../src/core/types.ts';
+import { getEffectiveDef } from '../src/core/upgrades.ts';
+import {
+  createWaveClearPayload,
+  SurvivalMode,
+} from '../src/survival/SurvivalMode.ts';
+
+function checkpointBlueprint(): VehicleBlueprint {
+  return {
+    schemaVersion: BLUEPRINT_SCHEMA_VERSION,
+    id: 'checkpoint-rig',
+    name: 'Checkpoint Rig',
+    parts: [
+      {
+        id: 'core',
+        defId: 'chassis-core',
+        pos: { x: 0, y: 0, z: 0 },
+        orient: 0,
+        config: { level: 2 },
+      },
+      {
+        id: 'seat',
+        defId: 'driver-seat',
+        pos: { x: 0, y: 1, z: 0 },
+        orient: 0,
+        config: {},
+      },
+      {
+        id: 'frame',
+        defId: 'frame-box',
+        pos: { x: 1, y: 0, z: 0 },
+        orient: 0,
+        config: {},
+      },
+    ],
+  };
+}
+
+describe('run checkpoints', () => {
+  it('starts wave 1 with explicit effective full HP for every part', () => {
+    const blueprint = checkpointBlueprint();
+    const checkpoint = createInitialRunCheckpoint(blueprint);
+
+    expect(checkpoint).toMatchObject({
+      wave: 1,
+      kills: 0,
+      bankedEarnings: 0,
+      partHp: fullPartHp(blueprint),
+    });
+    expect(checkpoint.partHp.core).toBe(
+      getEffectiveDef(blueprint.parts[0]!).health,
+    );
+  });
+
+  it('commits surviving parts and their exact damaged HP for the next wave', () => {
+    const checkpoint = createClearedWaveCheckpoint({
+      blueprint: checkpointBlueprint(),
+      nextWave: 2,
+      survivingPartIds: ['core', 'seat'],
+      partHp: { core: 217.5, seat: 61, frame: 0 },
+      kills: 9,
+      bankedEarnings: 73,
+    });
+
+    expect(checkpoint).toMatchObject({
+      wave: 2,
+      partHp: { core: 217.5, seat: 61 },
+      kills: 9,
+      bankedEarnings: 73,
+    });
+    expect(checkpoint.blueprint.parts.map((part) => part.id)).toEqual([
+      'core',
+      'seat',
+    ]);
+  });
+
+  it('starts Continue and Garage Fight from equivalent HP without repairs', () => {
+    const checkpoint = createClearedWaveCheckpoint({
+      blueprint: checkpointBlueprint(),
+      nextWave: 4,
+      survivingPartIds: ['core', 'seat'],
+      partHp: { core: 188, seat: 47 },
+      kills: 31,
+      bankedEarnings: 240,
+    });
+
+    const continued = runStateFromCheckpoint(checkpoint);
+    const fromGarage = runStateFromCheckpoint(
+      prepareCheckpointForGarageFight(checkpoint, checkpoint.blueprint),
+    );
+
+    expect(fromGarage).toEqual(continued);
+    expect(fromGarage).toMatchObject({
+      wave: 4,
+      partHp: { core: 188, seat: 47 },
+      kills: 31,
+    });
+  });
+
+  it('recovers the failed-wave checkpoint, keeps cleared losses, heals survivors, and restarts at wave 1', () => {
+    const failedWaveStart = createClearedWaveCheckpoint({
+      blueprint: checkpointBlueprint(),
+      nextWave: 5,
+      survivingPartIds: ['core', 'seat'],
+      partHp: { core: 155, seat: 39, frame: 0 },
+      kills: 54,
+      bankedEarnings: 410,
+    });
+
+    const recovered = recoverRunFromCheckpoint(failedWaveStart);
+
+    expect(recovered.blueprint.parts.map((part) => part.id)).toEqual([
+      'core',
+      'seat',
+    ]);
+    expect(recovered.partHp).toEqual(fullPartHp(recovered.blueprint));
+
+    const nextRun = createInitialRunCheckpoint(recovered.blueprint);
+    expect(nextRun.wave).toBe(1);
+    expect(nextRun.blueprint.parts.map((part) => part.id)).not.toContain(
+      'frame',
+    );
+    expect(nextRun.partHp).toEqual(recovered.partHp);
+  });
+
+  it('saves wave-start checkpoint HP and kills rather than live mid-wave values', () => {
+    const checkpoint = createClearedWaveCheckpoint({
+      blueprint: checkpointBlueprint(),
+      nextWave: 3,
+      survivingPartIds: ['core', 'seat'],
+      partHp: { core: 201, seat: 72 },
+      kills: 18,
+      bankedEarnings: 165,
+    });
+    const liveMidWave = {
+      wave: 3,
+      kills: 29,
+      partHp: { core: 43, seat: 8 },
+    };
+
+    const saved = savedRunFromCheckpoint(checkpoint, 1_800_000_000_000);
+
+    expect(saved).toMatchObject({
+      schemaVersion: 2,
+      wave: checkpoint.wave,
+      kills: checkpoint.kills,
+      bankedEarnings: checkpoint.bankedEarnings,
+      partHp: checkpoint.partHp,
+    });
+    expect(saved.kills).not.toBe(liveMidWave.kills);
+    expect(saved.partHp).not.toEqual(liveMidWave.partHp);
+  });
+
+  it('passes equivalent survivor HP and cumulative kills through both clear actions', () => {
+    const payload = createWaveClearPayload(
+      2,
+      ['core', 'seat'],
+      { core: 175, seat: 44 },
+      23,
+    );
+
+    expect(payload).toEqual({
+      clearedRun: { wave: 2 },
+      nextRun: { wave: 3 },
+      survivingPartIds: ['core', 'seat'],
+      partHp: { core: 175, seat: 44 },
+      kills: 23,
+    });
+  });
+
+  it('offers the next-wave checkpoint immediately after clear rewards are banked', () => {
+    let bankedEarnings = 20;
+    const checkpointCalls: unknown[][] = [];
+    const mode = Object.create(SurvivalMode.prototype) as unknown as {
+      queueCompletedStepTransition(): void;
+    };
+    Object.assign(mode, {
+      phase: 'cleared',
+      pendingWaveKillReward: 7,
+      pendingWaveReward: 13,
+      pendingTransition: null,
+      waveMoneyEarned: 0,
+      lastHudPending: -1,
+      currentWave: 2,
+      kills: 23,
+      vehicle: {
+        isDestroyed: () => false,
+        survivingPartIds: () => ['core', 'seat'],
+        partHpSnapshot: () => ({ core: 175, seat: 44 }),
+      },
+      callbacks: {
+        onReward: (amount: number) => {
+          bankedEarnings += amount;
+          return amount;
+        },
+        onWaveCheckpoint: (...args: unknown[]) =>
+          checkpointCalls.push([bankedEarnings, ...args]),
+      },
+      stopVehicleMotion: () => undefined,
+      showVictory: () => undefined,
+      queueGameOver: () => undefined,
+    });
+
+    mode.queueCompletedStepTransition();
+
+    expect(checkpointCalls).toEqual([
+      [
+        40,
+        { wave: 3 },
+        ['core', 'seat'],
+        { core: 175, seat: 44 },
+        23,
+      ],
+    ]);
+  });
+});
