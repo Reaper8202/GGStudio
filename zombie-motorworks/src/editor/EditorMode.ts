@@ -43,7 +43,13 @@ import {
 } from '../core/grid.ts';
 import { buildPartMesh } from './meshes.ts';
 import { Overlays, defaultToggles, type OverlayToggles } from './overlays.ts';
-import { buildEditorUI, type EditorUI } from './ui.ts';
+import {
+  buildEditorUI,
+  type EditorUI,
+  type NewGarageDisposalSummary,
+  type RunSummary,
+  type TurretModuleEconomy,
+} from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
@@ -51,15 +57,52 @@ import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
 import {
   canAfford,
   nextUpgrade,
+  partInvestment,
+  partRepairCost,
   placeCost,
+  repairPlan,
+  scaledHpOnUpgrade,
   sellRefund,
   unlockCost,
   type RunState,
 } from '../core/economy.ts';
 import type { PlayerProfile } from '../core/profile.ts';
+import {
+  isEmpUnlocked,
+  isPiercingUnlocked,
+  turretModuleLevel,
+  turretModulePrice,
+  type TurretModule,
+} from '../core/turretModules.ts';
+import { threatWarningsForWave } from '../survival/waveBalance.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
+
+/** Exact consequences of selling an installed build before starting over. */
+export function newGarageDisposalSummary(
+  parts: readonly PlacedPart[],
+  getDef: (defId: string) => PartDefinition,
+): NewGarageDisposalSummary {
+  const disposable = parts.filter((part) => {
+    const def = getDef(part.defId);
+    return def.isRoot !== true && def.providesControl !== true;
+  });
+  const investment = disposable.reduce(
+    (total, part) => total + partInvestment(part),
+    0,
+  );
+  const refund = disposable.reduce(
+    (total, part) => total + sellRefund(part),
+    0,
+  );
+  return {
+    partCount: disposable.length,
+    investment,
+    refund,
+    forfeited: investment - refund,
+  };
+}
 
 /**
  * Seed a freshly placed part's config. Wheels arrive powered and braked so a
@@ -79,6 +122,128 @@ export function defaultConfigForDef(def: PartDefinition): PartConfig {
         suspensionPreset: 'standard',
       }
     : {};
+}
+
+/** Full one-click price for a part that still needs its catalog unlock. */
+export function atomicStorePurchaseTotal(defId: string): number {
+  return unlockCost(defId) + placeCost(defId);
+}
+
+/** Aggregate effective maximum health used by whole-vehicle upgrade previews. */
+export function vehicleIntegrity(bp: VehicleBlueprint): number {
+  return bp.parts.reduce(
+    (total, part) => total + getEffectiveDef(part).health,
+    0,
+  );
+}
+
+/** Clone a blueprint with only the requested part advanced to its next level. */
+export function previewUpgradedBlueprint(
+  bp: VehicleBlueprint,
+  partId: string,
+): VehicleBlueprint | null {
+  const selected = bp.parts.find((part) => part.id === partId);
+  if (!selected) return null;
+  const upgrade = nextUpgrade(selected);
+  if (!upgrade) return null;
+
+  return {
+    ...bp,
+    parts: bp.parts.map((part) => ({
+      ...part,
+      pos: { ...part.pos },
+      config: {
+        ...part.config,
+        ...(part.id === partId ? { level: upgrade.targetLevel } : {}),
+      },
+    })),
+  };
+}
+
+export interface VehicleUpgradeMetrics {
+  totalDps: number;
+  integrity: number;
+  estimatedTopSpeedKph: number;
+}
+
+export interface UpgradeMetricsPreview {
+  before: VehicleUpgradeMetrics;
+  after: VehicleUpgradeMetrics;
+}
+
+/** Analyze the live and cloned next-level blueprints through the real model. */
+export function previewUpgradeMetrics(
+  bp: VehicleBlueprint,
+  partId: string,
+): UpgradeMetricsPreview | null {
+  const upgraded = previewUpgradedBlueprint(bp, partId);
+  if (!upgraded) return null;
+  const beforeReport = analyzeVehicle(bp, getPartDef);
+  const afterReport = analyzeVehicle(upgraded, getPartDef);
+  return {
+    before: {
+      totalDps: beforeReport.totalDps,
+      integrity: vehicleIntegrity(bp),
+      estimatedTopSpeedKph: beforeReport.estimatedTopSpeedKph,
+    },
+    after: {
+      totalDps: afterReport.totalDps,
+      integrity: vehicleIntegrity(upgraded),
+      estimatedTopSpeedKph: afterReport.estimatedTopSpeedKph,
+    },
+  };
+}
+
+export interface TurretModulePurchase {
+  config: PartConfig;
+  targetLevel: number;
+  price: number;
+}
+
+/** Build the immutable config change shared by UI purchases and unit tests. */
+export function nextTurretModulePurchase(
+  config: PartConfig,
+  module: TurretModule,
+): TurretModulePurchase | null {
+  const targetLevel = turretModuleLevel(config, module) + 1;
+  const price = turretModulePrice(module, targetLevel);
+  if (price === null) return null;
+  return {
+    config: {
+      ...config,
+      ...(module === 'emp'
+        ? { empLevel: targetLevel }
+        : { piercingLevel: targetLevel }),
+    },
+    targetLevel,
+    price,
+  };
+}
+
+/** Derive all button gates from wallet and profile progress in one place. */
+export function turretModuleEconomy(
+  config: PartConfig,
+  money: number,
+  progress: Pick<
+    PlayerProfile,
+    'highestWaveCleared' | 'phoneAddictsKilled'
+  >,
+): Record<TurretModule, TurretModuleEconomy> {
+  const state = (module: TurretModule): TurretModuleEconomy => {
+    const level = turretModuleLevel(config, module);
+    const purchase = nextTurretModulePurchase(config, module);
+    const unlocked =
+      module === 'emp' ? isEmpUnlocked(progress) : isPiercingUnlocked();
+    return {
+      level,
+      targetLevel: purchase?.targetLevel ?? null,
+      price: purchase?.price ?? null,
+      unlocked,
+      canBuy:
+        unlocked && purchase !== null && canAfford(money, purchase.price),
+    };
+  };
+  return { emp: state('emp'), piercing: state('piercing') };
 }
 
 interface GhostState {
@@ -101,7 +266,12 @@ export interface EditorModeContext {
   onMenu(): void;
   notice?: string;
   runContext?: RunState;
-  runSummary?: { wavesSurvived: number; moneyEarned: number };
+  runRepair?: {
+    partHp(): Record<string, number>;
+    repairPart(id: string): boolean;
+    repairAll(): boolean;
+  };
+  runSummary?: RunSummary;
 }
 
 export class EditorMode {
@@ -134,7 +304,9 @@ export class EditorMode {
   private readonly profile: PlayerProfile;
   private readonly persistProfile: () => void;
   private readonly runContext: RunState | undefined;
-  private readonly runSummary: { wavesSurvived: number; moneyEarned: number } | undefined;
+  private readonly runRepair: EditorModeContext['runRepair'];
+  private readonly runPartMaxHpAtEntry: ReadonlyMap<string, number>;
+  private readonly runSummary: RunSummary | undefined;
   private readonly keyHandler = (e: KeyboardEvent) => this.onKey(e);
 
   constructor(
@@ -149,6 +321,10 @@ export class EditorMode {
     this.profile = context.profile;
     this.persistProfile = context.persistProfile;
     this.runContext = context.runContext;
+    this.runRepair = context.runRepair;
+    this.runPartMaxHpAtEntry = new Map(
+      initial.parts.map((part) => [part.id, getEffectiveDef(part).health]),
+    );
     this.runSummary = context.runSummary;
     this.history = context.history ?? new CommandHistory((moneyDelta) => this.mutateMoney(moneyDelta));
     this.scene.background = new THREE.Color(0x1a1e26);
@@ -185,8 +361,11 @@ export class EditorMode {
     this.scene.add(this.overlays.group);
 
     this.ui = buildEditorUI(container, PART_CATALOG, {
+      onPurchasePart: (defId) => this.buyAndArmPart(defId),
       onBuyPart: (defId) => this.buyInventoryPart(defId),
       onArmPart: (defId) => this.armGhost(defId),
+      newGarageDisposalSummary: () =>
+        newGarageDisposalSummary(this.bp.parts, getPartDef),
       onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
       onMenu: context.onMenu,
       onRename: (name) => {
@@ -229,6 +408,10 @@ export class EditorMode {
       onStartTutorial: () => this.startTutorial(),
       onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
       onUpgradePart: (partId) => this.buyUpgrade(partId),
+      onRepairPart: (partId) => this.repairPart(partId),
+      onRepairAll: () => this.repairAll(),
+      onBuyTurretModule: (partId, module) =>
+        this.buyTurretModule(partId, module),
       onDeleteSelected: () => this.deleteSelected(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onToggleErase: () => this.toggleErase(),
@@ -246,7 +429,6 @@ export class EditorMode {
       this.controls.target.set(context.view.target.x, context.view.target.y, context.view.target.z);
       this.layer = context.view.layer;
     }
-    this.ui.setRunContext(this.runContext?.wave, this.runSummary);
     this.refresh();
     if (context.notice) this.ui.setNotice(context.notice);
   }
@@ -316,11 +498,10 @@ export class EditorMode {
   }
 
   private resetBlueprint(next: VehicleBlueprint, label: string): boolean {
-    const refund = this.bp.parts.reduce(
-      (total, part) =>
-        total + (getPartDef(part.defId).isRoot ? 0 : sellRefund(part)),
-      0,
-    );
+    const refund = newGarageDisposalSummary(
+      this.bp.parts,
+      getPartDef,
+    ).refund;
     const previousSelection = [...this.selected];
     this.selected.clear();
     if (!this.exec(replaceBlueprintCommand(next, refund, label))) {
@@ -577,6 +758,125 @@ export class EditorMode {
     return upgraded;
   }
 
+  private currentRunPartHp(
+    part: PlacedPart,
+    partHp: Readonly<Record<string, number>>,
+  ): number {
+    const maxHp = getEffectiveDef(part).health;
+    const storedHp = partHp[part.id];
+    if (storedHp === undefined) return maxHp;
+    const oldMaxHp = this.runPartMaxHpAtEntry.get(part.id) ?? maxHp;
+    return scaledHpOnUpgrade(storedHp, oldMaxHp, maxHp);
+  }
+
+  private selectedRepairEconomy(part: PlacedPart): {
+    cost: number;
+    canRepair: boolean;
+  } | null {
+    if (!this.runRepair) return null;
+    const partHp = this.runRepair.partHp();
+    const storedHp = partHp[part.id];
+    if (storedHp === undefined || storedHp <= 0) return null;
+    const maxHp = getEffectiveDef(part).health;
+    const currentHp = this.currentRunPartHp(part, partHp);
+    if (currentHp >= maxHp) return null;
+    const cost = partRepairCost(
+      getPartDef(part.defId).cost,
+      currentHp,
+      maxHp,
+    );
+    return { cost, canRepair: canAfford(this.profile.money, cost) };
+  }
+
+  private repairPart(partId: string): boolean {
+    const part = getPart(this.bp, partId);
+    const repair = part ? this.selectedRepairEconomy(part) : null;
+    if (!part || !repair || !this.runRepair) return false;
+    if (!repair.canRepair) {
+      this.deny(`Not enough money - need $${repair.cost}`);
+      return false;
+    }
+    if (!this.runRepair.repairPart(partId)) {
+      this.deny('Repair could not be completed');
+      return false;
+    }
+    this.refreshProfile();
+    this.ui.setStatus(
+      repair.cost === 0
+        ? `${getPartDef(part.defId).name} repaired for free`
+        : `${getPartDef(part.defId).name} repaired (-$${repair.cost})`,
+    );
+    return true;
+  }
+
+  private currentRepairPlan(): ReturnType<typeof repairPlan> | undefined {
+    if (!this.runRepair) return undefined;
+    const partHp = this.runRepair.partHp();
+    return repairPlan(
+      this.bp.parts
+        .filter((part) => partHp[part.id] === undefined || partHp[part.id] > 0)
+        .map((part) => ({
+          id: part.id,
+          baseCost: getPartDef(part.defId).cost,
+          currentHp: this.currentRunPartHp(part, partHp),
+          maxHp: getEffectiveDef(part).health,
+        })),
+    );
+  }
+
+  private repairAll(): boolean {
+    const plan = this.currentRepairPlan();
+    if (!plan || plan.totalCost <= 0 || !this.runRepair) return false;
+    if (!canAfford(this.profile.money, plan.totalCost)) {
+      this.deny(`Not enough money - need $${plan.totalCost}`);
+      return false;
+    }
+    if (!this.runRepair.repairAll()) {
+      this.deny('Repairs could not be completed');
+      return false;
+    }
+    this.refreshProfile();
+    this.ui.setStatus(`Vehicle fully repaired (-$${plan.totalCost})`);
+    return true;
+  }
+
+  private buyTurretModule(
+    partId: string,
+    module: TurretModule,
+  ): boolean {
+    const part = getPart(this.bp, partId);
+    if (!part || part.defId !== 'turret') {
+      this.deny(`Unknown turret: ${partId}`);
+      return false;
+    }
+    const state = turretModuleEconomy(
+      part.config,
+      this.profile.money,
+      this.profile,
+    )[module];
+    if (!state.unlocked) {
+      this.deny('Clear wave 10 or kill a Phone Addict to unlock EMP');
+      return false;
+    }
+    const purchase = nextTurretModulePurchase(part.config, module);
+    if (purchase === null) {
+      const displayName = module === 'emp' ? 'EMP' : 'Piercing';
+      this.deny(`${displayName} is already at maximum level`);
+      return false;
+    }
+    const bought = this.exec(
+      updateConfigCommand(part.id, purchase.config, -purchase.price),
+    );
+    if (bought) {
+      this.selectOnly(part.id);
+      const displayName = module === 'emp' ? 'EMP' : 'Piercing';
+      this.ui.setStatus(
+        `${displayName} upgraded to level ${purchase.targetLevel} (-$${purchase.price})`,
+      );
+    }
+    return bought;
+  }
+
   private sellPart(partId: string): boolean {
     const part = getPart(this.bp, partId);
     if (!part) {
@@ -662,13 +962,7 @@ export class EditorMode {
       return false;
     }
     this.refreshProfile();
-    // Unlocking only lifts the gate — the part is not stocked yet. Spell out the
-    // second step and pulse the Store tile (now relabelled "Buy $cost") so the
-    // player does not think the unlock fee bought them the part.
-    this.ui.setStatus(
-      `Unlocked ${def.name}! Now click "Buy $${def.cost}" in the Store to add it to your Inventory.`,
-    );
-    this.ui.flashStorePart(defId);
+    this.ui.setStatus(`Unlocked ${def.name} (-$${price})`);
     return true;
   }
 
@@ -681,12 +975,12 @@ export class EditorMode {
       return false;
     }
     if (
-      defId === 'driver-seat' &&
+      def.unique === true &&
       (this.inventory()[defId] ?? 0) +
         this.bp.parts.filter((part) => part.defId === defId).length >=
         1
     ) {
-      this.deny('Driver Seat limit reached - only one can be owned or installed');
+      this.deny(`${def.name} limit reached - only one can be owned or installed`);
       return false;
     }
     if (!this.isUnlocked(defId)) return this.unlockPart(defId);
@@ -712,6 +1006,74 @@ export class EditorMode {
     }
     this.refreshProfile();
     this.ui.setStatus(`Bought ${def.name} (-$${def.cost})`);
+    return true;
+  }
+
+  /**
+   * Unlock (when needed), buy one inventory copy, and arm its placement ghost
+   * as one persisted transaction. Profile mutations roll back together.
+   */
+  private buyAndArmPart(defId: string): boolean {
+    let def: ReturnType<typeof getPartDef>;
+    try {
+      def = getPartDef(defId);
+    } catch {
+      this.deny(`Unknown store part: ${defId}`);
+      return false;
+    }
+
+    const stock = this.inventory();
+    const previousCount = stock[defId] ?? 0;
+    const installedCount = this.bp.parts.filter(
+      (part) => part.defId === defId,
+    ).length;
+    if (def.unique === true && previousCount + installedCount >= 1) {
+      this.deny(
+        `${def.name} limit reached - only one can be owned or installed`,
+      );
+      return false;
+    }
+
+    const wasUnlocked = this.isUnlocked(defId);
+    const total = wasUnlocked
+      ? placeCost(defId)
+      : atomicStorePurchaseTotal(defId);
+    if (!canAfford(this.profile.money, total)) {
+      this.deny(
+        `Not enough money to ${wasUnlocked ? 'buy' : 'unlock and buy'} ${def.name} - need $${total}`,
+      );
+      return false;
+    }
+
+    const previousMoney = this.profile.money;
+    const previousUnlocks = [...this.profile.unlockedDefIds];
+    this.profile.money -= total;
+    if (!wasUnlocked) this.profile.unlockedDefIds.push(defId);
+    stock[defId] = previousCount + 1;
+
+    try {
+      this.persistProfile();
+    } catch (err) {
+      this.profile.money = previousMoney;
+      this.profile.unlockedDefIds.splice(
+        0,
+        this.profile.unlockedDefIds.length,
+        ...previousUnlocks,
+      );
+      const restoredStock = this.inventory();
+      if (previousCount === 0) delete restoredStock[defId];
+      else restoredStock[defId] = previousCount;
+      this.deny(`Purchase could not be saved: ${this.errorMessage(err)}`);
+      return false;
+    }
+
+    this.refreshProfile();
+    this.armGhost(defId);
+    this.ui.setStatus(
+      wasUnlocked
+        ? `Bought ${def.name} and armed placement (-$${total})`
+        : `Unlocked and bought ${def.name}; placement armed (-$${total})`,
+    );
     return true;
   }
 
@@ -1001,10 +1363,18 @@ export class EditorMode {
       (total, selectedPart) => total + sellRefund(selectedPart),
       0,
     );
+    const repair = this.selectedRepairEconomy(part);
     this.ui.setSelectedPart(def, part.id, level, getEffectiveDef(part), {
       nextUpgradePrice: upgrade?.price ?? null,
       canUpgrade: upgrade !== null && canAfford(this.profile.money, upgrade.price),
       sellRefund: selectionRefund,
+      repairCost: repair?.cost ?? null,
+      canRepair: repair?.canRepair ?? false,
+      turretModules:
+        def.id === 'turret'
+          ? turretModuleEconomy(part.config, this.profile.money, this.profile)
+          : undefined,
+      upgradePreview: previewUpgradeMetrics(this.bp, part.id) ?? undefined,
     }, part.config, def.wheel
       ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
       : undefined);
@@ -1178,6 +1548,7 @@ export class EditorMode {
       this.inventory(),
       this.bp.parts.map((part) => part.defId),
     );
+    this.refreshRunContext();
     this.refreshSelectionUI();
     if (this.tutorialActive) this.tutorialOverlay?.update(this.bp, getPartDef);
   }
@@ -1190,7 +1561,35 @@ export class EditorMode {
       this.inventory(),
       this.bp.parts.map((part) => part.defId),
     );
+    this.refreshRunContext();
     this.refreshSelectionUI();
+  }
+
+  private refreshRunContext(): void {
+    const plan = this.currentRepairPlan();
+    const nextWave = (this.runContext?.wave ?? 0) + 1;
+    const threatNotice = threatWarningsForWave(nextWave).join(' ');
+    const nextWaveNotice =
+      threatNotice ||
+      (this.runContext !== undefined &&
+      nextWave === 9 &&
+      !isEmpUnlocked(this.profile)
+        ? 'EMP unlocks after clearing Wave 9.'
+        : undefined);
+    this.ui.setRunContext(
+      this.runContext?.wave,
+      this.runSummary,
+      plan
+        ? {
+            integrityPct: plan.integrityPct,
+            totalCost: plan.totalCost,
+            canRepairAll:
+              plan.totalCost > 0 &&
+              canAfford(this.profile.money, plan.totalCost),
+            nextWaveNotice,
+          }
+        : undefined,
+    );
   }
 
   private rebuildMeshes(): void {
@@ -1306,6 +1705,13 @@ export class EditorMode {
 
   debugUnlockPart(defId: string): boolean {
     return this.unlockPart(defId);
+  }
+
+  /** Selects a part by id so headless checks can drive the inspector UI. */
+  debugSelectPart(partId: string): boolean {
+    if (!this.bp.parts.some((part) => part.id === partId)) return false;
+    this.selectOnly(partId);
+    return true;
   }
 }
 

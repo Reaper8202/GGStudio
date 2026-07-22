@@ -139,3 +139,4 @@ InitTestScene*.unity*
 !/zombie-car/.env.example
 /zombie-car/.DS_Store
 /zombie-car/Thumbs.db
+.npm-cache/

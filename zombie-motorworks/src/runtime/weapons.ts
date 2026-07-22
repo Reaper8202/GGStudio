@@ -23,6 +23,10 @@ import { cellCentreM } from '../core/mass.ts';
 import { getPartDef } from '../core/parts.ts';
 import { KID_LABELS } from '../core/tutorial.ts';
 import {
+  piercingDamageFraction,
+  turretModuleLevel,
+} from '../core/turretModules.ts';
+import {
   add,
   clamp,
   norm,
@@ -48,6 +52,10 @@ export interface RuntimeWeapon {
   ammo: number;
   /** Magazine size, from the mounting part's ammoCapacity. */
   ammoCapacity: number;
+  /** Turret EMP module level (0 for every non-turret weapon). */
+  empLevel: number;
+  /** Turret piercing module level (0 for every non-turret weapon). */
+  piercingLevel: number;
 }
 
 export interface TracerShot {
@@ -57,6 +65,14 @@ export interface TracerShot {
   damage: number;
   /** Delivery type of the firing weapon; aoe rays render as flame. */
   damageType: DamageType;
+  /** EMP level of the firing weapon, for shield-leak resolution. */
+  empLevel: number;
+  /** Second target struck by a piercing round, if any. */
+  pierceZombieHandle: number | null;
+  /** Damage for the secondary target; 0 when there is no pierce. */
+  pierceDamage: number;
+  /** End point of the fainter secondary tracer segment. */
+  pierceTo: Vec3 | null;
 }
 
 export function createWeapon(
@@ -69,6 +85,7 @@ export function createWeapon(
     throw new Error(`Part definition ${placed.defId} is not a weapon`);
   }
   const ammoCapacity = partDef.ammoCapacity ?? 0;
+  const isTurret = placed.defId === 'turret';
   return {
     partId: placed.id,
     def,
@@ -81,10 +98,17 @@ export function createWeapon(
     shotsFired: 0,
     ammo: ammoCapacity,
     ammoCapacity,
+    empLevel: isTurret ? turretModuleLevel(placed.config, 'emp') : 0,
+    piercingLevel: isTurret
+      ? turretModuleLevel(placed.config, 'piercing')
+      : 0,
   };
 }
 
 const TURRET_YAW_RATE = 3.2; // rad/s
+// Move beyond the first surface while keeping the complete projectile path
+// bounded by the weapon's original range.
+const PIERCE_RAY_EPSILON_M = 1e-4;
 const WEAPON_RAY_GROUPS =
   (0xffff << 16) | (GROUP_TERRAIN | GROUP_ZOMBIE | GROUP_DEBRIS);
 
@@ -223,12 +247,51 @@ export function stepWeapons(
         const groups = hit.collider.collisionGroups() >>> 16;
         if ((groups & GROUP_ZOMBIE) !== 0) zombieHandle = hit.collider.handle;
       }
+      let pierceZombieHandle: number | null = null;
+      let pierceDamage = 0;
+      let pierceTo: Vec3 | null = null;
+      const pierceFraction =
+        rays === 1 ? piercingDamageFraction(wpn.piercingLevel) : 0;
+      if (hit && zombieHandle !== null && pierceFraction > 0) {
+        const remainingRange =
+          wpn.def.rangeM - hit.timeOfImpact - PIERCE_RAY_EPSILON_M;
+        if (remainingRange > 0) {
+          const pierceFrom = add(
+            muzzle,
+            scale(rayDir, hit.timeOfImpact + PIERCE_RAY_EPSILON_M),
+          );
+          const pierceRay = new RAPIER.Ray(pierceFrom, rayDir);
+          const pierceHit = world.castRay(
+            pierceRay,
+            remainingRange,
+            true,
+            undefined,
+            WEAPON_RAY_GROUPS,
+            hit.collider,
+            body,
+          );
+          pierceTo = pierceHit
+            ? add(pierceFrom, scale(rayDir, pierceHit.timeOfImpact))
+            : add(pierceFrom, scale(rayDir, remainingRange));
+          if (pierceHit) {
+            const groups = pierceHit.collider.collisionGroups() >>> 16;
+            if ((groups & GROUP_ZOMBIE) !== 0) {
+              pierceZombieHandle = pierceHit.collider.handle;
+              pierceDamage = wpn.def.damage * pierceFraction;
+            }
+          }
+        }
+      }
       shots.push({
         from: muzzle,
         to: end,
         hitZombieHandle: zombieHandle,
         damage: wpn.def.damage,
         damageType: wpn.def.damageType,
+        empLevel: wpn.empLevel,
+        pierceZombieHandle,
+        pierceDamage,
+        pierceTo,
       });
     }
 

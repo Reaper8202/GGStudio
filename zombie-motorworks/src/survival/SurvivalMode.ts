@@ -8,7 +8,12 @@ import * as THREE from 'three';
 import type { RunState } from '../core/economy.ts';
 import { getPartDef } from '../core/parts.ts';
 import { deriveConnections } from '../core/structural.ts';
-import type { VehicleBlueprint } from '../core/types.ts';
+import {
+  MINE_SWEEPER_MINIMAP_LEVEL,
+  mineSweeperRadius,
+} from '../core/turretModules.ts';
+import type { Vec3, VehicleBlueprint } from '../core/types.ts';
+import type { RuntimePart } from '../runtime/assembler.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
@@ -25,13 +30,19 @@ import { AmmoPickups } from './AmmoPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import { GRAVEYARD_HALF_SIZE, Graveyard } from './Graveyard.ts';
-import { WaveManager } from './WaveManager.ts';
+import { Minimap } from './Minimap.ts';
+import { WaveManager, zombieCompositionForWave } from './WaveManager.ts';
+import {
+  formatWaveComposition,
+  threatWarningsForWave,
+} from './waveBalance.ts';
 import { ZombieSystem } from './zombies/ZombieSystem.ts';
 import {
   BASE_ZOMBIE_STATS,
   LETHAL_IMPACT_SPEED,
   MIN_IMPACT_SPEED,
 } from './zombies/zombieConfig.ts';
+import type { ZombieKind } from './zombies/Zombie.ts';
 
 const FIXED_DT = 1 / 60;
 const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
@@ -47,11 +58,65 @@ export interface SurvivalCallbacks {
   runEarnings(): number;
   onReward(amount: number): number;
   onExit(run: RunState): void;
-  onWaveAdvance(run: RunState): void;
-  onBuildPhase(run: RunState, survivingPartIds: readonly string[]): void;
-  onGameOver(run: RunState): void;
-  onResetWave(run: RunState, waveEarnings: number): void;
+  onWaveAdvance(
+    run: RunState,
+    survivingPartIds: readonly string[],
+    partHp: Record<string, number>,
+    kills: number,
+  ): void;
+  onBuildPhase(
+    run: RunState,
+    survivingPartIds: readonly string[],
+    partHp: Record<string, number>,
+    kills: number,
+  ): void;
+  /** Commit the next wave's start state as soon as a clear is resolved. */
+  onWaveCheckpoint?(
+    run: RunState,
+    survivingPartIds: readonly string[],
+    partHp: Record<string, number>,
+    kills: number,
+  ): void;
+  onGameOver(run: RunState, pendingMoneyDiscarded: number): void;
+  onResetWave(run: RunState): void;
   onCheatInfiniteMoney(): void;
+  /** Lifetime progression: a Phone Addict died, which unlocks the EMP module. */
+  onPhoneAddictKilled(): void;
+  /** Lifetime progression: `wave` was fully cleared. */
+  onWaveCleared(wave: number): void;
+  /**
+   * Persist the run so the player can close the tab and pick it up later.
+   * Mid-wave zombie state is not restorable, so App persists its wave-start
+   * checkpoint rather than this live vehicle state.
+   */
+  onSaveAndQuit(snapshot: {
+    wave: number;
+    kills: number;
+  }): void;
+}
+
+export interface WaveClearPayload {
+  clearedRun: RunState;
+  nextRun: RunState;
+  survivingPartIds: readonly string[];
+  partHp: Record<string, number>;
+  kills: number;
+}
+
+/** Shared payload for both choices offered after a cleared wave. */
+export function createWaveClearPayload(
+  clearedWave: number,
+  survivingPartIds: readonly string[],
+  partHp: Readonly<Record<string, number>>,
+  kills: number,
+): WaveClearPayload {
+  return {
+    clearedRun: { wave: clearedWave },
+    nextRun: { wave: clearedWave + 1 },
+    survivingPartIds: [...survivingPartIds],
+    partHp: { ...partHp },
+    kills,
+  };
 }
 
 export type SurvivalPhase = 'countdown' | 'active' | 'cleared' | 'gameOver';
@@ -59,6 +124,7 @@ export type SurvivalPhase = 'countdown' | 'active' | 'cleared' | 'gameOver';
 export interface SurvivalTelemetry {
   mode: 'survival';
   kills: number;
+  phoneAddictKills: number;
   wave: number;
   zombiesAlive: number;
   money: number;
@@ -86,6 +152,38 @@ export interface SurvivalTelemetry {
   }[];
 }
 
+type ZombieShotTarget = Pick<
+  ZombieSystem,
+  'hitZombieHandle' | 'isShieldedTarget'
+>;
+
+/** Apply one hit chain and report whether its secondary tracer may continue. */
+export function applyZombieShot(
+  zombies: ZombieShotTarget,
+  shot: TracerShot,
+  direction: Vec3,
+): boolean {
+  if (shot.hitZombieHandle === null) return false;
+  const primaryWasShielded = zombies.isShieldedTarget(shot.hitZombieHandle);
+  const primaryResult = zombies.hitZombieHandle(
+    shot.hitZombieHandle,
+    shot.damage,
+    direction,
+    shot.damageType,
+    shot.empLevel,
+  );
+  if (primaryWasShielded || primaryResult === 'miss') return false;
+  if (shot.pierceZombieHandle === null || shot.pierceDamage <= 0) return true;
+  zombies.hitZombieHandle(
+    shot.pierceZombieHandle,
+    shot.pierceDamage,
+    direction,
+    shot.damageType,
+    shot.empLevel,
+  );
+  return true;
+}
+
 interface TracerVisual {
   line: THREE.Line;
   positionAttribute: THREE.BufferAttribute;
@@ -105,14 +203,22 @@ interface SurvivalUi {
   waveValue: HTMLSpanElement;
   remainingValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
+  pendingMoneyValue: HTMLSpanElement;
   stuckPrompt: HTMLDivElement;
   countdownOverlay: HTMLDivElement;
   countdownValue: HTMLDivElement;
   victoryOverlay: HTMLDivElement;
   victorySubtitle: HTMLDivElement;
   victoryMoneyValue: HTMLElement;
+  victoryRunMoneyValue: HTMLElement;
+  victoryPendingMoneyValue: HTMLElement;
   victoryKillsValue: HTMLElement;
   victoryTimeValue: HTMLElement;
+  victoryIntegrityValue: HTMLElement;
+  victoryDamagedPartsValue: HTMLElement;
+  victoryLostPartsValue: HTMLElement;
+  victoryNextWaveValue: HTMLElement;
+  victoryWarning: HTMLDivElement;
   settingsOverlay: HTMLDivElement;
   settingsButton: HTMLButtonElement;
   settingsEyebrow: HTMLSpanElement;
@@ -125,8 +231,16 @@ type PendingTransition =
       kind: 'buildPhase';
       run: RunState;
       survivingPartIds: string[];
+      partHp: Record<string, number>;
+      kills: number;
     }
-  | { kind: 'gameOver'; run: RunState };
+  | {
+      kind: 'gameOver';
+      run: RunState;
+      pendingMoneyDiscarded: number;
+    };
+
+type SurvivalRunState = RunState & { kills?: number };
 
 export class SurvivalMode {
   private readonly scene = new THREE.Scene();
@@ -142,6 +256,7 @@ export class SurvivalMode {
   private readonly waves: WaveManager;
   private readonly followCamera: FollowCamera;
   private readonly vehicleGroup = new THREE.Group();
+  private readonly zombieVisualRoot = new THREE.Group();
   private readonly wheelMeshes = new Map<string, THREE.Group>();
   private readonly wheelSpin = new Map<string, number>();
   private readonly islandGroups = new Map<number, THREE.Group>();
@@ -162,6 +277,11 @@ export class SurvivalMode {
     transparent: true,
     opacity: 0.85,
   });
+  private readonly pierceTracerMaterial = new THREE.LineBasicMaterial({
+    color: 0xffd76e,
+    transparent: true,
+    opacity: 0.35,
+  });
   private readonly wheelSteerQuaternion = new THREE.Quaternion();
   private readonly wheelSteerAxis = new THREE.Vector3(0, 1, 0);
   private readonly pointerNdc = new THREE.Vector2();
@@ -170,7 +290,9 @@ export class SurvivalMode {
   private readonly aimPoint = new THREE.Vector3();
   private readonly shotDirection = new THREE.Vector3();
   private readonly stoppedVelocity = { x: 0, y: 0, z: 0 };
+  private readonly minimapForward = new THREE.Vector3();
   private readonly ui: HTMLDivElement;
+  private readonly minimap: Minimap;
   private readonly speedValue: HTMLSpanElement;
   private readonly speedTrack: HTMLDivElement;
   private readonly speedSafeLabel: HTMLSpanElement;
@@ -182,19 +304,32 @@ export class SurvivalMode {
   /** Live magazine rows, keyed by weapon part id. */
   private readonly ammoRows = new Map<
     string,
-    { root: HTMLDivElement; fill: HTMLSpanElement; value: HTMLSpanElement; lastAmmo: number }
+    {
+      root: HTMLDivElement;
+      fill: HTMLSpanElement;
+      value: HTMLSpanElement;
+      lastAmmo: number;
+    }
   >();
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
+  private readonly pendingMoneyValue: HTMLSpanElement;
   private readonly stuckPrompt: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly countdownValue: HTMLDivElement;
   private readonly victoryOverlay: HTMLDivElement;
   private readonly victorySubtitle: HTMLDivElement;
   private readonly victoryMoneyValue: HTMLElement;
+  private readonly victoryRunMoneyValue: HTMLElement;
+  private readonly victoryPendingMoneyValue: HTMLElement;
   private readonly victoryKillsValue: HTMLElement;
   private readonly victoryTimeValue: HTMLElement;
+  private readonly victoryIntegrityValue: HTMLElement;
+  private readonly victoryDamagedPartsValue: HTMLElement;
+  private readonly victoryLostPartsValue: HTMLElement;
+  private readonly victoryNextWaveValue: HTMLElement;
+  private readonly victoryWarning: HTMLDivElement;
   private readonly settingsOverlay: HTMLDivElement;
   private readonly settingsButton: HTMLButtonElement;
   private readonly settingsEyebrow: HTMLSpanElement;
@@ -209,6 +344,7 @@ export class SurvivalMode {
   private ramDamageThresholdKmh = MIN_IMPACT_SPEED * 3.6;
   private ramKillThresholdKmh = LETHAL_IMPACT_SPEED * 3.6;
   private kills = 0;
+  private phoneAddictKills = 0;
   private currentWave = 1;
   private countdownRemaining = COUNTDOWN_SECONDS;
   private phase: SurvivalPhase = 'countdown';
@@ -219,17 +355,22 @@ export class SurvivalMode {
   private lastHudWave = -1;
   private lastHudRemaining = -1;
   private lastHudMoney = -1;
+  private lastHudPending = -1;
   private lastCountdownSecond = -1;
   private tracerCursor = 0;
+  private pendingWaveKillReward = 0;
   private pendingWaveReward = 0;
   private waveStartKills = 0;
   private waveMoneyEarned = 0;
   private waveElapsedSeconds = 0;
   private pendingTransition: PendingTransition | null = null;
   private stuckSeconds = 0;
+  private currentMineSweeperLevel = 0;
+  private mineWarningPulseSeconds = 0;
   private recoveryCooldown = 0;
   private recoverySettleSeconds = 0;
   private recoveryRequested = false;
+  private debugProgressionSuppressed = false;
   private readonly recoveryImpulse = { x: 0, y: 0, z: 0 };
   private readonly recoveryTranslation = { x: 0, y: 0, z: 0 };
   private readonly recoveryVelocity = { x: 0, y: 0, z: 0 };
@@ -237,6 +378,8 @@ export class SurvivalMode {
   private readonly recoveryForward = new THREE.Vector3();
   private readonly recoveryQuaternion = new THREE.Quaternion();
   private readonly recoveryTargetQuaternion = new THREE.Quaternion();
+  private mineWarningDistances = new WeakMap<object, number>();
+  private mineWarningPulsed = new WeakSet<object>();
 
   private readonly keydown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape' && this.phase !== 'gameOver') {
@@ -272,7 +415,7 @@ export class SurvivalMode {
     private readonly container: HTMLElement,
     private readonly renderer: THREE.WebGLRenderer,
     bp: VehicleBlueprint,
-    run: RunState,
+    run: SurvivalRunState,
     private readonly callbacks: SurvivalCallbacks,
   ) {
     this.camera = new THREE.PerspectiveCamera(
@@ -291,13 +434,18 @@ export class SurvivalMode {
       this.vehicle,
       this.graveyard.bounds,
     );
+    const firstZombieVisualIndex = this.scene.children.length;
     this.zombies = new ZombieSystem(
       this.world,
       this.scene,
       this.graveyard.spawnPoints,
       this.vehicle,
-      this.handleZombieKilled,
+      (reward, kind) => this.handleZombieKilled(reward, kind),
     );
+    const zombieVisuals = this.scene.children.slice(firstZombieVisualIndex);
+    this.zombieVisualRoot.name = 'zombie-system-visuals';
+    this.zombieVisualRoot.add(...zombieVisuals);
+    this.scene.add(this.zombieVisualRoot);
     this.autoAim = new AutoAim(this.vehicle, this.zombies, this.world);
     this.ammoPickups = new AmmoPickups(
       this.scene,
@@ -325,19 +473,51 @@ export class SurvivalMode {
     this.waveValue = builtUi.waveValue;
     this.remainingValue = builtUi.remainingValue;
     this.moneyValue = builtUi.moneyValue;
+    this.pendingMoneyValue = builtUi.pendingMoneyValue;
     this.stuckPrompt = builtUi.stuckPrompt;
     this.countdownOverlay = builtUi.countdownOverlay;
     this.countdownValue = builtUi.countdownValue;
     this.victoryOverlay = builtUi.victoryOverlay;
     this.victorySubtitle = builtUi.victorySubtitle;
     this.victoryMoneyValue = builtUi.victoryMoneyValue;
+    this.victoryRunMoneyValue = builtUi.victoryRunMoneyValue;
+    this.victoryPendingMoneyValue = builtUi.victoryPendingMoneyValue;
     this.victoryKillsValue = builtUi.victoryKillsValue;
     this.victoryTimeValue = builtUi.victoryTimeValue;
+    this.victoryIntegrityValue = builtUi.victoryIntegrityValue;
+    this.victoryDamagedPartsValue = builtUi.victoryDamagedPartsValue;
+    this.victoryLostPartsValue = builtUi.victoryLostPartsValue;
+    this.victoryNextWaveValue = builtUi.victoryNextWaveValue;
+    this.victoryWarning = builtUi.victoryWarning;
     this.settingsOverlay = builtUi.settingsOverlay;
     this.settingsButton = builtUi.settingsButton;
     this.settingsEyebrow = builtUi.settingsEyebrow;
     this.spawnCheatButton = builtUi.spawnCheatButton;
     this.settingsStatus = builtUi.settingsStatus;
+    this.minimap = new Minimap(
+      this.ui,
+      this.graveyard.bounds,
+      this.graveyard.minimapFeatures,
+      {
+        renderer: this.renderer,
+        scene: this.scene,
+        hide: [
+          this.vehicleGroup,
+          ...this.wheelMeshes.values(),
+          this.zombieVisualRoot,
+        ],
+        ready: this.graveyard.whenReady(),
+      },
+    );
+
+    if (Number.isFinite(run.kills) && (run.kills ?? 0) >= 0) {
+      this.kills = Math.floor(run.kills ?? 0);
+    }
+
+    // A resumed run begins from App's committed wave-start damage.
+    if (run.partHp) {
+      this.attachNewIslands(this.vehicle.applyPartHpSnapshot(run.partHp));
+    }
 
     this.beginCountdown(run.wave);
     window.addEventListener('keydown', this.keydown);
@@ -506,7 +686,13 @@ export class SurvivalMode {
     moneyLabel.textContent = 'Money Earned';
     const moneyValue = document.createElement('span');
     moneyRow.append(moneyLabel, moneyValue);
-    hud.append(speedRow, health, ammoList, moneyRow);
+    const pendingMoneyRow = document.createElement('div');
+    pendingMoneyRow.className = 'survival-earned';
+    const pendingMoneyLabel = document.createElement('span');
+    pendingMoneyLabel.textContent = 'Pending';
+    const pendingMoneyValue = document.createElement('span');
+    pendingMoneyRow.append(pendingMoneyLabel, pendingMoneyValue);
+    hud.append(speedRow, health, ammoList, moneyRow, pendingMoneyRow);
     root.appendChild(hud);
 
     const stuckPrompt = document.createElement('div');
@@ -555,25 +741,38 @@ export class SurvivalMode {
       victoryStats.appendChild(row);
       return rowValue;
     };
-    const victoryMoneyValue = statRow('Money Earned');
+    const victoryMoneyValue = statRow('This Wave Banked');
+    const victoryRunMoneyValue = statRow('Run Total Banked');
+    const victoryPendingMoneyValue = statRow('Pending');
     const victoryKillsValue = statRow('Zombies Killed');
     const victoryTimeValue = statRow('Time');
+    const victoryIntegrityValue = statRow('Vehicle Integrity');
+    const victoryDamagedPartsValue = statRow('Damaged Parts');
+    const victoryLostPartsValue = statRow('Parts Lost (base value)');
+    victoryLostPartsValue.className = 'survival-victory__losses';
+    const victoryNextWaveValue = statRow('Next Wave');
+    victoryNextWaveValue.className = 'survival-victory__composition';
+    const victoryWarning = document.createElement('div');
+    victoryWarning.className = 'survival-victory__warning';
+    victoryWarning.setAttribute('role', 'status');
+    victoryWarning.hidden = true;
     const victoryActions = document.createElement('div');
     victoryActions.className = 'survival-victory__actions';
     const nextWaveButton = document.createElement('button');
     nextWaveButton.type = 'button';
     nextWaveButton.className = 'primary';
-    nextWaveButton.textContent = 'Next Wave';
+    nextWaveButton.textContent = 'Continue Now';
     nextWaveButton.addEventListener('click', this.onNextWave);
     const garageButton = document.createElement('button');
     garageButton.type = 'button';
-    garageButton.textContent = 'Go to Garage';
+    garageButton.textContent = 'Garage / Repair';
     garageButton.addEventListener('click', this.onGoToGarage);
     victoryActions.append(nextWaveButton, garageButton);
     victoryOverlay.append(
       victoryTitle,
       victorySubtitle,
       victoryStats,
+      victoryWarning,
       victoryActions,
     );
     root.appendChild(victoryOverlay);
@@ -642,14 +841,30 @@ export class SurvivalMode {
     resetTitle.textContent = 'Reset Wave';
     const resetDescription = document.createElement('span');
     resetDescription.textContent =
-      "Restart this wave with your vehicle restored. This wave's earnings are rolled back.";
+      "Restart this wave with your vehicle restored. This wave's pending rewards are discarded.";
     resetCopy.append(resetTitle, resetDescription);
     const resetButton = document.createElement('button');
     resetButton.type = 'button';
     resetButton.className = 'ui-button ui-button--danger ui-button--medium';
     resetButton.textContent = 'Reset Wave';
-    resetButton.addEventListener('click', this.onResetWave);
+    resetButton.addEventListener('click', () => this.onResetWave());
     resetSection.append(resetCopy, resetButton);
+
+    const saveSection = document.createElement('div');
+    saveSection.className = 'survival-settings__reset';
+    const saveCopy = document.createElement('div');
+    const saveTitle = document.createElement('strong');
+    saveTitle.textContent = 'Save & Quit';
+    const saveDescription = document.createElement('span');
+    saveDescription.textContent =
+      'Bank your progress and return to the title screen. This wave restarts when you resume.';
+    saveCopy.append(saveTitle, saveDescription);
+    const saveQuitButton = document.createElement('button');
+    saveQuitButton.type = 'button';
+    saveQuitButton.className = 'ui-button ui-button--medium';
+    saveQuitButton.textContent = 'Save & Quit';
+    saveQuitButton.addEventListener('click', () => this.onSaveAndQuit());
+    saveSection.append(saveCopy, saveQuitButton);
 
     const settingsStatus = document.createElement('div');
     settingsStatus.className = 'survival-settings__status';
@@ -659,6 +874,7 @@ export class SurvivalMode {
       cheatsToggle,
       cheatActions,
       resetSection,
+      saveSection,
       settingsStatus,
     );
     settingsOverlay.appendChild(settingsPanel);
@@ -680,14 +896,22 @@ export class SurvivalMode {
       waveValue,
       remainingValue,
       moneyValue,
+      pendingMoneyValue,
       stuckPrompt,
       countdownOverlay,
       countdownValue,
       victoryOverlay,
       victorySubtitle,
       victoryMoneyValue,
+      victoryRunMoneyValue,
+      victoryPendingMoneyValue,
       victoryKillsValue,
       victoryTimeValue,
+      victoryIntegrityValue,
+      victoryDamagedPartsValue,
+      victoryLostPartsValue,
+      victoryNextWaveValue,
+      victoryWarning,
       settingsOverlay,
       settingsButton,
       settingsEyebrow,
@@ -732,25 +956,53 @@ export class SurvivalMode {
     this.settingsStatus.textContent = 'Money set to the maximum safe amount.';
   };
 
-  private readonly onResetWave = (): void => {
+  private onResetWave(): void {
     if (this.disposed) return;
-    this.callbacks.onResetWave(this.currentRunState(), this.waveMoneyEarned);
-  };
+    this.discardPendingWaveRewards();
+    this.callbacks.onResetWave(this.currentRunState());
+  }
+
+  private onSaveAndQuit(): void {
+    if (this.disposed || this.phase === 'gameOver') return;
+    this.discardPendingWaveRewards();
+    this.callbacks.onSaveAndQuit({
+      wave: this.currentWave,
+      kills: this.kills,
+    });
+  }
 
   private readonly onNextWave = (): void => {
     if (this.disposed || this.phase !== 'cleared') return;
-    this.beginCountdown(this.currentWave + 1);
-    this.callbacks.onWaveAdvance(this.currentRunState());
+    const payload = this.clearedWavePayload();
+    this.beginCountdown(payload.nextRun.wave);
+    this.callbacks.onWaveAdvance(
+      payload.nextRun,
+      payload.survivingPartIds,
+      payload.partHp,
+      payload.kills,
+    );
   };
 
   private readonly onGoToGarage = (): void => {
     if (this.disposed || this.phase !== 'cleared') return;
+    const payload = this.clearedWavePayload();
     this.victoryOverlay.style.display = 'none';
     this.callbacks.onBuildPhase(
-      this.currentRunState(),
-      this.vehicle.survivingPartIds(),
+      payload.clearedRun,
+      payload.survivingPartIds,
+      payload.partHp,
+      payload.kills,
     );
   };
+
+  private clearedWavePayload(): WaveClearPayload {
+    return createWaveClearPayload(
+      this.currentWave,
+      this.vehicle.survivingPartIds(),
+      this.vehicle.partHpSnapshot(),
+      this.kills,
+    );
+  }
 
   private readonly onAim = (event: PointerEvent): void => {
     if (this.phase !== 'active' || this.settingsOpen) return;
@@ -820,6 +1072,14 @@ export class SurvivalMode {
     this.updateControls();
     this.updateRecoveryAssist(FIXED_DT);
     this.controls.weaponAim = this.autoAim.step();
+    const mineSweeper = this.resolveLiveMineSweeper();
+    this.currentMineSweeperLevel =
+      mineSweeper === null ? 0 : (mineSweeper.placed.config.level ?? 1);
+    const mineRevealRadius = mineSweeperRadius(
+      mineSweeper === null ? 0 : (mineSweeper.placed.config.level ?? 1),
+    );
+    this.zombies.setCurrentWave(this.currentWave);
+    this.zombies.setMineRevealRadius(mineRevealRadius);
     this.vehicle.preStep(
       FIXED_DT,
       this.controls,
@@ -830,6 +1090,7 @@ export class SurvivalMode {
     this.ammoPickups.step(FIXED_DT);
     this.waves.fixedUpdate(FIXED_DT);
     this.zombies.step(FIXED_DT);
+    this.updateMineWarningPulse(mineRevealRadius);
 
     this.world.step(this.eventQueue);
     this.vehicle.postStepStability(FIXED_DT);
@@ -849,12 +1110,19 @@ export class SurvivalMode {
         shot.to.z - shot.from.z,
       );
       if (this.shotDirection.lengthSq() > 1e-8) this.shotDirection.normalize();
-      this.zombies.hitZombieHandle(
-        shot.hitZombieHandle,
-        shot.damage,
+      const pierceContinues = applyZombieShot(
+        this.zombies,
+        shot,
         this.shotDirection,
-        shot.damageType,
       );
+      if (pierceContinues && shot.pierceTo !== null) {
+        this.showTracerSegment(
+          shot.to,
+          shot.pierceTo,
+          this.pierceTracerMaterial,
+          0.06,
+        );
+      }
     }
 
     this.attachNewIslands(this.vehicle.finishStep());
@@ -1015,6 +1283,7 @@ export class SurvivalMode {
     this.countdownRemaining = COUNTDOWN_SECONDS;
     this.lastCountdownSecond = -1;
     this.pointerFiring = false;
+    this.pendingWaveKillReward = 0;
     this.pendingWaveReward = 0;
     this.keys.clear();
     this.stuckSeconds = 0;
@@ -1023,6 +1292,10 @@ export class SurvivalMode {
     this.stuckPrompt.classList.remove('is-visible');
     this.victoryOverlay.style.display = 'none';
     this.countdownOverlay.style.display = 'block';
+    this.mineWarningDistances = new WeakMap<object, number>();
+    this.mineWarningPulsed = new WeakSet<object>();
+    this.mineWarningPulseSeconds = 0;
+    this.integrityFill.style.boxShadow = '';
   }
 
   private startCurrentWave(): void {
@@ -1038,11 +1311,18 @@ export class SurvivalMode {
     this.waveElapsedSeconds = 0;
   }
 
-  private readonly handleZombieKilled = (reward: number): void => {
+  private handleZombieKilled(
+    reward: number,
+    kind: ZombieKind,
+  ): void {
     this.kills++;
-    this.creditReward(reward);
+    if (kind === 'phone-addict' && !this.debugProgressionSuppressed) {
+      this.phoneAddictKills++;
+      this.callbacks.onPhoneAddictKilled();
+    }
+    this.addPendingWaveKillReward(reward);
     this.waves.recordZombieKilled();
-  };
+  }
 
   private onWaveComplete(wave: number, reward: number): void {
     if (this.phase === 'gameOver') return;
@@ -1050,7 +1330,9 @@ export class SurvivalMode {
     // Resolve the completed physics step before paying the clear bonus. If the
     // final zombie and vehicle die together, destruction wins consistently and
     // the uncleared wave is neither counted nor rewarded.
-    this.pendingWaveReward = reward;
+    this.pendingWaveReward =
+      Number.isSafeInteger(reward) && reward > 0 ? reward : 0;
+    if (!this.debugProgressionSuppressed) this.callbacks.onWaveCleared(wave);
     this.zombies.clearLandmines();
     this.phase = 'cleared';
     this.pointerFiring = false;
@@ -1059,11 +1341,40 @@ export class SurvivalMode {
     this.stuckPrompt.classList.remove('is-visible');
   }
 
-  private creditReward(amount: number): void {
-    if (!Number.isSafeInteger(amount) || amount <= 0) return;
-    const credited = this.callbacks.onReward(amount);
+  private addPendingWaveKillReward(amount: number): void {
+    if (
+      this.phase !== 'active' ||
+      !Number.isSafeInteger(amount) ||
+      amount <= 0
+    ) {
+      return;
+    }
+    const next = this.pendingWaveKillReward + amount;
+    if (Number.isSafeInteger(next)) this.pendingWaveKillReward = next;
+  }
+
+  private pendingWaveTotal(): number {
+    const total = this.pendingWaveKillReward + this.pendingWaveReward;
+    return Number.isSafeInteger(total) && total > 0 ? total : 0;
+  }
+
+  private discardPendingWaveRewards(): void {
+    this.pendingWaveKillReward = 0;
+    this.pendingWaveReward = 0;
+    this.lastHudPending = -1;
+  }
+
+  private bankPendingWaveRewards(): void {
+    const total = this.pendingWaveTotal();
+    if (total <= 0) {
+      this.discardPendingWaveRewards();
+      return;
+    }
+    this.discardPendingWaveRewards();
+    this.waveMoneyEarned = 0;
+    const credited = this.callbacks.onReward(total);
     if (Number.isSafeInteger(credited) && credited > 0) {
-      this.waveMoneyEarned += credited;
+      this.waveMoneyEarned = credited;
     }
   }
 
@@ -1074,27 +1385,66 @@ export class SurvivalMode {
   private queueCompletedStepTransition(): void {
     if (this.pendingTransition !== null) return;
     if (this.vehicle.isDestroyed()) {
-      this.pendingWaveReward = 0;
-      this.queueGameOver();
+      const pendingMoneyDiscarded = this.pendingWaveTotal();
+      this.discardPendingWaveRewards();
+      this.queueGameOver(pendingMoneyDiscarded);
     } else if (this.phase === 'cleared') {
-      this.creditReward(this.pendingWaveReward);
-      this.pendingWaveReward = 0;
+      this.bankPendingWaveRewards();
+      if (this.callbacks.onWaveCheckpoint) {
+        const payload = this.clearedWavePayload();
+        this.callbacks.onWaveCheckpoint(
+          payload.nextRun,
+          payload.survivingPartIds,
+          payload.partHp,
+          payload.kills,
+        );
+      }
       this.stopVehicleMotion();
       this.showVictory();
     }
   }
 
   private showVictory(): void {
+    const survivingPartIds = new Set(this.vehicle.survivingPartIds());
+    const damagedPartCount = [...this.vehicle.assembled.parts].filter(
+      ([partId, part]) =>
+        survivingPartIds.has(partId) &&
+        part.alive &&
+        !part.detached &&
+        part.health < part.def.health,
+    ).length;
+    const lostParts = [...this.vehicle.assembled.parts]
+      .filter(([partId]) => !survivingPartIds.has(partId))
+      .map(([, part]) => {
+        const def = getPartDef(part.placed.defId);
+        return `${def.name} ($${def.cost})`;
+      });
+    const nextWave = this.currentWave + 1;
+    const warnings = threatWarningsForWave(nextWave);
+
     this.victorySubtitle.textContent = `Wave ${this.currentWave} Cleared`;
     this.victoryMoneyValue.textContent = `$${this.waveMoneyEarned}`;
+    this.victoryRunMoneyValue.textContent = `$${this.callbacks.runEarnings()}`;
+    this.victoryPendingMoneyValue.textContent = '$0';
     this.victoryKillsValue.textContent = String(
       Math.max(0, this.kills - this.waveStartKills),
     );
     this.victoryTimeValue.textContent = formatDuration(this.waveElapsedSeconds);
+    this.victoryIntegrityValue.textContent = `${Math.round(
+      this.vehicle.integrityPct(),
+    )}%`;
+    this.victoryDamagedPartsValue.textContent = String(damagedPartCount);
+    this.victoryLostPartsValue.textContent =
+      lostParts.length > 0 ? lostParts.join(', ') : 'None';
+    this.victoryNextWaveValue.textContent = formatWaveComposition(
+      zombieCompositionForWave(nextWave),
+    );
+    this.victoryWarning.textContent = warnings.join(' ');
+    this.victoryWarning.hidden = warnings.length === 0;
     this.victoryOverlay.style.display = 'block';
   }
 
-  private queueGameOver(): void {
+  private queueGameOver(pendingMoneyDiscarded = 0): void {
     if (this.pendingTransition !== null || this.phase === 'gameOver') return;
     this.phase = 'gameOver';
     this.controls.throttle = 0;
@@ -1110,6 +1460,7 @@ export class SurvivalMode {
     this.pendingTransition = {
       kind: 'gameOver',
       run: this.currentRunState(),
+      pendingMoneyDiscarded,
     };
   }
 
@@ -1118,9 +1469,17 @@ export class SurvivalMode {
     if (pending === null) return;
     this.pendingTransition = null;
     if (pending.kind === 'buildPhase') {
-      this.callbacks.onBuildPhase(pending.run, pending.survivingPartIds);
+      this.callbacks.onBuildPhase(
+        pending.run,
+        pending.survivingPartIds,
+        pending.partHp,
+        pending.kills,
+      );
     } else {
-      this.callbacks.onGameOver(pending.run);
+      this.callbacks.onGameOver(
+        pending.run,
+        pending.pendingMoneyDiscarded,
+      );
     }
   }
 
@@ -1198,9 +1557,87 @@ export class SurvivalMode {
     this.zombies.updateVisuals(frameDt);
     this.ammoPickups.updateVisuals(frameDt);
     this.syncTracers(frameDt);
+    this.syncMineWarningHud(frameDt);
     this.followCamera.update(frameDt);
     this.graveyard.follow(this.vehicleGroup);
     this.syncHud();
+    // Vehicles face local +Z, so the heading the arrow should point along is the
+    // yaw of the rotated forward axis. The minimap throttles its own redraws.
+    this.minimapForward
+      .set(0, 0, 1)
+      .applyQuaternion(this.vehicleGroup.quaternion);
+    this.minimap.update(
+      position.x,
+      position.z,
+      Math.atan2(this.minimapForward.x, this.minimapForward.z),
+      this.zombies.getAliveTargets(),
+      this.currentMineSweeperLevel >= MINE_SWEEPER_MINIMAP_LEVEL
+        ? this.zombies.activeMines()
+        : undefined,
+    );
+  }
+
+  private resolveLiveMineSweeper(): RuntimePart | null {
+    for (const part of this.vehicle.assembled.parts.values()) {
+      if (part.placed.defId !== 'mine-sweeper') continue;
+      if (!this.isAttachedAlivePart(part)) continue;
+      return part;
+    }
+    return null;
+  }
+
+  private isAttachedAlivePart(part: RuntimePart): boolean {
+    return part.alive && !part.detached && part.health > 0;
+  }
+
+  private updateMineWarningPulse(revealRadiusM: number): void {
+    if (
+      this.phase !== 'active' ||
+      this.currentMineSweeperLevel < 3 ||
+      revealRadiusM <= 0
+    ) {
+      return;
+    }
+
+    const position = this.vehicle.body.translation();
+    const radiusSq = revealRadiusM * revealRadiusM;
+    const mines = this.zombies.activeMines();
+    for (let index = 0; index < mines.length; index += 1) {
+      const mine = mines[index];
+      if (mine.state !== 'armed' || !mine.revealed) continue;
+      const dx = mine.x - position.x;
+      const dz = mine.z - position.z;
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq > radiusSq) continue;
+
+      const previousDistance = this.mineWarningDistances.get(mine);
+      const distance = Math.sqrt(distanceSq);
+      this.mineWarningDistances.set(mine, distance);
+      if (
+        previousDistance === undefined ||
+        distance >= previousDistance - 0.08 ||
+        this.mineWarningPulsed.has(mine)
+      ) {
+        continue;
+      }
+
+      this.mineWarningPulsed.add(mine);
+      this.mineWarningPulseSeconds = 0.18;
+      return;
+    }
+  }
+
+  private syncMineWarningHud(frameDt: number): void {
+    if (this.mineWarningPulseSeconds <= 0) return;
+    this.mineWarningPulseSeconds = Math.max(
+      0,
+      this.mineWarningPulseSeconds - frameDt,
+    );
+    const intensity = this.mineWarningPulseSeconds / 0.18;
+    this.integrityFill.style.boxShadow =
+      intensity > 0
+        ? `0 0 ${Math.round(14 * intensity)}px rgba(255, 174, 61, 0.85)`
+        : '';
   }
 
   private syncHud(): void {
@@ -1238,6 +1675,14 @@ export class SurvivalMode {
     if (money !== this.lastHudMoney) {
       this.lastHudMoney = money;
       this.moneyValue.textContent = `$${money}`;
+    }
+    const pendingMoney =
+      this.phase === 'active' || this.phase === 'cleared'
+        ? this.pendingWaveTotal()
+        : 0;
+    if (pendingMoney !== this.lastHudPending) {
+      this.lastHudPending = pendingMoney;
+      this.pendingMoneyValue.textContent = `+$${pendingMoney}`;
     }
     if (this.phase === 'countdown') {
       const second = Math.max(1, Math.ceil(this.countdownRemaining));
@@ -1370,21 +1815,33 @@ export class SurvivalMode {
   }
 
   private showTracer(shot: TracerShot): void {
+    const flame = shot.damageType === 'aoe';
+    this.showTracerSegment(
+      shot.from,
+      shot.to,
+      flame ? this.flameTracerMaterial : this.tracerMaterial,
+      flame ? 0.18 : 0.08,
+    );
+  }
+
+  private showTracerSegment(
+    from: Vec3,
+    to: Vec3,
+    material: THREE.LineBasicMaterial,
+    ttl: number,
+  ): void {
     const tracer = this.tracers[this.tracerCursor];
     this.tracerCursor = (this.tracerCursor + 1) % this.tracers.length;
     const positions = tracer.positionAttribute.array as Float32Array;
-    positions[0] = shot.from.x;
-    positions[1] = shot.from.y;
-    positions[2] = shot.from.z;
-    positions[3] = shot.to.x;
-    positions[4] = shot.to.y;
-    positions[5] = shot.to.z;
+    positions[0] = from.x;
+    positions[1] = from.y;
+    positions[2] = from.z;
+    positions[3] = to.x;
+    positions[4] = to.y;
+    positions[5] = to.z;
     tracer.positionAttribute.needsUpdate = true;
-    const flame = shot.damageType === 'aoe';
-    tracer.line.material = flame
-      ? this.flameTracerMaterial
-      : this.tracerMaterial;
-    tracer.ttl = flame ? 0.18 : 0.08;
+    tracer.line.material = material;
+    tracer.ttl = ttl;
     tracer.line.visible = true;
   }
 
@@ -1445,6 +1902,7 @@ export class SurvivalMode {
       Math.floor(Number.isFinite(wave) ? wave : 1),
     );
     this.phase = 'active';
+    this.pendingWaveKillReward = 0;
     this.pendingWaveReward = 0;
     this.pendingTransition = null;
     this.pointerFiring = false;
@@ -1457,11 +1915,18 @@ export class SurvivalMode {
 
   debugKillAllZombies(): void {
     if (this.disposed || this.phase !== 'active') return;
-    const unspawnedKills = this.waves.prepareDebugKillAll();
-    this.kills += unspawnedKills;
-    this.creditReward(unspawnedKills * BASE_ZOMBIE_STATS.reward);
-    this.zombies.forceKillAll();
-    this.waves.fixedUpdate(0);
+    this.debugProgressionSuppressed = true;
+    try {
+      const unspawnedKills = this.waves.prepareDebugKillAll();
+      this.kills += unspawnedKills;
+      this.addPendingWaveKillReward(
+        unspawnedKills * BASE_ZOMBIE_STATS.reward,
+      );
+      this.zombies.forceKillAll();
+      this.waves.fixedUpdate(0);
+    } finally {
+      this.debugProgressionSuppressed = false;
+    }
     this.attachNewIslands(this.vehicle.finishStep());
     this.queueCompletedStepTransition();
     this.syncView(0);
@@ -1487,6 +1952,7 @@ export class SurvivalMode {
     return {
       mode: 'survival',
       kills: this.kills,
+      phoneAddictKills: this.phoneAddictKills,
       wave: this.currentWave,
       zombiesAlive: this.zombies.getActiveCount(),
       money: this.callbacks.profileMoney(),
@@ -1548,11 +2014,13 @@ export class SurvivalMode {
     this.vehicle.dispose();
     this.eventQueue.free();
     this.world.free();
+    this.minimap.dispose();
     this.ui.remove();
     disposeObject(this.scene);
     this.scene.clear();
     this.tracerMaterial.dispose();
     this.flameTracerMaterial.dispose();
+    this.pierceTracerMaterial.dispose();
     this.wheelMeshes.clear();
     this.wheelSpin.clear();
     this.islandGroups.clear();

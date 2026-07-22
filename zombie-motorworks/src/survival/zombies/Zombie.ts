@@ -136,7 +136,7 @@ export enum ZombieState {
   Dead = 'Dead',
 }
 
-export type ZombieKilledCallback = (reward: number, zombie: Zombie) => void;
+export type ZombieKilledCallback = (reward: number, kind: ZombieKind) => void;
 
 export type ZombieKind = 'walker' | 'thrower' | 'phone-addict' | 'worker';
 
@@ -274,9 +274,10 @@ export class Zombie {
     this.visualRoot.add(fallback);
     this.root.add(this.visualRoot);
     if (this.kind === 'phone-addict') {
-      // Projectile shield bubble, flashed whenever a gun hit is absorbed.
+      // Cyan bubble flash distinguishes the shield response from the red
+      // always-on ground marker for this zombie kind.
       this.shieldMaterial = new THREE.MeshBasicMaterial({
-        color: 0xff2b2b,
+        color: 0x35d7ff,
         transparent: true,
         opacity: 0,
         depthWrite: false,
@@ -840,7 +841,7 @@ export class Zombie {
     this.velocityScratch.z = 0;
     this.body.setLinvel(this.velocityScratch, true);
     this.collider.setEnabled(false);
-    this.onKilled(this.reward, this);
+    this.onKilled(this.reward, this.kind);
   }
 
   private returnToPool(): void {

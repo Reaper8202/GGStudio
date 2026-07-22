@@ -21,6 +21,8 @@ describe('AutoAim', () => {
       label: 'Test Weapon',
       ammo: 100,
       ammoCapacity: 100,
+      empLevel: 0,
+      piercingLevel: 0,
     };
     const manualWeapon: RuntimeWeapon = {
       partId: 'manual',
@@ -35,6 +37,8 @@ describe('AutoAim', () => {
       label: 'Test Weapon',
       ammo: 100,
       ammoCapacity: 100,
+      empLevel: 0,
+      piercingLevel: 0,
     };
     const vehicle = {
       body: {
@@ -96,6 +100,8 @@ describe('AutoAim', () => {
       label: 'Test Weapon',
       ammo: 100,
       ammoCapacity: 100,
+      empLevel: 0,
+      piercingLevel: 0,
     };
     const vehicle = {
       body: {
@@ -126,7 +132,7 @@ describe('AutoAim', () => {
   it('holds fire when all bounded candidates are occluded', () => {
     const weapon: RuntimeWeapon = {
       partId: 'auto', def: PART_CATALOG.turret.weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100, empLevel: 0, piercingLevel: 0,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -143,7 +149,7 @@ describe('AutoAim', () => {
   it('prefers an in-range thrower over a nearer walker for ranged-priority weapons', () => {
     const weapon: RuntimeWeapon = {
       partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100, empLevel: 0, piercingLevel: 0,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -170,7 +176,7 @@ describe('AutoAim', () => {
   it('locks a strongest-priority cannon onto the toughest zombie, not the nearest', () => {
     const cannon: RuntimeWeapon = {
       partId: 'cannon', def: PART_CATALOG['cannon-heavy'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100, empLevel: 0, piercingLevel: 0,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -197,7 +203,7 @@ describe('AutoAim', () => {
   it('holds fire when the only target sits inside the minimum range', () => {
     const weapon: RuntimeWeapon = {
       partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100, empLevel: 0, piercingLevel: 0,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -212,4 +218,93 @@ describe('AutoAim', () => {
 
     expect(autoAim.step().get('sniper')?.fire).toBe(false);
   });
+
+  it('pushes a closer Phone Addict behind a walker for an EMP-0 turret', () => {
+    const phoneAddict = autoAimTarget('phone-addict', 1, 0, 2);
+    const walker = autoAimTarget('walker', 2, 2, 4);
+    const autoAim = aimAtTargets(autoTurret(0), [phoneAddict, walker]);
+
+    const entry = autoAim.step().get('auto');
+
+    expect(entry?.fire).toBe(true);
+    expect(entry?.aimPoint).toEqual({ x: 2, y: 0.9, z: 4 });
+  });
+
+  it('still fires at a Phone Addict when it is the only in-range target', () => {
+    const phoneAddict = autoAimTarget('phone-addict', 1, 0, 2);
+    const autoAim = aimAtTargets(autoTurret(0), [phoneAddict]);
+
+    const entry = autoAim.step().get('auto');
+
+    expect(entry?.fire).toBe(true);
+    expect(entry?.aimPoint).toEqual({ x: 0, y: 0.9, z: 2 });
+  });
+
+  it('uses nearest-first ordering once the turret has EMP', () => {
+    const phoneAddict = autoAimTarget('phone-addict', 1, 0, 2);
+    const walker = autoAimTarget('walker', 2, 2, 4);
+    const autoAim = aimAtTargets(autoTurret(1), [walker, phoneAddict]);
+
+    const entry = autoAim.step().get('auto');
+
+    expect(entry?.fire).toBe(true);
+    expect(entry?.aimPoint).toEqual({ x: 0, y: 0.9, z: 2 });
+  });
 });
+
+function autoTurret(empLevel: number): RuntimeWeapon {
+  return {
+    partId: 'auto',
+    def: PART_CATALOG.turret.weapon!,
+    mountLocal: { x: 0, y: 0, z: 0 },
+    forwardLocal: { x: 0, y: 0, z: 1 },
+    yaw: 0,
+    cooldown: 0,
+    cycleTime: 0,
+    shotsFired: 0,
+    label: 'Test Weapon',
+    ammo: 100,
+    ammoCapacity: 100,
+    empLevel,
+    piercingLevel: 0,
+  };
+}
+
+type AutoAimTarget = ReturnType<ZombieSystem['getAliveTargets']>[number];
+
+function autoAimTarget(
+  kind: AutoAimTarget['kind'],
+  handle: number,
+  x: number,
+  z: number,
+): AutoAimTarget {
+  return {
+    kind,
+    body: { translation: () => ({ x, y: 0.9, z }) },
+    collider: { handle },
+  } as AutoAimTarget;
+}
+
+function aimAtTargets(
+  weapon: RuntimeWeapon,
+  targets: AutoAimTarget[],
+): AutoAim {
+  const vehicle = {
+    body: {
+      translation: () => ({ x: 0, y: 0, z: 0 }),
+      rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }),
+    },
+    assembled: {
+      parts: new Map([
+        ['auto', { alive: true, detached: false, health: 100 }],
+      ]),
+    },
+    weaponStates: () => [weapon],
+  } as unknown as RuntimeVehicle;
+  const zombies = { getAliveTargets: () => targets } as unknown as ZombieSystem;
+  return new AutoAim(vehicle, zombies, {
+    castRay: (ray: { dir: { x: number } }) => ({
+      collider: { handle: ray.dir.x > 0.1 ? 2 : 1 },
+    }),
+  } as never);
+}

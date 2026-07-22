@@ -7,6 +7,10 @@ export interface PlayerProfile {
   /** Purchased, unplaced garage parts keyed by catalog definition id. */
   inventory?: Record<string, number>;
   currentBlueprintName?: string;
+  /** Highest wave the player has ever fully cleared. */
+  highestWaveCleared?: number;
+  /** Lifetime Phone Addict kills; gates the EMP module. */
+  phoneAddictsKilled?: number;
 }
 
 export const STARTER_UNLOCKS = [
@@ -20,6 +24,9 @@ export const STARTER_UNLOCKS = [
 ] as const;
 
 export const DEFAULT_MONEY = 200;
+
+/** Wave clear that unlocks the Mine Sweeper for purchase. */
+export const MINE_SWEEPER_UNLOCK_WAVE = 7;
 
 export function defaultProfile(): PlayerProfile {
   return {
@@ -46,9 +53,12 @@ function hasValidShape(value: unknown): value is {
   unlockedDefIds: string[];
   inventory?: Record<string, unknown>;
   currentBlueprintName?: string;
+  highestWaveCleared?: unknown;
+  phoneAddictsKilled?: unknown;
 } {
   if (!isRecord(value)) return false;
-  if (value.schemaVersion !== 1 || typeof value.money !== 'number') return false;
+  if (value.schemaVersion !== 1 || typeof value.money !== 'number')
+    return false;
   if (!Array.isArray(value.unlockedDefIds)) return false;
   if (!value.unlockedDefIds.every((id) => typeof id === 'string')) return false;
   if (value.inventory !== undefined && !isRecord(value.inventory)) return false;
@@ -56,6 +66,10 @@ function hasValidShape(value: unknown): value is {
     value.currentBlueprintName === undefined ||
     typeof value.currentBlueprintName === 'string'
   );
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 /** Decodes persisted profile JSON without allowing malformed storage to escape. */
@@ -95,6 +109,12 @@ export function decodeProfile(json: string | null | undefined): PlayerProfile {
   if (parsed.currentBlueprintName !== undefined) {
     profile.currentBlueprintName = parsed.currentBlueprintName;
   }
+  if (isNonNegativeSafeInteger(parsed.highestWaveCleared)) {
+    profile.highestWaveCleared = parsed.highestWaveCleared;
+  }
+  if (isNonNegativeSafeInteger(parsed.phoneAddictsKilled)) {
+    profile.phoneAddictsKilled = parsed.phoneAddictsKilled;
+  }
   return profile;
 }
 
@@ -108,5 +128,13 @@ export function encodeProfile(profile: PlayerProfile): string {
     ...(profile.currentBlueprintName === undefined
       ? {}
       : { currentBlueprintName: profile.currentBlueprintName }),
+    ...(profile.highestWaveCleared !== undefined &&
+    profile.highestWaveCleared > 0
+      ? { highestWaveCleared: profile.highestWaveCleared }
+      : {}),
+    ...(profile.phoneAddictsKilled !== undefined &&
+    profile.phoneAddictsKilled > 0
+      ? { phoneAddictsKilled: profile.phoneAddictsKilled }
+      : {}),
   });
 }

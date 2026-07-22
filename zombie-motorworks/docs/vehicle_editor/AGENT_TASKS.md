@@ -1,5 +1,9 @@
 # Agent Task Decomposition
 
+> Historical implementation plan for the original editor foundation. Do not use
+> this file to assign current work. Start with [`AGENTS.md`](../../AGENTS.md) and
+> use the task router in [`CONTEXT.md`](../../CONTEXT.md).
+
 Orchestrator (Claude) owns: architecture, foundation (`types.ts`, `grid.ts`), all `runtime/` and `editor/` code (browser verification required — Codex sandbox cannot run Chromium), integration, and the verification gate after every merge.
 
 Codex 5.5 Medium agents own scoped **pure-logic** modules in `src/core/` + their Vitest tests. Two accounts run disjoint tasks in parallel (lab, personal). Sonnet 5 reviews architecture (before coding) and UX (after the loop closes).

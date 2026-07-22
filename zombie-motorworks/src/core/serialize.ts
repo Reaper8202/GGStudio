@@ -1,8 +1,7 @@
 import {
   PAINT_COLORS,
   SUSPENSION_PRESET_MULTIPLIERS,
-  type
-  PartConfig,
+  type PartConfig,
   PlacedPart,
   Vec3i,
   VehicleBlueprint,
@@ -15,6 +14,7 @@ import {
   rotateVec,
 } from './grid.ts';
 import { getPartDef } from './parts.ts';
+import { TURRET_MODULE_MAX_LEVEL } from './turretModules.ts';
 
 export const CURRENT_SCHEMA_VERSION = BLUEPRINT_SCHEMA_VERSION;
 
@@ -213,14 +213,36 @@ function validateConfig(
     }
     sanitized.level = Math.min(level, def.upgrade?.maxLevel ?? 1);
   }
-  for (const key of ['driven', 'steering', 'steerInverted', 'braking'] as const) {
+  for (const key of ['empLevel', 'piercingLevel'] as const) {
+    const moduleLevel = config[key];
+    if (moduleLevel === undefined) continue;
+    if (typeof moduleLevel !== 'number' || !Number.isInteger(moduleLevel)) {
+      throw new BlueprintFormatError(
+        `${path}.${key} must be an integer between 0 and ${TURRET_MODULE_MAX_LEVEL}`,
+      );
+    }
+    const clampedLevel = Math.min(
+      TURRET_MODULE_MAX_LEVEL,
+      Math.max(0, moduleLevel),
+    );
+    if (def.id === 'turret' && clampedLevel > 0) {
+      sanitized[key] = clampedLevel;
+    }
+  }
+  for (const key of [
+    'driven',
+    'steering',
+    'steerInverted',
+    'braking',
+  ] as const) {
     if (typeof config[key] === 'boolean') sanitized[key] = config[key];
   }
   if (
     typeof config.suspensionPreset === 'string' &&
     config.suspensionPreset in SUSPENSION_PRESET_MULTIPLIERS
   ) {
-    sanitized.suspensionPreset = config.suspensionPreset as PartConfig['suspensionPreset'];
+    sanitized.suspensionPreset =
+      config.suspensionPreset as PartConfig['suspensionPreset'];
   }
   if (typeof config.paint === 'string' && config.paint in PAINT_COLORS) {
     sanitized.paint = config.paint as PartConfig['paint'];

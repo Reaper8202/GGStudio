@@ -41,6 +41,22 @@ describe('per-weapon magazines', () => {
     expect(createWeapon(part('blaster', 'turret')).label).toBe('Zombie Blaster');
   });
 
+  it('carries module levels only for the turret mounting part', () => {
+    const blaster = createWeapon({
+      ...part('blaster', 'turret'),
+      config: { empLevel: 3, piercingLevel: 2 },
+    });
+    const cannon = createWeapon({
+      ...part('cannon', 'cannon-heavy'),
+      config: { empLevel: 3, piercingLevel: 3 },
+    });
+
+    expect(blaster.empLevel).toBe(3);
+    expect(blaster.piercingLevel).toBe(2);
+    expect(cannon.empLevel).toBe(0);
+    expect(cannon.piercingLevel).toBe(0);
+  });
+
   it('spends only the firing weapon’s own rounds', () => {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const blasterPart = part('blaster', 'turret', -1);

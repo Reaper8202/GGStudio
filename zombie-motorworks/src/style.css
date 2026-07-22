@@ -228,8 +228,108 @@ canvas.viewport {
 }
 
 .run-banner.run-summary {
+  width: min(780px, calc(100% - 32px));
   color: #bf876c;
   border-color: var(--ui-edge);
+  white-space: normal;
+}
+
+.run-banner.run-active {
+  display: grid !important;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 4px 12px;
+  max-width: min(760px, calc(100% - 32px));
+  white-space: normal;
+}
+
+.run-banner__text {
+  align-self: center;
+}
+
+.run-banner__warning {
+  grid-column: 1 / -1;
+  color: var(--danger-light);
+  font-size: var(--ui-text-11);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.run-banner__summary-line + .run-banner__summary-line {
+  margin-top: 3px;
+}
+
+.run-banner__repair {
+  grid-row: 1;
+  grid-column: 2;
+}
+
+.garage-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(4 5 4 / 0.78);
+}
+
+.garage-confirm-overlay[hidden] {
+  display: none;
+}
+
+.garage-confirm {
+  width: min(470px, calc(100vw - 32px));
+  padding: 20px;
+  background: var(--panel-bg-strong);
+  box-shadow:
+    10px 12px 0 rgb(0 0 0 / 0.52),
+    inset 3px 0 0 var(--ui-rust-dark);
+}
+
+.garage-confirm h2 {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.garage-confirm > p {
+  margin: 12px 0 16px;
+  color: var(--ui-text-muted);
+  line-height: 1.45;
+}
+
+.garage-confirm__stats {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 18px;
+  margin: 0;
+  padding: 13px 14px;
+  background: rgb(0 0 0 / 0.28);
+  border: 1px solid var(--ui-edge);
+}
+
+.garage-confirm__stats dt,
+.garage-confirm__stats dd {
+  margin: 0;
+}
+
+.garage-confirm__stats dt {
+  color: var(--ui-text-muted);
+}
+
+.garage-confirm__stats dd {
+  color: var(--gold);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.garage-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
 }
 
 .editor-notice {
@@ -945,6 +1045,46 @@ button:disabled {
   text-align: left;
 }
 
+.store-item .part-price-breakdown,
+.store-item .part-unlock-milestone {
+  position: absolute;
+  right: 82px;
+  bottom: 7px;
+  left: 10px;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store-item.locked {
+  min-height: 94px;
+  padding-bottom: 38px;
+}
+
+.store-item.locked .part-price {
+  bottom: 20px;
+}
+
+.store-item.has-unlock-milestone {
+  min-height: 108px;
+  padding-bottom: 51px;
+}
+
+.store-item.has-unlock-milestone .part-price {
+  bottom: 34px;
+}
+
+.store-item.has-unlock-milestone .part-price-breakdown {
+  bottom: 20px;
+}
+
+.store-item .part-unlock-milestone {
+  color: var(--gold);
+}
+
 .inventory-empty {
   margin: auto;
   padding: 16px;
@@ -1089,6 +1229,48 @@ button:disabled {
   margin-top: 12px;
 }
 
+.selected-part__wheel-advanced {
+  margin-top: 12px;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-recess);
+}
+
+.selected-part__wheel-advanced summary {
+  position: relative;
+  min-height: 34px;
+  padding: 10px 34px 8px 10px;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  list-style: none;
+  text-transform: uppercase;
+}
+
+.selected-part__wheel-advanced summary::-webkit-details-marker {
+  display: none;
+}
+
+.selected-part__wheel-advanced summary::before,
+.selected-part__wheel-advanced summary::after {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  width: 10px;
+  height: 2px;
+  content: '';
+  background: var(--ui-text-muted);
+  transform: translateY(-50%);
+}
+
+.selected-part__wheel-advanced:not([open]) summary::after {
+  transform: translateY(-50%) rotate(90deg);
+}
+
+.selected-part__wheel-advanced .selected-part__config {
+  margin: 0;
+  padding: 0 10px 10px;
+}
+
 .selected-part__config label {
   display: flex;
   min-width: 0;
@@ -1126,6 +1308,31 @@ button:disabled {
   height: 24px;
 }
 
+.selected-part__modules {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ui-edge);
+}
+
+.selected-part__module-row {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1 var(--ui-font-body);
+}
+
+.selected-part__module-buy {
+  min-width: 122px;
+  min-height: 32px;
+  padding: 5px 8px;
+  font-size: var(--ui-text-10);
+}
+
 .selected-part__actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1133,6 +1340,36 @@ button:disabled {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--ui-edge);
+}
+
+.selected-part__upgrade-preview {
+  display: grid;
+  gap: 0;
+  margin-top: 14px;
+  border-top: 1px solid var(--ui-edge);
+}
+
+.selected-part__upgrade-preview-title {
+  padding: 10px 0 6px;
+  color: var(--ui-signal);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.selected-part__upgrade-preview-row {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1 var(--ui-font-body);
+}
+
+.selected-part__upgrade-preview-row strong {
+  color: var(--ui-text);
+  font: var(--ui-text-11)/1 var(--ui-font-display);
 }
 
 .selected-part__actions .selected-upgrade {
@@ -1205,24 +1442,6 @@ button:disabled {
 .store-item.limit-reached {
   filter: grayscale(0.8);
   opacity: 0.48;
-}
-
-/* Brief attention pulse on a tile the player just unlocked, so the follow-up
-   "Buy" click is obvious. Self-stops; the class is also cleared on animationend. */
-.store-item.just-unlocked {
-  animation: store-unlocked-pulse 0.8s ease-in-out 4;
-}
-
-@keyframes store-unlocked-pulse {
-  0%,
-  100% {
-    outline: 2px solid transparent;
-    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
-  }
-  50% {
-    outline: 2px solid var(--ui-signal);
-    box-shadow: 0 0 14px 2px var(--ui-signal);
-  }
 }
 
 .garage-ui.has-selection .vehicle-stats {
@@ -1371,7 +1590,7 @@ button:disabled {
     display: none;
   }
 
-  .part-btn small:not(.part-price, .inventory-count) {
+  .part-btn small:not(.part-price, .part-price-breakdown, .part-unlock-milestone, .inventory-count) {
     display: none;
   }
 
@@ -1873,6 +2092,9 @@ button:disabled {
 }
 
 .survival-victory {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 32px));
+  overflow-y: auto;
   background: var(--panel-bg-strong);
   box-shadow:
     7px 8px 0 rgb(0 0 0 / 0.45),
@@ -1924,6 +2146,25 @@ button:disabled {
   color: var(--gold);
   font-size: 15px;
   font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.survival-victory__stats .survival-victory__losses,
+.survival-victory__stats .survival-victory__composition {
+  max-width: 390px;
+  line-height: 1.35;
+}
+
+.survival-victory__warning {
+  margin: -4px 0 16px;
+  padding: 10px 12px;
+  background: rgb(93 34 25 / 0.45);
+  border: 1px solid var(--ui-danger);
+  color: var(--danger-light);
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+  text-transform: uppercase;
 }
 
 .survival-victory__actions {
@@ -1941,6 +2182,23 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
+  .run-banner.run-active {
+    grid-template-columns: 1fr;
+  }
+
+  .run-banner__repair {
+    grid-row: auto;
+    grid-column: 1;
+  }
+
+  .garage-confirm__actions {
+    flex-direction: column;
+  }
+
+  .garage-confirm__actions button {
+    width: 100%;
+  }
+
   .survival-settings-button {
     top: 64px;
     right: 8px;
@@ -1981,5 +2239,40 @@ button:disabled {
 
   .survival-earned {
     padding-top: 7px;
+  }
+}
+
+/* Survival minimap */
+.minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 14;
+  width: 188px;
+  height: 188px;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: var(--panel-radius);
+  box-shadow: 6px 7px 0 rgb(0 0 0 / 0.32);
+}
+
+.minimap__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * On narrow viewports the driver HUD stretches across the whole bottom edge, so
+ * the bottom-right corner is no longer free. Tuck the minimap under the wave HUD
+ * in the top-right instead, where nothing else is anchored.
+ */
+@media (max-width: 560px) {
+  .minimap {
+    top: 92px;
+    right: 8px;
+    bottom: auto;
+    width: 104px;
+    height: 104px;
   }
 }

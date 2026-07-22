@@ -1,5 +1,11 @@
 # Scrap Rig — Vehicle Editor Architecture
 
+> Focused record of the original vehicle-editor design. For current whole-game
+> ownership, run lifecycle, persistence, and integration contracts, start with
+> [`CONTEXT.md`](../../CONTEXT.md),
+> [`ARCHITECTURE.md`](../ARCHITECTURE.md), and
+> [`INTEGRATION_SPEC.md`](../INTEGRATION_SPEC.md).
+
 ## Context
 
 - **Repo conventions:** self-contained subproject (like `clip-campus/`), Vite + strict TypeScript, Vitest for pure logic, Playwright for browser verification, ESLint + Prettier, CrazyGames web target.

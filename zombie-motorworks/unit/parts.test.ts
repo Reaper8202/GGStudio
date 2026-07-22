@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Vec3i } from '../src/core/types.ts';
 import { ALL_FACES, cellKey } from '../src/core/grid.ts';
 import { PART_CATALOG } from '../src/core/parts.ts';
+import { STARTER_UNLOCKS } from '../src/core/profile.ts';
 import {
   createEmptyBlueprint,
   findRoot,
@@ -32,6 +33,7 @@ const EXPECTED_CATALOG_IDS = [
   'driver-seat',
   'engine-small',
   'fuel-tank',
+  'mine-sweeper',
   'turret',
   'armour-plate',
   'cannon-heavy',
@@ -45,7 +47,7 @@ function vecKey(v: Vec3i): string {
 }
 
 describe('part catalog integrity', () => {
-  it('contains the root and ten editor parts in their display order', () => {
+  it('contains every catalog part in display order', () => {
     expect(Object.keys(PART_CATALOG)).toEqual(EXPECTED_CATALOG_IDS);
   });
 
@@ -114,6 +116,16 @@ describe('part catalog integrity', () => {
     expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('auto');
     expect(PART_CATALOG['cannon-heavy'].weapon?.targetPriority).toBe('strongest');
     expect(PART_CATALOG['cannon-heavy'].weapon?.manualFire).toBe(true);
+  });
+
+  it('defines the unique Mine Sweeper outside the starter catalog', () => {
+    expect(PART_CATALOG['mine-sweeper']).toMatchObject({
+      cost: 180,
+      health: 90,
+      massKg: 35,
+      unique: true,
+    });
+    expect(STARTER_UNLOCKS).not.toContain('mine-sweeper');
   });
 });
 

@@ -21,6 +21,7 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'driver-seat',
   'engine-small',
   'fuel-tank',
+  'mine-sweeper',
   'turret',
   'armour-plate',
   'cannon-heavy',
@@ -64,6 +65,10 @@ export const KID_LABELS: Record<string, PartLabel> = {
   'driver-seat': { name: 'Driver Seat', blurb: 'Put your brave driver here!' },
   'engine-small': { name: 'Engine', blurb: 'Makes the truck go!' },
   'fuel-tank': { name: 'Fuel Tank', blurb: 'Keeps the engine fueled up!' },
+  'mine-sweeper': {
+    name: 'Mine Finder',
+    blurb: 'Beeps when buried mines are close by!',
+  },
   turret: { name: 'Zombie Blaster', blurb: 'Spins around to blast zombies!' },
   'armour-plate': { name: 'Armour Plate', blurb: 'Adds a tough layer of protection!' },
   'cannon-heavy': { name: 'Heavy Cannon', blurb: 'A big boom for tough zombies!' },

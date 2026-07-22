@@ -14,6 +14,7 @@ export type AutoAimEntry = WeaponAimInput;
 const RANGED_PRIORITY_PENALTY = 1e9;
 /** Weights health far above distance so 'strongest' ranks by HP, distance ties. */
 const STRONGEST_HEALTH_WEIGHT = 1e6;
+const SHIELDED_PRIORITY_PENALTY = 1e9;
 
 interface AutoWeapon {
   readonly weapon: RuntimeWeapon;
@@ -118,6 +119,7 @@ export class AutoAim {
         weapon.def.rangeM,
         weapon.def.minRangeM ?? 0,
         weapon.def.targetPriority,
+        weapon.empLevel === 0,
       );
       let acquired = false;
 
@@ -179,6 +181,7 @@ export class AutoAim {
     rangeM: number,
     minRangeM: number,
     priority: 'ranged' | 'strongest' | undefined,
+    deprioritizeShielded: boolean,
   ): number {
     let count = 0;
     const rangeSq = rangeM * rangeM;
@@ -201,6 +204,10 @@ export class AutoAim {
         // Toughest first; distance only breaks ties between equal-health foes.
         score = distanceSq - zombie.currentHealth * STRONGEST_HEALTH_WEIGHT;
       }
+      // Keep shielded zombies eligible only as a last resort so a weapon that
+      // cannot strip the shield never soft-locks onto one it can't hurt.
+      if (deprioritizeShielded && zombie.kind === 'phone-addict')
+        score += SHIELDED_PRIORITY_PENALTY;
       let index = count;
       while (index > 0 && score < this.candidateDistances[index - 1]) {
         if (index < this.candidateTargets.length) {

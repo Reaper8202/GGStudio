@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_MONEY,
+  MINE_SWEEPER_UNLOCK_WAVE,
   decodeProfile,
   defaultProfile,
   encodeProfile,
@@ -14,6 +15,8 @@ describe('player profile codec', () => {
       money: 475,
       unlockedDefIds: ['frame-reinforced', 'wheel-offroad'],
       currentBlueprintName: 'Rammer',
+      highestWaveCleared: 12,
+      phoneAddictsKilled: 3,
     };
 
     expect(decodeProfile(encodeProfile(profile))).toEqual({
@@ -30,6 +33,48 @@ describe('player profile codec', () => {
         JSON.stringify({ schemaVersion: 2, money: 10, unlockedDefIds: [] }),
       ),
     ).toEqual(defaultProfile());
+  });
+
+  it('decodes legacy profile JSON without progression fields', () => {
+    const profile = decodeProfile(
+      JSON.stringify({ schemaVersion: 1, money: 25, unlockedDefIds: [] }),
+    );
+
+    expect(profile).not.toHaveProperty('highestWaveCleared');
+    expect(profile).not.toHaveProperty('phoneAddictsKilled');
+  });
+
+  it.each([-1, 1.5])(
+    'drops an invalid highest wave value of %s without discarding the profile',
+    (highestWaveCleared) => {
+      const profile = decodeProfile(
+        JSON.stringify({
+          schemaVersion: 1,
+          money: 25,
+          unlockedDefIds: [],
+          highestWaveCleared,
+          phoneAddictsKilled: 2,
+        }),
+      );
+
+      expect(profile).not.toHaveProperty('highestWaveCleared');
+      expect(profile.phoneAddictsKilled).toBe(2);
+      expect(profile.money).toBe(25);
+    },
+  );
+
+  it('omits zero-valued progression when encoding', () => {
+    const encoded = encodeProfile({
+      schemaVersion: 1,
+      money: 25,
+      unlockedDefIds: [],
+      highestWaveCleared: 0,
+      phoneAddictsKilled: 0,
+    });
+
+    expect(JSON.parse(encoded)).not.toHaveProperty('highestWaveCleared');
+    expect(JSON.parse(encoded)).not.toHaveProperty('phoneAddictsKilled');
+    expect(MINE_SWEEPER_UNLOCK_WAVE).toBe(7);
   });
 
   it('filters unknown definitions while retaining every starter unlock', () => {
@@ -55,7 +100,11 @@ describe('player profile codec', () => {
     ).toBe(0);
     expect(
       decodeProfile(
-        JSON.stringify({ schemaVersion: 1, money: Number.NaN, unlockedDefIds: [] }),
+        JSON.stringify({
+          schemaVersion: 1,
+          money: Number.NaN,
+          unlockedDefIds: [],
+        }),
       ).money,
     ).toBe(DEFAULT_MONEY);
     expect(
