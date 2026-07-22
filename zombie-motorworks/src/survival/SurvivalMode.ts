@@ -56,7 +56,7 @@ export interface SurvivalCallbacks {
   onWaveAdvance(run: RunState): void;
   onBuildPhase(run: RunState, survivingPartIds: readonly string[]): void;
   onGameOver(run: RunState): void;
-  onResetWave(run: RunState, waveEarnings: number): void;
+  onResetWave(run: RunState): void;
   onCheatInfiniteMoney(): void;
   /** Lifetime progression: a Phone Addict died, which unlocks the EMP module. */
   onPhoneAddictKilled(): void;
@@ -158,6 +158,7 @@ interface SurvivalUi {
   waveValue: HTMLSpanElement;
   remainingValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
+  pendingMoneyValue: HTMLSpanElement;
   stuckPrompt: HTMLDivElement;
   countdownOverlay: HTMLDivElement;
   countdownValue: HTMLDivElement;
@@ -252,6 +253,7 @@ export class SurvivalMode {
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
+  private readonly pendingMoneyValue: HTMLSpanElement;
   private readonly stuckPrompt: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly countdownValue: HTMLDivElement;
@@ -285,8 +287,10 @@ export class SurvivalMode {
   private lastHudWave = -1;
   private lastHudRemaining = -1;
   private lastHudMoney = -1;
+  private lastHudPending = -1;
   private lastCountdownSecond = -1;
   private tracerCursor = 0;
+  private pendingWaveKillReward = 0;
   private pendingWaveReward = 0;
   private waveStartKills = 0;
   private waveMoneyEarned = 0;
@@ -368,7 +372,7 @@ export class SurvivalMode {
       this.scene,
       this.graveyard.spawnPoints,
       this.vehicle,
-      this.handleZombieKilled,
+      (reward, kind) => this.handleZombieKilled(reward, kind),
     );
     const zombieVisuals = this.scene.children.slice(firstZombieVisualIndex);
     this.zombieVisualRoot.name = 'zombie-system-visuals';
@@ -396,6 +400,7 @@ export class SurvivalMode {
     this.waveValue = builtUi.waveValue;
     this.remainingValue = builtUi.remainingValue;
     this.moneyValue = builtUi.moneyValue;
+    this.pendingMoneyValue = builtUi.pendingMoneyValue;
     this.stuckPrompt = builtUi.stuckPrompt;
     this.countdownOverlay = builtUi.countdownOverlay;
     this.countdownValue = builtUi.countdownValue;
@@ -597,7 +602,13 @@ export class SurvivalMode {
     moneyLabel.textContent = 'Money Earned';
     const moneyValue = document.createElement('span');
     moneyRow.append(moneyLabel, moneyValue);
-    hud.append(speedRow, health, ammoList, moneyRow);
+    const pendingMoneyRow = document.createElement('div');
+    pendingMoneyRow.className = 'survival-earned';
+    const pendingMoneyLabel = document.createElement('span');
+    pendingMoneyLabel.textContent = 'Pending';
+    const pendingMoneyValue = document.createElement('span');
+    pendingMoneyRow.append(pendingMoneyLabel, pendingMoneyValue);
+    hud.append(speedRow, health, ammoList, moneyRow, pendingMoneyRow);
     root.appendChild(hud);
 
     const stuckPrompt = document.createElement('div');
@@ -733,13 +744,13 @@ export class SurvivalMode {
     resetTitle.textContent = 'Reset Wave';
     const resetDescription = document.createElement('span');
     resetDescription.textContent =
-      "Restart this wave with your vehicle restored. This wave's earnings are rolled back.";
+      "Restart this wave with your vehicle restored. This wave's pending rewards are discarded.";
     resetCopy.append(resetTitle, resetDescription);
     const resetButton = document.createElement('button');
     resetButton.type = 'button';
     resetButton.className = 'ui-button ui-button--danger ui-button--medium';
     resetButton.textContent = 'Reset Wave';
-    resetButton.addEventListener('click', this.onResetWave);
+    resetButton.addEventListener('click', () => this.onResetWave());
     resetSection.append(resetCopy, resetButton);
 
     const saveSection = document.createElement('div');
@@ -755,7 +766,7 @@ export class SurvivalMode {
     saveQuitButton.type = 'button';
     saveQuitButton.className = 'ui-button ui-button--medium';
     saveQuitButton.textContent = 'Save & Quit';
-    saveQuitButton.addEventListener('click', this.onSaveAndQuit);
+    saveQuitButton.addEventListener('click', () => this.onSaveAndQuit());
     saveSection.append(saveCopy, saveQuitButton);
 
     const settingsStatus = document.createElement('div');
@@ -788,6 +799,7 @@ export class SurvivalMode {
       waveValue,
       remainingValue,
       moneyValue,
+      pendingMoneyValue,
       stuckPrompt,
       countdownOverlay,
       countdownValue,
@@ -840,19 +852,21 @@ export class SurvivalMode {
     this.settingsStatus.textContent = 'Money set to the maximum safe amount.';
   };
 
-  private readonly onResetWave = (): void => {
+  private onResetWave(): void {
     if (this.disposed) return;
-    this.callbacks.onResetWave(this.currentRunState(), this.waveMoneyEarned);
-  };
+    this.discardPendingWaveRewards();
+    this.callbacks.onResetWave(this.currentRunState());
+  }
 
-  private readonly onSaveAndQuit = (): void => {
+  private onSaveAndQuit(): void {
     if (this.disposed || this.phase === 'gameOver') return;
+    this.discardPendingWaveRewards();
     this.callbacks.onSaveAndQuit({
       wave: this.currentWave,
       kills: this.kills,
       partHp: this.vehicle.partHpSnapshot(),
     });
-  };
+  }
 
   private readonly onNextWave = (): void => {
     if (this.disposed || this.phase !== 'cleared') return;
@@ -1147,6 +1161,7 @@ export class SurvivalMode {
     this.countdownRemaining = COUNTDOWN_SECONDS;
     this.lastCountdownSecond = -1;
     this.pointerFiring = false;
+    this.pendingWaveKillReward = 0;
     this.pendingWaveReward = 0;
     this.keys.clear();
     this.stuckSeconds = 0;
@@ -1174,18 +1189,18 @@ export class SurvivalMode {
     this.waveElapsedSeconds = 0;
   }
 
-  private readonly handleZombieKilled = (
+  private handleZombieKilled(
     reward: number,
     kind: ZombieKind,
-  ): void => {
+  ): void {
     this.kills++;
     if (kind === 'phone-addict' && !this.debugProgressionSuppressed) {
       this.phoneAddictKills++;
       this.callbacks.onPhoneAddictKilled();
     }
-    this.creditReward(reward);
+    this.addPendingWaveKillReward(reward);
     this.waves.recordZombieKilled();
-  };
+  }
 
   private onWaveComplete(wave: number, reward: number): void {
     if (this.phase === 'gameOver') return;
@@ -1193,7 +1208,8 @@ export class SurvivalMode {
     // Resolve the completed physics step before paying the clear bonus. If the
     // final zombie and vehicle die together, destruction wins consistently and
     // the uncleared wave is neither counted nor rewarded.
-    this.pendingWaveReward = reward;
+    this.pendingWaveReward =
+      Number.isSafeInteger(reward) && reward > 0 ? reward : 0;
     if (!this.debugProgressionSuppressed) this.callbacks.onWaveCleared(wave);
     this.zombies.clearLandmines();
     this.phase = 'cleared';
@@ -1203,11 +1219,40 @@ export class SurvivalMode {
     this.stuckPrompt.classList.remove('is-visible');
   }
 
-  private creditReward(amount: number): void {
-    if (!Number.isSafeInteger(amount) || amount <= 0) return;
-    const credited = this.callbacks.onReward(amount);
+  private addPendingWaveKillReward(amount: number): void {
+    if (
+      this.phase !== 'active' ||
+      !Number.isSafeInteger(amount) ||
+      amount <= 0
+    ) {
+      return;
+    }
+    const next = this.pendingWaveKillReward + amount;
+    if (Number.isSafeInteger(next)) this.pendingWaveKillReward = next;
+  }
+
+  private pendingWaveTotal(): number {
+    const total = this.pendingWaveKillReward + this.pendingWaveReward;
+    return Number.isSafeInteger(total) && total > 0 ? total : 0;
+  }
+
+  private discardPendingWaveRewards(): void {
+    this.pendingWaveKillReward = 0;
+    this.pendingWaveReward = 0;
+    this.lastHudPending = -1;
+  }
+
+  private bankPendingWaveRewards(): void {
+    const total = this.pendingWaveTotal();
+    if (total <= 0) {
+      this.discardPendingWaveRewards();
+      return;
+    }
+    this.discardPendingWaveRewards();
+    this.waveMoneyEarned = 0;
+    const credited = this.callbacks.onReward(total);
     if (Number.isSafeInteger(credited) && credited > 0) {
-      this.waveMoneyEarned += credited;
+      this.waveMoneyEarned = credited;
     }
   }
 
@@ -1218,11 +1263,10 @@ export class SurvivalMode {
   private queueCompletedStepTransition(): void {
     if (this.pendingTransition !== null) return;
     if (this.vehicle.isDestroyed()) {
-      this.pendingWaveReward = 0;
+      this.discardPendingWaveRewards();
       this.queueGameOver();
     } else if (this.phase === 'cleared') {
-      this.creditReward(this.pendingWaveReward);
-      this.pendingWaveReward = 0;
+      this.bankPendingWaveRewards();
       this.stopVehicleMotion();
       this.showVictory();
     }
@@ -1460,6 +1504,14 @@ export class SurvivalMode {
       this.lastHudMoney = money;
       this.moneyValue.textContent = `$${money}`;
     }
+    const pendingMoney =
+      this.phase === 'active' || this.phase === 'cleared'
+        ? this.pendingWaveTotal()
+        : 0;
+    if (pendingMoney !== this.lastHudPending) {
+      this.lastHudPending = pendingMoney;
+      this.pendingMoneyValue.textContent = `+$${pendingMoney}`;
+    }
     if (this.phase === 'countdown') {
       const second = Math.max(1, Math.ceil(this.countdownRemaining));
       if (second !== this.lastCountdownSecond) {
@@ -1677,6 +1729,7 @@ export class SurvivalMode {
       Math.floor(Number.isFinite(wave) ? wave : 1),
     );
     this.phase = 'active';
+    this.pendingWaveKillReward = 0;
     this.pendingWaveReward = 0;
     this.pendingTransition = null;
     this.pointerFiring = false;
@@ -1693,7 +1746,9 @@ export class SurvivalMode {
     try {
       const unspawnedKills = this.waves.prepareDebugKillAll();
       this.kills += unspawnedKills;
-      this.creditReward(unspawnedKills * BASE_ZOMBIE_STATS.reward);
+      this.addPendingWaveKillReward(
+        unspawnedKills * BASE_ZOMBIE_STATS.reward,
+      );
       this.zombies.forceKillAll();
       this.waves.fixedUpdate(0);
     } finally {

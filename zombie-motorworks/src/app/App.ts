@@ -365,8 +365,7 @@ export class App {
       onBuildPhase: (state, survivingPartIds) =>
         this.enterBuildPhase(state, survivingPartIds),
       onGameOver: (state) => this.finishRun(state),
-      onResetWave: (state, waveEarnings) =>
-        this.resetSurvivalWave(state, waveEarnings),
+      onResetWave: (state) => this.resetSurvivalWave(state),
       onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
       onPhoneAddictKilled: () => {
         recordPhoneAddictKilled(this.profile);
@@ -409,16 +408,7 @@ export class App {
     this.openEditor();
   }
 
-  private resetSurvivalWave(run: RunState, waveEarnings: number): void {
-    const rollback = Math.min(
-      Math.max(0, Math.floor(waveEarnings)),
-      this.runMoneyEarned,
-      this.profile.money,
-    );
-    if (rollback > 0) {
-      this.changeMoney(-rollback, false);
-      this.runMoneyEarned -= rollback;
-    }
+  private resetSurvivalWave(run: RunState): void {
     this.activeRun = { wave: run.wave };
     this.inBuildPhase = false;
     this.enterSurvival(this.bp, this.activeRun);
