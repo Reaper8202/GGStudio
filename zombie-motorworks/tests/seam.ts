@@ -37,7 +37,7 @@ declare global {
         speedKmh: number;
         rpm: number;
         fuel: number;
-        ammo: number;
+        totalShotsFired: number;
         groundedWheels: number;
         totalWheels: number;
         aliveParts: number;

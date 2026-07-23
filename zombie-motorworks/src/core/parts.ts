@@ -134,11 +134,11 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       width: 0.22,
       axleAxis: WHEEL_AXLE_LOCAL,
       suspensionDir: WHEEL_SUSPENSION_LOCAL,
-      maxSteerAngleDeg: 34,
+      maxSteerAngleDeg: 40,
       driveTorqueLimit: 2600,
       brakeTorque: 1400,
       frictionLong: 1,
-      frictionLat: 0.95,
+      frictionLat: 1.05,
       maxLoad: 9000,
       suspension: {
         restLength: 0.35,
@@ -299,6 +299,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     cost: 60,
     upgrade: upgrade(5, 60),
     reinforcement: 1,
+    // Engines carry a small internal fuel reserve so an engine-only build can
+    // still drive; fuel-tank blocks extend total onboard fuel from there.
+    fuelCapacity: 15,
     engine: {
       torqueCurve: [
         [800, 140],
@@ -309,7 +312,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       maxRpm: 6000,
       idleRpm: 800,
       maxPowerKw: 95,
-      fuelPerSecondAtFull: 0.03,
+      // Burns a tank in a couple of minutes of driving — a light but real
+      // resource that keeps refuel crates relevant.
+      fuelPerSecondAtFull: 0.27,
     },
   },
   'fuel-tank': {
@@ -325,7 +330,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     cost: 20,
     upgrade: upgrade(3, 20),
     reinforcement: 1,
-    fuelCapacity: 40,
+    fuelCapacity: 50,
   },
   'mine-sweeper': {
     id: 'mine-sweeper',
@@ -356,8 +361,6 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     cost: 150,
     upgrade: upgrade(5, 150),
     reinforcement: 1,
-    ammoCapacity: 200,
-    batteryCapacity: 500,
     weapon: {
       mountType: 'turret',
       aimMode: 'auto',
@@ -365,8 +368,6 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       damageType: 'hitscan',
       damage: 3,
       fireRate: 7,
-      ammoPerShot: 1,
-      powerPerShot: 2,
       recoilImpulse: 40,
       projectileSpeed: 140,
       rangeM: 8,
@@ -407,8 +408,6 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     upgrade: upgrade(5, 340),
     unlockCost: 500,
     reinforcement: 1.25,
-    ammoCapacity: 40,
-    batteryCapacity: 600,
     weapon: {
       mountType: 'turret',
       // Same auto-aim turret as the Zombie Blaster, but it holds fire until the
@@ -418,13 +417,52 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       damageType: 'projectile',
       damage: 40,
       fireRate: 0.7,
-      ammoPerShot: 1,
-      powerPerShot: 12,
       recoilImpulse: 520,
       projectileSpeed: 260,
       rangeM: 30,
       targetPriority: 'strongest',
       manualFire: true,
+    },
+  },
+  'ice-cannon': {
+    id: 'ice-cannon',
+    name: 'Ice Cannon',
+    category: 'weapon',
+    description:
+      'Cryo emitter. Auto-fires ice shards that chill and slow zombies. ' +
+      'Press Q to flash-freeze the nearest zombies solid (22s cooldown); ' +
+      'upgrades freeze more zombies for longer.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 110,
+    health: 150,
+    cost: 300,
+    upgrade: upgrade(5, 300),
+    unlockCost: 600,
+    reinforcement: 1.15,
+    // Normal fire: an auto-aim cryo turret whose shards slow zombies on hit.
+    weapon: {
+      mountType: 'turret',
+      aimMode: 'auto',
+      arcDeg: 360,
+      damageType: 'projectile',
+      damage: 6,
+      fireRate: 2.5,
+      recoilImpulse: 30,
+      projectileSpeed: 150,
+      rangeM: 18,
+      slowFactor: 0.5,
+      slowDurationSeconds: 2.5,
+    },
+    // Player-triggered active ability: the full flash-freeze, driven off Q by
+    // SurvivalMode independently of the normal fire above.
+    ability: {
+      kind: 'freeze',
+      cooldownSeconds: 22,
+      rangeM: 18,
+      baseTargets: 3,
+      baseDurationSeconds: 4,
     },
   },
   'barrel-drum': {
@@ -461,8 +499,6 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     upgrade: upgrade(5, 220),
     unlockCost: 350,
     reinforcement: 1,
-    ammoCapacity: 60,
-    batteryCapacity: 400,
     weapon: {
       mountType: 'turret',
       aimMode: 'auto',
@@ -470,8 +506,6 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       damageType: 'hitscan',
       damage: 50,
       fireRate: 0.2,
-      ammoPerShot: 1,
-      powerPerShot: 6,
       recoilImpulse: 180,
       projectileSpeed: 400,
       rangeM: 40,
@@ -494,8 +528,6 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     upgrade: upgrade(5, 260),
     unlockCost: 450,
     reinforcement: 1,
-    ammoCapacity: 120,
-    batteryCapacity: 400,
     weapon: {
       mountType: 'fixed',
       aimMode: 'manual',
@@ -503,8 +535,6 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       damageType: 'aoe',
       damage: 9,
       fireRate: 4,
-      ammoPerShot: 1,
-      powerPerShot: 2,
       recoilImpulse: 30,
       projectileSpeed: 30,
       rangeM: 7,
@@ -513,6 +543,31 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       fireMode: 'periodic',
       burstSeconds: 1.5,
       burstIntervalSeconds: 6.6,
+    },
+  },
+  'shield-generator': {
+    id: 'shield-generator',
+    name: 'Shield Generator',
+    category: 'weapon',
+    description:
+      'Defensive emitter. Press Q to raise a bright blue bubble that makes ' +
+      'the whole vehicle invulnerable for a few seconds. 25s cooldown; ' +
+      'upgrades extend how long the shield holds.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 120,
+    health: 160,
+    cost: 320,
+    upgrade: upgrade(5, 320),
+    unlockCost: 650,
+    reinforcement: 1.15,
+    // Player-triggered active ability only (no `weapon` payload): SurvivalMode
+    // grants the vehicle temporary invulnerability off the Q key.
+    ability: {
+      kind: 'shield',
+      cooldownSeconds: 25,
+      baseDurationSeconds: 4,
     },
   },
 };

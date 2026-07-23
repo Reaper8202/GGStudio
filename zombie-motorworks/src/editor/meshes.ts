@@ -23,6 +23,8 @@ const COLORS: Record<string, number> = {
   turret: 0x39424e,
   'armour-plate': 0x69737a,
   'cannon-heavy': 0x303840,
+  'ice-cannon': 0x4db8e0,
+  'shield-generator': 0x2f7bd6,
   'barrel-drum': 0x7d5a3a,
   'sniper-light': 0x33404f,
   flamethrower: 0x9c3d20,

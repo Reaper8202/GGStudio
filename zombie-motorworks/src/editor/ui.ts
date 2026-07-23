@@ -779,6 +779,19 @@ export function buildEditorUI(
         selectedContent.appendChild(advanced);
       }
 
+      if ((effectiveDef ?? def).ability) {
+        const abilitySection = document.createElement('label');
+        abilitySection.className = 'selected-part__ability';
+        const abilityInput = document.createElement('input');
+        abilityInput.type = 'checkbox';
+        abilityInput.checked = partConfig?.activeAbility === true;
+        abilityInput.addEventListener('change', () =>
+          handlers.onConfigChange(partId, 'activeAbility', abilityInput.checked),
+        );
+        abilitySection.append(abilityInput, 'Bind to Q ability');
+        selectedContent.appendChild(abilitySection);
+      }
+
       const paintSection = document.createElement('div');
       paintSection.className = 'selected-part__paint';
       const paintLabel = document.createElement('span');
@@ -1091,16 +1104,25 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Damage', formatStat(def.weapon.damage)],
       ['Fire Rate', `${formatStat(def.weapon.fireRate)} / S`],
       ['DPS', formatStat(def.weapon.damage * def.weapon.fireRate)],
+      // Weapons have unlimited ammo now — fuel is the managed resource.
+      ['Ammo', 'Unlimited'],
     );
-    // Each weapon carries its own magazine, so this is what the part brings
-    // to the rig rather than a share of a common pool.
-    if (def.ammoCapacity) {
-      const shots = Math.floor(def.ammoCapacity / Math.max(1, def.weapon.ammoPerShot));
-      labels.push(
-        ['Ammo', `${formatStat(def.ammoCapacity)} RDS`],
-        ['Firing Time', `${(shots / def.weapon.fireRate).toFixed(1)} S`],
-      );
-    }
+  }
+  if (def.ability?.kind === 'freeze') {
+    labels.push(
+      ['Activate', 'Press Q'],
+      ['Freezes', `${formatStat(def.ability.baseTargets ?? 0)} zombies`],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'shield') {
+    labels.push(
+      ['Activate', 'Press Q'],
+      ['Effect', 'Invulnerable'],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
   }
   if (def.armour) labels.push(['Protection', formatStat(def.armour.protection)]);
   return labels;

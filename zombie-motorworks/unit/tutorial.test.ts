@@ -28,9 +28,11 @@ const EXPECTED_LABELS: Record<string, string> = {
   turret: 'Zombie Blaster',
   'armour-plate': 'Armour Plate',
   'cannon-heavy': 'Heavy Cannon',
+  'ice-cannon': 'Ice Cannon',
   'barrel-drum': 'Grinder Drum',
   'sniper-light': 'Light Sniper',
   flamethrower: 'Flamethrower',
+  'shield-generator': 'Shield Bubble',
 };
 
 const FRAME_BUILD: readonly { defId: string; pos: Vec3i }[] = [
@@ -139,6 +141,8 @@ describe('editor catalog presentation', () => {
       'turret',
       'armour-plate',
       'cannon-heavy',
+      'ice-cannon',
+      'shield-generator',
       'barrel-drum',
       'sniper-light',
       'flamethrower',

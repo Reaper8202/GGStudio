@@ -30,9 +30,11 @@ export const MIRROR_PLANE_X_M = CELL_SIZE / 2;
 // engine force. Per-wheel and per-surface coefficients still preserve the
 // standard/off-road and asphalt/dirt/mud differences.
 const TIRE_LONGITUDINAL_GRIP_MULTIPLIER = 1.4;
-const TIRE_LATERAL_GRIP_MULTIPLIER = 1.65;
+// Lateral grip holds harder and saturates later so the car actually follows
+// the steering into a corner instead of washing out into understeer.
+const TIRE_LATERAL_GRIP_MULTIPLIER = 1.9;
 const LONG_SLIP_SATURATION = 1.15; // m/s of slip for full longitudinal force
-const LAT_SLIP_SATURATION = 0.5; // m/s lateral speed for full lateral force
+const LAT_SLIP_SATURATION = 0.7; // m/s lateral speed for full lateral force
 const WHEEL_REST_EPSILON = 0.001; // m/s
 const BRAKE_STOP_RESPONSE_STEPS = 1;
 const GRAVITY_MPS2 = 9.81;
@@ -53,10 +55,10 @@ const TIRE_FORCE_ANCHOR_LIFT = 0.75;
 // Steering feel. A brisker slew rate makes the wheels reach the commanded
 // angle quickly so turn-in no longer lags the key press, and a gentler
 // high-speed fade keeps the response consistent instead of going numb.
-const STEER_RATE = 12; // rad/s
+const STEER_RATE = 14; // rad/s
 const LOW_SPEED_STEER_MULTIPLIER = 1.02;
-const HIGH_SPEED_STEER_MULTIPLIER = 0.9;
-const STEER_FADE_PER_MPS = 0.006;
+const HIGH_SPEED_STEER_MULTIPLIER = 0.95;
+const STEER_FADE_PER_MPS = 0.004;
 
 export interface WheelStepInput {
   throttle: number; // 0..1

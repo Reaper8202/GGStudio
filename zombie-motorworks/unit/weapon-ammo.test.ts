@@ -1,7 +1,7 @@
 /**
- * Per-weapon magazines. Ammo used to be one pool summed across every weapon
- * part, which meant a Zombie Blaster could be starved dry by a Heavy Cannon
- * sharing the rig and the HUD could not say what any one gun had left.
+ * Weapons have unlimited ammo — firing is limited only by each weapon's
+ * fire-rate cooldown. Fuel is the resource the player manages instead, topped
+ * up by refuel crates via RuntimeVehicle.refuel.
  */
 
 import RAPIER from '@dimforge/rapier3d-compat';
@@ -17,26 +17,14 @@ function part(id: string, defId: string, x = 0): PlacedPart {
 }
 
 function blueprint(parts: PlacedPart[]): VehicleBlueprint {
-  return { schemaVersion: 4, id: 'ammo-test', name: 'Ammo test', parts };
+  return { schemaVersion: 4, id: 'weapon-test', name: 'Weapon test', parts };
 }
 
 beforeAll(async () => {
   await RAPIER.init();
 });
 
-describe('per-weapon magazines', () => {
-  it('loads each weapon to its own part ammoCapacity', () => {
-    const blaster = createWeapon(part('blaster', 'turret'));
-    const cannon = createWeapon(part('cannon', 'cannon-heavy'));
-
-    expect(blaster.ammoCapacity).toBe(getPartDef('turret').ammoCapacity);
-    expect(blaster.ammo).toBe(blaster.ammoCapacity);
-    expect(cannon.ammoCapacity).toBe(getPartDef('cannon-heavy').ammoCapacity);
-    expect(cannon.ammo).toBe(cannon.ammoCapacity);
-    // Distinct magazines, not a shared total.
-    expect(blaster.ammoCapacity).not.toBe(cannon.ammoCapacity);
-  });
-
+describe('unlimited weapons', () => {
   it('labels a weapon with its player-facing part name', () => {
     expect(createWeapon(part('blaster', 'turret')).label).toBe('Zombie Blaster');
   });
@@ -57,39 +45,34 @@ describe('per-weapon magazines', () => {
     expect(cannon.piercingLevel).toBe(0);
   });
 
-  it('spends only the firing weapon’s own rounds', () => {
+  it('never runs out of ammo — it fires as fast as its cooldown allows', () => {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
-    const blasterPart = part('blaster', 'turret', -1);
-    const cannonPart = part('cannon', 'cannon-heavy', 1);
+    const blasterPart = part('blaster', 'turret');
     const assembled = assembleVehicle(
       world,
-      blueprint([blasterPart, cannonPart]),
+      blueprint([blasterPart]),
       getPartDef,
       [],
       { translation: { x: 0, y: 1, z: 0 } },
     );
     const blaster = createWeapon(blasterPart);
-    const cannon = createWeapon(cannonPart);
-    const blasterStart = blaster.ammo;
-    const cannonStart = cannon.ammo;
+    const attached = new Set([blaster.partId]);
 
-    // Only the blaster is told to fire; the cannon is held.
-    stepWeapons(
-      world,
-      assembled,
-      [blaster, cannon],
-      new Set([blaster.partId, cannon.partId]),
-      {
-        aimYawWorld: 0,
-        fire: true,
-        weaponAim: new Map([[cannon.partId, { aimYawWorld: 0, fire: false }]]),
-      },
-      1_000,
-      0.1,
-    );
+    // Far more trigger pulls than any old magazine held; every one discharges.
+    const pulls = 500;
+    for (let i = 0; i < pulls; i++) {
+      blaster.cooldown = 0;
+      stepWeapons(
+        world,
+        assembled,
+        [blaster],
+        attached,
+        { aimYawWorld: 0, fire: true },
+        1 / 60,
+      );
+    }
 
-    expect(blaster.ammo).toBe(blasterStart - blaster.def.ammoPerShot);
-    expect(cannon.ammo).toBe(cannonStart);
+    expect(blaster.shotsFired).toBe(pulls);
 
     world.removeRigidBody(assembled.body);
     world.free();
@@ -117,7 +100,6 @@ describe('per-weapon magazines', () => {
       [cannon],
       attached,
       { aimYawWorld: 0, fire: false, weaponAim: acquired },
-      1_000,
       0.1,
     );
     expect(held.shots).toHaveLength(0);
@@ -131,7 +113,6 @@ describe('per-weapon magazines', () => {
       [cannon],
       attached,
       { aimYawWorld: 0, fire: true, weaponAim: acquired },
-      1_000,
       0.1,
     );
     expect(fired.shots.length).toBeGreaterThan(0);
@@ -140,91 +121,41 @@ describe('per-weapon magazines', () => {
     world.removeRigidBody(assembled.body);
     world.free();
   });
+});
 
-  it('never auto-refills a spent magazine — ammo comes only from pickups', () => {
-    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
-    const blasterPart = part('blaster', 'turret');
-    const assembled = assembleVehicle(
-      world,
-      blueprint([blasterPart]),
-      getPartDef,
-      [],
-      { translation: { x: 0, y: 1, z: 0 } },
-    );
-    const blaster = createWeapon(blasterPart);
-    blaster.ammo = 0;
-
-    // A whole second of holding an attached, empty gun must add nothing.
-    const result = stepWeapons(
-      world,
-      assembled,
-      [blaster],
-      new Set([blaster.partId]),
-      { aimYawWorld: 0, fire: true },
-      1_000,
-      1,
-    );
-
-    expect(result.shots).toHaveLength(0);
-    expect(blaster.shotsFired).toBe(0);
-    expect(blaster.ammo).toBe(0);
-
-    world.removeRigidBody(assembled.body);
-    world.free();
-  });
-
-  it('refills every mounted weapon by a fixed chunk when a pickup is collected', () => {
+describe('refuel crates', () => {
+  it('tops up onboard fuel by a fixed chunk and clamps at capacity', () => {
     const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     const vehicle = new RuntimeVehicle(
       world,
-      blueprint([part('blaster', 'turret')]),
+      blueprint([
+        part('engine', 'engine-small', -1),
+        part('tank', 'fuel-tank', 1),
+      ]),
       getPartDef,
       [],
       { translation: { x: 0, y: 1, z: 0 } },
     );
-    const [weapon] = vehicle.weaponStates();
-    weapon.ammo = 0;
+    const telemetry = vehicle.telemetry();
+    const capacity = telemetry.fuelCapacity;
+    expect(capacity).toBeGreaterThan(0);
+    // Vehicles start with a full tank.
+    expect(telemetry.fuel).toBeCloseTo(capacity);
 
-    // One box adds half a magazine and reports how many rounds it restored.
-    const added = vehicle.refillWeapons(0.5);
-    expect(added).toBeCloseTo(weapon.ammoCapacity * 0.5);
-    expect(weapon.ammo).toBeCloseTo(weapon.ammoCapacity * 0.5);
+    // A full tank drives straight over a crate: nothing to add.
+    expect(vehicle.refuel(0.5)).toBe(0);
 
-    // A second box tops up and clamps at capacity; a third finds nothing to add.
-    vehicle.refillWeapons(0.5);
-    expect(weapon.ammo).toBe(weapon.ammoCapacity);
-    expect(vehicle.refillWeapons(0.5)).toBe(0);
+    // Burn some fuel, then a crate restores half of total capacity.
+    vehicle.debugSetFuel(0);
+    const added = vehicle.refuel(0.5);
+    expect(added).toBeCloseTo(capacity * 0.5);
+
+    // A second crate tops up and clamps at capacity; a third finds nothing.
+    vehicle.refuel(0.5);
+    expect(vehicle.telemetry().fuel).toBeCloseTo(capacity);
+    expect(vehicle.refuel(0.5)).toBe(0);
 
     vehicle.dispose();
-    world.free();
-  });
-
-  it('does not recharge a detached or destroyed weapon', () => {
-    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
-    const blasterPart = part('blaster', 'turret');
-    const assembled = assembleVehicle(
-      world,
-      blueprint([blasterPart]),
-      getPartDef,
-      [],
-      { translation: { x: 0, y: 1, z: 0 } },
-    );
-    const blaster = createWeapon(blasterPart);
-    blaster.ammo = 0;
-
-    stepWeapons(
-      world,
-      assembled,
-      [blaster],
-      new Set(),
-      { aimYawWorld: 0, fire: false },
-      1_000,
-      1,
-    );
-
-    expect(blaster.ammo).toBe(0);
-
-    world.removeRigidBody(assembled.body);
     world.free();
   });
 });

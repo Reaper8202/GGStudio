@@ -234,6 +234,7 @@ function validateConfig(
     'steering',
     'steerInverted',
     'braking',
+    'activeAbility',
   ] as const) {
     if (typeof config[key] === 'boolean') sanitized[key] = config[key];
   }

@@ -330,9 +330,48 @@ export class ZombieSystem {
     this.swarmForce.z = 0;
   }
 
+  /**
+   * Ice Cannon activation: flash-freeze up to `maxCount` currently-unfrozen,
+   * targetable zombies within `radiusM` of the origin, nearest first, for
+   * `seconds`. Returns how many were frozen. Runs rarely (once per cooldown),
+   * so the small sort allocation is not a concern.
+   */
+  freezeNearest(
+    origin: { x: number; z: number },
+    maxCount: number,
+    radiusM: number,
+    seconds: number,
+  ): number {
+    if (this.disposed || maxCount <= 0 || radiusM <= 0 || seconds <= 0)
+      return 0;
+    const radiusSq = radiusM * radiusM;
+    const candidates: { zombie: Zombie; distSq: number }[] = [];
+    for (const zombie of this.aliveTargets) {
+      if (zombie.isFrozen) continue;
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq > radiusSq) continue;
+      candidates.push({ zombie, distSq });
+    }
+    candidates.sort((a, b) => a.distSq - b.distSq);
+    const limit = Math.min(Math.floor(maxCount), candidates.length);
+    for (let i = 0; i < limit; i++) candidates[i].zombie.applyFreeze(seconds);
+    return limit;
+  }
+
   /** True when the collider belongs to a shielded (Phone Addict) zombie. */
   isShieldedTarget(handle: number): boolean {
     return this.colliderToZombie.get(handle)?.kind === 'phone-addict';
+  }
+
+  /**
+   * Ice Cannon normal fire: slow the zombie behind a weapon-hit collider to
+   * `factor` of its speed for `seconds`. No-op when the handle is unknown.
+   */
+  slowZombieHandle(handle: number, factor: number, seconds: number): void {
+    if (this.disposed || seconds <= 0) return;
+    this.colliderToZombie.get(handle)?.applySlow(factor, seconds);
   }
 
   /** Route a RuntimeVehicle hit while preserving shield and kill outcomes. */

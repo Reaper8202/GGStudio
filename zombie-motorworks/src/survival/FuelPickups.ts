@@ -1,9 +1,9 @@
 /**
- * Ammo-box pickups scattered across the graveyard. A small, fixed number of
- * boxes exist at once and each spot only comes back a good while after it is
- * collected, so resupply is deliberately scarce — the player cannot simply
- * park on a box for effectively infinite ammo. Driving over an active box tops
- * every mounted weapon up by a fixed chunk of its magazine.
+ * Refuel crates scattered across the graveyard. A small, fixed number exist at
+ * once and each spot only comes back a good while after it is collected, so
+ * resupply is deliberately something to drive toward rather than a given.
+ * Driving over an active crate tops the vehicle's onboard fuel up by a fixed
+ * chunk of its total capacity.
  */
 
 import * as THREE from 'three';
@@ -17,28 +17,30 @@ interface MapBounds {
   readonly maxZ: number;
 }
 
+// Reuses the supply-crate model (no dedicated fuel-can asset yet); the fuel
+// hue on the beacon below is what reads it as a refuel crate.
 const ASSET_URL = `${import.meta.env.BASE_URL}assets/graveyard/props/AmmoBox_5.fbx`;
 
-// Rarity knobs. Few boxes, slow to return: a resupply is something to go out
-// of your way for, not a given.
+// Rarity knobs. A handful of crates, moderately slow to return: refuelling is
+// something to plan a route around, not a constant convenience.
 const SLOT_COUNT = 3;
-const RESPAWN_SECONDS = 34;
+const RESPAWN_SECONDS = 24;
 const INITIAL_DELAY_MIN = 5;
 const INITIAL_DELAY_MAX = 28;
 
 const PICKUP_RADIUS = 2.8; // horizontal metres to collect
 const PICKUP_RADIUS_SQ = PICKUP_RADIUS * PICKUP_RADIUS;
-const REFILL_FRACTION = 0.5; // fixed chunk added to each weapon's magazine
-const EDGE_MARGIN = 8; // keep boxes clear of the perimeter walls
+const REFILL_FRACTION = 0.5; // fixed chunk of total fuel capacity added
+const EDGE_MARGIN = 8; // keep crates clear of the perimeter walls
 const MIN_VEHICLE_DISTANCE = 12; // never drop one on top of the player
 const MIN_VEHICLE_DISTANCE_SQ = MIN_VEHICLE_DISTANCE * MIN_VEHICLE_DISTANCE;
 
-const BASE_Y = 0.7; // hover height of the box centre
+const BASE_Y = 0.7; // hover height of the crate centre
 const BOB_AMPLITUDE = 0.22;
 const BOB_RATE = 2.1; // rad/s
 const SPIN_RATE = 1.1; // rad/s
 const BOX_SCALE = 1.15;
-const GLOW_COLOR = 0xffd166;
+const GLOW_COLOR = 0x54e07a; // fuel green, distinct from the old ammo amber
 
 interface Slot {
   readonly group: THREE.Group;
@@ -50,13 +52,14 @@ interface Slot {
   phase: number; // bob/spin animation offset
 }
 
-export class AmmoPickups {
+export class FuelPickups {
   private readonly root = new THREE.Group();
   private readonly slots: Slot[] = [];
+  private readonly crateSnapshot: { x: number; z: number }[] = [];
   private disposed = false;
 
-  // Owned, shared beacon visuals (disposed here; the box mesh itself shares the
-  // cached voxel template and is disposed with the asset cache).
+  // Owned, shared beacon visuals (disposed here; the crate mesh itself shares
+  // the cached voxel template and is disposed with the asset cache).
   private readonly haloGeometry = new THREE.TorusGeometry(1.1, 0.08, 8, 24);
   private readonly haloMaterial = new THREE.MeshBasicMaterial({
     color: GLOW_COLOR,
@@ -78,7 +81,7 @@ export class AmmoPickups {
     private readonly vehicle: RuntimeVehicle,
     private readonly bounds: MapBounds,
   ) {
-    this.root.name = 'ammo-pickups';
+    this.root.name = 'fuel-pickups';
     this.scene.add(this.root);
     for (let i = 0; i < SLOT_COUNT; i++) this.slots.push(this.createSlot());
   }
@@ -115,8 +118,8 @@ export class AmmoPickups {
       phase: Math.random() * Math.PI * 2,
     };
 
-    // Load the box model once per slot; it shares geometry with any decorative
-    // ammo boxes already placed in the graveyard.
+    // Load the crate model once per slot; it shares geometry with any
+    // decorative supply boxes already placed in the graveyard.
     void instantiateVoxelAsset(ASSET_URL)
       .then((object) => {
         if (this.disposed) return;
@@ -130,7 +133,7 @@ export class AmmoPickups {
     return slot;
   }
 
-  /** Advance respawn timers and collect any box the vehicle is sitting on. */
+  /** Advance respawn timers and collect any crate the vehicle is sitting on. */
   step(dt: number): void {
     if (this.disposed) return;
     const pos = this.vehicle.body.translation();
@@ -143,10 +146,19 @@ export class AmmoPickups {
       const dx = pos.x - slot.x;
       const dz = pos.z - slot.z;
       if (dx * dx + dz * dz > PICKUP_RADIUS_SQ) continue;
-      // Only spend the box if it actually restores something; a full loadout
-      // drives straight over it and leaves it for later.
-      if (this.vehicle.refillWeapons(REFILL_FRACTION) > 0) this.collect(slot);
+      // Only spend the crate if it actually restores fuel; a full tank drives
+      // straight over it and leaves it for later.
+      if (this.vehicle.refuel(REFILL_FRACTION) > 0) this.collect(slot);
     }
+  }
+
+  /** Active crate positions for the minimap, backed by a reused array. */
+  activeCrates(): readonly { x: number; z: number }[] {
+    this.crateSnapshot.length = 0;
+    for (const slot of this.slots) {
+      if (slot.active) this.crateSnapshot.push({ x: slot.x, z: slot.z });
+    }
+    return this.crateSnapshot;
   }
 
   private spawn(slot: Slot, vehiclePos: { x: number; z: number }): void {
@@ -184,7 +196,7 @@ export class AmmoPickups {
     return { x, z };
   }
 
-  /** Bob and spin active boxes so they read as collectible beacons. */
+  /** Bob and spin active crates so they read as collectible beacons. */
   updateVisuals(frameDt: number): void {
     if (this.disposed) return;
     for (const slot of this.slots) {

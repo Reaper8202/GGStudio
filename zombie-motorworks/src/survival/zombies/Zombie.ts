@@ -65,6 +65,9 @@ const ZOMBIE_ASSET_ROOT = `${import.meta.env.BASE_URL}assets/zombies`;
 const OBSTACLE_FILTER_GROUPS = (GROUP_ZOMBIE << 16) | GROUP_TERRAIN;
 const BASE_EMISSIVE = 0.25;
 const HIT_FLASH_COLOR = new THREE.Color(0xffffff);
+/** Icy blue glow applied to a frozen zombie's body while its freeze lasts. */
+const ICE_FREEZE_COLOR = new THREE.Color(0x8fd8ff);
+const ICE_FREEZE_EMISSIVE = 0.85;
 const BASE_VISUAL_SCALE = 1.85;
 const BODY_TINTS = [0x4c6b3f, 0x5a7247, 0x3f5c48, 0x6b5a3f, 0x556b4c, 0x47614a];
 const warnedVisualVariants = new Set<number>();
@@ -241,6 +244,11 @@ export class Zombie {
   private retreating = false;
   private lungeTimer = 0;
   private hitFlashTimer = 0;
+  /** Seconds of remaining Ice Cannon freeze; while >0 the zombie can't act. */
+  private freezeTimer = 0;
+  /** Seconds of remaining ice-fire slow; while >0 move speed scales by slowFactor. */
+  private slowTimer = 0;
+  private slowFactor = 1;
   private bobPhase = 0;
   private visualOpacity = 1;
   private disposed = false;
@@ -420,6 +428,9 @@ export class Zombie {
     if (this.ringMesh) this.ringMesh.visible = false;
     this.lungeTimer = 0;
     this.hitFlashTimer = 0;
+    this.freezeTimer = 0;
+    this.slowTimer = 0;
+    this.slowFactor = 1;
     this.detourSign = Math.random() < 0.5 ? -1 : 1;
     this.bobPhase = Math.random() * Math.PI * 2;
 
@@ -474,6 +485,19 @@ export class Zombie {
   ): void {
     if (!this.active) return;
     this.impactCooldown = Math.max(0, this.impactCooldown - dt);
+    if (this.slowTimer > 0) {
+      this.slowTimer = Math.max(0, this.slowTimer - dt);
+      if (this.slowTimer === 0) this.slowFactor = 1;
+    }
+
+    // Ice Cannon freeze: hold the zombie in place until the freeze expires.
+    // Dead zombies still run their death animation; everything else is halted.
+    if (this.freezeTimer > 0 && this.state !== ZombieState.Dead) {
+      this.freezeTimer = Math.max(0, this.freezeTimer - dt);
+      this.zeroHorizontalVelocity();
+      this.syncPositionFromBody();
+      return;
+    }
 
     switch (this.state) {
       case ZombieState.Spawning:
@@ -506,6 +530,40 @@ export class Zombie {
     if (!this.active) return;
     this.zeroHorizontalVelocity();
     this.syncPositionFromBody();
+  }
+
+  /**
+   * Ice Cannon flash-freeze: halt the zombie for `seconds`. Only affects a live,
+   * targetable zombie; re-freezing extends to the longer remaining time.
+   */
+  applyFreeze(seconds: number): void {
+    if (!this.isTargetable || seconds <= 0) return;
+    this.freezeTimer = Math.max(this.freezeTimer, seconds);
+  }
+
+  /** True while an Ice Cannon freeze is holding this zombie. */
+  get isFrozen(): boolean {
+    return this.freezeTimer > 0;
+  }
+
+  /**
+   * Ice Cannon normal fire: slow the zombie to `factor` of its speed for
+   * `seconds`. Only affects a live, targetable zombie; a stronger (lower
+   * factor) or longer slow overrides a weaker one, and the timer extends.
+   */
+  applySlow(factor: number, seconds: number): void {
+    if (!this.isTargetable || seconds <= 0) return;
+    const clampedFactor = Math.max(0, Math.min(1, factor));
+    this.slowFactor =
+      this.slowTimer > 0
+        ? Math.min(this.slowFactor, clampedFactor)
+        : clampedFactor;
+    this.slowTimer = Math.max(this.slowTimer, seconds);
+  }
+
+  /** True while an ice-fire slow is dragging this zombie down. */
+  get isSlowed(): boolean {
+    return this.slowTimer > 0;
   }
 
   teleportTo(position: Vector3Like): void {
@@ -556,6 +614,16 @@ export class Zombie {
       for (const material of this.visualMaterials) {
         material.emissive.copy(HIT_FLASH_COLOR).multiplyScalar(amount);
       }
+    } else if (this.freezeTimer > 0) {
+      // Icy blue glow while frozen (a hit-flash briefly overrides it above).
+      for (const material of this.visualMaterials)
+        material.emissive.copy(ICE_FREEZE_COLOR).multiplyScalar(ICE_FREEZE_EMISSIVE);
+    } else if (this.slowTimer > 0) {
+      // Fainter icy glow while merely slowed by ice fire.
+      for (const material of this.visualMaterials)
+        material.emissive
+          .copy(ICE_FREEZE_COLOR)
+          .multiplyScalar(ICE_FREEZE_EMISSIVE * 0.4);
     } else {
       for (const material of this.visualMaterials)
         material.emissive.setScalar(BASE_EMISSIVE);
@@ -744,9 +812,10 @@ export class Zombie {
     }
 
     const velocity = this.body.linvel();
-    this.velocityScratch.x = dirX * this.moveSpeed + separationX;
+    const speed = this.slowTimer > 0 ? this.moveSpeed * this.slowFactor : this.moveSpeed;
+    this.velocityScratch.x = dirX * speed + separationX;
     this.velocityScratch.y = velocity.y;
-    this.velocityScratch.z = dirZ * this.moveSpeed + separationZ;
+    this.velocityScratch.z = dirZ * speed + separationZ;
     this.body.setLinvel(this.velocityScratch, true);
     this.updateFacing(this.velocityScratch.x, this.velocityScratch.z);
   }

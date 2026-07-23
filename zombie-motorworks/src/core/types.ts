@@ -124,8 +124,6 @@ export interface WeaponDefinition {
   damageType: DamageType;
   damage: number;
   fireRate: number; // shots/s
-  ammoPerShot: number;
-  powerPerShot: number;
   recoilImpulse: number; // N·s applied opposite to fire direction at the mount
   projectileSpeed: number; // m/s
   rangeM: number;
@@ -158,12 +156,42 @@ export interface WeaponDefinition {
    */
   targetPriority?: 'ranged' | 'strongest';
   /**
+   * Cryo weapons (Ice Cannon normal fire): on hit, slow the struck zombie to
+   * `slowFactor` of its speed for `slowDurationSeconds`. Both set together;
+   * the Q ability is a separate full freeze.
+   */
+  slowFactor?: number;
+  slowDurationSeconds?: number;
+  /**
    * Auto-aim weapon that still waits for the player's trigger: the auto-aim
    * system tracks a target and keeps the mount pointed at it, but the weapon
    * only fires while the player holds fire (left click / F) instead of firing
    * itself the instant a target is acquired. Used for slow, precious shots.
    */
   manualFire?: boolean;
+}
+
+/**
+ * Player-triggered active ability (Ice Cannon freeze, Shield Generator bubble).
+ * Unlike a WeaponDefinition these do not auto-fire or follow aim — they
+ * discharge on a key press (Q) and run on their own cooldown, handled outside
+ * the weapon firing loop. A part may carry both a `weapon` (normal fire) and an
+ * `ability`; the player picks which single placed ability is bound to Q.
+ */
+export interface AbilityDefinition {
+  /**
+   * 'freeze' flash-freezes the nearest zombies in place; 'shield' wraps the
+   * vehicle in a bubble granting temporary invulnerability.
+   */
+  kind: 'freeze' | 'shield';
+  /** Seconds between activations (fixed across levels). */
+  cooldownSeconds: number;
+  /** Effect duration in seconds at level 1 (grows with upgrade level). */
+  baseDurationSeconds: number;
+  /** Freeze only: metres from the vehicle within which zombies can be caught. */
+  rangeM?: number;
+  /** Freeze only: zombies frozen at level 1 (grows with upgrade level). */
+  baseTargets?: number;
 }
 
 /** Contact weapon (grinder drum): damages any zombie touching the part. */
@@ -225,11 +253,10 @@ export interface PartDefinition {
   wheel?: WheelDefinition;
   engine?: EngineDefinition;
   weapon?: WeaponDefinition;
+  ability?: AbilityDefinition;
   melee?: MeleeDefinition;
   armour?: ArmourDefinition;
   fuelCapacity?: number; // litres
-  batteryCapacity?: number; // kJ
-  ammoCapacity?: number; // rounds
   cargoCapacity?: number; // kg
   /** Approximate render/collider box size per cell, metres (default 1). */
   visualScale?: number;
@@ -259,6 +286,12 @@ export interface PartConfig {
   /** Invert steering direction (rear-steer axles). */
   steerInverted?: boolean;
   braking?: boolean;
+  /**
+   * For parts with an `ability`: this is the single ability bound to Q. Only
+   * one placed part may have it set (the garage enforces exclusivity); when
+   * none is set the first ability part is used.
+   */
+  activeAbility?: boolean;
   suspensionPreset?: SuspensionPreset;
   /** Player-chosen paint; undefined = the part's default colour. */
   paint?: PaintColor;

@@ -37,9 +37,11 @@ const EXPECTED_CATALOG_IDS = [
   'turret',
   'armour-plate',
   'cannon-heavy',
+  'ice-cannon',
   'barrel-drum',
   'sniper-light',
   'flamethrower',
+  'shield-generator',
 ];
 
 function vecKey(v: Vec3i): string {
@@ -108,8 +110,6 @@ describe('part catalog integrity', () => {
 
     expect(PART_CATALOG['fuel-tank'].health).toBe(80);
     expect(PART_CATALOG.turret.clearanceCells).toEqual([{ x: 0, y: 1, z: 0 }]);
-    expect(PART_CATALOG.turret.ammoCapacity).toBe(200);
-    expect(PART_CATALOG.turret.batteryCapacity).toBe(500);
     expect(PART_CATALOG.turret.weapon?.aimMode).toBe('auto');
     expect(PART_CATALOG['armour-plate'].armour?.protection).toBeGreaterThan(0);
     // The Heavy Cannon auto-aims (at the toughest zombie) but fires on demand.
