@@ -75,6 +75,10 @@ export interface TracerShot {
   slowDurationSeconds: number;
   /** Tracer rendering style of the firing weapon; 'electric' draws blue zaps. */
   tracerStyle?: 'electric';
+  /** Splash radius of the firing weapon in metres; 0 = direct-hit only. */
+  splashRadiusM: number;
+  /** Splash damage dealt to zombies within the splash radius; 0 = none. */
+  splashDamage: number;
 }
 
 export function createWeapon(
@@ -285,6 +289,8 @@ export function stepWeapons(
         slowFactor: wpn.def.slowFactor ?? 0,
         slowDurationSeconds: wpn.def.slowDurationSeconds ?? 0,
         tracerStyle: wpn.def.tracerStyle,
+        splashRadiusM: wpn.def.splashRadiusM ?? 0,
+        splashDamage: wpn.def.splashDamage ?? 0,
       });
     }
 

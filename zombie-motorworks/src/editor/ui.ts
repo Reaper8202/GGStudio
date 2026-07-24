@@ -1102,6 +1102,14 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       // Weapons have unlimited ammo now — fuel is the managed resource.
       ['Ammo', 'Unlimited'],
     );
+    if ((def.weapon.splashRadiusM ?? 0) > 0) {
+      labels.push([
+        'Splash',
+        `${formatStat(def.weapon.splashDamage ?? 0)} dmg / ${formatStat(
+          def.weapon.splashRadiusM ?? 0,
+        )} m`,
+      ]);
+    }
   }
   if (def.ability?.kind === 'freeze') {
     labels.push(
@@ -1131,6 +1139,14 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Activate', 'Press Q'],
       ['Controls', `${formatStat(def.ability.baseTargets ?? 0)} zombies`],
       ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'rocket') {
+    labels.push(
+      ['Activate', 'Press Q'],
+      ['Blast', `${formatStat(def.ability.baseDamage ?? 0)} dmg`],
+      ['Radius', `${formatStat(def.ability.rangeM ?? 0)} m`],
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }

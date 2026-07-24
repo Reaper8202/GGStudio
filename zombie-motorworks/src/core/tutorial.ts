@@ -28,6 +28,7 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'tesla-coil',
   'shield-generator',
   'mind-control-beam',
+  'missile-launcher',
   'barrel-drum',
   'sniper-light',
   'flamethrower',
@@ -101,6 +102,10 @@ export const KID_LABELS: Record<string, PartLabel> = {
   'mind-control-beam': {
     name: 'Mind Control Beam',
     blurb: 'Press Q to make nearby zombies fight for you — until it wears off!',
+  },
+  'missile-launcher': {
+    name: 'Missile Launcher',
+    blurb: 'Fires splashy rockets. Press Q for one BIG rocket on the crowd!',
   },
 };
 

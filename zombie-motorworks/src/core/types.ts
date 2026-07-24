@@ -174,6 +174,13 @@ export interface WeaponDefinition {
    * itself the instant a target is acquired. Used for slow, precious shots.
    */
   manualFire?: boolean;
+  /**
+   * Splash weapons (Missile Launcher): on impact, deal `splashDamage` to every
+   * zombie within `splashRadiusM` metres of where the shot lands, on top of the
+   * direct hit. Both set together; 0/undefined means no splash.
+   */
+  splashRadiusM?: number;
+  splashDamage?: number;
 }
 
 /**
@@ -189,16 +196,17 @@ export interface AbilityDefinition {
    * vehicle in a bubble granting temporary invulnerability; 'zap' detonates a
    * lightning blast around the vehicle that damages every zombie in range;
    * 'charm' mind-controls the nearest zombies to fight for you for a while,
-   * then they revert to hostile.
+   * then they revert to hostile; 'rocket' launches a large rocket that
+   * detonates a high-damage blast on the thickest part of the horde.
    */
-  kind: 'freeze' | 'shield' | 'zap' | 'charm';
+  kind: 'freeze' | 'shield' | 'zap' | 'charm' | 'rocket';
   /** Seconds between activations (fixed across levels). */
   cooldownSeconds: number;
   /** Effect duration in seconds at level 1 (grows with upgrade level). */
   baseDurationSeconds: number;
   /**
    * Freeze/charm only: metres from the vehicle within which zombies can be
-   * caught.
+   * caught. Rocket reuses this as the blast radius of the detonation.
    */
   rangeM?: number;
   /**
@@ -206,7 +214,7 @@ export interface AbilityDefinition {
    * across levels; freeze grows it with upgrade level).
    */
   baseTargets?: number;
-  /** Zap only: blast damage at level 1 (grows with upgrade level). */
+  /** Zap/rocket only: blast damage at level 1 (grows with upgrade level). */
   baseDamage?: number;
 }
 

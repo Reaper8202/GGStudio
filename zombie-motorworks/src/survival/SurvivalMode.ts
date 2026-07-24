@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import {
   effectiveCharm,
   effectiveFreeze,
+  effectiveRocket,
   effectiveShield,
   effectiveZap,
 } from '../core/abilities.ts';
@@ -353,6 +354,19 @@ export class SurvivalMode {
   private charmPulseTtl = 0;
   /** Charm range this pulse expands to, metres. */
   private charmPulseRange = 0;
+  /**
+   * Pooled world-space explosion flashes for Missile Launcher impacts (rocket
+   * splash and the Q big rocket). Each slot is an expanding, fading sphere at a
+   * world position; the pool is cycled so overlapping blasts each get a mesh.
+   */
+  private readonly explosions: {
+    mesh: THREE.Mesh;
+    material: THREE.MeshBasicMaterial;
+    ttl: number;
+    duration: number;
+    radius: number;
+  }[] = [];
+  private explosionCursor = 0;
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
@@ -1201,6 +1215,24 @@ export class SurvivalMode {
     const shots = this.vehicle.shotsThisStep();
     for (const shot of shots) {
       this.showTracer(shot);
+      // Splash weapons (Missile Launcher) detonate an AoE at the impact point,
+      // whether or not the direct ray struck a zombie (rockets explode on the
+      // ground too). The directly-hit zombie, if any, still takes its hit below.
+      if (shot.splashRadiusM > 0 && shot.splashDamage > 0) {
+        this.zombies.damageWithin(
+          { x: shot.to.x, z: shot.to.z },
+          shot.splashRadiusM,
+          shot.splashDamage,
+        );
+        this.spawnExplosion(
+          shot.to.x,
+          shot.to.y,
+          shot.to.z,
+          shot.splashRadiusM,
+          0xff7a33,
+          0.3,
+        );
+      }
       if (shot.hitZombieHandle === null) continue;
       this.shotDirection.set(
         shot.to.x - shot.from.x,
@@ -1657,6 +1689,7 @@ export class SurvivalMode {
     this.syncShieldBubble(frameDt);
     this.syncZapBlast(frameDt);
     this.syncCharmPulse(frameDt);
+    this.syncExplosions(frameDt);
     this.syncTracers(frameDt);
     this.syncMineWarningHud(frameDt);
     this.followCamera.update(frameDt);
@@ -1748,6 +1781,20 @@ export class SurvivalMode {
       );
       this.spawnCharmPulse(charm.rangeM);
       this.abilityCooldown = charm.cooldownSeconds;
+    } else if (ability.kind === 'rocket') {
+      const rocket = effectiveRocket(ability, level);
+      const pos = this.vehicle.body.translation();
+      // Land the rocket on the thickest cluster in range; if the field is empty
+      // fire straight ahead so the ability still feels responsive.
+      const impact =
+        this.zombies.bestBlastTarget(
+          { x: pos.x, z: pos.z },
+          SurvivalMode.ROCKET_SEEK_RANGE_M,
+          rocket.radiusM,
+        ) ?? this.forwardGroundPoint(SurvivalMode.ROCKET_SEEK_RANGE_M);
+      this.zombies.damageWithin(impact, rocket.radiusM, rocket.damage);
+      this.spawnExplosion(impact.x, pos.y, impact.z, rocket.radiusM, 0xffb020, 0.5);
+      this.abilityCooldown = rocket.cooldownSeconds;
     } else {
       const shield = effectiveShield(ability, level);
       this.vehicle.grantInvulnerability(shield.durationSeconds);
@@ -1958,6 +2005,74 @@ export class SurvivalMode {
       this.charmPulseMaterial.opacity = 0.4 * (1 - progress);
     }
     if (this.charmPulseTtl <= 0) this.charmPulse.visible = false;
+  }
+
+  /** How far the Missile Launcher Q rocket seeks a cluster / flies ahead, m. */
+  private static readonly ROCKET_SEEK_RANGE_M = 30;
+  /** Number of pooled explosion flash meshes cycled for rocket impacts. */
+  private static readonly EXPLOSION_POOL_SIZE = 8;
+
+  /** A point `distanceM` ahead of the vehicle on its heading (rocket fallback). */
+  private forwardGroundPoint(distanceM: number): { x: number; z: number } {
+    const pos = this.vehicle.body.translation();
+    const rot = this.vehicle.body.rotation();
+    const q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w);
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    const len = Math.hypot(fwd.x, fwd.z) || 1;
+    return {
+      x: pos.x + (fwd.x / len) * distanceM,
+      z: pos.z + (fwd.z / len) * distanceM,
+    };
+  }
+
+  /**
+   * Flash an expanding, fading sphere at a world point (rocket/splash impact).
+   * Meshes are created lazily up to {@link EXPLOSION_POOL_SIZE} and cycled, so
+   * simultaneous blasts each claim a slot rather than fighting over one mesh.
+   */
+  private spawnExplosion(
+    x: number,
+    y: number,
+    z: number,
+    radiusM: number,
+    color: number,
+    durationSeconds: number,
+  ): void {
+    let slot = this.explosions[this.explosionCursor];
+    if (slot === undefined) {
+      const material = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), material);
+      mesh.name = 'rocket-blast';
+      mesh.visible = false;
+      this.scene.add(mesh);
+      slot = { mesh, material, ttl: 0, duration: durationSeconds, radius: radiusM };
+      this.explosions[this.explosionCursor] = slot;
+    }
+    this.explosionCursor =
+      (this.explosionCursor + 1) % SurvivalMode.EXPLOSION_POOL_SIZE;
+    slot.material.color.setHex(color);
+    slot.radius = Math.max(0.1, radiusM);
+    slot.duration = durationSeconds;
+    slot.ttl = durationSeconds;
+    slot.mesh.position.set(x, y, z);
+    slot.mesh.visible = true;
+  }
+
+  /** Expand and fade every live explosion flash, hiding each when spent. */
+  private syncExplosions(frameDt: number): void {
+    for (const slot of this.explosions) {
+      if (slot.ttl <= 0) continue;
+      slot.ttl = Math.max(0, slot.ttl - frameDt);
+      const progress = 1 - slot.ttl / slot.duration;
+      slot.mesh.scale.setScalar(slot.radius * (0.35 + 0.65 * progress));
+      slot.material.opacity = 0.6 * (1 - progress);
+      if (slot.ttl <= 0) slot.mesh.visible = false;
+    }
   }
 
   private syncHud(): void {

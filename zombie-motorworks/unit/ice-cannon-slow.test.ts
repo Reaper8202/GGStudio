@@ -18,6 +18,8 @@ function shot(overrides: Partial<TracerShot> = {}): TracerShot {
     pierceTo: null,
     slowFactor: 0.5,
     slowDurationSeconds: 2.5,
+    splashRadiusM: 0,
+    splashDamage: 0,
     ...overrides,
   };
 }

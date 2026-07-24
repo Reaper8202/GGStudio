@@ -109,3 +109,31 @@ export function effectiveCharm(def: AbilityDefinition, level = 1): CharmStats {
     rangeM: def.rangeM ?? 0,
   };
 }
+
+/** Resolved big-rocket blast stats after applying a placed part's level. */
+export interface RocketStats {
+  /** Damage dealt to every zombie caught in the blast. */
+  damage: number;
+  /** Blast radius in metres. */
+  radiusM: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+}
+
+/** Damage added to the rocket blast per upgrade level beyond the first. */
+const ROCKET_DAMAGE_PER_LEVEL = 45;
+
+/**
+ * Scales a rocket ability by the placed part's upgrade level. Each level beyond
+ * the first adds {@link ROCKET_DAMAGE_PER_LEVEL} blast damage; the radius and
+ * cooldown are fixed. Level 1 → 170 dmg, level 5 → 350 (with the default
+ * missile-launcher payload).
+ */
+export function effectiveRocket(def: AbilityDefinition, level = 1): RocketStats {
+  const steps = Math.max(0, Math.floor(level) - 1);
+  return {
+    damage: (def.baseDamage ?? 0) + steps * ROCKET_DAMAGE_PER_LEVEL,
+    radiusM: def.rangeM ?? 0,
+    cooldownSeconds: def.cooldownSeconds,
+  };
+}

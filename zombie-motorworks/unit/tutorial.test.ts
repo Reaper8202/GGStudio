@@ -34,6 +34,7 @@ const EXPECTED_LABELS: Record<string, string> = {
   flamethrower: 'Flamethrower',
   'shield-generator': 'Shield Bubble',
   'mind-control-beam': 'Mind Control Beam',
+  'missile-launcher': 'Missile Launcher',
 };
 
 const FRAME_BUILD: readonly { defId: string; pos: Vec3i }[] = [
@@ -144,6 +145,7 @@ describe('editor catalog presentation', () => {
       'tesla-coil',
       'shield-generator',
       'mind-control-beam',
+      'missile-launcher',
       'barrel-drum',
       'sniper-light',
       'flamethrower',

@@ -424,6 +424,41 @@ export class ZombieSystem {
     return limit;
   }
 
+  /**
+   * Missile Launcher Q blast: pick the impact point that catches the most
+   * zombies. Among alive targets within `seekRadiusM` of the origin, return the
+   * position of the one that has the most alive targets within `blastRadiusM`
+   * (so the rocket lands in the thickest part of the horde). Returns null when
+   * no zombie is in seek range. Runs once per cooldown, so O(n^2) is fine.
+   */
+  bestBlastTarget(
+    origin: { x: number; z: number },
+    seekRadiusM: number,
+    blastRadiusM: number,
+  ): { x: number; z: number } | null {
+    if (this.disposed || seekRadiusM <= 0) return null;
+    const seekSq = seekRadiusM * seekRadiusM;
+    const blastSq = blastRadiusM * blastRadiusM;
+    let best: Zombie | null = null;
+    let bestCount = -1;
+    for (const centre of this.aliveTargets) {
+      const cdx = centre.position.x - origin.x;
+      const cdz = centre.position.z - origin.z;
+      if (cdx * cdx + cdz * cdz > seekSq) continue;
+      let count = 0;
+      for (const other of this.aliveTargets) {
+        const dx = other.position.x - centre.position.x;
+        const dz = other.position.z - centre.position.z;
+        if (dx * dx + dz * dz <= blastSq) count++;
+      }
+      if (count > bestCount) {
+        bestCount = count;
+        best = centre;
+      }
+    }
+    return best ? { x: best.position.x, z: best.position.z } : null;
+  }
+
   /** True when the collider belongs to a shielded (Phone Addict) zombie. */
   isShieldedTarget(handle: number): boolean {
     return this.colliderToZombie.get(handle)?.kind === 'phone-addict';

@@ -621,6 +621,48 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       baseDurationSeconds: 12,
     },
   },
+  'missile-launcher': {
+    id: 'missile-launcher',
+    name: 'Missile Launcher',
+    category: 'weapon',
+    description:
+      'Rocket battery. Auto-fires small rockets that burst for splash damage ' +
+      'on impact. Press Q to launch one big rocket that drops on the thickest ' +
+      'part of the horde for massive blast damage (18s cooldown); upgrades hit ' +
+      'harder.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 160,
+    health: 150,
+    cost: 340,
+    upgrade: upgrade(5, 340),
+    unlockCost: 700,
+    reinforcement: 1.15,
+    // Normal fire: an auto-aim turret lobbing small splash rockets at zombies.
+    weapon: {
+      mountType: 'turret',
+      aimMode: 'auto',
+      arcDeg: 360,
+      damageType: 'projectile',
+      damage: 10,
+      fireRate: 1.2,
+      recoilImpulse: 60,
+      projectileSpeed: 90,
+      rangeM: 22,
+      splashRadiusM: 2.6,
+      splashDamage: 14,
+    },
+    // Player-triggered active ability: SurvivalMode launches a big rocket that
+    // detonates a high-damage blast on the densest cluster off the Q key.
+    ability: {
+      kind: 'rocket',
+      cooldownSeconds: 18,
+      baseDurationSeconds: 0,
+      rangeM: 5,
+      baseDamage: 170,
+    },
+  },
 };
 
 export function getPartDef(id: string): PartDefinition {
