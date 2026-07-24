@@ -172,3 +172,32 @@ export function effectiveNitro(def: AbilityDefinition, level = 1): NitroStats {
     cooldownSeconds: def.cooldownSeconds,
   };
 }
+
+/** Resolved Thumper shockwave stats after applying a placed part's level. */
+export interface ThumpStats {
+  /** Speed, m/s, every caught zombie is flung radially outward at. */
+  knockbackSpeed: number;
+  /** Radius in metres of the knockback circle around the vehicle. */
+  radiusM: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+}
+
+/** Knockback speed (m/s) added per upgrade level beyond the first. */
+const THUMP_KNOCKBACK_PER_LEVEL = 3;
+
+/**
+ * Scales a thump ability by the placed part's upgrade level. The radius stays a
+ * fixed, moderate circle; each level beyond the first adds
+ * {@link THUMP_KNOCKBACK_PER_LEVEL} m/s of knockback speed, so higher levels
+ * fling zombies harder. Level 1 → 14 m/s, level 5 → 26 (with the default
+ * thumper payload).
+ */
+export function effectiveThump(def: AbilityDefinition, level = 1): ThumpStats {
+  const steps = Math.max(0, Math.floor(level) - 1);
+  return {
+    knockbackSpeed: (def.baseDamage ?? 0) + steps * THUMP_KNOCKBACK_PER_LEVEL,
+    radiusM: def.rangeM ?? 0,
+    cooldownSeconds: def.cooldownSeconds,
+  };
+}

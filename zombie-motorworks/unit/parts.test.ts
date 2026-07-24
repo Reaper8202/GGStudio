@@ -44,6 +44,7 @@ const EXPECTED_CATALOG_IDS = [
   'mind-control-beam',
   'missile-launcher',
   'nitro-booster',
+  'thumper',
 ];
 
 function vecKey(v: Vec3i): string {

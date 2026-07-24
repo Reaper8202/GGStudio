@@ -394,6 +394,30 @@ export class ZombieSystem {
   }
 
   /**
+   * Thumper Q shockwave: fling every alive target within `radiusM` of the origin
+   * radially outward at `speed` m/s. Returns how many zombies were knocked back.
+   * Runs rarely (once per cooldown). Knockback does no damage, so `aliveTargets`
+   * never changes and the array can be iterated directly with no rebuild.
+   */
+  knockbackWithin(
+    origin: { x: number; z: number },
+    radiusM: number,
+    speed: number,
+  ): number {
+    if (this.disposed || radiusM <= 0 || speed <= 0) return 0;
+    const radiusSq = radiusM * radiusM;
+    let count = 0;
+    for (const zombie of this.aliveTargets) {
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      if (dx * dx + dz * dz > radiusSq) continue;
+      zombie.applyKnockback(dx, dz, speed);
+      count += 1;
+    }
+    return count;
+  }
+
+  /**
    * Mind Control Beam activation: turn up to `maxCount` of the nearest
    * targetable enemy zombies within `radiusM` of the origin over to the player's
    * side for `seconds`, nearest first. Returns how many were charmed. Runs

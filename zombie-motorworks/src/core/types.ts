@@ -198,16 +198,18 @@ export interface AbilityDefinition {
    * 'charm' mind-controls the nearest zombies to fight for you for a while,
    * then they revert to hostile; 'rocket' launches a large rocket that
    * detonates a high-damage blast on the thickest part of the horde; 'nitro'
-   * kicks the vehicle into a temporary speed boost with a blue-flame exhaust.
+   * kicks the vehicle into a temporary speed boost with a blue-flame exhaust;
+   * 'thump' slams a shockwave outward that knocks every nearby zombie back.
    */
-  kind: 'freeze' | 'shield' | 'zap' | 'charm' | 'rocket' | 'nitro';
+  kind: 'freeze' | 'shield' | 'zap' | 'charm' | 'rocket' | 'nitro' | 'thump';
   /** Seconds between activations (fixed across levels). */
   cooldownSeconds: number;
   /** Effect duration in seconds at level 1 (grows with upgrade level). */
   baseDurationSeconds: number;
   /**
    * Freeze/charm only: metres from the vehicle within which zombies can be
-   * caught. Rocket reuses this as the blast radius of the detonation.
+   * caught. Rocket reuses this as the blast radius of the detonation; thump
+   * reuses it as the knockback radius of the shockwave.
    */
   rangeM?: number;
   /**
@@ -215,7 +217,10 @@ export interface AbilityDefinition {
    * across levels; freeze grows it with upgrade level).
    */
   baseTargets?: number;
-  /** Zap/rocket only: blast damage at level 1 (grows with upgrade level). */
+  /**
+   * Zap/rocket: blast damage at level 1 (grows with upgrade level). Thump
+   * reuses this as the level-1 knockback speed in m/s (grows with level).
+   */
   baseDamage?: number;
 }
 

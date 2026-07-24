@@ -502,6 +502,33 @@ export class Zombie {
     return true;
   }
 
+  /**
+   * Thumper Q shockwave: shove this zombie radially outward at `speed` m/s. Deals
+   * no damage — it only interrupts the zombie and flings it away, briefly forcing
+   * it into the KnockedBack state. Charmed/dead/spawning zombies are skipped. A
+   * zombie sitting exactly on the origin gets an arbitrary outward push so it is
+   * never left in place.
+   */
+  applyKnockback(dirX: number, dirZ: number, speed: number): void {
+    if (!this.isTargetable || speed <= 0) return;
+
+    let length = Math.hypot(dirX, dirZ);
+    if (length < 1e-3) {
+      dirX = 1;
+      dirZ = 0;
+      length = 1;
+    }
+
+    this.state = ZombieState.KnockedBack;
+    this.knockbackTimer = KNOCKBACK_DURATION;
+
+    const impulseMagnitude = this.body.mass() * speed;
+    this.impulseScratch.x = (dirX / length) * impulseMagnitude;
+    this.impulseScratch.y = 0;
+    this.impulseScratch.z = (dirZ / length) * impulseMagnitude;
+    this.body.applyImpulse(this.impulseScratch, true);
+  }
+
   fixedUpdate(
     dt: number,
     vehicle: RuntimeVehicle,

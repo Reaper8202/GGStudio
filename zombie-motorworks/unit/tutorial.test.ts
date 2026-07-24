@@ -36,6 +36,7 @@ const EXPECTED_LABELS: Record<string, string> = {
   'mind-control-beam': 'Mind Control Beam',
   'missile-launcher': 'Missile Launcher',
   'nitro-booster': 'Nitro Booster',
+  'thumper': 'Thumper',
 };
 
 const FRAME_BUILD: readonly { defId: string; pos: Vec3i }[] = [
@@ -148,6 +149,7 @@ describe('editor catalog presentation', () => {
       'mind-control-beam',
       'missile-launcher',
       'nitro-booster',
+      'thumper',
       'barrel-drum',
       'sniper-light',
       'flamethrower',

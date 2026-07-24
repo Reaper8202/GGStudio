@@ -688,6 +688,34 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       baseDurationSeconds: 5,
     },
   },
+  'thumper': {
+    id: 'thumper',
+    name: 'Thumper',
+    category: 'weapon',
+    description:
+      'Ground-pound slammer. Press Q to blast a shockwave outward that knocks ' +
+      'every zombie in a moderate circle away from you (12s cooldown); upgrades ' +
+      'crank up the knockback so they get flung harder and farther.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 110,
+    health: 140,
+    cost: 300,
+    upgrade: upgrade(5, 300),
+    unlockCost: 550,
+    reinforcement: 1.15,
+    // Player-triggered active ability only (no `weapon` payload): SurvivalMode
+    // shoves every nearby zombie radially outward off the Q key. `baseDamage`
+    // carries the level-1 knockback speed (m/s); `rangeM` is the blast radius.
+    ability: {
+      kind: 'thump',
+      cooldownSeconds: 12,
+      baseDurationSeconds: 0,
+      rangeM: 5,
+      baseDamage: 14,
+    },
+  },
 };
 
 export function getPartDef(id: string): PartDefinition {

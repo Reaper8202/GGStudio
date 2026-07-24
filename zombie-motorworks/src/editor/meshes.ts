@@ -28,6 +28,7 @@ const COLORS: Record<string, number> = {
   'mind-control-beam': 0xc060ff,
   'missile-launcher': 0x8a5a2b,
   'nitro-booster': 0x2a8cff,
+  'thumper': 0xffcf80,
   'barrel-drum': 0x7d5a3a,
   'sniper-light': 0x33404f,
   flamethrower: 0x9c3d20,

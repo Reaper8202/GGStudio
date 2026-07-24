@@ -11,6 +11,7 @@ import {
   effectiveNitro,
   effectiveRocket,
   effectiveShield,
+  effectiveThump,
   effectiveZap,
 } from '../core/abilities.ts';
 import type { RunState } from '../core/economy.ts';
@@ -376,6 +377,10 @@ export class SurvivalMode {
   private nitroFlames: THREE.Group | null = null;
   private nitroFlameMaterials: THREE.MeshBasicMaterial[] = [];
   private nitroFlamePhase = 0;
+  private thumpRing: THREE.Mesh | null = null;
+  private thumpRingMaterial: THREE.MeshBasicMaterial | null = null;
+  private thumpRingTtl = 0;
+  private thumpRingRange = 0;
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
@@ -1700,6 +1705,7 @@ export class SurvivalMode {
     this.syncCharmPulse(frameDt);
     this.syncExplosions(frameDt);
     this.syncNitroFlames(frameDt);
+    this.syncThumpRing(frameDt);
     this.syncTracers(frameDt);
     this.syncMineWarningHud(frameDt);
     this.followCamera.update(frameDt);
@@ -1811,6 +1817,17 @@ export class SurvivalMode {
       // `isNitroActive` each frame, so it lights up for exactly the duration.
       this.vehicle.engageNitro(nitro.speedMultiplier, nitro.durationSeconds);
       this.abilityCooldown = nitro.cooldownSeconds;
+    } else if (ability.kind === 'thump') {
+      const thump = effectiveThump(ability, level);
+      const pos = this.vehicle.body.translation();
+      // Shove every zombie in a moderate circle straight away from the chassis.
+      this.zombies.knockbackWithin(
+        { x: pos.x, z: pos.z },
+        thump.radiusM,
+        thump.knockbackSpeed,
+      );
+      this.spawnThumpRing(thump.radiusM);
+      this.abilityCooldown = thump.cooldownSeconds;
     } else {
       const shield = effectiveShield(ability, level);
       this.vehicle.grantInvulnerability(shield.durationSeconds);
@@ -2074,6 +2091,54 @@ export class SurvivalMode {
       this.charmPulseMaterial.opacity = 0.4 * (1 - progress);
     }
     if (this.charmPulseTtl <= 0) this.charmPulse.visible = false;
+  }
+
+  /** Duration of the Thumper shockwave ring, seconds. */
+  private static readonly THUMP_RING_SECONDS = 0.45;
+
+  /**
+   * Kick off the Thumper shockwave: a flat ring that snaps outward from the
+   * chassis to the knockback radius, showing which zombies got shoved. The
+   * unit-radius ring lies flat on the ground as a child of the vehicle group and
+   * is created lazily and reused; the target radius is applied via scale.
+   */
+  private spawnThumpRing(radiusM: number): void {
+    if (this.thumpRing === null) {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xffcf80,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      // Unit ring (outer radius 1) laid flat; scaled to the blast radius.
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(0.82, 1, 48),
+        material,
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.y = 0.15;
+      mesh.name = 'thump-ring';
+      this.vehicleGroup.add(mesh);
+      this.thumpRing = mesh;
+      this.thumpRingMaterial = material;
+    }
+    this.thumpRingRange = Math.max(0.1, radiusM);
+    this.thumpRingTtl = SurvivalMode.THUMP_RING_SECONDS;
+    this.thumpRing.visible = true;
+  }
+
+  /** Expand and fade the Thumper shockwave ring, hiding it when spent. */
+  private syncThumpRing(frameDt: number): void {
+    if (this.thumpRing === null || this.thumpRingTtl <= 0) return;
+    this.thumpRingTtl = Math.max(0, this.thumpRingTtl - frameDt);
+    const progress = 1 - this.thumpRingTtl / SurvivalMode.THUMP_RING_SECONDS;
+    const scale = this.thumpRingRange * (0.25 + 0.75 * progress);
+    this.thumpRing.scale.set(scale, scale, scale);
+    if (this.thumpRingMaterial) {
+      this.thumpRingMaterial.opacity = 0.6 * (1 - progress);
+    }
+    if (this.thumpRingTtl <= 0) this.thumpRing.visible = false;
   }
 
   /** How far the Missile Launcher Q rocket seeks a cluster / flies ahead, m. */

@@ -1158,6 +1158,14 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }
+  if (def.ability?.kind === 'thump') {
+    labels.push(
+      ['Activate', 'Press Q'],
+      ['Knockback', `${formatStat(def.ability.baseDamage ?? 0)} m/s`],
+      ['Radius', `${formatStat(def.ability.rangeM ?? 0)} m`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
   if (def.armour) labels.push(['Protection', formatStat(def.armour.protection)]);
   return labels;
 }
