@@ -71,7 +71,7 @@ describe('starter blueprint', () => {
   it('includes a deck turret and remains valid', () => {
     const blueprint = buildStarterBlueprint();
 
-    expect(blueprint.parts).toHaveLength(23);
+    expect(blueprint.parts).toHaveLength(22);
     expect(blueprint.parts).toContainEqual(
       expect.objectContaining({
         defId: 'turret',

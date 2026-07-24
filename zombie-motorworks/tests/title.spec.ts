@@ -8,7 +8,6 @@ const DEFAULT_PROFILE = {
     'chassis-core',
     'frame-box',
     'wheel-standard',
-    'driver-seat',
     'engine-small',
     'fuel-tank',
     'turret',

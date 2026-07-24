@@ -16,7 +16,7 @@ function wheel(id: string, pos: Vec3i, config: PartConfig = {}): VehicleBlueprin
   return { id, defId: 'wheel-standard', pos, orient: 0, config };
 }
 
-/** Driver at the rear, wheels on a front and a rear axle. */
+/** Root chassis with wheels on a front and a rear axle. */
 function rig(parts: VehicleBlueprint['parts']): VehicleBlueprint {
   return {
     schemaVersion: BLUEPRINT_SCHEMA_VERSION,
@@ -24,7 +24,6 @@ function rig(parts: VehicleBlueprint['parts']): VehicleBlueprint {
     name: 'Test Rig',
     parts: [
       { id: 'root', defId: 'chassis-core', pos: { x: 0, y: 1, z: 0 }, orient: 0, config: {} },
-      { id: 'seat', defId: 'driver-seat', pos: { x: 0, y: 1, z: -1 }, orient: 0, config: {} },
       ...parts,
     ],
   };
@@ -100,7 +99,7 @@ describe('deriveAutomaticWheelLayout steering', () => {
 });
 
 describe('deriveAutomaticWheelLayout drive', () => {
-  it('drives the two wheels farthest from the driver, preferring non-steering', () => {
+  it('drives the two wheels farthest from the root, preferring non-steering', () => {
     const layout = deriveAutomaticWheelLayout(
       rig([wheel('fl', FRONT_L), wheel('fr', FRONT_R), wheel('rl', REAR_L), wheel('rr', REAR_R)]),
       getPartDef,

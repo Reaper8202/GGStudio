@@ -4,7 +4,7 @@
   "name": "Multi Gun Rig",
   "parts": [
     { "id": "core", "defId": "chassis-core", "pos": { "x": 0, "y": 1, "z": 0 }, "orient": 0, "config": {} },
-    { "id": "seat", "defId": "driver-seat", "pos": { "x": 0, "y": 2, "z": 0 }, "orient": 0, "config": {} },
+    { "id": "seat", "defId": "frame-box", "pos": { "x": 0, "y": 2, "z": 0 }, "orient": 0, "config": {} },
     { "id": "frame-n2-l", "defId": "frame-box", "pos": { "x": -1, "y": 1, "z": -2 }, "orient": 0, "config": {} },
     { "id": "frame-n2-c", "defId": "frame-box", "pos": { "x": 0, "y": 1, "z": -2 }, "orient": 0, "config": {} },
     { "id": "frame-n2-r", "defId": "frame-box", "pos": { "x": 1, "y": 1, "z": -2 }, "orient": 0, "config": {} },
@@ -30,3 +30,4 @@
     { "id": "cannon-right", "defId": "cannon-heavy", "pos": { "x": 1, "y": 2, "z": 2 }, "orient": 0, "config": {} }
   ]
 }
+

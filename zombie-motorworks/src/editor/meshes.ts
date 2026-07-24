@@ -13,7 +13,6 @@ const COLORS: Record<string, number> = {
   'chassis-core': 0xd97a2b,
   'frame-box': 0x8a8f98,
   'frame-reinforced': 0x5a606b,
-  'driver-seat': 0xc9a227,
   'engine-small': 0xa03c3c,
   'fuel-tank': 0xb0803a,
   'wheel-standard': 0x23262b,
@@ -23,6 +22,8 @@ const COLORS: Record<string, number> = {
   turret: 0x39424e,
   'armour-plate': 0x69737a,
   'cannon-heavy': 0x303840,
+  'ice-cannon': 0x4db8e0,
+  'shield-generator': 0x2f7bd6,
   'barrel-drum': 0x7d5a3a,
   'sniper-light': 0x33404f,
   flamethrower: 0x9c3d20,
@@ -309,11 +310,6 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
       const cap = boxWithEdges(s * 0.6, s * 0.25, s * 0.6, 0x30343b, opacity);
       cap.position.set(centre.x, centre.y + s * 0.45, centre.z);
       group.add(cap);
-    }
-    if (def.providesControl) {
-      const back = boxWithEdges(s * 0.8, s * 0.5, s * 0.18, 0x8a6d1f, opacity);
-      back.position.set(centre.x, centre.y + s * 0.55, centre.z - s * 0.35);
-      group.add(back);
     }
     if (def.weapon) {
       const fwd = rotateVec(placed.orient, { x: 0, y: 0, z: 1 });

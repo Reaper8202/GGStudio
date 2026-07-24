@@ -5,6 +5,7 @@
 
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { effectiveFreeze, effectiveShield } from '../core/abilities.ts';
 import type { RunState } from '../core/economy.ts';
 import { getPartDef } from '../core/parts.ts';
 import { deriveConnections } from '../core/structural.ts';
@@ -21,11 +22,11 @@ import {
   RuntimeVehicle,
   brakeInputWithAutoHold,
   type VehicleControls,
-  type WeaponAmmoTelemetry,
 } from '../runtime/vehicle.ts';
 import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
+import { FuelPickups } from './FuelPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import { GRAVEYARD_HALF_SIZE, Graveyard } from './Graveyard.ts';
@@ -47,6 +48,8 @@ const FIXED_DT = 1 / 60;
 const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
 const GROUND_HALF_SIZE = GRAVEYARD_HALF_SIZE;
 const COUNTDOWN_SECONDS = 3;
+/** Radius of the Shield Generator bubble, generous enough to enclose most rigs. */
+const SHIELD_BUBBLE_RADIUS_M = 3.4;
 const TRACER_POOL_SIZE = 32;
 const STUCK_PROMPT_SECONDS = 1.6;
 const RECOVERY_COOLDOWN_SECONDS = 2.25;
@@ -153,7 +156,7 @@ export interface SurvivalTelemetry {
 
 type ZombieShotTarget = Pick<
   ZombieSystem,
-  'hitZombieHandle' | 'isShieldedTarget'
+  'hitZombieHandle' | 'isShieldedTarget' | 'slowZombieHandle'
 >;
 
 /** Apply one hit chain and report whether its secondary tracer may continue. */
@@ -163,6 +166,7 @@ export function applyZombieShot(
   direction: Vec3,
 ): boolean {
   if (shot.hitZombieHandle === null) return false;
+  const canSlow = shot.slowFactor > 0 && shot.slowDurationSeconds > 0;
   const primaryWasShielded = zombies.isShieldedTarget(shot.hitZombieHandle);
   const primaryResult = zombies.hitZombieHandle(
     shot.hitZombieHandle,
@@ -171,6 +175,15 @@ export function applyZombieShot(
     shot.damageType,
     shot.empLevel,
   );
+  // Ice fire slows the struck zombie whenever the hit lands and is not fully
+  // absorbed by a shield (a kill just slows nothing that is left alive).
+  if (canSlow && !primaryWasShielded && primaryResult !== 'miss') {
+    zombies.slowZombieHandle(
+      shot.hitZombieHandle,
+      shot.slowFactor,
+      shot.slowDurationSeconds,
+    );
+  }
   if (primaryWasShielded || primaryResult === 'miss') return false;
   if (shot.pierceZombieHandle === null || shot.pierceDamage <= 0) return true;
   zombies.hitZombieHandle(
@@ -180,6 +193,13 @@ export function applyZombieShot(
     shot.damageType,
     shot.empLevel,
   );
+  if (canSlow) {
+    zombies.slowZombieHandle(
+      shot.pierceZombieHandle,
+      shot.slowFactor,
+      shot.slowDurationSeconds,
+    );
+  }
   return true;
 }
 
@@ -198,7 +218,12 @@ interface SurvivalUi {
   speedKillLabel: HTMLSpanElement;
   integrityValue: HTMLSpanElement;
   integrityFill: HTMLSpanElement;
-  ammoList: HTMLDivElement;
+  fuelValue: HTMLSpanElement;
+  fuelFill: HTMLSpanElement;
+  abilityRoot: HTMLDivElement;
+  abilityLabel: HTMLSpanElement;
+  abilityFill: HTMLSpanElement;
+  abilityValue: HTMLDivElement;
   waveValue: HTMLSpanElement;
   remainingValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
@@ -251,6 +276,7 @@ export class SurvivalMode {
   private readonly vehicle: RuntimeVehicle;
   private readonly zombies: ZombieSystem;
   private readonly autoAim: AutoAim;
+  private readonly fuelPickups: FuelPickups;
   private readonly waves: WaveManager;
   private readonly followCamera: FollowCamera;
   private readonly vehicleGroup = new THREE.Group();
@@ -298,17 +324,17 @@ export class SurvivalMode {
   private readonly speedKillLabel: HTMLSpanElement;
   private readonly integrityValue: HTMLSpanElement;
   private readonly integrityFill: HTMLSpanElement;
-  private readonly ammoList: HTMLDivElement;
-  /** Live magazine rows, keyed by weapon part id. */
-  private readonly ammoRows = new Map<
-    string,
-    {
-      root: HTMLDivElement;
-      fill: HTMLSpanElement;
-      value: HTMLSpanElement;
-      lastAmmo: number;
-    }
-  >();
+  private readonly fuelValue: HTMLSpanElement;
+  private readonly fuelFill: HTMLSpanElement;
+  private lastHudFuel = -1;
+  private readonly abilityRoot: HTMLDivElement;
+  private readonly abilityLabel: HTMLSpanElement;
+  private readonly abilityFill: HTMLSpanElement;
+  private readonly abilityValue: HTMLDivElement;
+  /** Translucent blue bubble shown while the Shield Generator is active. */
+  private shieldBubble: THREE.Mesh | null = null;
+  private shieldBubbleMaterial: THREE.MeshBasicMaterial | null = null;
+  private shieldBubblePhase = 0;
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
@@ -368,6 +394,10 @@ export class SurvivalMode {
   private recoveryCooldown = 0;
   private recoverySettleSeconds = 0;
   private recoveryRequested = false;
+  private abilityRequested = false;
+  private abilityCooldown = 0;
+  private lastHudAbilityCooldown = -1;
+  private lastHudAbilityName = '';
   private debugProgressionSuppressed = false;
   private readonly recoveryImpulse = { x: 0, y: 0, z: 0 };
   private readonly recoveryTranslation = { x: 0, y: 0, z: 0 };
@@ -393,6 +423,11 @@ export class SurvivalMode {
     const key = event.key.toLowerCase();
     if (key === 'j') {
       if (!event.repeat) this.recoveryRequested = true;
+      event.preventDefault();
+      return;
+    }
+    if (key === 'q') {
+      if (!event.repeat) this.abilityRequested = true;
       event.preventDefault();
       return;
     }
@@ -445,6 +480,11 @@ export class SurvivalMode {
     this.zombieVisualRoot.add(...zombieVisuals);
     this.scene.add(this.zombieVisualRoot);
     this.autoAim = new AutoAim(this.vehicle, this.zombies, this.world);
+    this.fuelPickups = new FuelPickups(
+      this.scene,
+      this.vehicle,
+      this.graveyard.bounds,
+    );
     this.waves = new WaveManager(this.zombies, {
       onRemainingChanged: () => {
         this.lastHudRemaining = -1;
@@ -462,7 +502,12 @@ export class SurvivalMode {
     this.speedKillLabel = builtUi.speedKillLabel;
     this.integrityValue = builtUi.integrityValue;
     this.integrityFill = builtUi.integrityFill;
-    this.ammoList = builtUi.ammoList;
+    this.fuelValue = builtUi.fuelValue;
+    this.fuelFill = builtUi.fuelFill;
+    this.abilityRoot = builtUi.abilityRoot;
+    this.abilityLabel = builtUi.abilityLabel;
+    this.abilityFill = builtUi.abilityFill;
+    this.abilityValue = builtUi.abilityValue;
     this.waveValue = builtUi.waveValue;
     this.remainingValue = builtUi.remainingValue;
     this.moneyValue = builtUi.moneyValue;
@@ -668,11 +713,47 @@ export class SurvivalMode {
     integrityFill.className = 'survival-health__fill';
     healthTrack.appendChild(integrityFill);
     health.append(healthHeader, healthTrack);
-    // One magazine row per weapon, filled in by syncHud as weapons are
-    // mounted and lost.
-    const ammoList = document.createElement('div');
-    ammoList.className = 'survival-ammo';
-    ammoList.style.display = 'none';
+    // Onboard fuel gauge — the resource the player manages, refilled by driving
+    // into refuel crates (see FuelPickups).
+    const fuel = document.createElement('div');
+    fuel.className = 'survival-fuel';
+    const fuelHeader = document.createElement('div');
+    const fuelLabel = document.createElement('span');
+    fuelLabel.textContent = 'Fuel';
+    const fuelValue = document.createElement('span');
+    fuelHeader.append(fuelLabel, fuelValue);
+    const fuelTrack = document.createElement('div');
+    fuelTrack.className = 'survival-fuel__track';
+    fuelTrack.setAttribute('role', 'progressbar');
+    fuelTrack.setAttribute('aria-label', 'Fuel');
+    fuelTrack.setAttribute('aria-valuemin', '0');
+    fuelTrack.setAttribute('aria-valuemax', '100');
+    const fuelFill = document.createElement('span');
+    fuelFill.className = 'survival-fuel__fill';
+    fuelTrack.appendChild(fuelFill);
+    fuel.append(fuelHeader, fuelTrack);
+    // Ability chip — hidden until an ability part is equipped. Shows the active
+    // ability's name, the Q keybind, and the cooldown. The label is updated at
+    // runtime to whichever ability the player bound to Q in the garage.
+    const ability = document.createElement('div');
+    ability.className = 'survival-ability';
+    ability.hidden = true;
+    const abilityHeader = document.createElement('div');
+    const abilityLabel = document.createElement('span');
+    abilityLabel.textContent = 'Ability';
+    const abilityKey = document.createElement('span');
+    abilityKey.className = 'survival-ability__key';
+    abilityKey.textContent = 'Q';
+    abilityHeader.append(abilityLabel, abilityKey);
+    const abilityTrack = document.createElement('div');
+    abilityTrack.className = 'survival-ability__track';
+    const abilityFill = document.createElement('span');
+    abilityFill.className = 'survival-ability__fill';
+    abilityTrack.appendChild(abilityFill);
+    const abilityValue = document.createElement('div');
+    abilityValue.className = 'survival-ability__status';
+    abilityValue.textContent = 'Ready';
+    ability.append(abilityHeader, abilityTrack, abilityValue);
     const moneyRow = document.createElement('div');
     moneyRow.className = 'survival-earned';
     const moneyLabel = document.createElement('span');
@@ -685,7 +766,7 @@ export class SurvivalMode {
     pendingMoneyLabel.textContent = 'Pending';
     const pendingMoneyValue = document.createElement('span');
     pendingMoneyRow.append(pendingMoneyLabel, pendingMoneyValue);
-    hud.append(speedRow, health, ammoList, moneyRow, pendingMoneyRow);
+    hud.append(speedRow, health, fuel, ability, moneyRow, pendingMoneyRow);
     root.appendChild(hud);
 
     const stuckPrompt = document.createElement('div');
@@ -885,7 +966,12 @@ export class SurvivalMode {
       speedKillLabel,
       integrityValue,
       integrityFill,
-      ammoList,
+      fuelValue,
+      fuelFill,
+      abilityRoot: ability,
+      abilityLabel,
+      abilityFill,
+      abilityValue,
       waveValue,
       remainingValue,
       moneyValue,
@@ -1064,6 +1150,7 @@ export class SurvivalMode {
     this.waveElapsedSeconds += FIXED_DT;
     this.updateControls();
     this.updateRecoveryAssist(FIXED_DT);
+    this.updateAbility();
     this.controls.weaponAim = this.autoAim.step();
     const mineSweeper = this.resolveLiveMineSweeper();
     this.currentMineSweeperLevel =
@@ -1080,6 +1167,7 @@ export class SurvivalMode {
         this.surfaceByCollider.get(colliderHandle) ?? 'asphalt',
     );
 
+    this.fuelPickups.step(FIXED_DT);
     this.waves.fixedUpdate(FIXED_DT);
     this.zombies.step(FIXED_DT);
     this.updateMineWarningPulse(mineRevealRadius);
@@ -1547,6 +1635,8 @@ export class SurvivalMode {
     }
 
     this.zombies.updateVisuals(frameDt);
+    this.fuelPickups.updateVisuals(frameDt);
+    this.syncShieldBubble(frameDt);
     this.syncTracers(frameDt);
     this.syncMineWarningHud(frameDt);
     this.followCamera.update(frameDt);
@@ -1565,6 +1655,7 @@ export class SurvivalMode {
       this.currentMineSweeperLevel >= MINE_SWEEPER_MINIMAP_LEVEL
         ? this.zombies.activeMines()
         : undefined,
+      this.fuelPickups.activeCrates(),
     );
   }
 
@@ -1575,6 +1666,51 @@ export class SurvivalMode {
       return part;
     }
     return null;
+  }
+
+  /**
+   * The single ability part bound to Q. Among attached-alive parts with an
+   * ability, prefer the one the player flagged in the garage
+   * (config.activeAbility); otherwise fall back to the first one found.
+   */
+  private resolveActiveAbilityPart(): RuntimePart | null {
+    let fallback: RuntimePart | null = null;
+    for (const part of this.vehicle.assembled.parts.values()) {
+      if (part.def.ability === undefined) continue;
+      if (!this.isAttachedAlivePart(part)) continue;
+      if (part.placed.config.activeAbility === true) return part;
+      fallback ??= part;
+    }
+    return fallback;
+  }
+
+  /** Tick the ability cooldown and, on a Q press, discharge the active ability. */
+  private updateAbility(): void {
+    if (this.abilityCooldown > 0) {
+      this.abilityCooldown = Math.max(0, this.abilityCooldown - FIXED_DT);
+    }
+    const requested = this.abilityRequested;
+    this.abilityRequested = false;
+    const part = this.resolveActiveAbilityPart();
+    const ability = part?.def.ability;
+    if (!requested || ability === undefined || this.abilityCooldown > 0) return;
+
+    const level = part?.placed.config.level ?? 1;
+    if (ability.kind === 'freeze') {
+      const freeze = effectiveFreeze(ability, level);
+      const pos = this.vehicle.body.translation();
+      this.zombies.freezeNearest(
+        { x: pos.x, z: pos.z },
+        freeze.targets,
+        freeze.rangeM,
+        freeze.durationSeconds,
+      );
+      this.abilityCooldown = freeze.cooldownSeconds;
+    } else {
+      const shield = effectiveShield(ability, level);
+      this.vehicle.grantInvulnerability(shield.durationSeconds);
+      this.abilityCooldown = shield.cooldownSeconds;
+    }
   }
 
   private isAttachedAlivePart(part: RuntimePart): boolean {
@@ -1631,6 +1767,72 @@ export class SurvivalMode {
         : '';
   }
 
+  /** Show the active-ability chip with its cooldown only while one is equipped. */
+  private syncAbilityHud(): void {
+    const part = this.resolveActiveAbilityPart();
+    const ability = part?.def.ability;
+    if (ability === undefined || part === null) {
+      if (!this.abilityRoot.hidden) this.abilityRoot.hidden = true;
+      this.lastHudAbilityCooldown = -1;
+      this.lastHudAbilityName = '';
+      return;
+    }
+    if (this.abilityRoot.hidden) this.abilityRoot.hidden = false;
+    if (part.def.name !== this.lastHudAbilityName) {
+      this.lastHudAbilityName = part.def.name;
+      this.abilityLabel.textContent = part.def.name;
+    }
+
+    const remaining = Math.ceil(this.abilityCooldown);
+    if (remaining === this.lastHudAbilityCooldown) return;
+    this.lastHudAbilityCooldown = remaining;
+    const ready = this.abilityCooldown <= 0;
+    const pct = ready
+      ? 100
+      : 100 * (1 - this.abilityCooldown / ability.cooldownSeconds);
+    this.abilityValue.textContent = ready ? 'Ready — press Q' : `${remaining}s`;
+    this.abilityFill.style.width = `${pct}%`;
+    this.abilityRoot.classList.toggle('is-ready', ready);
+  }
+
+  /**
+   * Show a bright blue bubble around the vehicle while the Shield Generator's
+   * invulnerability is active. The mesh is a child of the vehicle group, so it
+   * follows the chassis automatically; opacity pulses gently for a live feel.
+   */
+  private syncShieldBubble(frameDt: number): void {
+    const active = this.vehicle.isInvulnerable;
+    if (!active) {
+      if (this.shieldBubble && this.shieldBubble.visible) {
+        this.shieldBubble.visible = false;
+      }
+      return;
+    }
+    if (this.shieldBubble === null) {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x33aaff,
+        transparent: true,
+        opacity: 0.28,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(SHIELD_BUBBLE_RADIUS_M, 24, 16),
+        material,
+      );
+      mesh.name = 'shield-bubble';
+      this.vehicleGroup.add(mesh);
+      this.shieldBubble = mesh;
+      this.shieldBubbleMaterial = material;
+    }
+    this.shieldBubble.visible = true;
+    this.shieldBubblePhase += frameDt * 4;
+    if (this.shieldBubbleMaterial) {
+      this.shieldBubbleMaterial.opacity =
+        0.24 + 0.1 * (0.5 + 0.5 * Math.sin(this.shieldBubblePhase));
+    }
+  }
+
   private syncHud(): void {
     const telemetry = this.vehicle.telemetry();
     const speed = Math.round(telemetry.speedKmh);
@@ -1661,7 +1863,24 @@ export class SurvivalMode {
       this.lastHudRemaining = zombiesOnField;
       this.remainingValue.textContent = String(zombiesOnField);
     }
-    this.syncAmmoHud(telemetry.weaponAmmo);
+    const fuelLitres = Math.ceil(telemetry.fuel);
+    if (fuelLitres !== this.lastHudFuel) {
+      this.lastHudFuel = fuelLitres;
+      const cap = Math.round(telemetry.fuelCapacity);
+      const pct =
+        telemetry.fuelCapacity > 0
+          ? (telemetry.fuel / telemetry.fuelCapacity) * 100
+          : 0;
+      this.fuelValue.textContent = `${fuelLitres} / ${cap} L`;
+      this.fuelFill.style.width = `${pct}%`;
+      this.fuelFill.parentElement?.setAttribute(
+        'aria-valuenow',
+        String(Math.round(pct)),
+      );
+      this.fuelFill.classList.toggle('is-low', pct <= 25);
+      this.fuelFill.classList.toggle('is-empty', telemetry.fuel <= 0);
+    }
+    this.syncAbilityHud();
     const money = this.callbacks.runEarnings();
     if (money !== this.lastHudMoney) {
       this.lastHudMoney = money;
@@ -1682,70 +1901,6 @@ export class SurvivalMode {
         this.countdownValue.textContent = String(second);
       }
     }
-  }
-
-  /**
-   * Reconcile one magazine row per live weapon. Rows are created on first
-   * sight and dropped when the weapon is destroyed or detached, so the HUD
-   * always matches what is actually bolted to the rig.
-   */
-  private syncAmmoHud(weaponAmmo: readonly WeaponAmmoTelemetry[]): void {
-    for (const weapon of weaponAmmo) {
-      let row = this.ammoRows.get(weapon.partId);
-      if (!row) {
-        row = this.createAmmoRow(weapon.label);
-        this.ammoList.appendChild(row.root);
-        this.ammoRows.set(weapon.partId, row);
-      }
-      // Magazines regenerate continuously, so ammo is fractional. Show whole
-      // rounds — a part-formed round cannot be fired — and cache on the
-      // rounded value so this stops rewriting the DOM every single frame.
-      const rounds = Math.floor(weapon.ammo);
-      if (row.lastAmmo === rounds) continue;
-      row.lastAmmo = rounds;
-      const pct = weapon.capacity > 0 ? (rounds / weapon.capacity) * 100 : 0;
-      row.value.textContent = `${rounds} / ${weapon.capacity}`;
-      row.fill.style.width = `${pct}%`;
-      row.fill.parentElement?.setAttribute('aria-valuenow', String(rounds));
-      row.root.classList.toggle('is-low', rounds > 0 && pct <= 25);
-      row.root.classList.toggle('is-empty', rounds <= 0);
-    }
-    if (this.ammoRows.size !== weaponAmmo.length) {
-      const live = new Set(weaponAmmo.map((w) => w.partId));
-      for (const [partId, row] of this.ammoRows) {
-        if (live.has(partId)) continue;
-        row.root.remove();
-        this.ammoRows.delete(partId);
-      }
-    }
-    this.ammoList.style.display = weaponAmmo.length > 0 ? '' : 'none';
-  }
-
-  private createAmmoRow(label: string): {
-    root: HTMLDivElement;
-    fill: HTMLSpanElement;
-    value: HTMLSpanElement;
-    lastAmmo: number;
-  } {
-    const root = document.createElement('div');
-    root.className = 'survival-ammo__row';
-    const header = document.createElement('div');
-    header.className = 'survival-ammo__header';
-    const name = document.createElement('span');
-    name.textContent = label;
-    const value = document.createElement('span');
-    value.className = 'survival-ammo__value';
-    header.append(name, value);
-    const track = document.createElement('div');
-    track.className = 'survival-ammo__track';
-    track.setAttribute('role', 'progressbar');
-    track.setAttribute('aria-label', `${label} ammo`);
-    track.setAttribute('aria-valuemin', '0');
-    const fill = document.createElement('span');
-    fill.className = 'survival-ammo__fill';
-    track.appendChild(fill);
-    root.append(header, track);
-    return { root, fill, value, lastAmmo: -1 };
   }
 
   private syncSpeedGaugeThresholds(): void {
@@ -1998,6 +2153,7 @@ export class SurvivalMode {
       'pointerdown',
       this.onFireDown,
     );
+    this.fuelPickups.dispose();
     this.zombies.dispose();
     this.graveyard.dispose();
     this.vehicle.dispose();

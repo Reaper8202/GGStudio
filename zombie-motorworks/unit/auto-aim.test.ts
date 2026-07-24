@@ -19,14 +19,13 @@ describe('AutoAim', () => {
       cycleTime: 0,
       shotsFired: 0,
       label: 'Test Weapon',
-      ammo: 100,
-      ammoCapacity: 100,
       empLevel: 0,
       piercingLevel: 0,
     };
     const manualWeapon: RuntimeWeapon = {
       partId: 'manual',
-      def: PART_CATALOG['cannon-heavy'].weapon!,
+      // A genuinely manual-aim weapon (flamethrower) is excluded from the map.
+      def: PART_CATALOG.flamethrower.weapon!,
       mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 },
       yaw: 0,
@@ -34,8 +33,6 @@ describe('AutoAim', () => {
       cycleTime: 0,
       shotsFired: 0,
       label: 'Test Weapon',
-      ammo: 100,
-      ammoCapacity: 100,
       empLevel: 0,
       piercingLevel: 0,
     };
@@ -97,8 +94,6 @@ describe('AutoAim', () => {
       cycleTime: 0,
       shotsFired: 0,
       label: 'Test Weapon',
-      ammo: 100,
-      ammoCapacity: 100,
       empLevel: 0,
       piercingLevel: 0,
     };
@@ -131,7 +126,7 @@ describe('AutoAim', () => {
   it('holds fire when all bounded candidates are occluded', () => {
     const weapon: RuntimeWeapon = {
       partId: 'auto', def: PART_CATALOG.turret.weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100, empLevel: 0, piercingLevel: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -148,7 +143,7 @@ describe('AutoAim', () => {
   it('prefers an in-range thrower over a nearer walker for ranged-priority weapons', () => {
     const weapon: RuntimeWeapon = {
       partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100, empLevel: 0, piercingLevel: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -172,10 +167,37 @@ describe('AutoAim', () => {
     expect(entry?.aimPoint).toEqual({ x: 0, y: 0.9, z: 20 });
   });
 
+  it('locks a strongest-priority cannon onto the toughest zombie, not the nearest', () => {
+    const cannon: RuntimeWeapon = {
+      partId: 'cannon', def: PART_CATALOG['cannon-heavy'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
+    };
+    const vehicle = {
+      body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
+      assembled: { parts: new Map([['cannon', { alive: true, detached: false, health: 100 }]]) }, weaponStates: () => [cannon],
+    } as unknown as RuntimeVehicle;
+    // Nearer but weak vs. farther but tougher: 'strongest' must pick the tough one.
+    const weak = {
+      kind: 'walker', currentHealth: 40, body: { translation: () => ({ x: 0, y: 0.9, z: 5 }) }, collider: { handle: 1 },
+    };
+    const tough = {
+      kind: 'thrower', currentHealth: 120, body: { translation: () => ({ x: 0, y: 0.9, z: 15 }) }, collider: { handle: 2 },
+    };
+    const autoAim = new AutoAim(vehicle, { getAliveTargets: () => [weak, tough] } as unknown as ZombieSystem, {
+      castRay: () => ({ collider: { handle: 2 } }),
+    } as never);
+
+    const entry = autoAim.step().get('cannon');
+    expect(entry).toBeDefined();
+    expect(entry?.aimPoint).toEqual({ x: 0, y: 0.9, z: 15 });
+    // Acquisition is reported here; the player's trigger gates firing in weapons.ts.
+    expect(entry?.fire).toBe(true);
+  });
+
   it('holds fire when the only target sits inside the minimum range', () => {
     const weapon: RuntimeWeapon = {
       partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', ammo: 100, ammoCapacity: 100, empLevel: 0, piercingLevel: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -235,8 +257,6 @@ function autoTurret(empLevel: number): RuntimeWeapon {
     cycleTime: 0,
     shotsFired: 0,
     label: 'Test Weapon',
-    ammo: 100,
-    ammoCapacity: 100,
     empLevel,
     piercingLevel: 0,
   };

@@ -86,7 +86,7 @@ export function newGarageDisposalSummary(
 ): NewGarageDisposalSummary {
   const disposable = parts.filter((part) => {
     const def = getDef(part.defId);
-    return def.isRoot !== true && def.providesControl !== true;
+    return def.isRoot !== true;
   });
   const investment = disposable.reduce(
     (total, part) => total + partInvestment(part),
@@ -705,8 +705,36 @@ export class EditorMode {
     }
     const part = getPart(this.bp, partId);
     if (!part) return;
+    if (key === 'activeAbility') {
+      this.setActiveAbility(partId, value === true);
+      return;
+    }
     const config: PartConfig = { ...part.config, [key]: value };
     this.exec(updateConfigCommand(partId, config));
+    this.selectOnly(partId);
+  }
+
+  /**
+   * Bind the single Q ability to one placed part. Only one ability part may be
+   * active at a time, so activating one clears the flag on every other ability
+   * part in the same edit.
+   */
+  private setActiveAbility(partId: string, active: boolean): void {
+    const updates: ReturnType<typeof updateConfigCommand>[] = [];
+    for (const p of this.bp.parts) {
+      if (!getPartDef(p.defId).ability) continue;
+      const shouldBeActive = active && p.id === partId;
+      if ((p.config.activeAbility === true) === shouldBeActive) continue;
+      updates.push(
+        updateConfigCommand(p.id, {
+          ...p.config,
+          activeAbility: shouldBeActive,
+        }),
+      );
+    }
+    if (updates.length === 1) this.exec(updates[0]);
+    else if (updates.length > 1)
+      this.exec(batchCommand('set active ability', updates));
     this.selectOnly(partId);
   }
 
@@ -1744,7 +1772,7 @@ function wheelLayoutInputsChanged(
     bp.parts
       .filter((part) => {
         const def = getPartDef(part.defId);
-        return def.wheel !== undefined || def.providesControl === true;
+        return def.wheel !== undefined;
       })
       .map(
         (part) =>

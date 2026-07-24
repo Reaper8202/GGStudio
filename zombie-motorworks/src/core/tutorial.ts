@@ -18,13 +18,14 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'wheel-offroad',
   'wheel-moto',
   'tread-tank',
-  'driver-seat',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
   'turret',
   'armour-plate',
   'cannon-heavy',
+  'ice-cannon',
+  'shield-generator',
   'barrel-drum',
   'sniper-light',
   'flamethrower',
@@ -62,7 +63,6 @@ export const KID_LABELS: Record<string, PartLabel> = {
     name: 'Tank Tread',
     blurb: 'Slow and super tough! Crawls over anything.',
   },
-  'driver-seat': { name: 'Driver Seat', blurb: 'Put your brave driver here!' },
   'engine-small': { name: 'Engine', blurb: 'Makes the truck go!' },
   'fuel-tank': { name: 'Fuel Tank', blurb: 'Keeps the engine fueled up!' },
   'mine-sweeper': {
@@ -72,6 +72,10 @@ export const KID_LABELS: Record<string, PartLabel> = {
   turret: { name: 'Zombie Blaster', blurb: 'Spins around to blast zombies!' },
   'armour-plate': { name: 'Armour Plate', blurb: 'Adds a tough layer of protection!' },
   'cannon-heavy': { name: 'Heavy Cannon', blurb: 'A big boom for tough zombies!' },
+  'ice-cannon': {
+    name: 'Ice Cannon',
+    blurb: 'Shoots chilly shards that slow zombies — press Q to freeze them solid!',
+  },
   'barrel-drum': {
     name: 'Grinder Drum',
     blurb: 'Spinning drum that munches zombies it touches!',
@@ -83,6 +87,10 @@ export const KID_LABELS: Record<string, PartLabel> = {
   flamethrower: {
     name: 'Flamethrower',
     blurb: 'Whoosh! Sprays hot flames up close!',
+  },
+  'shield-generator': {
+    name: 'Shield Bubble',
+    blurb: 'Press Q for a blue bubble that keeps your truck safe for a bit!',
   },
 };
 
@@ -101,7 +109,7 @@ function countOf(bp: VehicleBlueprint, defId: string): number {
   return bp.parts.filter((part) => part.defId === defId).length;
 }
 
-/** The guided build: frame → wheels → driver → engine → fuel → drive. */
+/** The guided build: frame → wheels → engine → fuel → drive. */
 const BUILD_STEPS: readonly TutorialStep[] = [
   {
     id: 'frame',
@@ -118,13 +126,6 @@ const BUILD_STEPS: readonly TutorialStep[] = [
     paletteDefId: 'wheel-standard',
     isComplete: (bp) =>
       countOf(bp, 'wheel-standard') + countOf(bp, 'wheel-offroad') >= 4,
-  },
-  {
-    id: 'driver',
-    title: 'Add the driver',
-    text: 'Put the Driver Seat on top.',
-    paletteDefId: 'driver-seat',
-    isComplete: (bp) => countOf(bp, 'driver-seat') >= 1,
   },
   {
     id: 'engine',

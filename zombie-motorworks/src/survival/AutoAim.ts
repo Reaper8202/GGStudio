@@ -12,6 +12,8 @@ export type AutoAimEntry = WeaponAimInput;
 
 /** Larger than any squared weapon range, so it only reorders, never excludes. */
 const RANGED_PRIORITY_PENALTY = 1e9;
+/** Weights health far above distance so 'strongest' ranks by HP, distance ties. */
+const STRONGEST_HEALTH_WEIGHT = 1e6;
 const SHIELDED_PRIORITY_PENALTY = 1e9;
 
 interface AutoWeapon {
@@ -116,7 +118,7 @@ export class AutoAim {
         mountZ,
         weapon.def.rangeM,
         weapon.def.minRangeM ?? 0,
-        weapon.def.targetPriority === 'ranged',
+        weapon.def.targetPriority,
         weapon.empLevel === 0,
       );
       let acquired = false;
@@ -153,6 +155,10 @@ export class AutoAim {
         break;
       }
 
+      // entry.fire carries target acquisition. Manual-fire weapons (e.g. the
+      // Heavy Cannon) still require the player's own trigger on top of this —
+      // weapons.ts ANDs the two together — so acquisition is reported here for
+      // every auto weapon regardless.
       entry.fire = acquired;
       this.weaponAim.set(weapon.partId, entry);
     }
@@ -160,7 +166,13 @@ export class AutoAim {
     return this.weaponAim;
   }
 
-  /** Insert the closest bounded set without allocating or sorting each step. */
+  /**
+   * Insert the best bounded candidate set (by target priority) without
+   * allocating or sorting each step. The stored key is a generic score where
+   * lower ranks higher: plain distance for nearest, a large penalty that pushes
+   * walkers behind throwers for 'ranged', and a health-dominated score for
+   * 'strongest'. LOS is checked later in the caller, in this priority order.
+   */
   private collectNearestCandidates(
     targets: ReturnType<ZombieSystem['getAliveTargets']>,
     mountX: number,
@@ -168,7 +180,7 @@ export class AutoAim {
     mountZ: number,
     rangeM: number,
     minRangeM: number,
-    preferRanged: boolean,
+    priority: 'ranged' | 'strongest' | undefined,
     deprioritizeShielded: boolean,
   ): number {
     let count = 0;
@@ -181,18 +193,23 @@ export class AutoAim {
       const dx = target.x - mountX;
       const dy = target.y - mountY;
       const dz = target.z - mountZ;
-      let distanceSq = dx * dx + dy * dy + dz * dz;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
       if (distanceSq > rangeSq || distanceSq < minRangeSq) continue;
-      // Priority weapons sort walkers behind every in-range thrower while
-      // keeping their true distance ordering within each group.
-      if (preferRanged && zombie.kind !== 'thrower')
-        distanceSq += RANGED_PRIORITY_PENALTY;
-      // Keep shielded zombies eligible as a last resort so the baseline leak
-      // can always break a shield-only soft-lock.
+      // Lower score ranks first. Distance is the base; priorities reshape it.
+      let score = distanceSq;
+      if (priority === 'ranged' && zombie.kind !== 'thrower') {
+        // Sort walkers behind every in-range thrower, distance ordering within.
+        score += RANGED_PRIORITY_PENALTY;
+      } else if (priority === 'strongest') {
+        // Toughest first; distance only breaks ties between equal-health foes.
+        score = distanceSq - zombie.currentHealth * STRONGEST_HEALTH_WEIGHT;
+      }
+      // Keep shielded zombies eligible only as a last resort so a weapon that
+      // cannot strip the shield never soft-locks onto one it can't hurt.
       if (deprioritizeShielded && zombie.kind === 'phone-addict')
-        distanceSq += SHIELDED_PRIORITY_PENALTY;
+        score += SHIELDED_PRIORITY_PENALTY;
       let index = count;
-      while (index > 0 && distanceSq < this.candidateDistances[index - 1]) {
+      while (index > 0 && score < this.candidateDistances[index - 1]) {
         if (index < this.candidateTargets.length) {
           this.candidateTargets[index] = this.candidateTargets[index - 1];
           this.candidateDistances[index] = this.candidateDistances[index - 1];
@@ -201,7 +218,7 @@ export class AutoAim {
       }
       if (index >= this.candidateTargets.length) continue;
       this.candidateTargets[index] = zombie;
-      this.candidateDistances[index] = distanceSq;
+      this.candidateDistances[index] = score;
       if (count < this.candidateTargets.length) count++;
     }
     return count;

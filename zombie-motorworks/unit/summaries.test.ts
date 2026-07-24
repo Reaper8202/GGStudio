@@ -54,7 +54,6 @@ describe('legible consequence summaries', () => {
     const summary = newGarageDisposalSummary(
       [
         placed('core', 'chassis-core', { level: 3 }),
-        placed('seat', 'driver-seat'),
         placed('frame', 'frame-box', { level: 2 }),
         placed('turret', 'turret', {
           level: 3,

@@ -49,8 +49,8 @@ function sampleBlueprint(): VehicleBlueprint {
         config: {},
       },
       {
-        id: 'seat',
-        defId: 'driver-seat',
+        id: 'roof',
+        defId: 'frame-box',
         pos: { x: 0, y: 1, z: 0 },
         orient: 0,
         config: {},
