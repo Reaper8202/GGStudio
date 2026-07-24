@@ -226,11 +226,6 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
       <path d="M14 18H50M14 46H50" stroke="#89995a" stroke-width="3"/>
       <path d="M20 15V21M32 15V21M44 15V21M20 43V49M32 43V49M44 43V49" stroke="#8a5035" stroke-width="2"/>
     `,
-    'driver-seat': `
-      <path d="M22 14H42V36H22Z" fill="#3d4339"/>
-      <path d="M18 35H44V47H36V53H24V47H18Z" fill="#242923"/>
-      <path d="M25 18H39V32H25Z" fill="#59604f"/>
-    `,
     'engine-small': `
       ${common}
       <path d="M21 20 29 16V25L21 29ZM35 16 43 20V29L35 25Z" fill="#8a5035"/>

@@ -245,11 +245,10 @@ export interface PartDefinition {
   unlockCost?: number;
   /** Multiplier on the strength of structural connections into this part. */
   reinforcement: number;
-  /** Only one instance allowed per vehicle (root chassis, driver seat). */
+  /** Only one instance allowed per vehicle (root chassis). */
   unique?: boolean;
-  /** True for the root chassis / driver compartment that anchors connectivity. */
+  /** True for the root chassis that anchors connectivity. */
   isRoot?: boolean;
-  providesControl?: boolean; // driver seat / cab
   wheel?: WheelDefinition;
   engine?: EngineDefinition;
   weapon?: WeaponDefinition;

@@ -5,7 +5,7 @@
 > it end to end as routine task setup.
 
 - Source Modules: 54
-- Source lines: 20,273
+- Source lines: 20,203
 - Test files scanned: 55
 
 ## Largest Modules
@@ -14,18 +14,18 @@
 | --- | ---: |
 | [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2209 |
 | [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 1804 |
-| [`src/editor/ui.ts`](../../src/editor/ui.ts) | 1171 |
 | [`src/survival/Graveyard.ts`](../../src/survival/Graveyard.ts) | 1169 |
-| [`src/app/App.ts`](../../src/app/App.ts) | 1033 |
+| [`src/editor/ui.ts`](../../src/editor/ui.ts) | 1166 |
+| [`src/app/App.ts`](../../src/app/App.ts) | 1032 |
 | [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) | 1025 |
-| [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 836 |
+| [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 824 |
 | [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 684 |
 | [`src/chamber/ChamberMode.ts`](../../src/chamber/ChamberMode.ts) | 637 |
 | [`src/survival/Minimap.ts`](../../src/survival/Minimap.ts) | 583 |
 
 ## src/app
 
-### [`src/app/App.ts`](../../src/app/App.ts) (1033 LOC)
+### [`src/app/App.ts`](../../src/app/App.ts) (1032 LOC)
 
 - Exports: `App`, `buildStarterBlueprint`, `CheckpointRunState`, `createClearedWaveCheckpoint`, `createInitialRunCheckpoint`, `fullPartHp`, `prepareCheckpointForGarageFight`, `recordPhoneAddictKilled`, `recordWaveCleared`, `recoverRunFromCheckpoint`, `resetProfileForNewGame`, `RunCheckpoint`, `runStateFromCheckpoint`, `savedRunFromCheckpoint`
 - Imports: `src/app/TitleScreen.ts`, `src/app/profileStore.ts`, `src/app/runSaveStore.ts`, `src/chamber/ChamberMode.ts`, `src/core/analysis.ts`, `src/core/blueprint.ts`, `src/core/commands.ts`, `src/core/economy.ts`, `src/core/grid.ts`, `src/core/parts.ts`, `src/core/placement.ts`, `src/core/profile.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/core/upgrades.ts`, `src/editor/EditorMode.ts`, `src/editor/ui.ts`, `src/runtime/vehicle.ts`, `src/survival/SurvivalMode.ts`
@@ -93,9 +93,9 @@
 - External packages: none
 - Direct tests: `unit/analysis.test.ts`, `unit/fixtures.test.ts`, `unit/store-flow.test.ts`
 
-### [`src/core/blueprint.ts`](../../src/core/blueprint.ts) (107 LOC)
+### [`src/core/blueprint.ts`](../../src/core/blueprint.ts) (103 LOC)
 
-- Exports: `buildArmourFaces`, `buildOccupancy`, `createEmptyBlueprint`, `findRoot`, `getPart`, `hasControl`, `hasEngine`, `nextPartId`, `pruneBlueprintToSurvivors`, `withPartAdded`, `withPartRemoved`, `withPartUpdated`
+- Exports: `buildArmourFaces`, `buildOccupancy`, `createEmptyBlueprint`, `findRoot`, `getPart`, `hasEngine`, `nextPartId`, `pruneBlueprintToSurvivors`, `withPartAdded`, `withPartRemoved`, `withPartUpdated`
 - Imports: `src/core/grid.ts`, `src/core/parts.ts`, `src/core/types.ts`
 - Imported by: `src/app/App.ts`, `src/core/commands.ts`, `src/core/tutorial.ts`, `src/editor/EditorMode.ts`, `src/editor/overlays.ts`
 - External packages: none
@@ -133,7 +133,7 @@
 - External packages: none
 - Direct tests: `unit/analysis.test.ts`
 
-### [`src/core/parts.ts`](../../src/core/parts.ts) (579 LOC)
+### [`src/core/parts.ts`](../../src/core/parts.ts) (563 LOC)
 
 - Exports: `getPartDef`, `PART_CATALOG`, `wheelAxleWorld`, `wheelSuspensionWorld`
 - Imports: `src/core/grid.ts`, `src/core/types.ts`
@@ -141,7 +141,7 @@
 - External packages: none
 - Direct tests: `unit/analysis.test.ts`, `unit/app.test.ts`, `unit/auto-aim.test.ts`, `unit/commands.test.ts`, `unit/economy.test.ts`, `unit/fixtures.test.ts`, `unit/ice-cannon.test.ts`, `unit/parts.test.ts`, `unit/runtime-upgrades.test.ts`, `unit/shield-generator.test.ts`, `unit/store-flow.test.ts`, `unit/summaries.test.ts`, `unit/suspension-sim.test.ts`, `unit/turret-module-ui.test.ts`, `unit/tutorial.test.ts`, `unit/upgrades.test.ts`, `unit/weapon-ammo.test.ts`, `unit/wheel-config.test.ts`, `unit/wheel-layout.test.ts`
 
-### [`src/core/placement.ts`](../../src/core/placement.ts) (452 LOC)
+### [`src/core/placement.ts`](../../src/core/placement.ts) (441 LOC)
 
 - Exports: `canPlacePart`, `canRemovePart`, `validateBlueprint`
 - Imports: `src/core/grid.ts`, `src/core/structural.ts`, `src/core/types.ts`
@@ -149,7 +149,7 @@
 - External packages: none
 - Direct tests: `unit/app.test.ts`, `unit/fixtures.test.ts`, `unit/placement.test.ts`, `unit/tutorial.test.ts`
 
-### [`src/core/profile.ts`](../../src/core/profile.ts) (140 LOC)
+### [`src/core/profile.ts`](../../src/core/profile.ts) (138 LOC)
 
 - Exports: `decodeProfile`, `DEFAULT_MONEY`, `defaultProfile`, `encodeProfile`, `MINE_SWEEPER_UNLOCK_WAVE`, `PlayerProfile`, `STARTER_UNLOCKS`
 - Imports: `src/core/parts.ts`
@@ -189,7 +189,7 @@
 - External packages: none
 - Direct tests: `unit/landmines.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-modules.test.ts`
 
-### [`src/core/tutorial.ts`](../../src/core/tutorial.ts) (184 LOC)
+### [`src/core/tutorial.ts`](../../src/core/tutorial.ts) (175 LOC)
 
 - Exports: `createTutorialBlueprint`, `GetDef`, `KID_LABELS`, `PartLabel`, `SIMPLE_PART_IDS`, `TUTORIAL_STEPS`, `tutorialProgress`, `TutorialStep`
 - Imports: `src/core/blueprint.ts`, `src/core/placement.ts`, `src/core/types.ts`
@@ -197,7 +197,7 @@
 - External packages: none
 - Direct tests: `unit/tutorial.test.ts`
 
-### [`src/core/types.ts`](../../src/core/types.ts) (401 LOC)
+### [`src/core/types.ts`](../../src/core/types.ts) (400 LOC)
 
 - Exports: `AbilityDefinition`, `ArmourDefinition`, `BLUEPRINT_SCHEMA_VERSION`, `CELL_SIZE`, `DamageType`, `DrivetrainConnection`, `EngineDefinition`, `Face`, `GRID_MAX`, `GRID_MIN`, `MeleeDefinition`, `OrientationIndex`, `PAINT_COLORS`, `PaintColor`, `PartCategory`, `PartConfig`, `PartDefinition`, `PlacedPart`, `PlacementResult`, `Severity`, `SocketType`, `StructuralConnection`, `StructuralSocket`, `SUSPENSION_PRESET_MULTIPLIERS`, `SuspensionParams`, `SuspensionPreset`, `UpgradeDefinition`, `ValidationIssue`, `ValidationReport`, `Vec3`, `Vec3i`, `VehicleAnalysisReport`, `VehicleBlueprint`, `WeaponDefinition`, `WeaponMountType`, `WheelContactEstimate`, `WheelDefinition`
 - Imports: none
@@ -213,7 +213,7 @@
 - External packages: none
 - Direct tests: `unit/app.test.ts`, `unit/run-checkpoint.test.ts`, `unit/turret-module-ui.test.ts`, `unit/upgrades.test.ts`
 
-### [`src/core/wheelLayout.ts`](../../src/core/wheelLayout.ts) (107 LOC)
+### [`src/core/wheelLayout.ts`](../../src/core/wheelLayout.ts) (104 LOC)
 
 - Exports: `AutomaticWheelLayout`, `deriveAutomaticWheelLayout`, `resolveDrivenPartIds`
 - Imports: `src/core/mass.ts`, `src/core/types.ts`
@@ -239,7 +239,7 @@
 - External packages: none
 - Direct tests: none
 
-### [`src/editor/meshes.ts`](../../src/editor/meshes.ts) (353 LOC)
+### [`src/editor/meshes.ts`](../../src/editor/meshes.ts) (347 LOC)
 
 - Exports: `buildPartMesh`, `partColor`
 - Imports: `src/core/grid.ts`, `src/core/mass.ts`, `src/core/types.ts`
@@ -255,7 +255,7 @@
 - External packages: `three`
 - Direct tests: none
 
-### [`src/editor/ui.ts`](../../src/editor/ui.ts) (1171 LOC)
+### [`src/editor/ui.ts`](../../src/editor/ui.ts) (1166 LOC)
 
 - Exports: `buildEditorUI`, `EditorUI`, `EditorUIHandlers`, `NewGarageDisposalSummary`, `RunRepairEconomy`, `RunSummary`, `SelectedPartEconomy`, `TurretModuleEconomy`
 - Imports: `src/core/turretModules.ts`, `src/core/tutorial.ts`, `src/core/types.ts`
@@ -305,7 +305,7 @@
 - External packages: none
 - Direct tests: `unit/suspension-sim.test.ts`
 
-### [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) (836 LOC)
+### [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) (824 LOC)
 
 - Exports: `AUTO_HOLD_SPEED`, `brakeInputWithAutoHold`, `isAllTreadRig`, `RuntimePartTarget`, `RuntimeVehicle`, `VehicleControls`, `VehicleTelemetry`
 - Imports: `src/core/mass.ts`, `src/core/types.ts`, `src/runtime/assembler.ts`, `src/runtime/damage.ts`, `src/runtime/drivetrain.ts`, `src/runtime/surfaces.ts`, `src/runtime/vec.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`

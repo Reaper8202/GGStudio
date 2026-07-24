@@ -156,7 +156,6 @@ export async function buildBasicRig(page: Page): Promise<void> {
   await newBlueprint(page);
   const steps: [string, P, number?][] = [
     ['chassis-core', { x: 0, y: 1, z: 0 }],
-    ['driver-seat', { x: 0, y: 2, z: 0 }],
     ['frame-box', { x: 0, y: 1, z: 1 }],
     ['frame-box', { x: 0, y: 1, z: 2 }],
     ['frame-box', { x: 0, y: 1, z: -1 }],

@@ -336,11 +336,10 @@ export class RuntimeVehicle {
     return maxHealth > 0 ? (currentHealth / maxHealth) * 100 : 0;
   }
 
-  /** Root loss or loss of every attached control provider ends the run. */
+  /** Root loss ends the run. */
   isDestroyed(): boolean {
     const root = this.assembled.parts.get(this.assembled.rootPartId);
-    if (!root || !root.alive || root.detached) return true;
-    return !this.hasControl(this.attachedAliveIds());
+    return !root || !root.alive || root.detached;
   }
 
   private attachedAliveIds(): Set<string> {
@@ -348,13 +347,6 @@ export class RuntimeVehicle {
     for (const [id, p] of this.assembled.parts)
       if (p.alive && !p.detached) out.add(id);
     return out;
-  }
-
-  private hasControl(attached: Set<string>): boolean {
-    for (const id of attached) {
-      if (this.assembled.parts.get(id)!.def.providesControl) return true;
-    }
-    return false;
   }
 
   /** Stable blueprint IDs for every living part still attached to the root body. */
@@ -403,15 +395,11 @@ export class RuntimeVehicle {
     this.angularVelocityBeforeSolve.z = angularVelocityAtStart.z;
 
     const attached = this.attachedAliveIds();
-    const controllable = this.hasControl(attached);
     const forwardSpeed = this.forwardSpeed();
-    const throttle = controllable ? controls.throttle : 0;
-    const brake = controllable
-      ? brakeInputWithAutoHold(controls, forwardSpeed)
-      : 0;
-    const steer = controllable ? controls.steer : 0;
-    const reverseInput =
-      controllable && throttle <= 0 ? (controls.reverse ?? 0) : 0;
+    const throttle = controls.throttle;
+    const brake = brakeInputWithAutoHold(controls, forwardSpeed);
+    const steer = controls.steer;
+    const reverseInput = throttle <= 0 ? (controls.reverse ?? 0) : 0;
     const reversing =
       reverseInput > 0 &&
       forwardSpeed < REVERSE_ENGAGE_MAX_FORWARD_MPS &&
@@ -491,7 +479,7 @@ export class RuntimeVehicle {
       this.weapons,
       attached,
       {
-        fire: controllable && controls.fire,
+        fire: controls.fire,
         aimYawWorld: controls.aimYawWorld,
         weaponAim: controls.weaponAim,
       },

@@ -31,7 +31,7 @@ function checkpointBlueprint(): VehicleBlueprint {
       },
       {
         id: 'seat',
-        defId: 'driver-seat',
+        defId: 'frame-box',
         pos: { x: 0, y: 1, z: 0 },
         orient: 0,
         config: {},

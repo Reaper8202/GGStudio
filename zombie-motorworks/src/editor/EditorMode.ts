@@ -86,7 +86,7 @@ export function newGarageDisposalSummary(
 ): NewGarageDisposalSummary {
   const disposable = parts.filter((part) => {
     const def = getDef(part.defId);
-    return def.isRoot !== true && def.providesControl !== true;
+    return def.isRoot !== true;
   });
   const investment = disposable.reduce(
     (total, part) => total + partInvestment(part),
@@ -1772,7 +1772,7 @@ function wheelLayoutInputsChanged(
     bp.parts
       .filter((part) => {
         const def = getPartDef(part.defId);
-        return def.wheel !== undefined || def.providesControl === true;
+        return def.wheel !== undefined;
       })
       .map(
         (part) =>

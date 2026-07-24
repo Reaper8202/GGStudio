@@ -390,17 +390,6 @@ export function validateBlueprint(
         'Add a root chassis.',
       ),
     );
-  if (!knownParts.some(({ def }) => def.providesControl)) {
-    errors.push(
-      issue(
-        'NO_CONTROL',
-        'Vehicle has no control part.',
-        [],
-        [],
-        'Add a driver seat or cab.',
-      ),
-    );
-  }
   if (!knownParts.some(({ def }) => def.engine !== undefined)) {
     errors.push(
       issue(

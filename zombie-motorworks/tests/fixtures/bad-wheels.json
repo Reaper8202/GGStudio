@@ -16,7 +16,7 @@
     },
     {
       "id": "seat",
-      "defId": "driver-seat",
+      "defId": "frame-box",
       "pos": {
         "x": 0,
         "y": 2,
@@ -173,3 +173,4 @@
     }
   ]
 }
+

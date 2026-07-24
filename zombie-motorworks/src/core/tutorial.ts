@@ -18,7 +18,6 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'wheel-offroad',
   'wheel-moto',
   'tread-tank',
-  'driver-seat',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
@@ -64,7 +63,6 @@ export const KID_LABELS: Record<string, PartLabel> = {
     name: 'Tank Tread',
     blurb: 'Slow and super tough! Crawls over anything.',
   },
-  'driver-seat': { name: 'Driver Seat', blurb: 'Put your brave driver here!' },
   'engine-small': { name: 'Engine', blurb: 'Makes the truck go!' },
   'fuel-tank': { name: 'Fuel Tank', blurb: 'Keeps the engine fueled up!' },
   'mine-sweeper': {
@@ -111,7 +109,7 @@ function countOf(bp: VehicleBlueprint, defId: string): number {
   return bp.parts.filter((part) => part.defId === defId).length;
 }
 
-/** The guided build: frame → wheels → driver → engine → fuel → drive. */
+/** The guided build: frame → wheels → engine → fuel → drive. */
 const BUILD_STEPS: readonly TutorialStep[] = [
   {
     id: 'frame',
@@ -128,13 +126,6 @@ const BUILD_STEPS: readonly TutorialStep[] = [
     paletteDefId: 'wheel-standard',
     isComplete: (bp) =>
       countOf(bp, 'wheel-standard') + countOf(bp, 'wheel-offroad') >= 4,
-  },
-  {
-    id: 'driver',
-    title: 'Add the driver',
-    text: 'Put the Driver Seat on top.',
-    paletteDefId: 'driver-seat',
-    isComplete: (bp) => countOf(bp, 'driver-seat') >= 1,
   },
   {
     id: 'engine',

@@ -6,7 +6,6 @@ import { STARTER_UNLOCKS } from '../src/core/profile.ts';
 import {
   createEmptyBlueprint,
   findRoot,
-  hasControl,
   hasEngine,
   nextPartId,
   withPartAdded,
@@ -30,7 +29,6 @@ const EXPECTED_CATALOG_IDS = [
   'wheel-offroad',
   'wheel-moto',
   'tread-tank',
-  'driver-seat',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
@@ -153,19 +151,12 @@ describe('blueprint helpers', () => {
     expect(nextPartId(withPart)).toBe('p2');
   });
 
-  it('queries root, control, and engine presence', () => {
+  it('queries root and engine presence', () => {
     let bp = createEmptyBlueprint('query rig');
     bp = withPartAdded(bp, {
       id: 'p1',
       defId: 'chassis-core',
       pos: { x: 0, y: 0, z: 0 },
-      orient: 0,
-      config: {},
-    });
-    bp = withPartAdded(bp, {
-      id: 'p2',
-      defId: 'driver-seat',
-      pos: { x: 0, y: 1, z: 0 },
       orient: 0,
       config: {},
     });
@@ -178,7 +169,6 @@ describe('blueprint helpers', () => {
     });
 
     expect(findRoot(bp)?.id).toBe('p1');
-    expect(hasControl(bp)).toBe(true);
     expect(hasEngine(bp)).toBe(true);
   });
 });
