@@ -68,6 +68,11 @@ const HIT_FLASH_COLOR = new THREE.Color(0xffffff);
 /** Icy blue glow applied to a frozen zombie's body while its freeze lasts. */
 const ICE_FREEZE_COLOR = new THREE.Color(0x8fd8ff);
 const ICE_FREEZE_EMISSIVE = 0.85;
+/** Purple glow applied to a mind-controlled zombie fighting on your side. */
+const CHARM_COLOR = new THREE.Color(0xc060ff);
+const CHARM_EMISSIVE = 0.7;
+/** Charmed zombies hit enemy zombies harder than they'd claw at the vehicle. */
+const CHARM_ATTACK_MULTIPLIER = 2.5;
 const BASE_VISUAL_SCALE = 1.85;
 const BODY_TINTS = [0x4c6b3f, 0x5a7247, 0x3f5c48, 0x6b5a3f, 0x556b4c, 0x47614a];
 const warnedVisualVariants = new Set<number>();
@@ -197,6 +202,16 @@ export class Zombie {
     z: 0,
     distance: Infinity,
   };
+  /**
+   * Nearest enemy zombie to attack while mind-controlled; filled by ZombieSystem
+   * once per fixed step. `zombie` is null when no enemy is in play.
+   */
+  readonly charmTarget: {
+    zombie: Zombie | null;
+    x: number;
+    z: number;
+    distance: number;
+  } = { zombie: null, x: 0, z: 0, distance: Infinity };
 
   state = ZombieState.Dead;
   active = false;
@@ -246,6 +261,8 @@ export class Zombie {
   private hitFlashTimer = 0;
   /** Seconds of remaining Ice Cannon freeze; while >0 the zombie can't act. */
   private freezeTimer = 0;
+  /** Seconds of remaining Mind Control charm; while >0 the zombie fights for you. */
+  private charmTimer = 0;
   /** Seconds of remaining ice-fire slow; while >0 move speed scales by slowFactor. */
   private slowTimer = 0;
   private slowFactor = 1;
@@ -363,7 +380,12 @@ export class Zombie {
   }
 
   get isTargetable(): boolean {
-    return this.isAlive && this.state !== ZombieState.Spawning;
+    // Charmed zombies fight for the player, so they drop out of every
+    // enemy-facing system: weapons, freeze/zap AoE, vehicle contacts, and the
+    // charm sweep itself all key off isTargetable.
+    return (
+      this.isAlive && this.state !== ZombieState.Spawning && this.charmTimer <= 0
+    );
   }
 
   /** Current hit points, for target-priority weapons that seek the toughest foe. */
@@ -429,6 +451,9 @@ export class Zombie {
     this.lungeTimer = 0;
     this.hitFlashTimer = 0;
     this.freezeTimer = 0;
+    this.charmTimer = 0;
+    this.charmTarget.zombie = null;
+    this.charmTarget.distance = Infinity;
     this.slowTimer = 0;
     this.slowFactor = 1;
     this.detourSign = Math.random() < 0.5 ? -1 : 1;
@@ -490,6 +515,20 @@ export class Zombie {
       if (this.slowTimer === 0) this.slowFactor = 1;
     }
 
+    // Mind Control Beam: while charmed, hunt enemy zombies instead of the
+    // vehicle. When the timer runs out the control wears off and the zombie
+    // turns hostile again, falling through to its normal AI below.
+    if (this.charmTimer > 0 && this.state !== ZombieState.Dead) {
+      this.charmTimer = Math.max(0, this.charmTimer - dt);
+      if (this.charmTimer > 0) {
+        this.stepCharmed(dt);
+        this.syncPositionFromBody();
+        return;
+      }
+      this.state = ZombieState.Chasing;
+      this.attackTimer = 0;
+    }
+
     // Ice Cannon freeze: hold the zombie in place until the freeze expires.
     // Dead zombies still run their death animation; everything else is halted.
     if (this.freezeTimer > 0 && this.state !== ZombieState.Dead) {
@@ -544,6 +583,25 @@ export class Zombie {
   /** True while an Ice Cannon freeze is holding this zombie. */
   get isFrozen(): boolean {
     return this.freezeTimer > 0;
+  }
+
+  /**
+   * Mind Control Beam: turn this zombie to the player's side for `seconds`. Only
+   * affects a live, non-spawning zombie; re-charming extends to the longer time.
+   */
+  applyCharm(seconds: number): void {
+    if (seconds <= 0 || !this.isAlive || this.state === ZombieState.Spawning)
+      return;
+    this.charmTimer = Math.max(this.charmTimer, seconds);
+    this.charmTarget.zombie = null;
+    this.charmTarget.distance = Infinity;
+    this.state = ZombieState.Chasing;
+    this.attackTimer = 0;
+  }
+
+  /** True while a Mind Control charm has this zombie fighting for the player. */
+  get isCharmed(): boolean {
+    return this.charmTimer > 0;
   }
 
   /**
@@ -618,6 +676,10 @@ export class Zombie {
       // Icy blue glow while frozen (a hit-flash briefly overrides it above).
       for (const material of this.visualMaterials)
         material.emissive.copy(ICE_FREEZE_COLOR).multiplyScalar(ICE_FREEZE_EMISSIVE);
+    } else if (this.charmTimer > 0) {
+      // Purple glow while mind-controlled and fighting on your side.
+      for (const material of this.visualMaterials)
+        material.emissive.copy(CHARM_COLOR).multiplyScalar(CHARM_EMISSIVE);
     } else if (this.slowTimer > 0) {
       // Fainter icy glow while merely slowed by ice fire.
       for (const material of this.visualMaterials)
@@ -730,6 +792,58 @@ export class Zombie {
     this.visualMaterials.length = 0;
     this.visualRoot.clear();
     this.root.clear();
+  }
+
+  /**
+   * Mind Control behaviour: chase and melee the nearest enemy zombie
+   * (`charmTarget`, supplied by ZombieSystem) instead of the vehicle. One-way —
+   * enemies ignore charmed allies, so this only ever deals damage outward. The
+   * `state` is kept as Chasing/Attacking purely so the walk/lunge visuals read
+   * correctly.
+   */
+  private stepCharmed(dt: number): void {
+    const target = this.charmTarget;
+    if (target.zombie === null || !target.zombie.isTargetable) {
+      // Nothing left to fight right now: hold position.
+      this.state = ZombieState.Chasing;
+      this.zeroHorizontalVelocity();
+      return;
+    }
+
+    const dx = target.x - this.position.x;
+    const dz = target.z - this.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance <= ZOMBIE_ATTACK_RANGE) {
+      this.state = ZombieState.Attacking;
+      this.zeroHorizontalVelocity();
+      this.updateFacing(dx, dz);
+      this.attackTimer -= dt;
+      if (this.attackTimer <= 0) {
+        this.attackTimer = this.attackInterval;
+        const length = distance || 1;
+        target.zombie.takeDamage(this.attackDamage * CHARM_ATTACK_MULTIPLIER, {
+          x: dx / length,
+          y: 0,
+          z: dz / length,
+        });
+        this.lungeTimer = LUNGE_DURATION;
+      }
+      return;
+    }
+
+    this.state = ZombieState.Chasing;
+    if (distance < 1e-4) {
+      this.zeroHorizontalVelocity();
+      return;
+    }
+    const speed =
+      this.slowTimer > 0 ? this.moveSpeed * this.slowFactor : this.moveSpeed;
+    const velocity = this.body.linvel();
+    this.velocityScratch.x = (dx / distance) * speed;
+    this.velocityScratch.y = velocity.y;
+    this.velocityScratch.z = (dz / distance) * speed;
+    this.body.setLinvel(this.velocityScratch, true);
+    this.updateFacing(this.velocityScratch.x, this.velocityScratch.z);
   }
 
   private stepChasing(

@@ -273,7 +273,10 @@ export class ZombieSystem {
 
     this.applySeparation(this.activeScratch);
     for (const zombie of this.activeScratch) {
-      this.findNearestVehiclePart(zombie);
+      // Charmed allies hunt the nearest enemy zombie; everyone else hunts the
+      // vehicle.
+      if (zombie.isCharmed) this.findNearestEnemy(zombie);
+      else this.findNearestVehiclePart(zombie);
       zombie.fixedUpdate(
         dt,
         this.vehicle,
@@ -357,6 +360,67 @@ export class ZombieSystem {
     candidates.sort((a, b) => a.distSq - b.distSq);
     const limit = Math.min(Math.floor(maxCount), candidates.length);
     for (let i = 0; i < limit; i++) candidates[i].zombie.applyFreeze(seconds);
+    return limit;
+  }
+
+  /**
+   * Tesla Coil Q blast: deal `damage` to every alive target within `radiusM` of
+   * the origin. Returns how many zombies were hit. Runs rarely (once per
+   * cooldown), so the snapshot allocation is not a concern. Candidates are
+   * snapshotted before applying damage because `takeDamage`/`rebuildAliveTargets`
+   * can mutate `aliveTargets` mid-iteration.
+   */
+  damageWithin(
+    origin: { x: number; z: number },
+    radiusM: number,
+    damage: number,
+    direction?: Vector3Like,
+  ): number {
+    if (this.disposed || radiusM <= 0 || damage <= 0) return 0;
+    const radiusSq = radiusM * radiusM;
+    const caught: Zombie[] = [];
+    for (const zombie of this.aliveTargets) {
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      if (dx * dx + dz * dz > radiusSq) continue;
+      caught.push(zombie);
+    }
+    let anyKilled = false;
+    for (const zombie of caught) {
+      if (zombie.takeDamage(damage, direction)) anyKilled = true;
+    }
+    if (anyKilled) this.rebuildAliveTargets();
+    return caught.length;
+  }
+
+  /**
+   * Mind Control Beam activation: turn up to `maxCount` of the nearest
+   * targetable enemy zombies within `radiusM` of the origin over to the player's
+   * side for `seconds`, nearest first. Returns how many were charmed. Runs
+   * rarely (once per cooldown), so the small sort allocation is not a concern.
+   */
+  charmNearest(
+    origin: { x: number; z: number },
+    maxCount: number,
+    radiusM: number,
+    seconds: number,
+  ): number {
+    if (this.disposed || maxCount <= 0 || radiusM <= 0 || seconds <= 0)
+      return 0;
+    const radiusSq = radiusM * radiusM;
+    const candidates: { zombie: Zombie; distSq: number }[] = [];
+    for (const zombie of this.aliveTargets) {
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq > radiusSq) continue;
+      candidates.push({ zombie, distSq });
+    }
+    candidates.sort((a, b) => a.distSq - b.distSq);
+    const limit = Math.min(Math.floor(maxCount), candidates.length);
+    for (let i = 0; i < limit; i++) candidates[i].zombie.applyCharm(seconds);
+    // Charmed zombies stop being targetable, so refresh the enemy list at once.
+    if (limit > 0) this.rebuildAliveTargets();
     return limit;
   }
 
@@ -508,6 +572,26 @@ export class ZombieSystem {
     if (target.partId !== null) target.distance = Math.sqrt(nearestDistanceSq);
   }
 
+  /** Nearest targetable enemy zombie for a charmed ally to attack. */
+  private findNearestEnemy(ally: Zombie): void {
+    const target = ally.charmTarget;
+    target.zombie = null;
+    target.distance = Infinity;
+    let nearestDistanceSq = Infinity;
+    for (const enemy of this.aliveTargets) {
+      if (enemy === ally || enemy.isCharmed) continue;
+      const dx = enemy.position.x - ally.position.x;
+      const dz = enemy.position.z - ally.position.z;
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq >= nearestDistanceSq) continue;
+      nearestDistanceSq = distanceSq;
+      target.zombie = enemy;
+      target.x = enemy.position.x;
+      target.z = enemy.position.z;
+    }
+    if (target.zombie !== null) target.distance = Math.sqrt(nearestDistanceSq);
+  }
+
   private applySeparation(active: readonly Zombie[]): void {
     this.separationX.fill(0);
     this.separationZ.fill(0);
@@ -609,6 +693,12 @@ export class ZombieSystem {
   }
 
   private updateWatchdog(zombie: Zombie, dt: number): void {
+    // Charmed allies chase enemy zombies, not the vehicle; never teleport them
+    // for lack of progress toward the vehicle.
+    if (zombie.isCharmed) {
+      this.resetWatchdog(zombie);
+      return;
+    }
     // Workers deliberately stand still (arming, holding range); never teleport
     // them for lack of progress toward the vehicle.
     if (zombie.state !== ZombieState.Chasing || zombie.kind === 'worker') {

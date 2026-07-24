@@ -5,7 +5,12 @@
 
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { effectiveFreeze, effectiveShield } from '../core/abilities.ts';
+import {
+  effectiveCharm,
+  effectiveFreeze,
+  effectiveShield,
+  effectiveZap,
+} from '../core/abilities.ts';
 import type { RunState } from '../core/economy.ts';
 import { getPartDef } from '../core/parts.ts';
 import { deriveConnections } from '../core/structural.ts';
@@ -306,6 +311,9 @@ export class SurvivalMode {
     transparent: true,
     opacity: 0.35,
   });
+  private readonly electricTracerMaterial = new THREE.LineBasicMaterial({
+    color: 0x33aaff,
+  });
   private readonly wheelSteerQuaternion = new THREE.Quaternion();
   private readonly wheelSteerAxis = new THREE.Vector3(0, 1, 0);
   private readonly pointerNdc = new THREE.Vector2();
@@ -335,6 +343,16 @@ export class SurvivalMode {
   private shieldBubble: THREE.Mesh | null = null;
   private shieldBubbleMaterial: THREE.MeshBasicMaterial | null = null;
   private shieldBubblePhase = 0;
+  private zapBlast: THREE.Mesh | null = null;
+  private zapBlastMaterial: THREE.MeshBasicMaterial | null = null;
+  /** Seconds remaining in the Tesla Coil blast flash; 0 when idle. */
+  private zapBlastTtl = 0;
+  private charmPulse: THREE.Mesh | null = null;
+  private charmPulseMaterial: THREE.MeshBasicMaterial | null = null;
+  /** Seconds remaining in the Mind Control range pulse; 0 when idle. */
+  private charmPulseTtl = 0;
+  /** Charm range this pulse expands to, metres. */
+  private charmPulseRange = 0;
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
@@ -1637,6 +1655,8 @@ export class SurvivalMode {
     this.zombies.updateVisuals(frameDt);
     this.fuelPickups.updateVisuals(frameDt);
     this.syncShieldBubble(frameDt);
+    this.syncZapBlast(frameDt);
+    this.syncCharmPulse(frameDt);
     this.syncTracers(frameDt);
     this.syncMineWarningHud(frameDt);
     this.followCamera.update(frameDt);
@@ -1706,6 +1726,28 @@ export class SurvivalMode {
         freeze.durationSeconds,
       );
       this.abilityCooldown = freeze.cooldownSeconds;
+    } else if (ability.kind === 'zap') {
+      const zap = effectiveZap(ability, level);
+      const pos = this.vehicle.body.translation();
+      // Blast centred on the vehicle, matching the Shield Bubble's radius.
+      this.zombies.damageWithin(
+        { x: pos.x, z: pos.z },
+        SHIELD_BUBBLE_RADIUS_M,
+        zap.damage,
+      );
+      this.spawnZapBlast();
+      this.abilityCooldown = zap.cooldownSeconds;
+    } else if (ability.kind === 'charm') {
+      const charm = effectiveCharm(ability, level);
+      const pos = this.vehicle.body.translation();
+      this.zombies.charmNearest(
+        { x: pos.x, z: pos.z },
+        charm.targets,
+        charm.rangeM,
+        charm.durationSeconds,
+      );
+      this.spawnCharmPulse(charm.rangeM);
+      this.abilityCooldown = charm.cooldownSeconds;
     } else {
       const shield = effectiveShield(ability, level);
       this.vehicle.grantInvulnerability(shield.durationSeconds);
@@ -1831,6 +1873,91 @@ export class SurvivalMode {
       this.shieldBubbleMaterial.opacity =
         0.24 + 0.1 * (0.5 + 0.5 * Math.sin(this.shieldBubblePhase));
     }
+  }
+
+  /** Duration of the Tesla Coil blast flash, seconds. */
+  private static readonly ZAP_BLAST_SECONDS = 0.35;
+
+  /**
+   * Kick off the Tesla Coil blast flash: a bright blue sphere at the Shield
+   * Bubble radius that expands and fades out. The mesh is a child of the vehicle
+   * group so it stays centred on the chassis; it is created lazily and reused.
+   */
+  private spawnZapBlast(): void {
+    if (this.zapBlast === null) {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x66ccff,
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(SHIELD_BUBBLE_RADIUS_M, 24, 16),
+        material,
+      );
+      mesh.name = 'zap-blast';
+      this.vehicleGroup.add(mesh);
+      this.zapBlast = mesh;
+      this.zapBlastMaterial = material;
+    }
+    this.zapBlastTtl = SurvivalMode.ZAP_BLAST_SECONDS;
+    this.zapBlast.visible = true;
+  }
+
+  /** Expand and fade the Tesla Coil blast flash, hiding it when spent. */
+  private syncZapBlast(frameDt: number): void {
+    if (this.zapBlast === null || this.zapBlastTtl <= 0) return;
+    this.zapBlastTtl = Math.max(0, this.zapBlastTtl - frameDt);
+    const progress = 1 - this.zapBlastTtl / SurvivalMode.ZAP_BLAST_SECONDS;
+    // Snap out from a compact core, fading as it grows.
+    const scale = 0.4 + 0.6 * progress;
+    this.zapBlast.scale.setScalar(scale);
+    if (this.zapBlastMaterial) {
+      this.zapBlastMaterial.opacity = 0.5 * (1 - progress);
+    }
+    if (this.zapBlastTtl <= 0) this.zapBlast.visible = false;
+  }
+
+  /** Duration of the Mind Control range pulse, seconds. */
+  private static readonly CHARM_PULSE_SECONDS = 0.5;
+
+  /**
+   * Kick off the Mind Control pulse: a purple sphere that expands from the
+   * vehicle out to the charm range, showing which zombies were in reach. The
+   * unit-radius mesh is a child of the vehicle group and is created lazily and
+   * reused; the target radius is stored per activation and applied via scale.
+   */
+  private spawnCharmPulse(rangeM: number): void {
+    if (this.charmPulse === null) {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xc060ff,
+        transparent: true,
+        opacity: 0.4,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), material);
+      mesh.name = 'charm-pulse';
+      this.vehicleGroup.add(mesh);
+      this.charmPulse = mesh;
+      this.charmPulseMaterial = material;
+    }
+    this.charmPulseRange = Math.max(0.1, rangeM);
+    this.charmPulseTtl = SurvivalMode.CHARM_PULSE_SECONDS;
+    this.charmPulse.visible = true;
+  }
+
+  /** Expand and fade the Mind Control range pulse, hiding it when spent. */
+  private syncCharmPulse(frameDt: number): void {
+    if (this.charmPulse === null || this.charmPulseTtl <= 0) return;
+    this.charmPulseTtl = Math.max(0, this.charmPulseTtl - frameDt);
+    const progress = 1 - this.charmPulseTtl / SurvivalMode.CHARM_PULSE_SECONDS;
+    this.charmPulse.scale.setScalar(this.charmPulseRange * progress);
+    if (this.charmPulseMaterial) {
+      this.charmPulseMaterial.opacity = 0.4 * (1 - progress);
+    }
+    if (this.charmPulseTtl <= 0) this.charmPulse.visible = false;
   }
 
   private syncHud(): void {
@@ -1961,12 +2088,12 @@ export class SurvivalMode {
 
   private showTracer(shot: TracerShot): void {
     const flame = shot.damageType === 'aoe';
-    this.showTracerSegment(
-      shot.from,
-      shot.to,
-      flame ? this.flameTracerMaterial : this.tracerMaterial,
-      flame ? 0.18 : 0.08,
-    );
+    const material = flame
+      ? this.flameTracerMaterial
+      : shot.tracerStyle === 'electric'
+        ? this.electricTracerMaterial
+        : this.tracerMaterial;
+    this.showTracerSegment(shot.from, shot.to, material, flame ? 0.18 : 0.08);
   }
 
   private showTracerSegment(

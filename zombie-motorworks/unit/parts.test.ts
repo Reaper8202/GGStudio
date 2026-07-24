@@ -36,10 +36,12 @@ const EXPECTED_CATALOG_IDS = [
   'armour-plate',
   'cannon-heavy',
   'ice-cannon',
+  'tesla-coil',
   'barrel-drum',
   'sniper-light',
   'flamethrower',
   'shield-generator',
+  'mind-control-beam',
 ];
 
 function vecKey(v: Vec3i): string {

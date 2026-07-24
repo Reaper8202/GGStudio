@@ -73,6 +73,8 @@ export interface TracerShot {
   slowFactor: number;
   /** Seconds the cryo slow lasts; 0 = none. */
   slowDurationSeconds: number;
+  /** Tracer rendering style of the firing weapon; 'electric' draws blue zaps. */
+  tracerStyle?: 'electric';
 }
 
 export function createWeapon(
@@ -282,6 +284,7 @@ export function stepWeapons(
         pierceTo,
         slowFactor: wpn.def.slowFactor ?? 0,
         slowDurationSeconds: wpn.def.slowDurationSeconds ?? 0,
+        tracerStyle: wpn.def.tracerStyle,
       });
     }
 

@@ -1119,6 +1119,21 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }
+  if (def.ability?.kind === 'zap') {
+    labels.push(
+      ['Activate', 'Press Q'],
+      ['Blast', `${formatStat(def.ability.baseDamage ?? 0)} dmg`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'charm') {
+    labels.push(
+      ['Activate', 'Press Q'],
+      ['Controls', `${formatStat(def.ability.baseTargets ?? 0)} zombies`],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
   if (def.armour) labels.push(['Protection', formatStat(def.armour.protection)]);
   return labels;
 }

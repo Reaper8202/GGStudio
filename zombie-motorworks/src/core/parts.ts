@@ -449,6 +449,45 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       baseDurationSeconds: 4,
     },
   },
+  'tesla-coil': {
+    id: 'tesla-coil',
+    name: 'Tesla Coil',
+    category: 'weapon',
+    description:
+      'Arc emitter. Auto-fires blue lightning zaps that deal moderate damage. ' +
+      'Press Q to detonate a lightning blast around the vehicle, hitting every ' +
+      'zombie in a bubble-sized radius (14s cooldown); upgrades hit harder.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 115,
+    health: 150,
+    cost: 300,
+    upgrade: upgrade(5, 300),
+    unlockCost: 550,
+    reinforcement: 1.15,
+    // Normal fire: an auto-aim turret that snaps blue lightning zaps at zombies.
+    weapon: {
+      mountType: 'turret',
+      aimMode: 'auto',
+      arcDeg: 360,
+      damageType: 'hitscan',
+      damage: 14,
+      fireRate: 3,
+      recoilImpulse: 30,
+      projectileSpeed: 200,
+      rangeM: 16,
+      tracerStyle: 'electric',
+    },
+    // Player-triggered active ability: a lightning blast around the vehicle,
+    // driven off Q by SurvivalMode independently of the normal fire above.
+    ability: {
+      kind: 'zap',
+      cooldownSeconds: 14,
+      baseDurationSeconds: 0,
+      baseDamage: 90,
+    },
+  },
   'barrel-drum': {
     id: 'barrel-drum',
     name: 'Barrel Drum',
@@ -552,6 +591,34 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       kind: 'shield',
       cooldownSeconds: 25,
       baseDurationSeconds: 4,
+    },
+  },
+  'mind-control-beam': {
+    id: 'mind-control-beam',
+    name: 'Mind Control Beam',
+    category: 'weapon',
+    description:
+      'Psychic emitter. It never shoots on its own — press Q to mind-control ' +
+      'up to 5 nearby zombies into fighting for you for a while, then the ' +
+      'control wears off and they turn hostile again (28s cooldown); upgrades ' +
+      'keep them on your side longer.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 105,
+    health: 140,
+    cost: 320,
+    upgrade: upgrade(5, 320),
+    unlockCost: 600,
+    reinforcement: 1.15,
+    // Player-triggered active ability only (no `weapon` payload): the beam does
+    // nothing on its own; SurvivalMode charms the nearest zombies off the Q key.
+    ability: {
+      kind: 'charm',
+      cooldownSeconds: 28,
+      rangeM: 14,
+      baseTargets: 5,
+      baseDurationSeconds: 12,
     },
   },
 };

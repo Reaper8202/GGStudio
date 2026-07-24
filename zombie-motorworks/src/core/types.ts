@@ -163,6 +163,11 @@ export interface WeaponDefinition {
   slowFactor?: number;
   slowDurationSeconds?: number;
   /**
+   * Tracer rendering style. 'electric' draws blue lightning zaps (Tesla Coil);
+   * default (undefined) uses the standard gold tracer.
+   */
+  tracerStyle?: 'electric';
+  /**
    * Auto-aim weapon that still waits for the player's trigger: the auto-aim
    * system tracks a target and keeps the mount pointed at it, but the weapon
    * only fires while the player holds fire (left click / F) instead of firing
@@ -181,17 +186,28 @@ export interface WeaponDefinition {
 export interface AbilityDefinition {
   /**
    * 'freeze' flash-freezes the nearest zombies in place; 'shield' wraps the
-   * vehicle in a bubble granting temporary invulnerability.
+   * vehicle in a bubble granting temporary invulnerability; 'zap' detonates a
+   * lightning blast around the vehicle that damages every zombie in range;
+   * 'charm' mind-controls the nearest zombies to fight for you for a while,
+   * then they revert to hostile.
    */
-  kind: 'freeze' | 'shield';
+  kind: 'freeze' | 'shield' | 'zap' | 'charm';
   /** Seconds between activations (fixed across levels). */
   cooldownSeconds: number;
   /** Effect duration in seconds at level 1 (grows with upgrade level). */
   baseDurationSeconds: number;
-  /** Freeze only: metres from the vehicle within which zombies can be caught. */
+  /**
+   * Freeze/charm only: metres from the vehicle within which zombies can be
+   * caught.
+   */
   rangeM?: number;
-  /** Freeze only: zombies frozen at level 1 (grows with upgrade level). */
+  /**
+   * Freeze/charm only: zombies affected at level 1 (charm keeps this fixed
+   * across levels; freeze grows it with upgrade level).
+   */
   baseTargets?: number;
+  /** Zap only: blast damage at level 1 (grows with upgrade level). */
+  baseDamage?: number;
 }
 
 /** Contact weapon (grinder drum): damages any zombie touching the part. */
