@@ -1150,6 +1150,14 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }
+  if (def.ability?.kind === 'nitro') {
+    labels.push(
+      ['Activate', 'Press Q'],
+      ['Boost', '+100% speed'],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
   if (def.armour) labels.push(['Protection', formatStat(def.armour.protection)]);
   return labels;
 }

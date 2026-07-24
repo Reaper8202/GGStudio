@@ -197,9 +197,10 @@ export interface AbilityDefinition {
    * lightning blast around the vehicle that damages every zombie in range;
    * 'charm' mind-controls the nearest zombies to fight for you for a while,
    * then they revert to hostile; 'rocket' launches a large rocket that
-   * detonates a high-damage blast on the thickest part of the horde.
+   * detonates a high-damage blast on the thickest part of the horde; 'nitro'
+   * kicks the vehicle into a temporary speed boost with a blue-flame exhaust.
    */
-  kind: 'freeze' | 'shield' | 'zap' | 'charm' | 'rocket';
+  kind: 'freeze' | 'shield' | 'zap' | 'charm' | 'rocket' | 'nitro';
   /** Seconds between activations (fixed across levels). */
   cooldownSeconds: number;
   /** Effect duration in seconds at level 1 (grows with upgrade level). */

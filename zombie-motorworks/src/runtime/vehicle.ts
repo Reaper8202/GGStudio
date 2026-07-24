@@ -178,6 +178,10 @@ const TURN_ROLL_PITCH_DAMPING_BONUS_PER_S = 2.4;
 const BASE_TOP_SPEED_MPS = 42; // ~151 km/h baseline (a modest bump over the old flat 38)
 const TOP_SPEED_PER_KW = 0.05; // m/s of ceiling added per engine kW
 const HARD_MAX_SPEED_MPS = 55; // absolute cap that keeps Rapier stable
+// Nitro raises the speed ceiling for the boost, but keeps its own solver-safe
+// hard maximum above the normal one so a doubled cap can't launch the rig fast
+// enough to tunnel through walls.
+const NITRO_HARD_MAX_SPEED_MPS = 85;
 const MAX_POST_SOLVE_SPEED_GAIN_MPS = 1.25;
 const MAX_POST_SOLVE_ANGULAR_SPEED = 8;
 const MAX_POST_SOLVE_ANGULAR_GAIN = 1.5;
@@ -202,6 +206,10 @@ export class RuntimeVehicle {
   private fuelCapacity = 0;
   /** Seconds of remaining Shield Generator invulnerability; >0 blocks all damage. */
   private invulnTimer = 0;
+  /** Seconds of remaining Nitro boost; >0 lifts the speed cap and drive force. */
+  private nitroTimer = 0;
+  /** Speed/force multiplier applied while {@link nitroTimer} is active. */
+  private nitroMultiplier = 1;
   private topSpeedCap = BASE_TOP_SPEED_MPS;
   private lastWheelTelemetry: WheelTelemetry = {
     groundedCount: 0,
@@ -273,6 +281,35 @@ export class RuntimeVehicle {
   /** True while the Shield Generator bubble is holding. */
   get isInvulnerable(): boolean {
     return this.invulnTimer > 0;
+  }
+
+  /**
+   * Nitro Booster ability: for `seconds`, scale drive force and the speed cap by
+   * `multiplier` (2 = +100%). Re-activation refreshes to the longer remaining
+   * time and keeps the latest multiplier.
+   */
+  engageNitro(multiplier: number, seconds: number): void {
+    if (seconds <= 0 || multiplier <= 1) return;
+    this.nitroMultiplier = multiplier;
+    this.nitroTimer = Math.max(this.nitroTimer, seconds);
+  }
+
+  /** True while the Nitro boost is burning. */
+  get isNitroActive(): boolean {
+    return this.nitroTimer > 0;
+  }
+
+  /**
+   * Speed ceiling in force this step: the normal cap, lifted by the nitro
+   * multiplier while boosting but never past the nitro-specific solver-safe max.
+   */
+  private currentTopSpeedCap(): number {
+    return this.nitroTimer > 0
+      ? Math.min(
+          NITRO_HARD_MAX_SPEED_MPS,
+          this.topSpeedCap * this.nitroMultiplier,
+        )
+      : this.topSpeedCap;
   }
 
   /** Find the closest attached, living part by its collider-centre centroid. */
@@ -384,6 +421,9 @@ export class RuntimeVehicle {
     if (this.invulnTimer > 0) {
       this.invulnTimer = Math.max(0, this.invulnTimer - dt);
     }
+    if (this.nitroTimer > 0) {
+      this.nitroTimer = Math.max(0, this.nitroTimer - dt);
+    }
     const body = this.assembled.body;
     const velocityAtStart = body.linvel();
     const angularVelocityAtStart = body.angvel();
@@ -450,6 +490,8 @@ export class RuntimeVehicle {
     const mass = Math.max(1, body.mass());
     const massPerformance = vehicleMassPerformanceFactor(mass);
     totalTorque *= massPerformance;
+    // Nitro drives harder so the rig actually reaches its lifted speed cap.
+    if (this.nitroTimer > 0) totalTorque *= this.nitroMultiplier;
 
     const torques = distributeTorque(
       totalTorque,
@@ -534,8 +576,9 @@ export class RuntimeVehicle {
       this.velocityBeforeSolve.x,
       this.velocityBeforeSolve.z,
     );
+    const topSpeedCap = this.currentTopSpeedCap();
     const allowedHorizontalSpeed = Math.min(
-      this.topSpeedCap,
+      topSpeedCap,
       horizontalSpeedBefore + MAX_POST_SOLVE_SPEED_GAIN_MPS,
     );
     if (horizontalSpeed > allowedHorizontalSpeed && horizontalSpeed > 1e-6) {
@@ -554,7 +597,7 @@ export class RuntimeVehicle {
       this.velocityBeforeSolve.z,
     );
     const allowedSpeed = Math.min(
-      this.topSpeedCap,
+      topSpeedCap,
       speedBefore + MAX_POST_SOLVE_SPEED_GAIN_MPS,
     );
     if (speed > allowedSpeed && speed > 1e-6) {

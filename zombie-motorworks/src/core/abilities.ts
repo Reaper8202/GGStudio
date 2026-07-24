@@ -137,3 +137,38 @@ export function effectiveRocket(def: AbilityDefinition, level = 1): RocketStats 
     cooldownSeconds: def.cooldownSeconds,
   };
 }
+
+/** Resolved nitro speed-boost stats after applying a placed part's level. */
+export interface NitroStats {
+  /** Multiplier applied to drive force and the speed cap while boosting. */
+  speedMultiplier: number;
+  /** Seconds the boost lasts (capped so it never overstays its welcome). */
+  durationSeconds: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+}
+
+/** Fixed 100% speed increase (2x) for the duration of the boost. */
+const NITRO_SPEED_MULTIPLIER = 2;
+/** Boost seconds added per upgrade level beyond the first. */
+const NITRO_SECONDS_PER_LEVEL = 0.5;
+/** Hard cap on boost duration — the design keeps it to no more than this. */
+const NITRO_MAX_DURATION_SECONDS = 7;
+
+/**
+ * Scales a nitro ability by the placed part's upgrade level. The speed increase
+ * stays a flat +100% (2x); each level beyond the first extends the boost by
+ * {@link NITRO_SECONDS_PER_LEVEL}, clamped to {@link NITRO_MAX_DURATION_SECONDS}.
+ * Level 1 → 5s, level 5 → 7s (with the default nitro-booster payload).
+ */
+export function effectiveNitro(def: AbilityDefinition, level = 1): NitroStats {
+  const steps = Math.max(0, Math.floor(level) - 1);
+  return {
+    speedMultiplier: NITRO_SPEED_MULTIPLIER,
+    durationSeconds: Math.min(
+      NITRO_MAX_DURATION_SECONDS,
+      def.baseDurationSeconds + steps * NITRO_SECONDS_PER_LEVEL,
+    ),
+    cooldownSeconds: def.cooldownSeconds,
+  };
+}
