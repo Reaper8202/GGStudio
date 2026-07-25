@@ -194,7 +194,6 @@ test('a corrupted profile falls back to defaults and boots a clean editor', asyn
       'chassis-core',
       'frame-box',
       'wheel-standard',
-      'driver-seat',
       'engine-small',
       'fuel-tank',
       'turret',

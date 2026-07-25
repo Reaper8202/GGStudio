@@ -981,7 +981,6 @@ export function buildStarterBlueprint(): VehicleBlueprint {
   });
   const parts: PlacedPart[] = [
     part('chassis-core', { x: 0, y: 1, z: 0 }),
-    part('driver-seat', { x: 0, y: 2, z: 0 }),
     // 3-wide deck, z -1..2 spine plus flanks (long wheelbase resists wheelies).
     part('frame-box', { x: 0, y: 1, z: 1 }),
     part('frame-box', { x: 0, y: 1, z: 2 }),

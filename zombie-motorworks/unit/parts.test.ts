@@ -6,7 +6,6 @@ import { STARTER_UNLOCKS } from '../src/core/profile.ts';
 import {
   createEmptyBlueprint,
   findRoot,
-  hasControl,
   hasEngine,
   nextPartId,
   withPartAdded,
@@ -30,16 +29,17 @@ const EXPECTED_CATALOG_IDS = [
   'wheel-offroad',
   'wheel-moto',
   'tread-tank',
-  'driver-seat',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
   'turret',
   'armour-plate',
   'cannon-heavy',
+  'ice-cannon',
   'barrel-drum',
   'sniper-light',
   'flamethrower',
+  'shield-generator',
 ];
 
 function vecKey(v: Vec3i): string {
@@ -108,11 +108,12 @@ describe('part catalog integrity', () => {
 
     expect(PART_CATALOG['fuel-tank'].health).toBe(80);
     expect(PART_CATALOG.turret.clearanceCells).toEqual([{ x: 0, y: 1, z: 0 }]);
-    expect(PART_CATALOG.turret.ammoCapacity).toBe(200);
-    expect(PART_CATALOG.turret.batteryCapacity).toBe(500);
     expect(PART_CATALOG.turret.weapon?.aimMode).toBe('auto');
     expect(PART_CATALOG['armour-plate'].armour?.protection).toBeGreaterThan(0);
-    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('manual');
+    // The Heavy Cannon auto-aims (at the toughest zombie) but fires on demand.
+    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('auto');
+    expect(PART_CATALOG['cannon-heavy'].weapon?.targetPriority).toBe('strongest');
+    expect(PART_CATALOG['cannon-heavy'].weapon?.manualFire).toBe(true);
   });
 
   it('defines the unique Mine Sweeper outside the starter catalog', () => {
@@ -150,19 +151,12 @@ describe('blueprint helpers', () => {
     expect(nextPartId(withPart)).toBe('p2');
   });
 
-  it('queries root, control, and engine presence', () => {
+  it('queries root and engine presence', () => {
     let bp = createEmptyBlueprint('query rig');
     bp = withPartAdded(bp, {
       id: 'p1',
       defId: 'chassis-core',
       pos: { x: 0, y: 0, z: 0 },
-      orient: 0,
-      config: {},
-    });
-    bp = withPartAdded(bp, {
-      id: 'p2',
-      defId: 'driver-seat',
-      pos: { x: 0, y: 1, z: 0 },
       orient: 0,
       config: {},
     });
@@ -175,7 +169,6 @@ describe('blueprint helpers', () => {
     });
 
     expect(findRoot(bp)?.id).toBe('p1');
-    expect(hasControl(bp)).toBe(true);
     expect(hasEngine(bp)).toBe(true);
   });
 });

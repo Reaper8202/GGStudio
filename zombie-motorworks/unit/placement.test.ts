@@ -40,8 +40,7 @@ function fixtures(): Record<string, PartDefinition> {
     ...overrides,
   });
   return {
-    root: base('root', { isRoot: true, unique: true, providesControl: true }),
-    controlLessRoot: base('controlLessRoot', { isRoot: true, unique: true }),
+    root: base('root', { isRoot: true, unique: true }),
     frame: base('frame'),
     locked: base('locked', { allowedOrientations: [0] }),
     wheel: base('wheel', {
@@ -245,7 +244,7 @@ describe('canPlacePart', () => {
 });
 
 describe('validateBlueprint', () => {
-  it('returns no hard errors for a connected controlled vehicle with propulsion', () => {
+  it('returns no hard errors for a connected vehicle with propulsion', () => {
     const report = validateBlueprint(
       blueprint([part('root', 'root', 0), part('engine', 'engine', 1)]),
       catalog(),
@@ -255,7 +254,7 @@ describe('validateBlueprint', () => {
     expect(report.infos).toEqual([]);
   });
 
-  it('reports missing root, control, propulsion, and root connectivity independently', () => {
+  it('reports missing root, propulsion, and root connectivity independently', () => {
     const getDef = catalog();
     expect(
       codes({
@@ -265,17 +264,6 @@ describe('validateBlueprint', () => {
         ).errors,
       }),
     ).toContain('NO_ROOT');
-    expect(
-      codes({
-        issues: validateBlueprint(
-          blueprint([
-            part('root', 'controlLessRoot', 0),
-            part('engine', 'engine', 1),
-          ]),
-          getDef,
-        ).errors,
-      }),
-    ).toContain('NO_CONTROL');
     expect(
       codes({
         issues: validateBlueprint(blueprint([part('root', 'root', 0)]), getDef)

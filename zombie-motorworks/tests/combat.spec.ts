@@ -9,11 +9,12 @@ test('self-contained turret fires, and a correct rig survives drop and ramp', as
   expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(true);
   await settle(page);
   const before = await page.evaluate(() => window.__scrapRig.telemetry());
-  expect(before.ammo).toBe(200);
+  expect(before.totalShotsFired).toBe(0);
   await page.evaluate(() => window.__scrapRig.setControls({ fire: true }));
   await settle(page, 1500);
   await page.evaluate(() => window.__scrapRig.setControls({ fire: false }));
-  expect((await page.evaluate(() => window.__scrapRig.telemetry())).ammo).toBeLessThan(200);
+  // Weapons have unlimited ammo now, so we verify firing by the shot counter.
+  expect((await page.evaluate(() => window.__scrapRig.telemetry())).totalShotsFired).toBeGreaterThan(0);
 
   await page.evaluate(() => window.__scrapRig.setScenario('drop'));
   await settle(page, 500);

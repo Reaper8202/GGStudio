@@ -28,9 +28,8 @@ your first truck step by step and checks your progress automatically.
 ## The build card (top right)
 
 **Weight**, a **Stability** face (😀 great → 🛑 will tip), and one tip at a
-time. Warnings never stop you from driving; only real problems (no driver, no
-engine, floating parts) disable TEST DRIVE — and the button tells you what's
-missing.
+time. Warnings never stop you from driving; only real problems (no engine,
+floating parts) disable TEST DRIVE — and the button tells you what's missing.
 
 A wide, low truck with the heavy stuff in the middle drives great. A tall,
 narrow one tips over in corners — for real, in the physics.
@@ -51,7 +50,6 @@ crashes only break trucks that hit walls at speed or were built wobbly.
 | 🛡️ Strong Block | Heavier, much tougher |
 | 🛞 Wheel | Fast on roads |
 | 🛞 Monster Wheel | Big, climbs rough ground |
-| 💺 Driver Seat | Someone has to drive! |
 | ⚙️ Engine | Makes it go (snap on top of a block) |
 | ⛽ Fuel Tank | Engines are thirsty |
 | 💥 Zombie Blaster | Spins and shoots — ammo included |

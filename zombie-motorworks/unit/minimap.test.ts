@@ -4,7 +4,25 @@ import {
   Minimap,
   type MinimapBounds,
   worldToMinimap,
+  worldToViewport,
 } from '../src/survival/Minimap.ts';
+
+/** Mirror of MINE_MARKER_RADIUS_PX in Minimap.ts for coordinate assertions. */
+const MINE_MARKER_RADIUS_PX = 4;
+
+/** First diamond edge the mine marker draws: lineTo(point.x + r, point.y). */
+function mineMarkerLineTo(
+  mineX: number,
+  mineZ: number,
+  playerX: number,
+  playerZ: number,
+  sizePx: number,
+): string {
+  const point = worldToViewport(mineX, mineZ, playerX, playerZ, sizePx);
+  const x = (point.x + MINE_MARKER_RADIUS_PX).toFixed(2);
+  const y = point.y.toFixed(2);
+  return `lineTo:${x},${y}`;
+}
 import type { MinimapFeature } from '../src/survival/Graveyard.ts';
 
 const BOUNDS: MinimapBounds = {
@@ -136,6 +154,26 @@ describe('worldToMinimap', () => {
   });
 });
 
+describe('worldToViewport (north-up, non-rotating)', () => {
+  const SIZE = 188;
+  const HALF = SIZE / 2;
+
+  it('places the player at the canvas centre', () => {
+    expect(worldToViewport(20, 10, 20, 10, SIZE)).toEqual({ x: HALF, y: HALF });
+  });
+
+  it('mirrors world X and world Z about the player (north-up)', () => {
+    // A point at world +X of the player sits screen-left of centre; a point at
+    // world +Z sits above centre. This is a fixed orientation, no heading.
+    const east = worldToViewport(24, 10, 20, 10, SIZE);
+    const north = worldToViewport(20, 14, 20, 10, SIZE);
+    expect(east.x).toBeLessThan(HALF);
+    expect(east.y).toBeCloseTo(HALF);
+    expect(north.y).toBeLessThan(HALF);
+    expect(north.x).toBeCloseTo(HALF);
+  });
+});
+
 describe('minimap redraw rate', () => {
   it('is positive and avoids excessive canvas work', () => {
     expect(MINIMAP_REDRAW_HZ).toBeGreaterThan(0);
@@ -160,7 +198,9 @@ describe('Minimap mine markers', () => {
     minimap.update(20, 10, 0, [], [{ x: 10, z: 0, revealed: true }]);
 
     expect(foreground.operations).toContain('fillStyle:#ffae3d');
-    expect(foreground.operations).toContain('lineTo:107.40,112.80');
+    expect(foreground.operations).toContain(
+      mineMarkerLineTo(10, 0, 20, 10, 188),
+    );
     minimap.dispose();
   });
 
@@ -174,7 +214,9 @@ describe('Minimap mine markers', () => {
     minimap.update(20, 10, 0, [], [{ x: 10, z: 0, revealed: false }]);
 
     expect(foreground.operations).toContain('fillStyle:#ffae3d');
-    expect(foreground.operations).not.toContain('lineTo:107.40,112.80');
+    expect(foreground.operations).not.toContain(
+      mineMarkerLineTo(10, 0, 20, 10, 188),
+    );
     minimap.dispose();
   });
 
@@ -188,6 +230,40 @@ describe('Minimap mine markers', () => {
     minimap.update(20, 10, 0, [], undefined);
 
     expect(foreground.operations).not.toContain('fillStyle:#ffae3d');
+    minimap.dispose();
+  });
+});
+
+describe('Minimap fuel-crate markers', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (globalThis as { document?: Document }).document;
+    delete (globalThis as { window?: Window & typeof globalThis }).window;
+  });
+
+  it('draws a green marker for an in-view fuel crate', () => {
+    const harness = installMinimapDom();
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const minimap = new Minimap(harness.parent, BOUNDS);
+    const foreground = harness.contexts[0];
+    foreground.operations.length = 0;
+
+    minimap.update(20, 10, 0, [], undefined, [{ x: 22, z: 12 }]);
+
+    expect(foreground.operations).toContain('fillStyle:#54e07a');
+    minimap.dispose();
+  });
+
+  it('does not draw fuel markers when the crates argument is omitted', () => {
+    const harness = installMinimapDom();
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const minimap = new Minimap(harness.parent, BOUNDS);
+    const foreground = harness.contexts[0];
+    foreground.operations.length = 0;
+
+    minimap.update(20, 10, 0, [], undefined, undefined);
+
+    expect(foreground.operations).not.toContain('fillStyle:#54e07a');
     minimap.dispose();
   });
 });
@@ -290,6 +366,12 @@ class FakeContext {
   fill(): void {}
   stroke(): void {}
   arc(): void {}
+  save(): void {}
+  restore(): void {}
+  clip(): void {}
+  translate(): void {}
+  rotate(): void {}
+  scale(): void {}
 
   moveTo(x: number, y: number): void {
     this.operations.push(`moveTo:${x.toFixed(2)},${y.toFixed(2)}`);

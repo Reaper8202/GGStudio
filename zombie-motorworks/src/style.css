@@ -1288,6 +1288,23 @@ button:disabled {
   accent-color: var(--ui-signal);
 }
 
+.selected-part__ability {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+}
+
+.selected-part__ability input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border-radius: 0;
+  accent-color: var(--ui-signal);
+}
+
 .selected-part__paint {
   display: grid;
   gap: 7px;
@@ -1943,20 +1960,13 @@ button:disabled {
   background: var(--ui-danger);
 }
 
-/* One magazine row per mounted weapon. */
-.survival-ammo {
+/* Onboard fuel gauge — the resource the player manages, refilled at crates. */
+.survival-fuel {
   display: grid;
   gap: 7px;
-  padding-top: 10px;
-  border-top: 1px solid var(--ui-edge);
 }
 
-.survival-ammo__row {
-  display: grid;
-  gap: 5px;
-}
-
-.survival-ammo__header {
+.survival-fuel > div:first-child {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -1966,37 +1976,87 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.survival-ammo__value {
+.survival-fuel > div:first-child span:last-child {
   color: var(--ui-text);
   font-family: var(--ui-font-display);
+  letter-spacing: normal;
+  text-transform: none;
 }
 
-.survival-ammo__track {
+.survival-fuel__track {
+  height: 12px;
+  padding: 2px;
+  background: var(--ui-recess);
+  box-shadow: inset 2px 2px 0 var(--ui-black);
+}
+
+.survival-fuel__fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--ui-signal);
+  transition: width 100ms steps(4, end);
+}
+
+.survival-fuel__fill.is-low {
+  background: var(--ui-rust);
+}
+
+.survival-fuel__fill.is-empty {
+  background: var(--ui-danger);
+}
+
+.survival-ability {
+  display: grid;
+  gap: 6px;
+}
+
+.survival-ability[hidden] {
+  display: none;
+}
+
+.survival-ability > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.survival-ability__key {
+  color: var(--ui-text);
+  background: var(--ui-recess);
+  border: 1px solid var(--ui-edge);
+  padding: 1px 6px;
+  font-family: var(--ui-font-display);
+  letter-spacing: normal;
+}
+
+.survival-ability__track {
   height: 8px;
   padding: 2px;
   background: var(--ui-recess);
   box-shadow: inset 2px 2px 0 var(--ui-black);
 }
 
-.survival-ammo__fill {
+.survival-ability__fill {
   display: block;
   width: 100%;
   height: 100%;
-  background: var(--ui-bone);
+  background: #4db8e0;
   transition: width 100ms steps(4, end);
 }
 
-.survival-ammo__row.is-low .survival-ammo__fill {
-  background: var(--ui-rust);
+.survival-ability.is-ready .survival-ability__fill {
+  background: #8fe0ff;
 }
 
-/* Empty reads as a spent magazine: the label dims and the bar goes dark. */
-.survival-ammo__row.is-empty .survival-ammo__header {
-  color: var(--ui-danger);
-}
-
-.survival-ammo__row.is-empty .survival-ammo__value {
-  color: var(--ui-danger);
+.survival-ability__status {
+  color: var(--ui-text);
+  font: var(--ui-text-10)/1 var(--ui-font-display);
 }
 
 .survival-earned {

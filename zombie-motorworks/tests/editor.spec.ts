@@ -97,7 +97,6 @@ test('hard errors block test drive; warnings do not', async ({ page }) => {
   await boot(page);
   await newBlueprint(page);
   await place(page, 'chassis-core', { x: 0, y: 1, z: 0 });
-  await place(page, 'driver-seat', { x: 0, y: 2, z: 0 });
   expect((await page.evaluate(() => window.__scrapRig.validate())).errors.map((e) => e.code)).toContain('NO_PROPULSION');
   expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(false);
   await buildBasicRig(page);

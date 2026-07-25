@@ -17,7 +17,6 @@ export const STARTER_UNLOCKS = [
   'chassis-core',
   'frame-box',
   'wheel-standard',
-  'driver-seat',
   'engine-small',
   'fuel-tank',
   'turret',
@@ -36,7 +35,6 @@ export function defaultProfile(): PlayerProfile {
     inventory: {
       'frame-box': 4,
       'wheel-standard': 4,
-      'driver-seat': 1,
       'engine-small': 1,
       'fuel-tank': 1,
     },

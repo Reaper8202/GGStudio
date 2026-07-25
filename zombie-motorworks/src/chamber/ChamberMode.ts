@@ -533,7 +533,6 @@ export class ChamberMode {
       `<div class="stat-row"><span>Speed</span><span>${t.speedKmh.toFixed(0)} km/h</span></div>`,
       `<div class="stat-row"><span>RPM</span><span>${t.rpm.toFixed(0)} (gear ${t.gear + 1})</span></div>`,
       `<div class="stat-row"><span>Fuel</span><span>${t.fuel.toFixed(1)} / ${t.fuelCapacity.toFixed(0)} L</span></div>`,
-      `<div class="stat-row"><span>Ammo</span><span>${t.ammo}</span></div>`,
       `<div class="stat-row"><span>Wheels grounded</span><span>${t.groundedWheels}/${t.totalWheels}</span></div>`,
       `<div class="stat-row"><span>Parts</span><span>${t.aliveParts} alive · ${t.detachedParts} lost</span></div>`,
       t.overloadedWheels.length > 0 ? `<div class="issue-warning">Wheel load exceeded</div>` : '',

@@ -48,10 +48,6 @@ export interface RuntimeWeapon {
   /** Elapsed time in the current burst cycle for periodic burst weapons, s. */
   cycleTime: number;
   shotsFired: number;
-  /** Rounds left in this weapon's own magazine. */
-  ammo: number;
-  /** Magazine size, from the mounting part's ammoCapacity. */
-  ammoCapacity: number;
   /** Turret EMP module level (0 for every non-turret weapon). */
   empLevel: number;
   /** Turret piercing module level (0 for every non-turret weapon). */
@@ -73,6 +69,10 @@ export interface TracerShot {
   pierceDamage: number;
   /** End point of the fainter secondary tracer segment. */
   pierceTo: Vec3 | null;
+  /** Cryo slow to apply to struck zombies (fraction of speed); 0 = none. */
+  slowFactor: number;
+  /** Seconds the cryo slow lasts; 0 = none. */
+  slowDurationSeconds: number;
 }
 
 export function createWeapon(
@@ -84,7 +84,6 @@ export function createWeapon(
   if (def === undefined) {
     throw new Error(`Part definition ${placed.defId} is not a weapon`);
   }
-  const ammoCapacity = partDef.ammoCapacity ?? 0;
   const isTurret = placed.defId === 'turret';
   return {
     partId: placed.id,
@@ -96,8 +95,6 @@ export function createWeapon(
     cooldown: 0,
     cycleTime: 0,
     shotsFired: 0,
-    ammo: ammoCapacity,
-    ammoCapacity,
     empLevel: isTurret ? turretModuleLevel(placed.config, 'emp') : 0,
     piercingLevel: isTurret
       ? turretModuleLevel(placed.config, 'piercing')
@@ -106,7 +103,6 @@ export function createWeapon(
 }
 
 const TURRET_YAW_RATE = 3.2; // rad/s
-const AMMO_RECHARGE_FRACTION_PER_S = 0.02;
 // Move beyond the first surface while keeping the complete projectile path
 // bounded by the weapon's original range.
 const PIERCE_RAY_EPSILON_M = 1e-4;
@@ -115,8 +111,6 @@ const WEAPON_RAY_GROUPS =
 
 export interface WeaponStepResult {
   shots: TracerShot[];
-  ammoUsed: number;
-  powerUsed: number;
 }
 
 export interface WeaponAimInput {
@@ -136,23 +130,18 @@ export function stepWeapons(
   weapons: RuntimeWeapon[],
   attachedAliveIds: Set<string>,
   input: WeaponStepInput,
-  powerAvailable: number,
   dt: number,
 ): WeaponStepResult {
   const body = vehicle.body;
   const rot = body.rotation();
   const pos = body.translation();
   const shots: TracerShot[] = [];
-  let ammoUsed = 0;
-  let powerUsed = 0;
 
   for (const wpn of weapons) {
     wpn.cooldown = Math.max(0, wpn.cooldown - dt);
     if (!attachedAliveIds.has(wpn.partId)) continue;
-    wpn.ammo = Math.min(
-      wpn.ammoCapacity,
-      wpn.ammo + wpn.ammoCapacity * AMMO_RECHARGE_FRACTION_PER_S * dt,
-    );
+    // Weapons have unlimited ammo — firing is limited only by the per-weapon
+    // fire-rate cooldown below. Fuel is the resource the player manages now.
     const weaponInput = input.weaponAim?.get(wpn.partId) ?? input;
 
     const up = norm(rotateByQuat(rot, v3(0, 1, 0)));
@@ -193,13 +182,15 @@ export function stepWeapons(
       } else {
         wantsFire = true;
       }
+    } else if (wpn.def.manualFire) {
+      // Auto-aim, manual trigger: the mount tracks its target and reports
+      // acquisition in weaponInput.fire, but it only discharges while the
+      // player is also holding their own fire button.
+      wantsFire = weaponInput.fire && input.fire;
     } else {
       wantsFire = weaponInput.fire;
     }
     if (!wantsFire || wpn.cooldown > 0) continue;
-    // Each weapon draws from its own magazine; battery power stays shared.
-    if (wpn.ammo < wpn.def.ammoPerShot) continue;
-    if (powerAvailable - powerUsed < wpn.def.powerPerShot) continue;
 
     const yawDir =
       wpn.yaw !== 0
@@ -289,6 +280,8 @@ export function stepWeapons(
         pierceZombieHandle,
         pierceDamage,
         pierceTo,
+        slowFactor: wpn.def.slowFactor ?? 0,
+        slowDurationSeconds: wpn.def.slowDurationSeconds ?? 0,
       });
     }
 
@@ -299,13 +292,10 @@ export function stepWeapons(
       true,
     );
 
-    wpn.ammo -= wpn.def.ammoPerShot;
-    ammoUsed += wpn.def.ammoPerShot;
-    powerUsed += wpn.def.powerPerShot;
     wpn.cooldown = 1 / wpn.def.fireRate;
     wpn.shotsFired++;
   }
-  return { shots, ammoUsed, powerUsed };
+  return { shots };
 }
 
 const MAX_AUTO_PITCH = (35 * Math.PI) / 180;

@@ -172,7 +172,6 @@ describe('hybrid weapon input', () => {
           [overridden.partId, { aimYawWorld: Math.PI / 2, fire: false }],
         ]),
       },
-      1_000,
       0.1,
     );
 
@@ -205,14 +204,12 @@ describe('hybrid weapon input', () => {
       [weapon],
       new Set([weapon.partId]),
       { aimYawWorld: Math.PI / 2, fire: false },
-      1_000,
       0.1,
     );
 
     // Fires with no fire input, ignoring aim yaw: rays fan around mounted
     // forward (+Z) across coneDeg, every one carrying aoe damage.
     expect(result.shots).toHaveLength(def.raysPerShot!);
-    expect(result.ammoUsed).toBe(def.ammoPerShot);
     const halfCone = ((def.coneDeg! / 2) * Math.PI) / 180;
     for (const shot of result.shots) {
       expect(shot.damageType).toBe('aoe');
@@ -234,7 +231,6 @@ describe('hybrid weapon input', () => {
       [weapon],
       new Set([weapon.partId]),
       { aimYawWorld: 0, fire: false },
-      1_000,
       0.1,
     );
     expect(second.shots).toHaveLength(0);
@@ -264,7 +260,6 @@ describe('hybrid weapon input', () => {
       [weapon],
       new Set([weapon.partId]),
       { aimYawWorld: 0, fire: true, aimPoint: { x: 0, y: 0.9, z: 10 } },
-      1_000,
       1,
     );
 

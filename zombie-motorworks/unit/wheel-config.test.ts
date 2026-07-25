@@ -58,13 +58,6 @@ describe('authoritative wheel configuration', () => {
         config: {},
       },
       {
-        id: 'seat',
-        defId: 'driver-seat',
-        pos: { x: 0, y: 1, z: -1 },
-        orient: 0,
-        config: {},
-      },
-      {
         id: 'front-left',
         defId: 'wheel-standard',
         pos: { x: -1, y: 0, z: 2 },

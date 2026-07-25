@@ -226,11 +226,6 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
       <path d="M14 18H50M14 46H50" stroke="#89995a" stroke-width="3"/>
       <path d="M20 15V21M32 15V21M44 15V21M20 43V49M32 43V49M44 43V49" stroke="#8a5035" stroke-width="2"/>
     `,
-    'driver-seat': `
-      <path d="M22 14H42V36H22Z" fill="#3d4339"/>
-      <path d="M18 35H44V47H36V53H24V47H18Z" fill="#242923"/>
-      <path d="M25 18H39V32H25Z" fill="#59604f"/>
-    `,
     'engine-small': `
       ${common}
       <path d="M21 20 29 16V25L21 29ZM35 16 43 20V29L35 25Z" fill="#8a5035"/>
@@ -731,14 +726,16 @@ export function buildEditorUI(
       const title = document.createElement('div');
       title.className = 'selected-part__title';
       const name = document.createElement('h3');
-      name.textContent = def.name;
+      // Match the store/HUD: show the kid-facing label (e.g. "Zombie Blaster"),
+      // falling back to the catalog name.
+      name.textContent = KID_LABELS[def.id]?.name ?? def.name;
       const levelBadge = document.createElement('span');
       const maxLevel = def.upgrade?.maxLevel;
       levelBadge.textContent = maxLevel === undefined ? `LV ${level}` : `LV ${level}/${maxLevel}`;
       title.append(name, levelBadge);
       const description = document.createElement('p');
       description.className = 'selected-part__description';
-      description.textContent = def.description;
+      description.textContent = KID_LABELS[def.id]?.blurb ?? def.description;
       selectedContent.append(title, description);
 
       const statList = document.createElement('div');
@@ -775,6 +772,19 @@ export function buildEditorUI(
         }
         advanced.append(advancedSummary, config);
         selectedContent.appendChild(advanced);
+      }
+
+      if ((effectiveDef ?? def).ability) {
+        const abilitySection = document.createElement('label');
+        abilitySection.className = 'selected-part__ability';
+        const abilityInput = document.createElement('input');
+        abilityInput.type = 'checkbox';
+        abilityInput.checked = partConfig?.activeAbility === true;
+        abilityInput.addEventListener('change', () =>
+          handlers.onConfigChange(partId, 'activeAbility', abilityInput.checked),
+        );
+        abilitySection.append(abilityInput, 'Bind to Q ability');
+        selectedContent.appendChild(abilitySection);
       }
 
       const paintSection = document.createElement('div');
@@ -1089,16 +1099,25 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Damage', formatStat(def.weapon.damage)],
       ['Fire Rate', `${formatStat(def.weapon.fireRate)} / S`],
       ['DPS', formatStat(def.weapon.damage * def.weapon.fireRate)],
+      // Weapons have unlimited ammo now — fuel is the managed resource.
+      ['Ammo', 'Unlimited'],
     );
-    // Each weapon carries its own magazine, so this is what the part brings
-    // to the rig rather than a share of a common pool.
-    if (def.ammoCapacity) {
-      const shots = Math.floor(def.ammoCapacity / Math.max(1, def.weapon.ammoPerShot));
-      labels.push(
-        ['Ammo', `${formatStat(def.ammoCapacity)} RDS`],
-        ['Firing Time', `${(shots / def.weapon.fireRate).toFixed(1)} S`],
-      );
-    }
+  }
+  if (def.ability?.kind === 'freeze') {
+    labels.push(
+      ['Activate', 'Press Q'],
+      ['Freezes', `${formatStat(def.ability.baseTargets ?? 0)} zombies`],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'shield') {
+    labels.push(
+      ['Activate', 'Press Q'],
+      ['Effect', 'Invulnerable'],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
   }
   if (def.armour) labels.push(['Protection', formatStat(def.armour.protection)]);
   return labels;
