@@ -9,16 +9,19 @@ import {
 
 test('editor boots with palette, build card, and a non-black scene', async ({ page }) => {
   await boot(page);
-  await expect(page.locator('.palette')).toBeVisible();
-  await expect(page.getByText(/^Weight:/)).toBeVisible();
-  await expect(page.getByRole('button', { name: '▶ TEST DRIVE' })).toBeVisible();
+  await expect(page.locator('.garage-dock')).toBeVisible();
+  await expect(page.getByText('Mass', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Test Drive' })).toBeVisible();
   const shot = await page.locator('canvas.viewport').screenshot();
   expect(shot.byteLength).toBeGreaterThan(20_000);
 });
 
 test('New starts with a locked Truck Heart', async ({ page }) => {
   await boot(page);
-  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await page.getByRole('button', { name: 'New Garage', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Sell Parts and Start New', exact: true })
+    .click();
   const parts = await page.evaluate(() => JSON.parse(window.__scrapRig.getBlueprintJson()).parts);
   expect(parts).toHaveLength(1);
   expect(parts[0]).toMatchObject({ id: 'p1', defId: 'chassis-core', pos: { x: 0, y: 1, z: 0 } });
@@ -46,7 +49,9 @@ test('blocks can stack through the placement seam and UI placement', async ({ pa
     parts: [{ id: 'p1', defId: 'chassis-core', pos: { x: 0, y: 1, z: 0 }, orient: 0, config: {} }],
   })));
   const before = await page.evaluate(() => JSON.parse(window.__scrapRig.getBlueprintJson()).parts.length);
-  await page.locator('.part-btn[data-part-id="frame-box"]').click();
+  await page
+    .locator('.store-list .part-btn[data-part-id="frame-box"]')
+    .click();
   const box = await page.locator('canvas.viewport').boundingBox();
   if (!box) throw new Error('missing editor canvas');
   // Canvas centre is the ray to (0,1,0) — the CORNER of the root cube (a
@@ -104,14 +109,14 @@ test('hard errors block test drive; warnings do not', async ({ page }) => {
   expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(true);
 });
 
-test('blueprint save/load round-trips through localStorage', async ({ page }) => {
+// The explicit Save/Load buttons are gone: the editor autosaves the current
+// slot on every edit, and Continue restores it. The round trip is the same.
+test('blueprint autosave round-trips through localStorage', async ({ page }) => {
   await boot(page);
   await buildBasicRig(page);
   const json = await page.evaluate(() => window.__scrapRig.getBlueprintJson());
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.reload();
   await page.waitForFunction(() => window.__scrapRig !== undefined);
   await advanceToEditor(page);
-  await page.getByRole('button', { name: 'Load', exact: true }).click();
   expect(JSON.parse(await page.evaluate(() => window.__scrapRig.getBlueprintJson())).parts).toEqual(JSON.parse(json).parts);
 });
