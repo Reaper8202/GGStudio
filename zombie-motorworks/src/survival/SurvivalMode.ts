@@ -17,7 +17,7 @@ import type { Vec3, VehicleBlueprint } from '../core/types.ts';
 import type { RuntimePart } from '../runtime/assembler.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
-import type { SurfaceKind } from '../runtime/surfaces.ts';
+import type { SurfaceKind } from '../core/surfaces.ts';
 import {
   RuntimeVehicle,
   brakeInputWithAutoHold,

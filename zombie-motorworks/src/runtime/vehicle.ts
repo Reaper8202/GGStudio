@@ -12,6 +12,11 @@ import type {
   Vec3,
   VehicleBlueprint,
 } from '../core/types.ts';
+import {
+  NEUTRAL_ENVIRONMENT,
+  type EnvironmentModifiers,
+} from '../core/biomes.ts';
+import type { SurfaceKind } from '../core/surfaces.ts';
 import type { AssembledVehicle, GetDef, RuntimeWheel } from './assembler.ts';
 import { assembleVehicle } from './assembler.ts';
 import type { AckermannGeometry, WheelTelemetry } from './wheels.ts';
@@ -26,7 +31,6 @@ import {
   resolveStructure,
   type DetachedIsland,
 } from './damage.ts';
-import type { SurfaceKind } from './surfaces.ts';
 import { rotateByQuat } from './vec.ts';
 import {
   VEHICLE_PERFORMANCE_REFERENCE_MASS_KG,
@@ -202,11 +206,13 @@ export class RuntimeVehicle {
   private fuelCapacity = 0;
   /** Seconds of remaining Shield Generator invulnerability; >0 blocks all damage. */
   private invulnTimer = 0;
+  private environment = NEUTRAL_ENVIRONMENT;
   private topSpeedCap = BASE_TOP_SPEED_MPS;
   private lastWheelTelemetry: WheelTelemetry = {
     groundedCount: 0,
     meanDrivenOmega: 0,
     overloadedWheels: [],
+    contacts: [],
   };
   private lastShots: TracerShot[] = [];
   private lastRpm = 0;
@@ -388,7 +394,10 @@ export class RuntimeVehicle {
     dt: number,
     controls: VehicleControls,
     surfaceOf: (colliderHandle: number) => SurfaceKind,
+    env: EnvironmentModifiers = NEUTRAL_ENVIRONMENT,
   ): void {
+    this.environment = env;
+    this.updateTopSpeedCap();
     if (this.invulnTimer > 0) {
       this.invulnTimer = Math.max(0, this.invulnTimer - dt);
     }
@@ -449,7 +458,7 @@ export class RuntimeVehicle {
         drivenWheels.length > 0
           ? (reversing ? -1 : 1) * out.wheelTorqueTotal
           : 0;
-      this.fuel = Math.max(0, this.fuel - out.fuelUsed);
+      this.fuel = Math.max(0, this.fuel - out.fuelUsed * env.fuelBurnMul);
       rpmDisplay = Math.max(rpmDisplay, out.rpm);
     }
     this.lastRpm = rpmDisplay;
@@ -458,6 +467,7 @@ export class RuntimeVehicle {
     const mass = Math.max(1, body.mass());
     const massPerformance = vehicleMassPerformanceFactor(mass);
     totalTorque *= massPerformance;
+    totalTorque *= env.engineOutputMul;
 
     const torques = distributeTorque(
       totalTorque,
@@ -474,7 +484,7 @@ export class RuntimeVehicle {
       this.assembled.body,
       this.assembled.wheels,
       this.geom,
-      { throttle, brake, steer, driveTorques },
+      { throttle, brake, steer, driveTorques, env },
       dt,
       surfaceOf,
     );
@@ -516,6 +526,7 @@ export class RuntimeVehicle {
       groundedCount: 0,
       meanDrivenOmega: 0,
       overloadedWheels: [],
+      contacts: [],
     };
     for (const engine of this.engines) {
       engine.rpm = engine.def.idleRpm;
@@ -651,7 +662,7 @@ export class RuntimeVehicle {
       horizontalSpeed * horizontalSpeed * AERO_DRAG_COEFFICIENT;
     const dragDeltaVelocity = Math.min(
       horizontalSpeed,
-      (heavyBuildDrag + aeroDrag) * dt,
+      (heavyBuildDrag + aeroDrag) * this.environment.dragMul * dt,
     );
 
     this.stabilityImpulse.x =
@@ -679,6 +690,7 @@ export class RuntimeVehicle {
     // otherwise it counters the desired lateral motion and scrubs speed.
     const correctionRate =
       LATERAL_STABILITY_RATE_PER_S *
+      this.environment.stabilityAssistMul *
       (1 - Math.abs(steerInput) * 0.65);
     const lateralDeltaVelocity = clampNumber(
       -lateralSpeed * correctionRate * dt,
@@ -758,11 +770,12 @@ export class RuntimeVehicle {
       if (!p.alive || p.detached) continue;
       enginePowerKw += p.def.engine?.maxPowerKw ?? 0;
     }
-    this.topSpeedCap = clampNumber(
-      BASE_TOP_SPEED_MPS + TOP_SPEED_PER_KW * enginePowerKw,
-      BASE_TOP_SPEED_MPS,
-      HARD_MAX_SPEED_MPS,
-    );
+    this.topSpeedCap =
+      clampNumber(
+        BASE_TOP_SPEED_MPS + TOP_SPEED_PER_KW * enginePowerKw,
+        BASE_TOP_SPEED_MPS,
+        HARD_MAX_SPEED_MPS,
+      ) * this.environment.topSpeedMul;
   }
 
   /**

@@ -85,8 +85,8 @@ helpers. `core` stays engine- and browser-independent.
 
 | Module | Owns | Must not own |
 | --- | --- | --- |
-| `src/core/` | Types, catalog, blueprint operations, placement, structure, analysis, commands, codecs, profile/run data, upgrades, economy, tutorial predicates, turret-module rules | Three.js/Rapier objects, DOM, localStorage |
-| `src/runtime/` | Rapier vehicle assembly, wheels, drivetrain, surfaces, damage, detachment, weapon stepping | Mode transitions, profile persistence, DOM |
+| `src/core/` | Types, catalog, blueprint operations, placement, structure, analysis, commands, codecs, profile/run data, upgrades, economy, tutorial predicates, turret-module rules, surfaces, biome definitions | Three.js/Rapier objects, DOM, localStorage |
+| `src/runtime/` | Rapier vehicle assembly, wheels, drivetrain, damage, detachment, weapon stepping | Mode transitions, profile persistence, DOM |
 | `src/editor/` | Garage scene, placement/selection input, Store/Inventory UI, repair UI, tutorial overlay, blueprint-slot Adapter | Survival progression or run-save policy |
 | `src/chamber/` | Disposable test-drive world, scenarios, chamber HUD/camera | Persistent blueprint mutation |
 | `src/survival/` | Graveyard, waves, zombie pool/AI, specialists, mines, auto-aim, minimap, combat HUD, victory/game-over presentation | Browser persistence and profile ownership |

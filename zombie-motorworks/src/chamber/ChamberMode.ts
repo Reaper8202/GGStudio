@@ -15,7 +15,7 @@ import {
   type VehicleControls,
 } from '../runtime/vehicle.ts';
 import { lowestPointM, GROUP_TERRAIN, GROUP_ZOMBIE } from '../runtime/assembler.ts';
-import type { SurfaceKind } from '../runtime/surfaces.ts';
+import type { SurfaceKind } from '../core/surfaces.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 
