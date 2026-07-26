@@ -5,13 +5,15 @@ import type { RuntimeWeapon } from '../src/runtime/weapons.ts';
 import { AutoAim } from '../src/survival/AutoAim.ts';
 import type { ZombieSystem } from '../src/survival/zombies/ZombieSystem.ts';
 
+// The Ice Cannon stands in for a generic 360-degree auto turret throughout:
+// the Zombie Blaster and Heavy Cannon are player-aimed and never appear here.
 describe('AutoAim', () => {
   it('targets the nearest body translation and reuses override storage', () => {
     const autoPart = { alive: true, detached: false, health: 100 };
     const manualPart = { alive: true, detached: false, health: 100 };
     const autoWeapon: RuntimeWeapon = {
       partId: 'auto',
-      def: { ...PART_CATALOG.turret.weapon!, rangeM: 5 },
+      def: { ...PART_CATALOG['ice-cannon'].weapon!, rangeM: 5 },
       mountLocal: { x: 1, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 },
       yaw: 0,
@@ -86,7 +88,7 @@ describe('AutoAim', () => {
   it('skips an occluded nearest target for the next visible candidate', () => {
     const autoWeapon: RuntimeWeapon = {
       partId: 'auto',
-      def: PART_CATALOG.turret.weapon!,
+      def: PART_CATALOG['ice-cannon'].weapon!,
       mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 },
       yaw: 0,
@@ -125,7 +127,7 @@ describe('AutoAim', () => {
 
   it('holds fire when all bounded candidates are occluded', () => {
     const weapon: RuntimeWeapon = {
-      partId: 'auto', def: PART_CATALOG.turret.weapon!, mountLocal: { x: 0, y: 0, z: 0 },
+      partId: 'auto', def: PART_CATALOG['ice-cannon'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
     };
     const vehicle = {
@@ -167,9 +169,17 @@ describe('AutoAim', () => {
     expect(entry?.aimPoint).toEqual({ x: 0, y: 0.9, z: 20 });
   });
 
-  it('locks a strongest-priority cannon onto the toughest zombie, not the nearest', () => {
+  // No shipped part uses 'strongest' today — the Heavy Cannon is player-aimed —
+  // but the ranking is part of AutoAim's contract, so it is covered directly.
+  it('locks a strongest-priority weapon onto the toughest zombie, not the nearest', () => {
     const cannon: RuntimeWeapon = {
-      partId: 'cannon', def: PART_CATALOG['cannon-heavy'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
+      partId: 'cannon',
+      def: {
+        ...PART_CATALOG['ice-cannon'].weapon!,
+        rangeM: 30,
+        targetPriority: 'strongest',
+      },
+      mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
     };
     const vehicle = {
@@ -190,7 +200,6 @@ describe('AutoAim', () => {
     const entry = autoAim.step().get('cannon');
     expect(entry).toBeDefined();
     expect(entry?.aimPoint).toEqual({ x: 0, y: 0.9, z: 15 });
-    // Acquisition is reported here; the player's trigger gates firing in weapons.ts.
     expect(entry?.fire).toBe(true);
   });
 
@@ -249,7 +258,7 @@ describe('AutoAim', () => {
 function autoTurret(empLevel: number): RuntimeWeapon {
   return {
     partId: 'auto',
-    def: PART_CATALOG.turret.weapon!,
+    def: PART_CATALOG['ice-cannon'].weapon!,
     mountLocal: { x: 0, y: 0, z: 0 },
     forwardLocal: { x: 0, y: 0, z: 1 },
     yaw: 0,

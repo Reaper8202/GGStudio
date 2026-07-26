@@ -6,6 +6,7 @@ import {
   GROUP_ZOMBIE,
 } from '../../runtime/assembler.ts';
 import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
+import type { VfxSystem } from '../../vfx/VfxSystem.ts';
 import { instantiateVoxelAsset } from '../VoxelAssetLoader.ts';
 import {
   BASE_ZOMBIE_STATS,
@@ -143,6 +144,13 @@ export type ZombieKilledCallback = (reward: number, kind: ZombieKind) => void;
 
 export type ZombieKind = 'walker' | 'thrower' | 'phone-addict' | 'worker';
 
+/**
+ * Outcome of a vehicle contact. `ignored` covers a zombie that is untargetable
+ * or still inside its impact cooldown, so presentation can skip its effect
+ * instead of spraying gore on every fixed step of a sustained contact.
+ */
+export type VehicleImpactResult = 'ignored' | 'damaged' | 'killed';
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -211,6 +219,8 @@ export class Zombie {
   private readonly loadedMaterials: THREE.MeshLambertMaterial[] = [];
   private readonly visualMaterials: THREE.MeshLambertMaterial[] = [];
   private readonly baseScale: number;
+  /** Body tint this corpse's gibs are cut from, as an sRGB hex. */
+  private readonly gibTintHex: number;
   private readonly rayOrigin = { x: 0, y: 0, z: 0 };
   private readonly rayDirection = { x: 0, y: 0, z: 0 };
   private readonly ray: RAPIER.Ray;
@@ -260,6 +270,8 @@ export class Zombie {
     kind: ZombieKind,
     fallbackGeometry: THREE.CapsuleGeometry,
     private readonly onKilled: ZombieKilledCallback,
+    /** Optional so headless tests can pool zombies without a scene budget. */
+    private readonly vfx: VfxSystem | null = null,
   ) {
     this.kind = kind;
     this.baseScale =
@@ -267,6 +279,7 @@ export class Zombie {
     const tint = new THREE.Color(
       BODY_TINTS[index % BODY_TINTS.length],
     ).offsetHSL(0, 0, (Math.random() - 0.5) * 0.08);
+    this.gibTintHex = tint.getHex();
     this.fallbackMaterial = new THREE.MeshLambertMaterial({
       color: tint,
       emissive: new THREE.Color().setScalar(BASE_EMISSIVE),
@@ -456,9 +469,13 @@ export class Zombie {
   }
 
   /** Apply speed-scaled vehicle damage and a real Rapier knockback impulse. */
-  applyVehicleImpact(damage: number, dirX: number, dirZ: number): boolean {
+  applyVehicleImpact(
+    damage: number,
+    dirX: number,
+    dirZ: number,
+  ): VehicleImpactResult {
     if (!this.isTargetable || damage <= 0 || this.impactCooldown > 0)
-      return false;
+      return 'ignored';
 
     this.impactCooldown = IMPACT_COOLDOWN_SECONDS;
     this.health -= damage;
@@ -472,9 +489,9 @@ export class Zombie {
     this.impulseScratch.z = (dirZ / length) * impulseMagnitude;
     this.body.applyImpulse(this.impulseScratch, true);
 
-    if (this.health > 0) return false;
+    if (this.health > 0) return 'damaged';
     this.die();
-    return true;
+    return 'killed';
   }
 
   fixedUpdate(
@@ -904,6 +921,15 @@ export class Zombie {
     if (this.state === ZombieState.Dead) return;
     this.state = ZombieState.Dead;
     this.deathTimer = DEATH_FEEDBACK_DURATION;
+    // Burst into this corpse's own voxels; specialists are bigger, so they
+    // throw a correspondingly bigger cloud.
+    this.vfx?.zombieGib(
+      this.position.x,
+      this.position.y,
+      this.position.z,
+      this.gibTintHex,
+      this.kind === 'walker' ? 1 : 1.25,
+    );
     const velocity = this.body.linvel();
     this.velocityScratch.x = 0;
     this.velocityScratch.y = velocity.y;

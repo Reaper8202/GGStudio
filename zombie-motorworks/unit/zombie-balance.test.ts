@@ -11,6 +11,10 @@ import {
   MIN_IMPACT_SPEED,
   SWARM_DRAG_PER_CONTACT,
 } from '../src/survival/zombies/zombieConfig.ts';
+import {
+  VEHICLE_PERFORMANCE_REFERENCE_MASS_KG,
+  vehicleImpactMassFactor,
+} from '../src/core/mass.ts';
 
 describe('zombie ram and drag balance', () => {
   it('uses the gentler health ramp and introduces one thrower at wave 3', () => {
@@ -34,5 +38,20 @@ describe('zombie ram and drag balance', () => {
   it('applies only light, capped swarm drag', () => {
     expect(SWARM_DRAG_PER_CONTACT).toBe(0.03);
     expect(MAXIMUM_SWARM_DRAG).toBe(0.3);
+  });
+
+  it('scales ram damage by mass while leaving the speed formula alone', () => {
+    // Reference mass is the formula's 1x point, so today's speed-only
+    // behaviour is preserved exactly for a vehicle at that mass.
+    expect(vehicleImpactMassFactor(VEHICLE_PERFORMANCE_REFERENCE_MASS_KG)).toBe(1);
+    // Lighter vehicles ram softer, heavier vehicles ram harder.
+    const light = vehicleImpactMassFactor(400);
+    const heavy = vehicleImpactMassFactor(3000);
+    expect(light).toBeLessThan(1);
+    expect(heavy).toBeGreaterThan(1);
+    expect(heavy).toBeGreaterThan(light);
+    // Factor stays within sane bounds even at extreme masses.
+    expect(vehicleImpactMassFactor(50)).toBeGreaterThan(0);
+    expect(vehicleImpactMassFactor(50000)).toBeLessThan(10);
   });
 });

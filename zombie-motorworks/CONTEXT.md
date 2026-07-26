@@ -66,6 +66,11 @@ They describe work at the time they were written and can be stale.
   transient physics, resources, weapons, damage, and part detachment.
 - **Debug Seam**: `window.__scrapRig` Interface installed by `App` for
   deterministic Playwright access under `?debug=1`.
+- **VFX Layer**: two pooled `InstancedMesh` cube layers (`lit` for matter,
+  `glow` for light) owned by `VfxSystem`. Emitters take world events, never
+  gameplay decisions; a per-frame spawn budget and camera-distance LOD bound
+  their cost. Effects are presentation only and never feed back into physics,
+  damage, or wave state.
 
 ## Module Ownership
 
@@ -77,6 +82,7 @@ editor -> core
 chamber -> runtime -> core
 survival -> runtime, core
 editor, survival -> ui
+chamber, survival -> vfx -> core
 ```
 
 The diagram shows allowed conceptual dependencies, not every import. `app`
@@ -89,7 +95,8 @@ helpers. `core` stays engine- and browser-independent.
 | `src/runtime/` | Rapier vehicle assembly, wheels, drivetrain, surfaces, damage, detachment, weapon stepping | Mode transitions, profile persistence, DOM |
 | `src/editor/` | Garage scene, placement/selection input, Store/Inventory UI, repair UI, tutorial overlay, blueprint-slot Adapter | Survival progression or run-save policy |
 | `src/chamber/` | Disposable test-drive world, scenarios, chamber HUD/camera | Persistent blueprint mutation |
-| `src/survival/` | Graveyard, waves, zombie pool/AI, specialists, mines, auto-aim, minimap, combat HUD, victory/game-over presentation | Browser persistence and profile ownership |
+| `src/survival/` | Graveyard, waves, zombie pool/AI, specialists, mines, auto-aim, minimap, combat HUD, alert stack and damage vignette, victory/game-over presentation | Browser persistence and profile ownership |
+| `src/vfx/` | Pooled voxel particle layers and every effect emitter (melee shred, gibs, muzzles, impacts, fire, explosions), plus the shot-to-effect mapping | Gameplay state, damage, or anything a mode must read back |
 | `src/app/` | Boot, renderer, title/mode lifecycle, active Blueprint, Profile, command history, Run Checkpoint, storage Adapters, debug Seam | Duplicated physics or balance formulas |
 | `src/ui/` | Shared DOM primitives and the UI museum | Gameplay state |
 
@@ -164,6 +171,9 @@ Storage access failures must not make the in-memory game unusable.
   uses base cost and missing effective HP; upgrading preserves HP percentage.
 - The Mine Sweeper and EMP have progression gates in Profile/turret-module
   helpers. UI copy should derive from those rules, not duplicate thresholds.
+- VFX emitters must stay side-effect-free with respect to gameplay. Contact
+  effects are paced by the impact cooldown that already gates the damage, not
+  by a second timer that could drift from it.
 - `App.ts`, `EditorMode.ts`, and `SurvivalMode.ts` are large orchestration
   Modules. Changes that span them need one integration owner because callback
   ordering is part of their Interface.
@@ -189,6 +199,8 @@ the task crosses their Interface.
 | Test-drive physics | `src/chamber/ChamberMode.ts` | `runtime/vehicle.ts`, `runtime/assembler.ts` | `tests/drive.spec.ts`, `tests/collision.spec.ts` |
 | Vehicle handling/wheels | `src/runtime/vehicle.ts` | `wheels.ts`, `drivetrain.ts`, `mass.ts` | `unit/wheel-*.test.ts`, `tests/drive.spec.ts`, `tests/reverse.spec.ts` |
 | Weapons/modules/ammo | `src/runtime/weapons.ts` | `core/turretModules.ts`, `survival/AutoAim.ts` | `unit/turret-*.test.ts`, `unit/weapon-ammo.test.ts`, `tests/combat.spec.ts` |
+| Particles/effects | `src/vfx/VfxSystem.ts` | `vfx/VoxelParticles.ts`, `vfx/vfxConfig.ts`, `vfx/shotVfx.ts` | `unit/vfx.test.ts` |
+| HUD alerts/damage vignette | `src/survival/vehicleWarnings.ts` | `survival/WarningHud.ts`, `SurvivalMode.ts`, `style.css` | `unit/vehicle-warnings.test.ts` |
 | Run checkpoint/rewards/save | `src/app/App.ts` | `core/runSave.ts`, `app/runSaveStore.ts`, `SurvivalMode.ts` | `unit/run-checkpoint.test.ts`, `unit/pending-rewards.test.ts`, `unit/run-save.test.ts`, `tests/runloop.spec.ts` |
 | Wave balance/composition | `src/survival/WaveManager.ts` | `waveBalance.ts`, `zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/wave-balance.test.ts`, `unit/zombie-balance.test.ts` |
 | Zombie AI/specialists | `src/survival/zombies/Zombie.ts` | `ZombieSystem.ts`, `Landmines.ts`, `ThrowerProjectiles.ts` | `unit/landmines.test.ts`, `tests/combat.spec.ts` |

@@ -123,7 +123,13 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     description: 'Responsive road wheel with high-grip handling.',
     cells: oneCell,
     clearanceCells: [v(0, -1, 0)],
-    sockets: [singleSocket('wheel-mount-px', 'frame', ORIGIN, 'px')],
+    // Side-mounted (px) for a left/right pair, or front/back (pz/nz) to hang
+    // it centred off a single block like a motorcycle fork.
+    sockets: [
+      singleSocket('wheel-mount-px', 'frame', ORIGIN, 'px'),
+      singleSocket('wheel-mount-pz', 'frame', ORIGIN, 'pz'),
+      singleSocket('wheel-mount-nz', 'frame', ORIGIN, 'nz'),
+    ],
     massKg: 28,
     health: 90,
     cost: 18,
@@ -156,7 +162,11 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     description: 'Large high-grip wheel for rough ground.',
     cells: oneCell,
     clearanceCells: [v(0, -1, 0)],
-    sockets: [singleSocket('wheel-mount-px', 'frame', ORIGIN, 'px')],
+    sockets: [
+      singleSocket('wheel-mount-px', 'frame', ORIGIN, 'px'),
+      singleSocket('wheel-mount-pz', 'frame', ORIGIN, 'pz'),
+      singleSocket('wheel-mount-nz', 'frame', ORIGIN, 'nz'),
+    ],
     massKg: 44,
     health: 130,
     cost: 32,
@@ -191,7 +201,11 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       'Thin racing wheel. Very light and turns hard, but buckles under load.',
     cells: oneCell,
     clearanceCells: [v(0, -1, 0)],
-    sockets: [singleSocket('wheel-mount-px', 'frame', ORIGIN, 'px')],
+    sockets: [
+      singleSocket('wheel-mount-px', 'frame', ORIGIN, 'px'),
+      singleSocket('wheel-mount-pz', 'frame', ORIGIN, 'pz'),
+      singleSocket('wheel-mount-nz', 'frame', ORIGIN, 'nz'),
+    ],
     massKg: 12,
     health: 45,
     cost: 24,
@@ -336,7 +350,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     id: 'turret',
     name: 'Turret',
     category: 'weapon',
-    description: 'Rotating weapon turret.',
+    description:
+      'Rotating weapon turret. Point and click: the mount swings to your cursor and fires wherever you aim.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -347,7 +362,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     reinforcement: 1,
     weapon: {
       mountType: 'turret',
-      aimMode: 'auto',
+      // Player-aimed: the mount tracks the cursor and shoots exactly where it
+      // points, so hitting anything is on the player rather than on a lock-on.
+      aimMode: 'manual',
       arcDeg: 360,
       damageType: 'hitscan',
       damage: 3,
@@ -382,7 +399,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Heavy Cannon',
     category: 'weapon',
     description:
-      'Slow, powerful cannon. Auto-locks onto the toughest zombie; you pull the trigger.',
+      'Slow, devastating cannon. Point and click: the shell detonates where it ' +
+      'lands and shreds everything caught in the blast.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -394,18 +412,19 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     reinforcement: 1.25,
     weapon: {
       mountType: 'turret',
-      // Same auto-aim turret as the Zombie Blaster, but it holds fire until the
-      // player pulls the trigger and locks onto the toughest zombie in range.
-      aimMode: 'auto',
+      // Player-aimed like the Zombie Blaster, but every shell is an explosion:
+      // the direct hit is only part of the damage, and a near miss still kills.
+      aimMode: 'manual',
       arcDeg: 360,
       damageType: 'projectile',
       damage: 40,
       fireRate: 0.7,
-      recoilImpulse: 520,
+      // Heavy enough to visibly shove the rig when it goes off.
+      recoilImpulse: 900,
       projectileSpeed: 260,
       rangeM: 30,
-      targetPriority: 'strongest',
-      manualFire: true,
+      splashRadiusM: 4.5,
+      splashDamage: 26,
     },
   },
   'ice-cannon': {
@@ -466,6 +485,44 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     reinforcement: 1.5,
     melee: {
       damage: 45,
+    },
+  },
+  'spike-ram': {
+    id: 'spike-ram',
+    name: 'Long Spikes',
+    category: 'weapon',
+    description:
+      'A long, heavy pike that impales anything it touches. Long reach, but a small contact area — line it up.',
+    cells: oneCell,
+    clearanceCells: [],
+    sockets: frameSockets(oneCell),
+    massKg: 90,
+    health: 130,
+    cost: 170,
+    upgrade: upgrade(5, 170),
+    reinforcement: 1,
+    melee: {
+      damage: 32,
+      visual: 'spikes',
+    },
+  },
+  sawblade: {
+    id: 'sawblade',
+    name: 'Sawblade',
+    category: 'weapon',
+    description:
+      'Big flat blade that sweeps a wide area, sawing through anything it grazes.',
+    cells: oneCell,
+    clearanceCells: [],
+    sockets: frameSockets(oneCell),
+    massKg: 85,
+    health: 120,
+    cost: 150,
+    upgrade: upgrade(5, 150),
+    reinforcement: 1,
+    melee: {
+      damage: 20,
+      visual: 'blade',
     },
   },
   'sniper-light': {

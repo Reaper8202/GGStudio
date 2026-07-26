@@ -167,8 +167,20 @@ export interface WeaponDefinition {
    * system tracks a target and keeps the mount pointed at it, but the weapon
    * only fires while the player holds fire (left click / F) instead of firing
    * itself the instant a target is acquired. Used for slow, precious shots.
+   *
+   * Meaningless on a manual-aim weapon, which already only fires on the
+   * player's trigger.
    */
   manualFire?: boolean;
+  /**
+   * Explosive payload. On impact, every zombie within `splashRadiusM` of the
+   * point of impact takes `splashDamage` at the centre, falling off linearly
+   * to nothing at the rim. Blast damage is delivered as `aoe` regardless of
+   * the weapon's own `damageType`, so it washes around the phone addict's
+   * bubble the way flame does. Both fields must be set together.
+   */
+  splashRadiusM?: number;
+  splashDamage?: number;
 }
 
 /**
@@ -194,10 +206,12 @@ export interface AbilityDefinition {
   baseTargets?: number;
 }
 
-/** Contact weapon (grinder drum): damages any zombie touching the part. */
+/** Contact weapon (grinder drum, spikes, sawblade): damages any zombie touching the part. */
 export interface MeleeDefinition {
   /** Damage per contact hit; cadence is the zombie impact cooldown. */
   damage: number;
+  /** Mesh treatment; default 'drum' (toothed grinder roller). */
+  visual?: 'drum' | 'spikes' | 'blade';
 }
 
 export interface ArmourDefinition {

@@ -1307,8 +1307,12 @@ export class EditorMode {
     const usedCount = cmds.length;
     if (!this.changeInventory(part.defId, -usedCount)) return;
     if (this.exec(cmds.length > 1 ? batchCommand('symmetric place', cmds) : cmds[0])) {
-      this.disarmGhost();
-      this.selectOnly(id);
+      if ((this.inventory()[part.defId] ?? 0) > 0) {
+        // Keep the hotbar item armed so repeated clicks keep building with it.
+        this.refreshGhostAtLastPointer();
+      } else {
+        this.disarmGhost();
+      }
     } else {
       this.changeInventory(part.defId, usedCount);
     }

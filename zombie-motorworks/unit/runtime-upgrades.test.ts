@@ -175,9 +175,10 @@ describe('hybrid weapon input', () => {
       0.1,
     );
 
-    expect(overridden.yaw).toBeCloseTo(0.32);
+    // Player-aimed turrets slew at MANUAL_TURRET_YAW_RATE (14 rad/s) over 0.1s.
+    expect(overridden.yaw).toBeCloseTo(1.4);
     expect(overridden.shotsFired).toBe(0);
-    expect(global.yaw).toBeCloseTo(-0.32);
+    expect(global.yaw).toBeCloseTo(-1.4);
     expect(global.shotsFired).toBe(1);
     expect(result.shots).toHaveLength(1);
 

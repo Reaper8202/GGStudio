@@ -37,6 +37,8 @@ const EXPECTED_CATALOG_IDS = [
   'cannon-heavy',
   'ice-cannon',
   'barrel-drum',
+  'spike-ram',
+  'sawblade',
   'sniper-light',
   'flamethrower',
   'shield-generator',
@@ -103,17 +105,32 @@ describe('part catalog integrity', () => {
           cell: { x: 0, y: 0, z: 0 },
           face: 'px',
         },
+        {
+          id: 'wheel-mount-pz',
+          type: 'frame',
+          cell: { x: 0, y: 0, z: 0 },
+          face: 'pz',
+        },
+        {
+          id: 'wheel-mount-nz',
+          type: 'frame',
+          cell: { x: 0, y: 0, z: 0 },
+          face: 'nz',
+        },
       ]);
     }
 
     expect(PART_CATALOG['fuel-tank'].health).toBe(80);
     expect(PART_CATALOG.turret.clearanceCells).toEqual([{ x: 0, y: 1, z: 0 }]);
-    expect(PART_CATALOG.turret.weapon?.aimMode).toBe('auto');
+    // Both player-facing guns are point-and-click: they follow the cursor and
+    // fire on the trigger, with no lock-on of their own.
+    expect(PART_CATALOG.turret.weapon?.aimMode).toBe('manual');
     expect(PART_CATALOG['armour-plate'].armour?.protection).toBeGreaterThan(0);
-    // The Heavy Cannon auto-aims (at the toughest zombie) but fires on demand.
-    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('auto');
-    expect(PART_CATALOG['cannon-heavy'].weapon?.targetPriority).toBe('strongest');
-    expect(PART_CATALOG['cannon-heavy'].weapon?.manualFire).toBe(true);
+    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('manual');
+    // The Heavy Cannon is the one explosive weapon: its shell has an area of
+    // effect on top of the direct hit.
+    expect(PART_CATALOG['cannon-heavy'].weapon?.splashRadiusM).toBeGreaterThan(0);
+    expect(PART_CATALOG['cannon-heavy'].weapon?.splashDamage).toBeGreaterThan(0);
   });
 
   it('defines the unique Mine Sweeper outside the starter catalog', () => {
