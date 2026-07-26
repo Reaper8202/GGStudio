@@ -32,15 +32,31 @@ test('guided tutorial advances through a first truck', async ({ page }) => {
   expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(true);
 });
 
-test('palette shows the ten build tiles and erase tool', async ({ page }) => {
+test('the garage dock shows store tiles, inventory stock, and the erase tool', async ({
+  page,
+}) => {
   await boot(page);
-  await expect(page.getByText('Block', { exact: true })).toBeVisible();
+
+  // Store and inventory both carry a Frame Box tile, so scope by list rather
+  // than by label — an unscoped getByText('Block') matches both.
+  const store = page.locator('.store-list');
+  const inventory = page.locator('.inventory-list');
+
+  await expect(store.locator('.part-btn[data-part-id="frame-box"]')).toBeVisible();
   await expect(
-    page.getByRole('button', { name: /Armour Plate/ }),
+    store.locator('.part-btn[data-part-id="wheel-standard"]'),
   ).toBeVisible();
+  // Weapons live behind their own filter and start hidden.
+  await expect(store.locator('.part-btn[data-part-id="turret"]')).toBeHidden();
+  await page.getByRole('button', { name: 'Weapons', exact: true }).click();
+  await expect(store.locator('.part-btn[data-part-id="turret"]')).toBeVisible();
   await expect(
-    page.getByRole('button', { name: /Heavy Cannon/ }),
+    store.locator('.part-btn[data-part-id="frame-box"]'),
+  ).toBeHidden();
+
+  // The starter garage hands over loose stock to place.
+  await expect(
+    inventory.locator('.part-btn[data-part-id="wheel-standard"]'),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: '🧽 Erase' })).toBeVisible();
-  await expect(page.locator('.palette .part-btn')).toHaveCount(10);
+  await expect(page.getByRole('button', { name: 'Erase Part' })).toBeVisible();
 });

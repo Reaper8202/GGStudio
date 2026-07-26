@@ -31,7 +31,7 @@ test('wave completion enters build phase and resumes at the next wave', async ({
 
   await expect(page.getByText('VICTORY', { exact: true })).toBeVisible();
   await expect(page.getByText('Wave 1 Cleared', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Go to Garage' }).click();
+  await page.getByRole('button', { name: 'Garage / Repair' }).click();
 
   expect(await page.evaluate(() => window.__scrapRig.mode())).toBe('editor');
   expect(await page.evaluate(() => window.__scrapRig.runState())).toEqual({
@@ -69,7 +69,7 @@ test('victory screen next wave continues the run without leaving survival', asyn
   await page.evaluate(() => window.__scrapRig.forceWaveComplete());
   await expect(page.getByText('VICTORY', { exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Next Wave' }).click();
+  await page.getByRole('button', { name: 'Continue Now' }).click();
   await expect(page.getByText('VICTORY', { exact: true })).toBeHidden();
   expect(await page.evaluate(() => window.__scrapRig.mode())).toBe('survival');
   expect(await page.evaluate(() => window.__scrapRig.runState())).toEqual({
@@ -99,7 +99,11 @@ test('new-build profile hygiene and fresh-run wave state are independent', async
     window.__scrapRig.profile(),
   );
 
-  await page.getByRole('button', { name: 'New', exact: true }).click();
+  // Root-only build: nothing to sell back, so the refund must not move money.
+  await page.getByRole('button', { name: 'New Garage', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Sell Parts and Start New', exact: true })
+    .click();
   expect(await page.evaluate(() => window.__scrapRig.profile())).toEqual(
     profileBeforeNew,
   );
@@ -133,21 +137,17 @@ test('repeated editor and survival transitions keep one HUD root and one design'
   );
 
   await expect(page.locator('.ui-layer')).toHaveCount(1);
-  await expect(page.locator('.palette')).toHaveCount(1);
+  await expect(page.locator('.garage-dock')).toHaveCount(1);
   for (let transition = 0; transition < 2; transition += 1) {
     expect(await enterSurvivalPaused(page)).toBe(true);
     await expect(page.locator('.ui-layer')).toHaveCount(1);
-    await expect(
-      page.getByText('ZOMBIE SURVIVAL', { exact: true }),
-    ).toHaveCount(1);
-    await expect(page.locator('.palette')).toHaveCount(0);
+    await expect(page.locator('.survival-wave-hud')).toHaveCount(1);
+    await expect(page.locator('.garage-dock')).toHaveCount(0);
 
     await page.evaluate(() => window.__scrapRig.backToEditor());
     await expect(page.locator('.ui-layer')).toHaveCount(1);
-    await expect(page.locator('.palette')).toHaveCount(1);
-    await expect(
-      page.getByText('ZOMBIE SURVIVAL', { exact: true }),
-    ).toHaveCount(0);
+    await expect(page.locator('.garage-dock')).toHaveCount(1);
+    await expect(page.locator('.survival-wave-hud')).toHaveCount(0);
   }
 
   expect(await page.evaluate(() => window.__scrapRig.mode())).toBe('editor');
