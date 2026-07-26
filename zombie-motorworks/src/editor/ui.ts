@@ -91,13 +91,20 @@ export interface RunRepairEconomy {
   nextWaveNotice?: string;
 }
 
-type StoreGroup = 'essentials' | 'weapons-defence' | 'mobility';
+type StoreGroup = 'essentials' | 'weapons' | 'defence' | 'mobility';
+
+/**
+ * Catalog parts filed under `weapon` that are bought for defence: they have no
+ * offensive payload, only a protective ability.
+ */
+const DEFENSIVE_WEAPON_PART_IDS = new Set(['shield-generator']);
 
 function storeGroupForPart(def: PartDefinition): StoreGroup {
   if (def.category === 'movement') return 'mobility';
-  if (def.category === 'weapon' || def.category === 'protection') {
-    return 'weapons-defence';
+  if (def.category === 'protection' || DEFENSIVE_WEAPON_PART_IDS.has(def.id)) {
+    return 'defence';
   }
+  if (def.category === 'weapon') return 'weapons';
   return 'essentials';
 }
 
@@ -483,15 +490,24 @@ export function buildEditorUI(
   essentialsFilter.textContent = 'Essentials';
   essentialsFilter.className = 'active';
   essentialsFilter.setAttribute('aria-pressed', 'true');
-  const weaponsDefenceFilter = document.createElement('button');
-  weaponsDefenceFilter.type = 'button';
-  weaponsDefenceFilter.textContent = 'Weapons & Defence';
-  weaponsDefenceFilter.setAttribute('aria-pressed', 'false');
+  const weaponsFilter = document.createElement('button');
+  weaponsFilter.type = 'button';
+  weaponsFilter.textContent = 'Weapons';
+  weaponsFilter.setAttribute('aria-pressed', 'false');
+  const defenceFilter = document.createElement('button');
+  defenceFilter.type = 'button';
+  defenceFilter.textContent = 'Defence';
+  defenceFilter.setAttribute('aria-pressed', 'false');
   const mobilityFilter = document.createElement('button');
   mobilityFilter.type = 'button';
   mobilityFilter.textContent = 'Mobility';
   mobilityFilter.setAttribute('aria-pressed', 'false');
-  storeFilters.append(essentialsFilter, weaponsDefenceFilter, mobilityFilter);
+  storeFilters.append(
+    essentialsFilter,
+    weaponsFilter,
+    defenceFilter,
+    mobilityFilter,
+  );
   const storeContent = document.createElement('div');
   storeContent.className = 'dock-list store-list';
   const storeEmpty = document.createElement('p');
@@ -620,7 +636,8 @@ export function buildEditorUI(
     activeStoreGroup = group;
     const filters = [
       [essentialsFilter, 'essentials'],
-      [weaponsDefenceFilter, 'weapons-defence'],
+      [weaponsFilter, 'weapons'],
+      [defenceFilter, 'defence'],
       [mobilityFilter, 'mobility'],
     ] as const;
     for (const [filter, filterGroup] of filters) {
@@ -631,9 +648,8 @@ export function buildEditorUI(
     applyStoreFilters();
   };
   essentialsFilter.addEventListener('click', () => setStoreFilter('essentials'));
-  weaponsDefenceFilter.addEventListener('click', () =>
-    setStoreFilter('weapons-defence'),
-  );
+  weaponsFilter.addEventListener('click', () => setStoreFilter('weapons'));
+  defenceFilter.addEventListener('click', () => setStoreFilter('defence'));
   mobilityFilter.addEventListener('click', () => setStoreFilter('mobility'));
   storeSearch.addEventListener('input', applyStoreFilters);
   setStoreFilter('essentials');

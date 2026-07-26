@@ -27,6 +27,14 @@ import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
 import { ScopeCursor } from '../ui/ScopeCursor.ts';
+import { VfxSystem } from '../vfx/VfxSystem.ts';
+import { WarningHud } from './WarningHud.ts';
+import {
+  activeVehicleWarnings,
+  HULL_CRITICAL_PCT,
+  type VehicleWarning,
+} from './vehicleWarnings.ts';
+import { impactKindForShot, muzzleStyleForShot } from '../vfx/shotVfx.ts';
 import { FuelPickups } from './FuelPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
@@ -42,6 +50,8 @@ import {
   BASE_ZOMBIE_STATS,
   LETHAL_IMPACT_SPEED,
   MIN_IMPACT_SPEED,
+  ZOMBIE_HALF_HEIGHT,
+  ZOMBIE_RADIUS,
 } from './zombies/zombieConfig.ts';
 import type { ZombieKind } from './zombies/Zombie.ts';
 
@@ -55,6 +65,10 @@ const TRACER_POOL_SIZE = 32;
 const STUCK_PROMPT_SECONDS = 1.6;
 const RECOVERY_COOLDOWN_SECONDS = 2.25;
 const RECOVERY_SETTLE_SECONDS = 0.42;
+/** How often the alert stack is re-derived from vehicle state. */
+const WARNING_REFRESH_INTERVAL_SECONDS = 0.25;
+/** Distance at which a blast stops shaking the camera at all, m. */
+const CAMERA_SHAKE_FALLOFF_M = 26;
 
 export interface SurvivalCallbacks {
   profileMoney(): number;
@@ -275,6 +289,8 @@ export class SurvivalMode {
   private readonly surfaceByCollider = new Map<number, SurfaceKind>();
   private readonly graveyard: Graveyard;
   private readonly vehicle: RuntimeVehicle;
+  /** Pooled voxel particle layers shared by every effect in this mode. */
+  private readonly vfx: VfxSystem;
   private readonly zombies: ZombieSystem;
   private readonly autoAim: AutoAim;
   private readonly fuelPickups: FuelPickups;
@@ -297,11 +313,6 @@ export class SurvivalMode {
   private readonly tracerMaterial = new THREE.LineBasicMaterial({
     color: 0xffd76e,
   });
-  private readonly flameTracerMaterial = new THREE.LineBasicMaterial({
-    color: 0xff6b2b,
-    transparent: true,
-    opacity: 0.85,
-  });
   private readonly pierceTracerMaterial = new THREE.LineBasicMaterial({
     color: 0xffd76e,
     transparent: true,
@@ -311,7 +322,15 @@ export class SurvivalMode {
   private readonly wheelSteerAxis = new THREE.Vector3(0, 1, 0);
   private readonly pointerNdc = new THREE.Vector2();
   private readonly aimRaycaster = new THREE.Raycaster();
-  private readonly aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  /**
+   * Cursor unprojection plane. Sat at zombie centre height rather than on the
+   * ground: manual turrets now shoot at this exact point, and the player aims
+   * at a zombie's body, not at the patch of dirt behind its feet.
+   */
+  private readonly aimPlane = new THREE.Plane(
+    new THREE.Vector3(0, 1, 0),
+    -(ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS),
+  );
   private readonly aimPoint = new THREE.Vector3();
   private readonly shotDirection = new THREE.Vector3();
   private readonly stoppedVelocity = { x: 0, y: 0, z: 0 };
@@ -319,6 +338,16 @@ export class SurvivalMode {
   private readonly ui: HTMLDivElement;
   private readonly minimap: Minimap;
   private readonly scopeCursor: ScopeCursor;
+  /** Damage vignette plus the stacked red/amber alert chips. */
+  private readonly warningHud: WarningHud;
+  /**
+   * Sum of live attached part health at the end of the previous fixed step.
+   * Diffing it is how the HUD learns the vehicle was hurt, whatever the
+   * source — zombie bites, thrown debris, mines, or a bad collision.
+   */
+  private lastLiveHealth = -1;
+  private warningRefreshSeconds = 0;
+  private lastWarnings: VehicleWarning[] = [];
   private readonly speedValue: HTMLSpanElement;
   private readonly speedTrack: HTMLDivElement;
   private readonly speedSafeLabel: HTMLSpanElement;
@@ -469,6 +498,9 @@ export class SurvivalMode {
       this.vehicle,
       this.graveyard.bounds,
     );
+    // Added before the zombie visuals are captured below, so the two VFX
+    // layers stay parented to the scene rather than to the zombie root.
+    this.vfx = new VfxSystem(this.scene);
     const firstZombieVisualIndex = this.scene.children.length;
     this.zombies = new ZombieSystem(
       this.world,
@@ -476,6 +508,7 @@ export class SurvivalMode {
       this.graveyard.spawnPoints,
       this.vehicle,
       (reward, kind) => this.handleZombieKilled(reward, kind),
+      this.vfx,
     );
     const zombieVisuals = this.scene.children.slice(firstZombieVisualIndex);
     this.zombieVisualRoot.name = 'zombie-system-visuals';
@@ -550,6 +583,7 @@ export class SurvivalMode {
       },
     );
     this.scopeCursor = new ScopeCursor(this.ui, this.renderer.domElement);
+    this.warningHud = new WarningHud(this.ui);
 
     if (Number.isFinite(run.kills) && (run.kills ?? 0) >= 0) {
       this.kills = Math.floor(run.kills ?? 0);
@@ -1101,6 +1135,8 @@ export class SurvivalMode {
       this.aimPoint.x - position.x,
       this.aimPoint.z - position.z,
     );
+    // Manual turrets fire at this point, so the barrel and the shot agree.
+    this.controls.aimPoint = this.aimPoint;
   };
 
   private readonly onFireDown = (event: PointerEvent): void => {
@@ -1186,13 +1222,15 @@ export class SurvivalMode {
     const shots = this.vehicle.shotsThisStep();
     for (const shot of shots) {
       this.showTracer(shot);
-      if (shot.hitZombieHandle === null) continue;
       this.shotDirection.set(
         shot.to.x - shot.from.x,
         shot.to.y - shot.from.y,
         shot.to.z - shot.from.z,
       );
       if (this.shotDirection.lengthSq() > 1e-8) this.shotDirection.normalize();
+      this.emitShotVfx(shot);
+      this.detonateShell(shot);
+      if (shot.hitZombieHandle === null) continue;
       const pierceContinues = applyZombieShot(
         this.zombies,
         shot,
@@ -1209,7 +1247,66 @@ export class SurvivalMode {
     }
 
     this.attachNewIslands(this.vehicle.finishStep());
+    this.trackDamageTaken();
     this.queueCompletedStepTransition();
+  }
+
+  /**
+   * Explosive shells (Heavy Cannon): damage everything around the point of
+   * impact, then play the blast and kick the camera. The zombie the shell hit
+   * directly is excluded — `applyZombieShot` already charges it full damage,
+   * and the splash is what the *rest* of the crowd takes.
+   *
+   * A miss still detonates: shells that land in dirt are the whole point of an
+   * area weapon, and rewarding a near miss is what makes it feel heavy.
+   */
+  private detonateShell(shot: TracerShot): void {
+    if (shot.splashRadiusM <= 0 || shot.splashDamage <= 0) return;
+    this.zombies.explodeAt(
+      shot.to.x,
+      shot.to.y,
+      shot.to.z,
+      shot.splashRadiusM,
+      shot.splashDamage,
+      shot.hitZombieHandle,
+    );
+    this.vfx.shellBurst(shot.to.x, shot.to.y, shot.to.z, shot.splashRadiusM);
+    this.shakeCameraAt(shot.to.x, shot.to.z, 0.9);
+  }
+
+  /**
+   * Kick the camera for a blast at a world point, falling off with distance so
+   * a shell across the graveyard registers without rattling the screen.
+   */
+  private shakeCameraAt(x: number, z: number, strength: number): void {
+    const position = this.vehicle.body.translation();
+    const distance = Math.hypot(x - position.x, z - position.z);
+    const falloff = Math.max(0, 1 - distance / CAMERA_SHAKE_FALLOFF_M);
+    if (falloff <= 0) return;
+    this.followCamera.addShake(strength * falloff * falloff);
+  }
+
+  /**
+   * Total health of every part still attached and alive. Losing a part drops
+   * this by whatever health it had left, which is exactly the "that hurt"
+   * signal the vignette wants.
+   */
+  private liveVehicleHealth(): number {
+    let total = 0;
+    for (const part of this.vehicle.assembled.parts.values()) {
+      if (!part.alive || part.detached) continue;
+      total += Math.max(0, part.health);
+    }
+    return total;
+  }
+
+  /** Feed this step's health loss to the damage vignette. */
+  private trackDamageTaken(): void {
+    const health = this.liveVehicleHealth();
+    if (this.lastLiveHealth >= 0 && health < this.lastLiveHealth) {
+      this.warningHud.reportDamage(this.lastLiveHealth - health);
+    }
+    this.lastLiveHealth = health;
   }
 
   private updateRecoveryAssist(dt: number): void {
@@ -1392,6 +1489,12 @@ export class SurvivalMode {
     this.waveStartKills = this.kills;
     this.waveMoneyEarned = 0;
     this.waveElapsedSeconds = 0;
+    // A fresh wave starts on clean ground rather than inheriting the last
+    // wave's airborne gibs and settled splats.
+    this.vfx.reset();
+    // Re-baseline damage tracking: carried-over wave damage is not a new hit.
+    this.lastLiveHealth = -1;
+    this.warningRefreshSeconds = 0;
   }
 
   private handleZombieKilled(
@@ -1641,6 +1744,12 @@ export class SurvivalMode {
     this.fuelPickups.updateVisuals(frameDt);
     this.syncShieldBubble(frameDt);
     this.syncTracers(frameDt);
+    // Camera-relative LOD, so a firefight across the graveyard costs less than
+    // the same firefight under the player's nose.
+    this.vfx.setViewpoint(this.camera.position);
+    this.vfx.update(frameDt);
+    this.warningHud.update(frameDt);
+    this.syncWarnings(frameDt);
     this.syncMineWarningHud(frameDt);
     this.followCamera.update(frameDt);
     this.graveyard.follow(this.vehicleGroup);
@@ -1836,6 +1945,64 @@ export class SurvivalMode {
     }
   }
 
+  /**
+   * Re-evaluate the alert stack a few times a second. The inputs move slowly
+   * compared with the frame rate, and the evaluation walks every part and
+   * wheel, so there is nothing to gain from doing it per frame.
+   */
+  private syncWarnings(frameDt: number): void {
+    this.warningRefreshSeconds -= frameDt;
+    if (this.warningRefreshSeconds > 0) return;
+    this.warningRefreshSeconds = WARNING_REFRESH_INTERVAL_SECONDS;
+
+    if (this.phase !== 'active') {
+      if (this.lastWarnings.length > 0) {
+        this.lastWarnings = [];
+        this.warningHud.setWarnings(this.lastWarnings);
+      }
+      this.warningHud.setCritical(false);
+      return;
+    }
+
+    const telemetry = this.vehicle.telemetry();
+    const integrityPct = this.vehicle.integrityPct();
+    const wheels = this.vehicle.wheels().map((wheel) => {
+      const part = this.vehicle.assembled.parts.get(wheel.partId);
+      const maxHealth = part?.def.health ?? 0;
+      return {
+        healthFraction:
+          part === undefined || maxHealth <= 0
+            ? 0
+            : Math.max(0, part.health) / maxHealth,
+        broken: wheel.broken || part === undefined || !part.alive,
+      };
+    });
+
+    let weaponCount = 0;
+    let liveWeaponCount = 0;
+    let liveEngineCount = 0;
+    for (const part of this.vehicle.assembled.parts.values()) {
+      const live = this.isAttachedAlivePart(part);
+      if (part.def.weapon !== undefined || part.def.melee !== undefined) {
+        weaponCount++;
+        if (live) liveWeaponCount++;
+      }
+      if (part.def.engine !== undefined && live) liveEngineCount++;
+    }
+
+    this.lastWarnings = activeVehicleWarnings({
+      integrityPct,
+      wheels,
+      fuel: telemetry.fuel,
+      fuelCapacity: telemetry.fuelCapacity,
+      liveEngineCount,
+      weaponCount,
+      liveWeaponCount,
+    });
+    this.warningHud.setWarnings(this.lastWarnings);
+    this.warningHud.setCritical(integrityPct <= HULL_CRITICAL_PCT);
+  }
+
   private syncHud(): void {
     const telemetry = this.vehicle.telemetry();
     const speed = Math.round(telemetry.speedKmh);
@@ -1952,6 +2119,31 @@ export class SurvivalMode {
           : 'safe';
   }
 
+  /**
+   * Gun feedback for one fired ray: the muzzle event, the body of the shot for
+   * flame cones, and whatever the round terminated against. `shotDirection`
+   * must already hold the normalised travel direction for this shot.
+   */
+  private emitShotVfx(shot: TracerShot): void {
+    this.vfx.muzzleFlash(shot.from, shot.to, muzzleStyleForShot(shot));
+    if (shot.damageType === 'aoe') this.vfx.flameJet(shot.from, shot.to);
+
+    const shielded =
+      shot.hitZombieHandle !== null &&
+      this.zombies.isShieldedTarget(shot.hitZombieHandle);
+    const impact = impactKindForShot(shot, shielded);
+    if (impact === null) return;
+    this.vfx.bulletImpact(
+      shot.to.x,
+      shot.to.y,
+      shot.to.z,
+      this.shotDirection.x,
+      this.shotDirection.y,
+      this.shotDirection.z,
+      impact,
+    );
+  }
+
   private syncTracers(frameDt: number): void {
     for (const tracer of this.tracers) {
       if (!tracer.line.visible) continue;
@@ -1963,13 +2155,10 @@ export class SurvivalMode {
   }
 
   private showTracer(shot: TracerShot): void {
-    const flame = shot.damageType === 'aoe';
-    this.showTracerSegment(
-      shot.from,
-      shot.to,
-      flame ? this.flameTracerMaterial : this.tracerMaterial,
-      flame ? 0.18 : 0.08,
-    );
+    // The flamethrower draws its own cone of fire in the VFX layer; a tracer
+    // line on top of it just reads as a stray orange wire.
+    if (shot.damageType === 'aoe') return;
+    this.showTracerSegment(shot.from, shot.to, this.tracerMaterial, 0.08);
   }
 
   private showTracerSegment(
@@ -2158,17 +2347,18 @@ export class SurvivalMode {
     );
     this.fuelPickups.dispose();
     this.zombies.dispose();
+    this.vfx.dispose();
     this.graveyard.dispose();
     this.vehicle.dispose();
     this.eventQueue.free();
     this.world.free();
     this.minimap.dispose();
     this.scopeCursor.dispose();
+    this.warningHud.dispose();
     this.ui.remove();
     disposeObject(this.scene);
     this.scene.clear();
     this.tracerMaterial.dispose();
-    this.flameTracerMaterial.dispose();
     this.pierceTracerMaterial.dispose();
     this.wheelMeshes.clear();
     this.wheelSpin.clear();

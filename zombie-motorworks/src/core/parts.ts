@@ -351,7 +351,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Turret',
     category: 'weapon',
     description:
-      'Rotating weapon turret. Auto-aims onto the nearest zombie, but holds fire until you pull the trigger.',
+      'Rotating weapon turret. Point and click: the mount swings to your cursor and fires wherever you aim.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -362,7 +362,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     reinforcement: 1,
     weapon: {
       mountType: 'turret',
-      aimMode: 'auto',
+      // Player-aimed: the mount tracks the cursor and shoots exactly where it
+      // points, so hitting anything is on the player rather than on a lock-on.
+      aimMode: 'manual',
       arcDeg: 360,
       damageType: 'hitscan',
       damage: 3,
@@ -370,7 +372,6 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       recoilImpulse: 40,
       projectileSpeed: 140,
       rangeM: 8,
-      manualFire: true,
     },
   },
   'armour-plate': {
@@ -398,7 +399,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Heavy Cannon',
     category: 'weapon',
     description:
-      'Slow, powerful cannon. Auto-locks onto the toughest zombie; you pull the trigger.',
+      'Slow, devastating cannon. Point and click: the shell detonates where it ' +
+      'lands and shreds everything caught in the blast.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -410,18 +412,19 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     reinforcement: 1.25,
     weapon: {
       mountType: 'turret',
-      // Same auto-aim turret as the Zombie Blaster, but it holds fire until the
-      // player pulls the trigger and locks onto the toughest zombie in range.
-      aimMode: 'auto',
+      // Player-aimed like the Zombie Blaster, but every shell is an explosion:
+      // the direct hit is only part of the damage, and a near miss still kills.
+      aimMode: 'manual',
       arcDeg: 360,
       damageType: 'projectile',
       damage: 40,
       fireRate: 0.7,
-      recoilImpulse: 520,
+      // Heavy enough to visibly shove the rig when it goes off.
+      recoilImpulse: 900,
       projectileSpeed: 260,
       rangeM: 30,
-      targetPriority: 'strongest',
-      manualFire: true,
+      splashRadiusM: 4.5,
+      splashDamage: 26,
     },
   },
   'ice-cannon': {

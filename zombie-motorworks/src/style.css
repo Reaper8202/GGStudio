@@ -993,7 +993,7 @@ button:disabled {
 
 .store-filters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px;
   flex: 0 0 auto;
   padding-bottom: 5px;
@@ -2361,6 +2361,289 @@ button:disabled {
   from {
     opacity: 0;
     transform: translate(-50%, 10px);
+  }
+}
+
+/*
+ * Damage vignette. Two stacked full-bleed layers under the HUD panels: a hit
+ * flash whose opacity is driven from SurvivalMode, and a slow pulse that runs
+ * while the vehicle is close to failing. Both are pure compositor work — no
+ * post-processing pass, no per-frame layout.
+ */
+.survival-vignette {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.survival-vignette__hit,
+.survival-vignette__critical {
+  position: absolute;
+  inset: 0;
+  will-change: opacity;
+}
+
+.survival-vignette__hit {
+  display: none;
+  background:
+    radial-gradient(
+      ellipse 78% 68% at 50% 50%,
+      rgb(150 20 14 / 0) 42%,
+      rgb(150 20 14 / 0.42) 76%,
+      rgb(92 8 6 / 0.86) 100%
+    ),
+    linear-gradient(rgb(140 24 18 / 0.12), rgb(140 24 18 / 0.12));
+  opacity: 0;
+}
+
+.survival-vignette__critical {
+  background: radial-gradient(
+    ellipse 84% 74% at 50% 50%,
+    rgb(120 14 10 / 0) 50%,
+    rgb(120 14 10 / 0.3) 82%,
+    rgb(70 6 5 / 0.62) 100%
+  );
+  opacity: 0;
+}
+
+.survival-vignette__critical.is-active {
+  animation: survival-critical-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes survival-critical-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
+
+  50% {
+    opacity: 0.82;
+  }
+}
+
+/*
+ * Alert stack. Top-left is the one corner nothing else claims at any viewport
+ * width (wave HUD top-centre, driver HUD bottom-left, minimap bottom-right or
+ * top-right when narrow).
+ */
+.survival-warnings {
+  --warning-critical: #c8483c;
+  --warning-caution: #b8763a;
+
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 17;
+  display: grid;
+  width: 262px;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.survival-warning {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px 8px 8px;
+  background: var(--panel-bg-strong);
+}
+
+.survival-warning[hidden] {
+  display: none;
+}
+
+.survival-warning.is-new {
+  animation: survival-warning-in 160ms steps(3, end);
+}
+
+.survival-warning--critical {
+  color: var(--warning-critical);
+  box-shadow:
+    6px 7px 0 rgb(0 0 0 / 0.42),
+    inset 3px 0 0 var(--warning-critical);
+}
+
+.survival-warning--critical strong {
+  color: var(--warning-critical);
+}
+
+.survival-warning--caution {
+  color: var(--warning-caution);
+  box-shadow:
+    6px 7px 0 rgb(0 0 0 / 0.42),
+    inset 3px 0 0 var(--warning-caution);
+}
+
+.survival-warning--caution strong {
+  color: var(--warning-caution);
+}
+
+/* Only the red alerts blink; amber cautions stay steady so they read as
+   information rather than as an emergency. */
+.survival-warning--critical .survival-warning__icon {
+  animation: survival-warning-blink 900ms steps(2, end) infinite;
+}
+
+.survival-warning__copy {
+  min-width: 0;
+}
+
+.survival-warning strong {
+  display: block;
+  font: 400 var(--ui-text-12) / 1.1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.survival-warning__copy > span {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10) / 1.25 var(--ui-font-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Blocky CSS pictograms, drawn in the chip's own severity colour. */
+.survival-warning__icon {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 34px;
+  background: var(--ui-recess);
+}
+
+.survival-warning__icon::before,
+.survival-warning__icon::after {
+  position: absolute;
+  background: currentcolor;
+  content: '';
+}
+
+.survival-warning__icon--tire::before {
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
+  border: 4px solid currentcolor;
+  border-radius: 50%;
+  background: none;
+}
+
+.survival-warning__icon--tire::after {
+  top: 14px;
+  left: 14px;
+  width: 6px;
+  height: 6px;
+}
+
+.survival-warning__icon--hull::before {
+  top: 6px;
+  left: 7px;
+  width: 20px;
+  height: 22px;
+  clip-path: polygon(50% 0, 100% 20%, 100% 62%, 50% 100%, 0 62%, 0 20%);
+}
+
+.survival-warning__icon--hull::after {
+  top: 10px;
+  left: 16px;
+  width: 3px;
+  height: 14px;
+  background: var(--ui-recess);
+  clip-path: polygon(0 0, 100% 22%, 20% 52%, 100% 100%, 0 100%);
+}
+
+.survival-warning__icon--fuel::before {
+  top: 7px;
+  left: 8px;
+  width: 13px;
+  height: 20px;
+}
+
+.survival-warning__icon--fuel::after {
+  top: 12px;
+  left: 22px;
+  width: 5px;
+  height: 12px;
+  border-top: 3px solid currentcolor;
+  background: none;
+  border-right: 3px solid currentcolor;
+}
+
+.survival-warning__icon--engine::before {
+  top: 12px;
+  left: 6px;
+  width: 22px;
+  height: 15px;
+}
+
+.survival-warning__icon--engine::after {
+  top: 7px;
+  left: 12px;
+  width: 10px;
+  height: 5px;
+}
+
+.survival-warning__icon--weapon::before {
+  top: 15px;
+  left: 10px;
+  width: 19px;
+  height: 5px;
+}
+
+.survival-warning__icon--weapon::after {
+  top: 11px;
+  left: 5px;
+  width: 8px;
+  height: 13px;
+}
+
+@keyframes survival-warning-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+@keyframes survival-warning-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .survival-vignette__critical.is-active,
+  .survival-warning--critical .survival-warning__icon,
+  .survival-warning.is-new {
+    animation: none;
+  }
+
+  .survival-vignette__critical.is-active {
+    opacity: 0.5;
+  }
+}
+
+/*
+ * The centred wave HUD grows toward the left edge as the viewport narrows, so
+ * drop the alert stack below it rather than letting the two collide.
+ */
+@media (max-width: 900px) {
+  .survival-warnings {
+    top: 76px;
+    width: min(262px, calc(100vw - 130px));
+  }
+}
+
+@media (max-width: 560px) {
+  .survival-warnings {
+    top: 70px;
+    left: 8px;
+    width: min(230px, calc(100vw - 128px));
   }
 }
 

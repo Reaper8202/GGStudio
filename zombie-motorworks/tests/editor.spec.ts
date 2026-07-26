@@ -36,9 +36,17 @@ test('store filters parts by category and search', async ({ page }) => {
   await page.getByRole('searchbox', { name: 'Search store parts' }).fill('monster');
   expect(await visiblePartIds()).toEqual(['wheel-offroad']);
 
-  await page.getByRole('button', { name: 'Weapons & Defence', exact: true }).click();
+  await page.getByRole('button', { name: 'Defence', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search store parts' }).fill('armour');
   expect(await visiblePartIds()).toEqual(['armour-plate']);
+
+  await page.getByRole('searchbox', { name: 'Search store parts' }).fill('');
+  expect(await visiblePartIds()).toContain('shield-generator');
+  expect(await visiblePartIds()).not.toContain('turret');
+
+  await page.getByRole('button', { name: 'Weapons', exact: true }).click();
+  expect(await visiblePartIds()).toContain('turret');
+  expect(await visiblePartIds()).not.toContain('armour-plate');
 
   await page.getByRole('searchbox', { name: 'Search store parts' }).fill('no such part');
   await expect(page.getByText('No matching parts', { exact: true })).toBeVisible();
