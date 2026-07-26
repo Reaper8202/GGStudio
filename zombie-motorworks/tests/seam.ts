@@ -71,7 +71,12 @@ declare global {
           worldCentre: [number, number, number];
         }[];
       } | null;
-      profile(): { money: number; unlocks: string[] };
+      profile(): {
+        money: number;
+        unlocks: string[];
+        highestWaveCleared: number;
+        phoneAddictsKilled: number;
+      };
       grantMoney(amount: number): boolean;
       buyUpgrade(partId: string): boolean;
       sellPart(partId: string): boolean;
