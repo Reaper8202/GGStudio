@@ -8,6 +8,18 @@ import {
 import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
 import { instantiateVoxelAsset } from '../VoxelAssetLoader.ts';
 import {
+  BOSS_HAMMER_COLOR,
+  BOSS_HAMMER_HEAD,
+  BOSS_HAMMER_RAISED_ANGLE,
+  BOSS_HAMMER_SHAFT,
+  BOSS_HAMMER_SHAFT_COLOR,
+  BOSS_RING_COLOR,
+  BOSS_RING_MIN_FRACTION,
+  BOSS_RING_OPACITY,
+  DEFAULT_BOSS_ASSET,
+  type BossDefinition,
+} from './bossConfig.ts';
+import {
   BASE_ZOMBIE_STATS,
   DEATH_FEEDBACK_DURATION,
   DETOUR_BLEND,
@@ -140,13 +152,20 @@ export enum ZombieState {
   Attacking = 'Attacking',
   /** Worker only: standing still while arming the next landmine. */
   Planting = 'Planting',
+  /** Boss only: hammer raised, telegraph ring expanding, slam not yet landed. */
+  WindingUp = 'WindingUp',
   KnockedBack = 'KnockedBack',
   Dead = 'Dead',
 }
 
 export type ZombieKilledCallback = (reward: number, kind: ZombieKind) => void;
 
-export type ZombieKind = 'walker' | 'thrower' | 'phone-addict' | 'worker';
+export type ZombieKind =
+  | 'walker'
+  | 'thrower'
+  | 'phone-addict'
+  | 'worker'
+  | 'boss';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -187,6 +206,14 @@ const KIND_STATS: Record<
     reward: WORKER_REWARD,
     attackInterval: BASE_ZOMBIE_STATS.attackInterval,
   },
+  // Inert: a boss reads every stat from its BossDefinition instead. The row
+  // exists so the record stays exhaustive over ZombieKind.
+  boss: {
+    health: 1,
+    speed: 1,
+    reward: 0,
+    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+  },
 };
 
 /** One persistent pooled zombie body, collider, visual, and AI state machine. */
@@ -219,13 +246,16 @@ export class Zombie {
   onThrow: ((zombie: Zombie) => void) | null = null;
   /** Set by ZombieSystem; fired when a worker's mine-plant timer elapses. */
   onPlantMine: ((zombie: Zombie) => void) | null = null;
+  /** Set by ZombieSystem; fired when a boss's hammer wind-up completes. */
+  onBossSlam: ((zombie: Zombie) => void) | null = null;
   readonly kind: ZombieKind;
 
   private readonly visualRoot = new THREE.Group();
   private readonly fallbackMaterial: THREE.MeshLambertMaterial;
   private readonly loadedMaterials: THREE.MeshLambertMaterial[] = [];
   private readonly visualMaterials: THREE.MeshLambertMaterial[] = [];
-  private readonly baseScale: number;
+  /** Mutable because a boss resizes itself from its definition on spawn. */
+  private baseScale: number;
   private readonly rayOrigin = { x: 0, y: 0, z: 0 };
   private readonly rayDirection = { x: 0, y: 0, z: 0 };
   private readonly ray: RAPIER.Ray;
@@ -233,6 +263,8 @@ export class Zombie {
   private readonly impulseScratch = { x: 0, y: 0, z: 0 };
   private readonly translationScratch = { x: 0, y: 0, z: 0 };
 
+  /** The loaded voxel model, kept so a boss can resize it once it knows its definition. */
+  private loadedModel: THREE.Object3D | null = null;
   private shieldMesh: THREE.Mesh | null = null;
   private shieldMaterial: THREE.MeshBasicMaterial | null = null;
   private shieldTimer = 0;
@@ -241,8 +273,13 @@ export class Zombie {
   private ringMaterial: THREE.MeshBasicMaterial | null = null;
   private ringPhase = 0;
   private plantTimer = 0;
+  private hammerPivot: THREE.Group | null = null;
+  /** Live definition while a boss is active; null for every ordinary zombie. */
+  private bossDef: BossDefinition | null = null;
+  private windupTimer = 0;
 
   private health = 0;
+  private healthCeiling = 0;
   private moveSpeed = 0;
   private attackDamage = 0;
   private attackInterval = 0;
@@ -331,11 +368,12 @@ export class Zombie {
       // the root's animated scale would otherwise bury a fixed local offset.
       this.root.add(this.glowMesh);
     }
-    if (this.kind === 'worker') {
-      // Arming telegraph: a flat ring that repeatedly expands from the worker
-      // while a mine is being planted, pulsing faster near completion.
+    if (this.kind === 'worker' || this.kind === 'boss') {
+      // Telegraph ring, shared by two mechanics: the worker's mine-arming
+      // channel pulses it repeatedly, while a boss expands it once per swing to
+      // mark exactly where the hammer is about to land.
       this.ringMaterial = new THREE.MeshBasicMaterial({
-        color: 0xffb428,
+        color: this.kind === 'boss' ? BOSS_RING_COLOR : 0xffb428,
         transparent: true,
         opacity: 0,
         depthWrite: false,
@@ -350,6 +388,7 @@ export class Zombie {
       this.ringMesh.visible = false;
       this.root.add(this.ringMesh);
     }
+    if (this.kind === 'boss') this.buildHammer();
     this.root.visible = false;
     this.scene.add(this.root);
 
@@ -393,10 +432,135 @@ export class Zombie {
     return this.health;
   }
 
+  /** Hit points this zombie spawned with, for the boss health bar. */
+  get maxHealth(): number {
+    return this.healthCeiling;
+  }
+
+  /** The live boss definition, or null for every ordinary zombie. */
+  get bossDefinition(): BossDefinition | null {
+    return this.bossDef;
+  }
+
+  /** Wave-scaled damage one boss slam deals to each part inside its radius. */
+  get slamDamage(): number {
+    return this.bossDef ? this.attackDamage : 0;
+  }
+
   /** A projectile bounced off this zombie's shield: flash the bubble. */
   flashShield(): void {
     if (!this.isTargetable) return;
     this.shieldTimer = SHIELD_FLASH_DURATION;
+  }
+
+  /**
+   * Height of the capsule's centre above the ground — where the body sits so the
+   * collider rests exactly on the terrain. Bosses use their own capsule size.
+   */
+  private standHeight(): number {
+    return this.bossDef
+      ? this.bossDef.colliderHalfHeightM + this.bossDef.colliderRadiusM
+      : ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS;
+  }
+
+  /**
+   * Resize the pooled capsule and visual to this boss. The pool slot is created
+   * at walker size because the definition is not known until the wave starts,
+   * so both are applied here on spawn. Density is unchanged, so mass grows with
+   * the capsule and the boss shrugs off contacts a walker would be shoved by.
+   */
+  private applyBossBody(def: BossDefinition): void {
+    this.collider.setRadius(def.colliderRadiusM);
+    this.collider.setHalfHeight(def.colliderHalfHeightM);
+    // Local units are world metres for a boss, so the model offset, telegraph
+    // ring, and hammer can all be authored directly in metres.
+    this.baseScale = 1;
+    this.applyBossVisualSizing();
+  }
+
+  /**
+   * Size the boss model to `visualHeightM` and drop it so its feet meet the
+   * ground. Safe to call before the async model load resolves; `loadVoxelVisual`
+   * calls it again once the model arrives.
+   */
+  private applyBossVisualSizing(): void {
+    const def = this.bossDef;
+    if (!def) return;
+    const groundOffset = -this.standHeight();
+
+    if (this.hammerPivot) {
+      // Shoulder height, out to the side and slightly forward. The hammer is
+      // authored for a 4.2 m boss and scales with any other.
+      this.hammerPivot.position.set(
+        def.visualHeightM * 0.28,
+        groundOffset + def.visualHeightM * 0.72,
+        def.visualHeightM * 0.18,
+      );
+      this.hammerPivot.scale.setScalar(def.visualHeightM / 4.2);
+    }
+
+    if (this.loadedModel) {
+      const bounds = new THREE.Box3().setFromObject(this.loadedModel);
+      const height = Math.max(1e-3, bounds.max.y - bounds.min.y);
+      // setFromObject already includes the model's current scale, so divide it
+      // back out to get the factor that lands on the target height.
+      const current = this.loadedModel.scale.y || 1;
+      this.loadedModel.scale.setScalar((def.visualHeightM / height) * current);
+      this.loadedModel.position.y = groundOffset;
+      for (const material of this.loadedMaterials) {
+        material.color.setHex(def.tint);
+        material.needsUpdate = true;
+      }
+      return;
+    }
+
+    // Capsule fallback until (or instead of) a model: stretch it to the boss's
+    // height. Width is approximate — the model replaces it on load.
+    const fallbackHeight = (ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS) * 2;
+    const fallback = this.visualRoot.children[0];
+    if (fallback) {
+      fallback.scale.setScalar(def.visualHeightM / fallbackHeight);
+      fallback.position.y = groundOffset + def.visualHeightM / 2;
+    }
+    this.fallbackMaterial.color.setHex(def.tint);
+  }
+
+  /**
+   * Placeholder hammer: a box shaft and head on a pivot at the boss's shoulder,
+   * built in world metres because a boss renders at unit root scale. The pivot
+   * rotates up during the wind-up and snaps down when the slam lands.
+   */
+  private buildHammer(): void {
+    const pivot = new THREE.Group();
+    const shaft = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        BOSS_HAMMER_SHAFT.radius * 2,
+        BOSS_HAMMER_SHAFT.length,
+        BOSS_HAMMER_SHAFT.radius * 2,
+      ),
+      new THREE.MeshLambertMaterial({
+        color: BOSS_HAMMER_SHAFT_COLOR,
+        flatShading: true,
+      }),
+    );
+    shaft.position.y = -BOSS_HAMMER_SHAFT.length / 2;
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        BOSS_HAMMER_HEAD.width,
+        BOSS_HAMMER_HEAD.height,
+        BOSS_HAMMER_HEAD.depth,
+      ),
+      new THREE.MeshLambertMaterial({
+        color: BOSS_HAMMER_COLOR,
+        flatShading: true,
+      }),
+    );
+    head.position.y = -BOSS_HAMMER_SHAFT.length;
+    shaft.castShadow = true;
+    head.castShadow = true;
+    pivot.add(shaft, head);
+    this.hammerPivot = pivot;
+    this.visualRoot.add(pivot);
   }
 
   /** Apply a weapon hit. Returns true only when this hit kills the zombie. */
@@ -424,16 +588,33 @@ export class Zombie {
     healthMultiplier: number,
     speedMultiplier: number,
     attackDamageMultiplier: number,
+    boss: BossDefinition | null = null,
   ): void {
     if (this.disposed) return;
     this.active = true;
     this.state = ZombieState.Spawning;
     const stats = KIND_STATS[this.kind];
-    this.health = BASE_ZOMBIE_STATS.health * healthMultiplier * stats.health;
-    this.moveSpeed = BASE_ZOMBIE_STATS.speed * speedMultiplier * stats.speed;
-    this.attackDamage = BASE_ZOMBIE_STATS.attackDamage * attackDamageMultiplier;
-    this.attackInterval = stats.attackInterval;
-    this.reward = stats.reward;
+    // A boss takes every stat from its definition; the wave multipliers still
+    // apply so a wave-20 boss is meaningfully tougher than a wave-5 one.
+    this.bossDef = this.kind === 'boss' ? boss : null;
+    if (this.bossDef) {
+      this.health = this.bossDef.baseHealth * healthMultiplier;
+      this.moveSpeed =
+        BASE_ZOMBIE_STATS.speed * speedMultiplier * this.bossDef.speedMultiplier;
+      this.attackDamage = this.bossDef.attack.damage * attackDamageMultiplier;
+      this.attackInterval = this.bossDef.attack.intervalSeconds;
+      this.reward = this.bossDef.reward;
+      this.applyBossBody(this.bossDef);
+    } else {
+      this.health = BASE_ZOMBIE_STATS.health * healthMultiplier * stats.health;
+      this.moveSpeed = BASE_ZOMBIE_STATS.speed * speedMultiplier * stats.speed;
+      this.attackDamage =
+        BASE_ZOMBIE_STATS.attackDamage * attackDamageMultiplier;
+      this.attackInterval = stats.attackInterval;
+      this.reward = stats.reward;
+    }
+    this.healthCeiling = this.health;
+    this.windupTimer = 0;
     this.shieldTimer = 0;
     if (this.shieldMesh) this.shieldMesh.visible = false;
 
@@ -459,7 +640,7 @@ export class Zombie {
     this.detourSign = Math.random() < 0.5 ? -1 : 1;
     this.bobPhase = Math.random() * Math.PI * 2;
 
-    const y = ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS;
+    const y = this.standHeight();
     this.translationScratch.x = position.x;
     this.translationScratch.y = y;
     this.translationScratch.z = position.z;
@@ -486,12 +667,17 @@ export class Zombie {
       return false;
 
     this.impactCooldown = IMPACT_COOLDOWN_SECONDS;
-    this.health -= damage;
+    // A boss caps ram damage, so the lethal-speed one-shot that flattens an
+    // ordinary zombie only chips it, and it barely rocks on its feet.
+    this.health -= this.bossDef
+      ? Math.min(damage, this.bossDef.impactDamageCap)
+      : damage;
     this.state = ZombieState.KnockedBack;
     this.knockbackTimer = KNOCKBACK_DURATION;
 
     const length = Math.hypot(dirX, dirZ) || 1;
-    const impulseMagnitude = this.body.mass() * KNOCKBACK_SPEED;
+    const impulseMagnitude =
+      this.body.mass() * KNOCKBACK_SPEED * this.knockbackScale();
     this.impulseScratch.x = (dirX / length) * impulseMagnitude;
     this.impulseScratch.y = 0;
     this.impulseScratch.z = (dirZ / length) * impulseMagnitude;
@@ -522,11 +708,16 @@ export class Zombie {
     this.state = ZombieState.KnockedBack;
     this.knockbackTimer = KNOCKBACK_DURATION;
 
-    const impulseMagnitude = this.body.mass() * speed;
+    const impulseMagnitude = this.body.mass() * speed * this.knockbackScale();
     this.impulseScratch.x = (dirX / length) * impulseMagnitude;
     this.impulseScratch.y = 0;
     this.impulseScratch.z = (dirZ / length) * impulseMagnitude;
     this.body.applyImpulse(this.impulseScratch, true);
+  }
+
+  /** Bosses resist being flung; every other zombie takes the full impulse. */
+  private knockbackScale(): number {
+    return this.bossDef ? this.bossDef.knockbackResistance : 1;
   }
 
   fixedUpdate(
@@ -579,6 +770,9 @@ export class Zombie {
         break;
       case ZombieState.Planting:
         this.stepPlanting(dt);
+        break;
+      case ZombieState.WindingUp:
+        this.stepWindingUp(dt);
         break;
       case ZombieState.KnockedBack:
         this.knockbackTimer -= dt;
@@ -653,7 +847,7 @@ export class Zombie {
 
   teleportTo(position: Vector3Like): void {
     if (!this.isAlive) return;
-    const y = ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS;
+    const y = this.standHeight();
     this.translationScratch.x = position.x;
     this.translationScratch.y = y;
     this.translationScratch.z = position.z;
@@ -742,6 +936,7 @@ export class Zombie {
       case ZombieState.Chasing:
       case ZombieState.Attacking:
       case ZombieState.Planting:
+      case ZombieState.WindingUp:
       case ZombieState.KnockedBack:
         this.root.scale.setScalar(this.baseScale);
         this.setOpacity(1);
@@ -777,7 +972,39 @@ export class Zombie {
       const rootScale = this.root.scale.y || 1;
       this.glowMesh.position.y = (0.06 - translation.y) / rootScale;
     }
-    if (this.ringMesh && this.ringMaterial) {
+    if (this.hammerPivot && this.bossDef) {
+      // Raise through the wind-up, then snap down over the lunge so the swing
+      // reads as connecting with the ground at the moment the slam lands.
+      const windup = this.bossDef.attack.windupSeconds;
+      let swing = 0;
+      if (this.state === ZombieState.WindingUp && windup > 0) {
+        swing = clamp(1 - this.windupTimer / windup, 0, 1);
+        this.hammerPivot.rotation.x = BOSS_HAMMER_RAISED_ANGLE * swing;
+      } else if (this.lungeTimer > 0) {
+        swing = this.lungeTimer / LUNGE_DURATION;
+        this.hammerPivot.rotation.x = BOSS_HAMMER_RAISED_ANGLE * swing;
+      } else {
+        this.hammerPivot.rotation.x = 0;
+      }
+    }
+
+    if (this.ringMesh && this.ringMaterial && this.bossDef) {
+      // One ring per swing, expanding to the exact slam radius so the player can
+      // read where the hammer will land and drive out of it.
+      const winding = this.state === ZombieState.WindingUp && this.isAlive;
+      this.ringMesh.visible = winding;
+      if (winding) {
+        const windup = this.bossDef.attack.windupSeconds;
+        const charge = windup > 0 ? clamp(1 - this.windupTimer / windup, 0, 1) : 1;
+        const rootScale = this.root.scale.y || 1;
+        const radius =
+          this.bossDef.attack.radiusM *
+          (BOSS_RING_MIN_FRACTION + (1 - BOSS_RING_MIN_FRACTION) * charge);
+        this.ringMesh.scale.setScalar(radius / rootScale);
+        this.ringMesh.position.y = (0.1 - translation.y) / rootScale;
+        this.ringMaterial.opacity = BOSS_RING_OPACITY * (0.4 + 0.6 * charge);
+      }
+    } else if (this.ringMesh && this.ringMaterial) {
       const planting = this.state === ZombieState.Planting && this.isAlive;
       this.ringMesh.visible = planting;
       if (planting) {
@@ -813,6 +1040,15 @@ export class Zombie {
     if (this.ringMesh) {
       this.ringMaterial?.dispose();
       this.ringMesh.geometry.dispose();
+    }
+    if (this.hammerPivot) {
+      for (const child of this.hammerPivot.children) {
+        if (!(child instanceof THREE.Mesh)) continue;
+        child.geometry.dispose();
+        (child.material as THREE.Material).dispose();
+      }
+      this.hammerPivot.clear();
+      this.hammerPivot = null;
     }
     for (const material of this.loadedMaterials) material.dispose();
     this.loadedMaterials.length = 0;
@@ -907,8 +1143,11 @@ export class Zombie {
         return;
       }
     } else {
-      const attackRange =
-        this.kind === 'thrower' ? THROWER_ATTACK_RANGE : ZOMBIE_ATTACK_RANGE;
+      const attackRange = this.bossDef
+        ? this.bossDef.attack.rangeM
+        : this.kind === 'thrower'
+          ? THROWER_ATTACK_RANGE
+          : ZOMBIE_ATTACK_RANGE;
       if (target.distance <= attackRange) {
         this.state = ZombieState.Attacking;
         // Throwers wind up quickly on arrival instead of a full idle interval.
@@ -964,8 +1203,9 @@ export class Zombie {
   private stepAttacking(dt: number, vehicle: RuntimeVehicle): void {
     this.zeroHorizontalVelocity();
     const target = this.vehicleTarget;
-    const exitRange =
-      this.kind === 'thrower'
+    const exitRange = this.bossDef
+      ? this.bossDef.attack.rangeM + ZOMBIE_ATTACK_EXIT_MARGIN
+      : this.kind === 'thrower'
         ? THROWER_ATTACK_RANGE + THROWER_ATTACK_EXIT_MARGIN
         : ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN;
     if (target.partId === null || target.distance > exitRange) {
@@ -976,6 +1216,14 @@ export class Zombie {
     this.updateFacing(target.x - this.position.x, target.z - this.position.z);
     this.attackTimer -= dt;
     if (this.attackTimer <= 0) {
+      if (this.bossDef) {
+        // Commit to the swing: the boss stops here and telegraphs, and the
+        // damage is resolved when the hammer lands, not now.
+        this.windupTimer = this.bossDef.attack.windupSeconds;
+        this.ringPhase = 0;
+        this.state = ZombieState.WindingUp;
+        return;
+      }
       this.attackTimer = this.attackInterval;
       if (this.kind === 'thrower') {
         this.onThrow?.(this);
@@ -984,6 +1232,28 @@ export class Zombie {
       }
       this.lungeTimer = LUNGE_DURATION;
     }
+  }
+
+  /**
+   * Boss wind-up. The boss holds still with the hammer raised and the ground
+   * ring expanding, tracking the vehicle so the swing faces it. The slam fires
+   * once the timer elapses; because damage is applied at that moment, driving
+   * out of the ring during the wind-up avoids the hit entirely.
+   */
+  private stepWindingUp(dt: number): void {
+    this.zeroHorizontalVelocity();
+    const target = this.vehicleTarget;
+    if (target.partId !== null) {
+      this.updateFacing(target.x - this.position.x, target.z - this.position.z);
+    }
+    this.windupTimer -= dt;
+    if (this.windupTimer > 0) return;
+
+    this.windupTimer = 0;
+    this.onBossSlam?.(this);
+    this.lungeTimer = LUNGE_DURATION;
+    this.attackTimer = this.attackInterval;
+    this.state = ZombieState.Chasing;
   }
 
   /** Stand still arming the mine; it drops only if the channel completes. */
@@ -1086,27 +1356,37 @@ export class Zombie {
     const thrower = this.kind === 'thrower';
     const addict = this.kind === 'phone-addict';
     const worker = this.kind === 'worker';
+    const boss = this.kind === 'boss';
     const variant = thrower
       ? 0
       : addict
         ? 90 + (this.index % 2)
         : worker
           ? 80
-          : (this.index % 6) + 1;
+          : boss
+            ? 70
+            : (this.index % 6) + 1;
     const url = thrower
       ? `${ZOMBIE_ASSET_ROOT}/zombie_city`
       : addict
         ? `${ZOMBIE_ASSET_ROOT}/PhoneAddict-${this.index % 2 === 0 ? '0-Woman' : '1-Man'}`
         : worker
           ? `${ZOMBIE_ASSET_ROOT}/zombie_worker`
-          : `${ZOMBIE_ASSET_ROOT}/Zed_${variant}`;
+          : boss
+            ? `${ZOMBIE_ASSET_ROOT}/${DEFAULT_BOSS_ASSET}`
+            : `${ZOMBIE_ASSET_ROOT}/Zed_${variant}`;
     void instantiateVoxelAsset(url, true)
       .then((model) => {
         if (this.disposed) {
           disposeModelMaterials(model);
           return;
         }
-        if (thrower || addict || worker) {
+        if (boss) {
+          // Height and ground offset depend on the definition, which is not
+          // known until the wave starts; applyBossVisualSizing handles both and
+          // is called again from applyBossBody on spawn.
+          model.scale.setScalar(0.23);
+        } else if (thrower || addict || worker) {
           // These models' voxel grids differ from the Zed exports; scale by
           // bounds to match the walkers' world height.
           const bounds = new THREE.Box3().setFromObject(model);
@@ -1138,8 +1418,15 @@ export class Zombie {
         });
         this.visualRoot.clear();
         this.visualRoot.add(model);
+        this.loadedModel = model;
+        // clear() detached the hammer along with the capsule fallback; a boss
+        // carries it for its whole lifetime, so put it back.
+        if (this.hammerPivot) this.visualRoot.add(this.hammerPivot);
         this.visualMaterials.length = 0;
         this.visualMaterials.push(...this.loadedMaterials);
+        // A live boss was spawned before its model finished loading; resize and
+        // tint the new model to its definition now.
+        if (this.bossDef) this.applyBossVisualSizing();
         const opacity = this.visualOpacity;
         this.visualOpacity = -1;
         this.setOpacity(opacity);

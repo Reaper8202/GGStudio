@@ -142,6 +142,13 @@ export interface SurvivalTelemetry {
   phase: SurvivalPhase;
   partHp: Record<string, number>;
   integrityPct: number;
+  /** The live boss on a boss wave, or null on ordinary waves. */
+  boss: {
+    id: string;
+    name: string;
+    health: number;
+    maxHealth: number;
+  } | null;
   vehiclePos: [number, number, number];
   /** Debug-only: body rotation quaternion (collision/upright diagnostics). */
   rotation: [number, number, number, number];
@@ -234,6 +241,11 @@ interface SurvivalUi {
   abilityValue: HTMLDivElement;
   waveValue: HTMLSpanElement;
   remainingValue: HTMLSpanElement;
+  bossHud: HTMLElement;
+  bossNameValue: HTMLElement;
+  bossHealthTrack: HTMLDivElement;
+  bossHealthFill: HTMLSpanElement;
+  bossHealthValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
   pendingMoneyValue: HTMLSpanElement;
   stuckPrompt: HTMLDivElement;
@@ -383,6 +395,11 @@ export class SurvivalMode {
   private thumpRingRange = 0;
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
+  private readonly bossHud: HTMLElement;
+  private readonly bossNameValue: HTMLElement;
+  private readonly bossHealthTrack: HTMLDivElement;
+  private readonly bossHealthFill: HTMLSpanElement;
+  private readonly bossHealthValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
   private readonly pendingMoneyValue: HTMLSpanElement;
   private readonly stuckPrompt: HTMLDivElement;
@@ -444,6 +461,8 @@ export class SurvivalMode {
   private abilityCooldown = 0;
   private lastHudAbilityCooldown = -1;
   private lastHudAbilityName = '';
+  private lastHudBossName = '';
+  private lastHudBossPct = -1;
   private debugProgressionSuppressed = false;
   private readonly recoveryImpulse = { x: 0, y: 0, z: 0 };
   private readonly recoveryTranslation = { x: 0, y: 0, z: 0 };
@@ -556,6 +575,11 @@ export class SurvivalMode {
     this.abilityValue = builtUi.abilityValue;
     this.waveValue = builtUi.waveValue;
     this.remainingValue = builtUi.remainingValue;
+    this.bossHud = builtUi.bossHud;
+    this.bossNameValue = builtUi.bossNameValue;
+    this.bossHealthTrack = builtUi.bossHealthTrack;
+    this.bossHealthFill = builtUi.bossHealthFill;
+    this.bossHealthValue = builtUi.bossHealthValue;
     this.moneyValue = builtUi.moneyValue;
     this.pendingMoneyValue = builtUi.pendingMoneyValue;
     this.stuckPrompt = builtUi.stuckPrompt;
@@ -699,6 +723,27 @@ export class SurvivalMode {
     zombieBlock.append(zombieLabel, remainingValue);
     waveHud.append(waveBlock, divider, zombieBlock);
     root.appendChild(waveHud);
+
+    // Boss health bar: hidden on ordinary waves, revealed under the wave
+    // counter for as long as a boss is alive.
+    const bossHud = document.createElement('section');
+    bossHud.className = 'panel survival-boss-hud';
+    bossHud.hidden = true;
+    const bossNameValue = document.createElement('strong');
+    bossNameValue.className = 'survival-boss-hud__name';
+    const bossHealthTrack = document.createElement('div');
+    bossHealthTrack.className = 'survival-boss-hud__track';
+    bossHealthTrack.setAttribute('role', 'progressbar');
+    bossHealthTrack.setAttribute('aria-label', 'Boss health');
+    bossHealthTrack.setAttribute('aria-valuemin', '0');
+    bossHealthTrack.setAttribute('aria-valuemax', '100');
+    const bossHealthFill = document.createElement('span');
+    bossHealthFill.className = 'survival-boss-hud__fill';
+    bossHealthTrack.appendChild(bossHealthFill);
+    const bossHealthValue = document.createElement('span');
+    bossHealthValue.className = 'survival-boss-hud__value';
+    bossHud.append(bossNameValue, bossHealthTrack, bossHealthValue);
+    root.appendChild(bossHud);
 
     const hud = document.createElement('div');
     hud.className = 'panel survival-driver-hud';
@@ -1020,6 +1065,11 @@ export class SurvivalMode {
       abilityValue,
       waveValue,
       remainingValue,
+      bossHud,
+      bossNameValue,
+      bossHealthTrack,
+      bossHealthFill,
+      bossHealthValue,
       moneyValue,
       pendingMoneyValue,
       stuckPrompt,
@@ -1725,6 +1775,7 @@ export class SurvivalMode {
         ? this.zombies.activeMines()
         : undefined,
       this.fuelPickups.activeCrates(),
+      this.zombies.activeBoss(),
     );
   }
 
@@ -1915,6 +1966,39 @@ export class SurvivalMode {
     this.abilityValue.textContent = ready ? 'Ready — press Q' : `${remaining}s`;
     this.abilityFill.style.width = `${pct}%`;
     this.abilityRoot.classList.toggle('is-ready', ready);
+  }
+
+  /**
+   * Boss health bar. Hidden whenever no boss is alive, so ordinary waves are
+   * unchanged. Percentage is rounded before the guard so the DOM is touched at
+   * most a hundred times over the whole fight.
+   */
+  private syncBossHud(): void {
+    const boss = this.zombies.activeBoss();
+    const def = boss?.bossDefinition ?? null;
+    if (!boss || !def || boss.maxHealth <= 0) {
+      if (!this.bossHud.hidden) this.bossHud.hidden = true;
+      this.lastHudBossName = '';
+      this.lastHudBossPct = -1;
+      return;
+    }
+
+    if (this.bossHud.hidden) this.bossHud.hidden = false;
+    if (def.name !== this.lastHudBossName) {
+      this.lastHudBossName = def.name;
+      this.bossNameValue.textContent = def.name;
+    }
+
+    const pct = Math.max(
+      0,
+      Math.min(100, Math.round((boss.currentHealth / boss.maxHealth) * 100)),
+    );
+    if (pct === this.lastHudBossPct) return;
+    this.lastHudBossPct = pct;
+    this.bossHealthValue.textContent = `${pct}%`;
+    this.bossHealthFill.style.width = `${pct}%`;
+    this.bossHealthTrack.setAttribute('aria-valuenow', String(pct));
+    this.bossHealthFill.classList.toggle('is-critical', pct <= 25);
   }
 
   /**
@@ -2257,6 +2341,7 @@ export class SurvivalMode {
       this.fuelFill.classList.toggle('is-empty', telemetry.fuel <= 0);
     }
     this.syncAbilityHud();
+    this.syncBossHud();
     const money = this.callbacks.runEarnings();
     if (money !== this.lastHudMoney) {
       this.lastHudMoney = money;
@@ -2470,6 +2555,8 @@ export class SurvivalMode {
     const position = this.vehicle.body.translation();
     const rotation = this.vehicle.body.rotation();
     const angvel = this.vehicle.body.angvel();
+    const boss = this.zombies.activeBoss();
+    const bossDef = boss?.bossDefinition ?? null;
     return {
       mode: 'survival',
       kills: this.kills,
@@ -2481,6 +2568,15 @@ export class SurvivalMode {
       phase: this.phase,
       partHp: this.vehicle.partHpSnapshot(),
       integrityPct: this.vehicle.integrityPct(),
+      boss:
+        boss && bossDef
+          ? {
+              id: bossDef.id,
+              name: bossDef.name,
+              health: boss.currentHealth,
+              maxHealth: boss.maxHealth,
+            }
+          : null,
       vehiclePos: [position.x, position.y, position.z],
       rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
       angvel: [angvel.x, angvel.y, angvel.z],

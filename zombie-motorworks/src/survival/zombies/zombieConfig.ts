@@ -17,6 +17,9 @@ export const ZOMBIE_POOL_COUNTS = {
   thrower: 14,
   worker: 8,
   'phone-addict': 8,
+  // Boss waves summon one boss; the spare slot is headroom for a future
+  // encounter that fields two. Idle slots are parked bodies and cost nothing.
+  boss: 2,
 } as const;
 export const ZOMBIE_POOL_SIZE = Object.values(ZOMBIE_POOL_COUNTS).reduce(
   (total, count) => total + count,

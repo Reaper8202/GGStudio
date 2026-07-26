@@ -15,6 +15,7 @@ describe('wave balance report', () => {
         thrower: 0,
         worker: 0,
         'phone-addict': 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(1),
       speedMultiplier: speedMultiplierForWave(1),
@@ -32,6 +33,7 @@ describe('wave balance report', () => {
         thrower: 0,
         worker: 0,
         'phone-addict': 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(2),
       speedMultiplier: speedMultiplierForWave(2),
@@ -49,6 +51,7 @@ describe('wave balance report', () => {
         thrower: 1,
         worker: 0,
         'phone-addict': 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(3),
       speedMultiplier: speedMultiplierForWave(3),
@@ -66,6 +69,7 @@ describe('wave balance report', () => {
         thrower: 1,
         worker: 0,
         'phone-addict': 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(4),
       speedMultiplier: speedMultiplierForWave(4),
@@ -83,6 +87,7 @@ describe('wave balance report', () => {
         thrower: 3,
         worker: 1,
         'phone-addict': 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(7),
       speedMultiplier: speedMultiplierForWave(7),
@@ -92,37 +97,45 @@ describe('wave balance report', () => {
     });
   });
 
-  it('reports the exact wave 10 balance', () => {
-    expect(waveBalanceReport(10)).toEqual({
-      wave: 10,
+  it('reports the exact wave 11 balance', () => {
+    expect(waveBalanceReport(11)).toEqual({
+      wave: 11,
       composition: {
-        walker: 40,
-        thrower: 4,
+        walker: 43,
+        thrower: 5,
         worker: 2,
         'phone-addict': 1,
+        boss: 0,
       },
-      healthMultiplier: healthMultiplierForWave(10),
-      speedMultiplier: speedMultiplierForWave(10),
-      attackDamageMultiplier: attackDamageMultiplierForWave(10),
-      effectiveTotalHp: 3092,
-      totalPossibleReward: 326,
+      healthMultiplier: healthMultiplierForWave(11),
+      speedMultiplier: speedMultiplierForWave(11),
+      attackDamageMultiplier: attackDamageMultiplierForWave(11),
+      effectiveTotalHp: 3507,
+      totalPossibleReward: 353,
     });
   });
 
-  it('reports the exact wave 15 balance', () => {
-    expect(waveBalanceReport(15)).toEqual({
-      wave: 15,
+  // Every fifth wave replaces the horde with one boss, so the report is a
+  // single boss HP figure plus the boss bounty and the ordinary clear bonus.
+  it.each([
+    { wave: 5, effectiveTotalHp: 1116, totalPossibleReward: 240 },
+    { wave: 10, effectiveTotalHp: 1386, totalPossibleReward: 290 },
+    { wave: 15, effectiveTotalHp: 1656, totalPossibleReward: 340 },
+  ])('reports the exact boss wave $wave balance', (expected) => {
+    expect(waveBalanceReport(expected.wave)).toEqual({
+      wave: expected.wave,
       composition: {
-        walker: 55,
-        thrower: 7,
-        worker: 3,
-        'phone-addict': 2,
+        walker: 0,
+        thrower: 0,
+        worker: 0,
+        'phone-addict': 0,
+        boss: 1,
       },
-      healthMultiplier: healthMultiplierForWave(15),
-      speedMultiplier: speedMultiplierForWave(15),
-      attackDamageMultiplier: attackDamageMultiplierForWave(15),
-      effectiveTotalHp: 5336,
-      totalPossibleReward: 467,
+      healthMultiplier: healthMultiplierForWave(expected.wave),
+      speedMultiplier: speedMultiplierForWave(expected.wave),
+      attackDamageMultiplier: attackDamageMultiplierForWave(expected.wave),
+      effectiveTotalHp: expected.effectiveTotalHp,
+      totalPossibleReward: expected.totalPossibleReward,
     });
   });
 

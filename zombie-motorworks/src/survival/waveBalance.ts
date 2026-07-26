@@ -6,6 +6,7 @@ import {
   zombieCompositionForWave,
 } from './WaveManager.ts';
 import type { WaveComposition } from './WaveManager.ts';
+import { bossForWave, isBossWave } from './zombies/bossConfig.ts';
 import {
   BASE_ZOMBIE_STATS,
   PHONE_ADDICT_HEALTH_MULTIPLIER,
@@ -32,27 +33,42 @@ const COMPOSITION_LABELS: Record<keyof WaveComposition, [string, string]> = {
   thrower: ['thrower', 'throwers'],
   worker: ['worker', 'workers'],
   'phone-addict': ['phone-addict', 'phone-addicts'],
+  boss: ['boss', 'bosses'],
 };
 
 const THREAT_WARNINGS: Record<SpecialistZombieKind, string> = {
   thrower: 'Ranged throwers next!',
   worker: 'Mine-laying workers next — mines go hidden from wave 8',
+  // No wave number in the copy: boss waves shift when each specialist first
+  // reaches the field, and this warning always fires on the wave before.
   'phone-addict':
-    'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage before wave 10.',
+    'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage now.',
 };
 
-/** Specialist kinds that first appear on the requested wave. */
+/**
+ * Specialist kinds that first appear on the requested wave. The comparison
+ * skips back over boss waves, which field no specialists at all — otherwise
+ * every specialist would re-announce itself as new on the wave after each boss.
+ */
 export function newThreatsForWave(wave: number): SpecialistZombieKind[] {
-  const previous = zombieCompositionForWave(wave - 1);
+  let previousWave = wave - 1;
+  while (previousWave > 0 && isBossWave(previousWave)) previousWave -= 1;
+  const previous = zombieCompositionForWave(previousWave);
   const current = zombieCompositionForWave(wave);
   return SPECIALIST_KINDS.filter(
     (kind) => previous[kind] === 0 && current[kind] > 0,
   );
 }
 
-/** Player-facing warnings for specialists introduced by a wave. */
+/**
+ * Player-facing warnings for a wave. The boss warning is prepended rather than
+ * derived from `newThreatsForWave`, because bosses recur every fifth wave
+ * instead of unlocking once the way specialists do.
+ */
 export function threatWarningsForWave(wave: number): string[] {
-  return newThreatsForWave(wave).map((kind) => THREAT_WARNINGS[kind]);
+  const warnings = newThreatsForWave(wave).map((kind) => THREAT_WARNINGS[kind]);
+  const boss = bossForWave(wave);
+  return boss ? [boss.warning, ...warnings] : warnings;
 }
 
 /** Exact, compact composition with zero-count kinds omitted. */
@@ -81,19 +97,25 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
   const composition = zombieCompositionForWave(wave);
   const healthMultiplier = healthMultiplierForWave(wave);
   const baseHealth = BASE_ZOMBIE_STATS.health * healthMultiplier;
+  // A boss scales its own base health by the same wave multiplier, so its row
+  // stays comparable with the horde it replaces.
+  const boss = bossForWave(wave);
+  const bossHp = boss ? composition.boss * boss.baseHealth * healthMultiplier : 0;
   const effectiveTotalHp = Math.round(
     composition.walker * baseHealth +
       composition.thrower * baseHealth * THROWER_HEALTH_MULTIPLIER +
       composition.worker * baseHealth * WORKER_HEALTH_MULTIPLIER +
       composition['phone-addict'] *
         baseHealth *
-        PHONE_ADDICT_HEALTH_MULTIPLIER,
+        PHONE_ADDICT_HEALTH_MULTIPLIER +
+      bossHp,
   );
   const totalPossibleReward =
     composition.walker * BASE_ZOMBIE_STATS.reward +
     composition.thrower * THROWER_REWARD +
     composition.worker * WORKER_REWARD +
     composition['phone-addict'] * PHONE_ADDICT_REWARD +
+    composition.boss * (boss?.reward ?? 0) +
     waveRewardForWave(wave);
 
   return {

@@ -254,9 +254,22 @@ does not depend on the report.
 explicitly, so specialist availability is not random. A wave clears only after
 all scheduled assignments have spawned and the active pool count reaches zero.
 
-Enemy kinds are `walker`, `thrower`, `worker`, and `phone-addict`. Kind-specific
-health/speed/reward and hazard constants live in `zombieConfig.ts`. Progression
-warnings derive from the same composition functions in `waveBalance.ts`.
+Enemy kinds are `walker`, `thrower`, `worker`, `phone-addict`, and `boss`.
+Kind-specific health/speed/reward and hazard constants live in
+`zombieConfig.ts`. Progression warnings derive from the same composition
+functions in `waveBalance.ts`.
+
+Every wave that is a multiple of `BOSS_WAVE_INTERVAL` is a boss wave: the horde
+is replaced entirely by one boss, which heads the spawn queue. A boss is a
+pooled zombie of kind `boss` whose stats, slam attack, capsule size, and
+placeholder visual all come from a `BossDefinition` in
+`zombies/bossConfig.ts`; `WaveManager` selects it with `bossForWave` and hands
+it to `ZombieSystem.setBossDefinition` at wave start. Adding a boss means adding
+a registry entry and putting its id into the rotation, not adding a class.
+
+Because a boss occupies an ordinary pool slot, wave clear, kill accounting,
+weapon routing, and ability AoE need no boss-specific cases. Bosses do cap ram
+damage and resist knockback, so a high-speed ram cannot one-shot one.
 
 ## Runtime Damage Contract
 

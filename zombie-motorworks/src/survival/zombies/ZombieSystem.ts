@@ -11,6 +11,7 @@ import {
   type ZombieKind,
   type ZombieKilledCallback,
 } from './Zombie.ts';
+import type { BossDefinition } from './bossConfig.ts';
 import { Landmines, type MineSnapshot } from './Landmines.ts';
 import { ThrowerProjectiles } from './ThrowerProjectiles.ts';
 import {
@@ -124,6 +125,8 @@ export class ZombieSystem {
   private healthMultiplier = 1;
   private speedMultiplier = 1;
   private attackDamageMultiplier = 1;
+  /** Set by WaveManager at wave start; null on ordinary horde waves. */
+  private bossDefinition: BossDefinition | null = null;
   private mineRevealRadiusM = 0;
   private currentWave = 1;
   private disposed = false;
@@ -162,6 +165,7 @@ export class ZombieSystem {
       zombie.onThrow = (thrower) => this.launchProjectileFrom(thrower);
       zombie.onPlantMine = (worker) =>
         this.landmines.plant(worker.position.x, worker.position.z);
+      zombie.onBossSlam = (boss) => this.applyBossSlam(boss);
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -180,6 +184,19 @@ export class ZombieSystem {
     this.healthMultiplier = Math.max(0, healthMultiplier);
     this.speedMultiplier = Math.max(0, speedMultiplier);
     this.attackDamageMultiplier = Math.max(0, attackDamageMultiplier);
+  }
+
+  /** Applies to bosses spawned after this call; null clears the boss for the wave. */
+  setBossDefinition(definition: BossDefinition | null): void {
+    this.bossDefinition = definition;
+  }
+
+  /** The live boss, for the HUD health bar and minimap marker. */
+  activeBoss(): Zombie | null {
+    for (const zombie of this.pool) {
+      if (zombie.kind === 'boss' && zombie.isAlive) return zombie;
+    }
+    return null;
   }
 
   getActiveCount(): number {
@@ -255,6 +272,7 @@ export class ZombieSystem {
         this.healthMultiplier,
         this.speedMultiplier,
         this.attackDamageMultiplier,
+        kind === 'boss' ? this.bossDefinition : null,
       );
       this.resetWatchdog(zombie);
       spawned++;
@@ -302,6 +320,28 @@ export class ZombieSystem {
   clearLandmines(): void {
     if (this.disposed) return;
     this.landmines.despawnAll();
+  }
+
+  /**
+   * A boss's hammer landed: damage every live vehicle part whose centroid is
+   * inside the slam circle. Resolved here rather than at wind-up start, so a
+   * player who drove out of the telegraphed ring takes nothing.
+   */
+  private applyBossSlam(boss: Zombie): void {
+    const def = boss.bossDefinition;
+    if (this.disposed || !def) return;
+    const radiusSq = def.attack.radiusM * def.attack.radiusM;
+    const damage = boss.slamDamage;
+    if (damage <= 0) return;
+
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      const dx = anchor.worldX - boss.position.x;
+      const dz = anchor.worldZ - boss.position.z;
+      if (dx * dx + dz * dz > radiusSq) continue;
+      this.vehicle.applyDirectDamage(anchor.partId, damage);
+    }
   }
 
   private launchProjectileFrom(zombie: Zombie): void {
@@ -540,6 +580,7 @@ export class ZombieSystem {
     for (const zombie of this.pool) zombie.forceReturnToPool();
     this.healthMultiplier = 1;
     this.speedMultiplier = 1;
+    this.bossDefinition = null;
     this.activeScratch.length = 0;
     this.aliveTargets.length = 0;
     this.separationX.fill(0);

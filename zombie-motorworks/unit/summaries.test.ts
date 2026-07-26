@@ -28,14 +28,24 @@ describe('legible consequence summaries', () => {
     expect(newThreatsForWave(2)).toEqual([]);
     expect(newThreatsForWave(3)).toEqual(['thrower']);
     expect(newThreatsForWave(7)).toEqual(['worker']);
-    expect(newThreatsForWave(10)).toEqual(['phone-addict']);
-    expect(newThreatsForWave(11)).toEqual([]);
+    // Wave 10 is a boss wave and fields no phone-addicts, so the first wave
+    // that actually brings them — and therefore warns about them — is 11.
+    expect(newThreatsForWave(10)).toEqual([]);
+    expect(newThreatsForWave(11)).toEqual(['phone-addict']);
+    expect(newThreatsForWave(12)).toEqual([]);
   });
 
-  it('flags the wave-10 Phone Addict and garage EMP recommendation after wave 9', () => {
-    expect(threatWarningsForWave(10)).toEqual([
-      'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage before wave 10.',
+  it('flags the Phone Addict and garage EMP recommendation the wave before', () => {
+    expect(threatWarningsForWave(11)).toEqual([
+      'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage now.',
     ]);
+  });
+
+  it('announces the boss ahead of every fifth wave', () => {
+    expect(threatWarningsForWave(5)).toEqual([
+      'BOSS WAVE — The Sledge. Slow but brutal: stay out of the hammer ring.',
+    ]);
+    expect(threatWarningsForWave(6)).toEqual([]);
   });
 
   it('formats exact wave composition while omitting zero-count kinds', () => {
@@ -45,9 +55,10 @@ describe('legible consequence summaries', () => {
     expect(formatWaveComposition(zombieCompositionForWave(3))).toBe(
       '19 walkers / 1 thrower',
     );
-    expect(formatWaveComposition(zombieCompositionForWave(10))).toBe(
-      '40 walkers / 4 throwers / 2 workers / 1 phone-addict',
+    expect(formatWaveComposition(zombieCompositionForWave(11))).toBe(
+      '43 walkers / 5 throwers / 2 workers / 1 phone-addict',
     );
+    expect(formatWaveComposition(zombieCompositionForWave(5))).toBe('1 boss');
   });
 
   it('totals New Garage investment, per-part refunds, and forfeited value', () => {

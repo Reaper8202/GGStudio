@@ -1,5 +1,6 @@
 import type { ZombieSystem } from './zombies/ZombieSystem.ts';
 import type { ZombieKind } from './zombies/Zombie.ts';
+import { bossForWave, isBossWave } from './zombies/bossConfig.ts';
 
 const HORDE_SIZE_MIN = 8;
 const HORDE_SIZE_MAX = 14;
@@ -15,11 +16,19 @@ export interface WaveComposition {
   thrower: number;
   worker: number;
   'phone-addict': number;
+  boss: number;
 }
 
-/** Normals remain the overwhelming majority while specialists unlock slowly. */
+/**
+ * Normals remain the overwhelming majority while specialists unlock slowly.
+ * Every fifth wave replaces the horde entirely with a single boss, so the
+ * encounter reads as a duel rather than a horde wave with an extra enemy.
+ */
 export function zombieCompositionForWave(wave: number): WaveComposition {
   const safeWave = safeWaveNumber(wave);
+  if (isBossWave(safeWave)) {
+    return { walker: 0, thrower: 0, worker: 0, 'phone-addict': 0, boss: 1 };
+  }
   return {
     walker: Math.min(10 + safeWave * 3, 70),
     thrower:
@@ -27,6 +36,7 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
     worker: safeWave >= 7 ? Math.min(1 + Math.floor((safeWave - 7) / 3), 6) : 0,
     'phone-addict':
       safeWave >= 10 ? Math.min(1 + Math.floor((safeWave - 10) / 4), 6) : 0,
+    boss: 0,
   };
 }
 
@@ -80,15 +90,20 @@ function hordeSizeForWave(): number {
   );
 }
 
-function spawnOrderForWave(wave: number): ZombieKind[] {
+export function spawnOrderForWave(wave: number): ZombieKind[] {
   const composition = zombieCompositionForWave(wave);
+  // Bosses head the queue rather than joining the specialist interleave, so the
+  // health bar is up from the start of the wave whatever else is scheduled.
+  const bosses: ZombieKind[] = Array(composition.boss).fill('boss');
   const specials: ZombieKind[] = [];
   for (const kind of ['thrower', 'worker', 'phone-addict'] as const) {
     for (let i = 0; i < composition[kind]; i++) specials.push(kind);
   }
-  if (specials.length === 0) return Array(composition.walker).fill('walker');
+  if (specials.length === 0) {
+    return [...bosses, ...Array<ZombieKind>(composition.walker).fill('walker')];
+  }
 
-  const order: ZombieKind[] = [];
+  const order: ZombieKind[] = [...bosses];
   let walkersLeft = composition.walker;
   for (let i = 0; i < specials.length; i++) {
     const groupsLeft = specials.length - i + 1;
@@ -148,6 +163,7 @@ export class WaveManager {
       speedMultiplierForWave(this.waveNumber),
       attackDamageMultiplierForWave(this.waveNumber),
     );
+    this.zombies.setBossDefinition(bossForWave(this.waveNumber));
     this.emitRemaining();
   }
 

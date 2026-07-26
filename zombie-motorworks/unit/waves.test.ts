@@ -25,13 +25,24 @@ describe('wave formulas', () => {
       reward: 50,
     },
     {
+      // Wave 5 is a boss wave: the horde is replaced by a single boss, while
+      // the difficulty multipliers and clear reward keep scaling normally.
       wave: 5,
-      zombies: 27,
+      zombies: 1,
       maxActive: 34,
       healthMultiplier: 1.24,
       speedMultiplier: 1.1,
       attackDamageMultiplier: 1.24,
       reward: 90,
+    },
+    {
+      wave: 6,
+      zombies: 30,
+      maxActive: 36,
+      healthMultiplier: 1.3,
+      speedMultiplier: 1.125,
+      attackDamageMultiplier: 1.3,
+      reward: 100,
     },
   ])('scales wave $wave', (expected) => {
     expect(zombieCountForWave(expected.wave)).toBe(expected.zombies);
@@ -49,10 +60,11 @@ describe('wave formulas', () => {
   });
 
   it('scales walker counts to the 70 cap', () => {
+    // Sampled off boss waves, which field no walkers at all.
     expect(zombieCompositionForWave(1).walker).toBe(13);
-    expect(zombieCompositionForWave(5).walker).toBe(25);
-    expect(zombieCompositionForWave(20).walker).toBe(70);
-    expect(zombieCompositionForWave(50).walker).toBe(70);
+    expect(zombieCompositionForWave(6).walker).toBe(28);
+    expect(zombieCompositionForWave(21).walker).toBe(70);
+    expect(zombieCompositionForWave(51).walker).toBe(70);
   });
 
   it('caps health multiplier at 2.2x', () => {
@@ -128,30 +140,35 @@ describe('wave formulas', () => {
       thrower: 0,
       worker: 0,
       'phone-addict': 0,
+      boss: 0,
     });
     expect(zombieCompositionForWave(4)).toEqual({
       walker: 22,
       thrower: 1,
       worker: 0,
       'phone-addict': 0,
+      boss: 0,
     });
     expect(zombieCompositionForWave(7)).toEqual({
       walker: 31,
       thrower: 3,
       worker: 1,
       'phone-addict': 0,
+      boss: 0,
     });
-    expect(zombieCompositionForWave(10)).toEqual({
-      walker: 40,
-      thrower: 4,
+    expect(zombieCompositionForWave(11)).toEqual({
+      walker: 43,
+      thrower: 5,
       worker: 2,
       'phone-addict': 1,
+      boss: 0,
     });
-    expect(zombieCompositionForWave(20)).toEqual({
+    expect(zombieCompositionForWave(21)).toEqual({
       walker: 70,
-      thrower: 9,
+      thrower: 10,
       worker: 5,
       'phone-addict': 3,
+      boss: 0,
     });
   });
 
@@ -161,6 +178,7 @@ describe('wave formulas', () => {
       worker: 0,
       thrower: 0,
       'phone-addict': 0,
+      boss: 0,
     });
   });
 
@@ -188,6 +206,7 @@ describe('wave formulas', () => {
       setWaveMultipliers: (...multipliers: number[]) => {
         waveMultipliers = multipliers;
       },
+      setBossDefinition: () => undefined,
       getActiveCount: () => 0,
       trySpawnHorde: () => 0,
     } as unknown as ZombieSystem;
