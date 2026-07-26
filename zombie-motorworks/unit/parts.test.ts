@@ -37,6 +37,8 @@ const EXPECTED_CATALOG_IDS = [
   'cannon-heavy',
   'ice-cannon',
   'barrel-drum',
+  'spike-ram',
+  'sawblade',
   'sniper-light',
   'flamethrower',
   'shield-generator',
@@ -102,6 +104,18 @@ describe('part catalog integrity', () => {
           type: 'frame',
           cell: { x: 0, y: 0, z: 0 },
           face: 'px',
+        },
+        {
+          id: 'wheel-mount-pz',
+          type: 'frame',
+          cell: { x: 0, y: 0, z: 0 },
+          face: 'pz',
+        },
+        {
+          id: 'wheel-mount-nz',
+          type: 'frame',
+          cell: { x: 0, y: 0, z: 0 },
+          face: 'nz',
         },
       ]);
     }

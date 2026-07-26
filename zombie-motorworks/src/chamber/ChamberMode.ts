@@ -18,6 +18,7 @@ import { lowestPointM, GROUP_TERRAIN, GROUP_ZOMBIE } from '../runtime/assembler.
 import type { SurfaceKind } from '../runtime/surfaces.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
+import { ScopeCursor } from '../ui/ScopeCursor.ts';
 
 export type ScenarioName =
   | 'flat'
@@ -60,6 +61,7 @@ export class ChamberMode {
   private banner!: HTMLDivElement;
   private failTimers = { flipped: 0, noTraction: 0, airborne: 0 };
   private ui!: HTMLDivElement;
+  private scopeCursor!: ScopeCursor;
   private disposed = false;
   private readonly keydown = (e: KeyboardEvent) => {
     this.keys.add(e.key.toLowerCase());
@@ -288,6 +290,8 @@ export class ChamberMode {
     this.renderer.domElement.addEventListener('pointermove', this.onAim);
     this.renderer.domElement.addEventListener('pointerdown', this.onFireDown);
     this.renderer.domElement.addEventListener('pointerup', this.onFireUp);
+
+    this.scopeCursor = new ScopeCursor(this.ui, this.renderer.domElement);
   }
 
   private onAim = (e: PointerEvent): void => {
@@ -551,6 +555,7 @@ export class ChamberMode {
     this.renderer.domElement.removeEventListener('pointermove', this.onAim);
     this.renderer.domElement.removeEventListener('pointerdown', this.onFireDown);
     this.renderer.domElement.removeEventListener('pointerup', this.onFireUp);
+    this.scopeCursor.dispose();
     this.vehicle?.dispose();
     this.eventQueue?.free();
     this.world?.free();

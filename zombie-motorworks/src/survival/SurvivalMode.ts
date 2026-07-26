@@ -26,6 +26,7 @@ import {
 import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
+import { ScopeCursor } from '../ui/ScopeCursor.ts';
 import { FuelPickups } from './FuelPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
@@ -317,6 +318,7 @@ export class SurvivalMode {
   private readonly minimapForward = new THREE.Vector3();
   private readonly ui: HTMLDivElement;
   private readonly minimap: Minimap;
+  private readonly scopeCursor: ScopeCursor;
   private readonly speedValue: HTMLSpanElement;
   private readonly speedTrack: HTMLDivElement;
   private readonly speedSafeLabel: HTMLSpanElement;
@@ -547,6 +549,7 @@ export class SurvivalMode {
         ready: this.graveyard.whenReady(),
       },
     );
+    this.scopeCursor = new ScopeCursor(this.ui, this.renderer.domElement);
 
     if (Number.isFinite(run.kills) && (run.kills ?? 0) >= 0) {
       this.kills = Math.floor(run.kills ?? 0);
@@ -2160,6 +2163,7 @@ export class SurvivalMode {
     this.eventQueue.free();
     this.world.free();
     this.minimap.dispose();
+    this.scopeCursor.dispose();
     this.ui.remove();
     disposeObject(this.scene);
     this.scene.clear();

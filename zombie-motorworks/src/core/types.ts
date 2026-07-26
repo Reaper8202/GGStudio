@@ -194,10 +194,12 @@ export interface AbilityDefinition {
   baseTargets?: number;
 }
 
-/** Contact weapon (grinder drum): damages any zombie touching the part. */
+/** Contact weapon (grinder drum, spikes, sawblade): damages any zombie touching the part. */
 export interface MeleeDefinition {
   /** Damage per contact hit; cadence is the zombie impact cooldown. */
   damage: number;
+  /** Mesh treatment; default 'drum' (toothed grinder roller). */
+  visual?: 'drum' | 'spikes' | 'blade';
 }
 
 export interface ArmourDefinition {

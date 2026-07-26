@@ -29,6 +29,8 @@ const EXPECTED_LABELS: Record<string, string> = {
   'cannon-heavy': 'Heavy Cannon',
   'ice-cannon': 'Ice Cannon',
   'barrel-drum': 'Grinder Drum',
+  'spike-ram': 'Long Spikes',
+  sawblade: 'Sawblade',
   'sniper-light': 'Light Sniper',
   flamethrower: 'Flamethrower',
   'shield-generator': 'Shield Bubble',
@@ -141,6 +143,8 @@ describe('editor catalog presentation', () => {
       'ice-cannon',
       'shield-generator',
       'barrel-drum',
+      'spike-ram',
+      'sawblade',
       'sniper-light',
       'flamethrower',
     ]);

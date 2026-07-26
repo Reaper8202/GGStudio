@@ -20,6 +20,8 @@ export const STARTER_UNLOCKS = [
   'engine-small',
   'fuel-tank',
   'turret',
+  'spike-ram',
+  'sawblade',
 ] as const;
 
 export const DEFAULT_MONEY = 200;
@@ -37,6 +39,9 @@ export function defaultProfile(): PlayerProfile {
       'wheel-standard': 4,
       'engine-small': 1,
       'fuel-tank': 1,
+      turret: 1,
+      'spike-ram': 1,
+      sawblade: 1,
     },
   };
 }

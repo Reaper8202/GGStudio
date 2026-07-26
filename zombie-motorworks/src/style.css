@@ -177,6 +177,67 @@ canvas.viewport {
   box-shadow: 6px 7px 0 rgb(0 0 0 / 0.32);
 }
 
+.scope-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 40;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+/* Overrides `.ui-layer > *` so the reticle never steals clicks/hover from the canvas beneath it. */
+.ui-layer > .scope-cursor {
+  pointer-events: none;
+}
+
+.scope-cursor.visible {
+  opacity: 0.9;
+}
+
+.scope-cursor__ring {
+  position: absolute;
+  left: -20px;
+  top: -20px;
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--accent-green-light);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgb(0 0 0 / 0.5);
+}
+
+.scope-cursor__line {
+  position: absolute;
+  background: var(--accent-green-light);
+  box-shadow: 0 0 4px rgb(0 0 0 / 0.5);
+}
+
+.scope-cursor__line--h {
+  left: -27px;
+  top: -0.5px;
+  width: 54px;
+  height: 1px;
+}
+
+.scope-cursor__line--v {
+  left: -0.5px;
+  top: -27px;
+  width: 1px;
+  height: 54px;
+}
+
+.scope-cursor__dot {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-orange-light);
+}
+
 .topbar {
   position: absolute;
   top: 8px;
@@ -797,6 +858,52 @@ button:disabled {
   gap: 6px;
 }
 
+.inventory-panel {
+  position: absolute;
+  bottom: 58px;
+  left: 50%;
+  z-index: 14;
+  width: min(524px, calc(100% - 32px));
+  padding: 6px;
+  background: var(--panel-bg-strong);
+  transform: translateX(-50%);
+}
+
+.inventory-hotbar__body {
+  position: relative;
+  min-width: 0;
+}
+
+.inventory-panel .inventory-list {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: 68px;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 24px) / 7);
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 0 2px;
+  scrollbar-color: var(--ui-edge) var(--ui-recess);
+  scrollbar-width: thin;
+}
+
+.inventory-slot-placeholder {
+  display: block;
+  min-width: 0;
+  border: 1px solid var(--ui-edge);
+  background:
+    linear-gradient(rgb(255 255 255 / 0.018), transparent),
+    var(--ui-recess);
+  box-shadow:
+    inset 2px 2px 0 var(--ui-black),
+    inset -1px -1px 0 rgb(255 255 255 / 0.035);
+}
+
+.inventory-slot-placeholder[hidden] {
+  display: none;
+}
+
 .dock-panel {
   display: flex;
   min-height: 0;
@@ -886,7 +993,7 @@ button:disabled {
 
 .store-filters {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2px;
   flex: 0 0 auto;
   padding-bottom: 5px;
@@ -894,9 +1001,11 @@ button:disabled {
 }
 
 .store-filters button {
-  min-height: 30px;
-  padding: 4px 6px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px;
   font-size: var(--ui-text-10);
+  line-height: 1.1;
   text-transform: uppercase;
 }
 
@@ -905,8 +1014,43 @@ button:disabled {
   box-shadow: inset 0 -2px 0 var(--ui-signal);
 }
 
+.store-search {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid var(--ui-edge);
+  border-radius: 0;
+  outline: 0;
+  background: var(--ui-recess);
+  box-shadow: inset 2px 2px 0 var(--ui-black);
+  color: var(--ui-text);
+  font: var(--ui-text-11)/1.2 var(--ui-font-body);
+}
+
+.store-search::placeholder {
+  color: var(--ui-text-faint);
+}
+
+.store-search:focus {
+  border-color: var(--ui-signal);
+  box-shadow:
+    inset 2px 2px 0 var(--ui-black),
+    0 0 0 1px var(--ui-signal-dark);
+}
+
 .store-list {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.store-empty {
+  margin: 18px 8px;
+  color: var(--ui-text-faint);
+  font: var(--ui-text-11)/1.4 var(--ui-font-body);
+  text-align: center;
+}
+
+.store-empty[hidden] {
+  display: none;
 }
 
 .store-item,
@@ -919,6 +1063,29 @@ button:disabled {
   overflow: hidden;
   padding: 20px 5px 17px;
   text-align: left;
+}
+
+.inventory-panel .inventory-item {
+  height: 68px;
+  aspect-ratio: auto;
+  padding: 17px 3px 13px;
+  border-width: 2px;
+  box-shadow:
+    inset 2px 2px 0 var(--ui-black),
+    inset -1px -1px 0 rgb(255 255 255 / 0.05);
+}
+
+.inventory-panel .inventory-item:hover:not(:disabled) {
+  box-shadow:
+    inset 0 0 0 2px var(--ui-text-muted),
+    inset 2px 2px 0 var(--ui-black);
+}
+
+.inventory-panel .inventory-item.active {
+  border-color: var(--ui-signal-strong);
+  box-shadow:
+    inset 0 0 0 2px var(--ui-signal),
+    0 0 0 1px var(--ui-black);
 }
 
 .store-item > strong,
@@ -1086,24 +1253,38 @@ button:disabled {
 }
 
 .inventory-empty {
-  margin: auto;
-  padding: 16px;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  margin: 0;
+  padding: 4px 9px;
+  border: 1px solid var(--ui-edge);
+  background: var(--panel-bg-strong);
   color: var(--ui-text-faint);
-  font: var(--ui-text-11)/1.6 var(--ui-font-body);
+  font: var(--ui-text-10)/1.2 var(--ui-font-body);
   text-align: center;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.inventory-empty[hidden] {
+  display: none;
 }
 
 .inventory-tools {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex: 0 0 auto;
   gap: 4px;
-  padding-top: 6px;
-  border-top: 1px solid var(--ui-edge);
+  margin-left: auto;
 }
 
 .inventory-tools .erase-btn,
 .inventory-tools .cancel-tool {
   margin: 0;
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: var(--ui-text-10);
+  text-transform: uppercase;
 }
 
 .selected-panel {
@@ -1587,13 +1768,13 @@ button:disabled {
 @media (max-width: 760px) {
   .garage-dock {
     top: 112px;
-    bottom: 52px;
+    bottom: 166px;
     width: 210px;
   }
 
   .selected-panel {
     top: 112px;
-    bottom: 52px;
+    bottom: 166px;
     width: 210px;
   }
 
@@ -1617,6 +1798,38 @@ button:disabled {
 
   .store-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-panel {
+    bottom: 92px;
+    width: calc(100% - 16px);
+    padding: 4px;
+  }
+
+  .inventory-panel .inventory-list {
+    grid-template-rows: 54px;
+  }
+
+  .inventory-panel .inventory-item {
+    height: 54px;
+    padding-top: 14px;
+  }
+
+  .inventory-panel .inventory-item > strong {
+    top: 4px;
+    right: 3px;
+    left: 4px;
+    font-size: 8px;
+  }
+
+  .inventory-panel .part-thumbnail {
+    width: min(42px, 82%);
+  }
+
+  .inventory-panel .inventory-count {
+    bottom: 3px;
+    left: 4px;
+    font-size: 8px !important;
   }
 }
 

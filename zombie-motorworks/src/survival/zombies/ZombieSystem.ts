@@ -4,6 +4,7 @@ import type { DamageType } from '../../core/types.ts';
 import { empShieldLeak } from '../../core/turretModules.ts';
 import type { RuntimePart } from '../../runtime/assembler.ts';
 import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
+import { vehicleImpactMassFactor } from '../../core/mass.ts';
 import {
   Zombie,
   ZombieState,
@@ -541,6 +542,9 @@ export class ZombieSystem {
     this.vehicle.body.resetForces(false);
     const velocity = this.vehicle.body.linvel();
     const vehicleSpeed = Math.hypot(velocity.x, velocity.y, velocity.z);
+    // Heavier builds ram harder, lighter ones softer; the speed side of the
+    // formula below is unchanged.
+    const massFactor = vehicleImpactMassFactor(this.vehicle.body.mass());
     let contacts = 0;
 
     for (const zombie of active) {
@@ -573,7 +577,7 @@ export class ZombieSystem {
         vehicleSpeed >= LETHAL_IMPACT_SPEED
           ? Number.MAX_SAFE_INTEGER
           : vehicleSpeed >= MIN_IMPACT_SPEED
-            ? vehicleSpeed * IMPACT_DAMAGE_PER_SPEED
+            ? vehicleSpeed * IMPACT_DAMAGE_PER_SPEED * massFactor
             : 0;
       zombie.applyVehicleImpact(
         Math.max(impactDamage, melee?.damage ?? 0),

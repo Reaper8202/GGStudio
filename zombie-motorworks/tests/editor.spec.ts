@@ -16,6 +16,34 @@ test('editor boots with palette, build card, and a non-black scene', async ({ pa
   expect(shot.byteLength).toBeGreaterThan(20_000);
 });
 
+test('store filters parts by category and search', async ({ page }) => {
+  await boot(page);
+
+  const visiblePartIds = () =>
+    page.locator('.store-item:visible').evaluateAll((items) =>
+      items.map((item) => (item as HTMLElement).dataset.partId),
+    );
+
+  await expect(page.getByRole('button', { name: 'Essentials', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  expect(await visiblePartIds()).toContain('frame-box');
+  expect(await visiblePartIds()).not.toContain('wheel-standard');
+
+  await page.getByRole('button', { name: 'Mobility', exact: true }).click();
+  expect(await visiblePartIds()).toContain('wheel-standard');
+  expect(await visiblePartIds()).not.toContain('frame-box');
+
+  await page.getByRole('searchbox', { name: 'Search store parts' }).fill('monster');
+  expect(await visiblePartIds()).toEqual(['wheel-offroad']);
+
+  await page.getByRole('button', { name: 'Weapons & Defence', exact: true }).click();
+  await page.getByRole('searchbox', { name: 'Search store parts' }).fill('armour');
+  expect(await visiblePartIds()).toEqual(['armour-plate']);
+
+  await page.getByRole('searchbox', { name: 'Search store parts' }).fill('no such part');
+  await expect(page.getByText('No matching parts', { exact: true })).toBeVisible();
+});
+
 test('New starts with a locked Truck Heart', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: 'New', exact: true }).click();
