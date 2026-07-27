@@ -662,9 +662,10 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Nitro Injector',
     category: 'weapon',
     description:
-      'Bottled shove for the drivetrain. Fills an ability slot: floods the ' +
-      'engines with torque for a burst of ramming speed. 20s cooldown; ' +
-      'upgrades run longer and pull harder.',
+      'Strapped-on rocket bottle. Fills an ability slot: five seconds of raw ' +
+      'thrust that shoves the rig along whether you are on the throttle or ' +
+      'not, plus triple drive torque and a lifted speed limit. 20s cooldown; ' +
+      'upgrades run longer and push harder.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -679,8 +680,15 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     ability: {
       kind: 'overdrive',
       cooldownSeconds: 20,
-      baseDurationSeconds: 4,
-      baseTorqueMultiplier: 1.8,
+      baseDurationSeconds: 5,
+      // A shove, not a nudge: triple torque hauls even a heavy rig out of a
+      // crowd, and the ceiling lift is what makes it read as speed rather
+      // than just quicker acceleration into the same wall.
+      baseTorqueMultiplier: 3.2,
+      baseTopSpeedMultiplier: 1.35,
+      // Propellant: fires through the chassis, so it still shoves when the
+      // driver is coasting or the wheels are bogged in a crowd.
+      baseThrustAccel: 16,
     },
   },
 };

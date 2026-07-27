@@ -309,7 +309,6 @@ export class EditorMode {
   private tutorialActive = false;
   private pointerDown: { x: number; y: number } | null = null;
   private lastPointer: { x: number; y: number } | null = null;
-  private eraseArmed = false;
   private disposed = false;
   private explicitRenamePending = false;
   private readonly profile: PlayerProfile;
@@ -427,7 +426,6 @@ export class EditorMode {
         this.buyTurretModule(partId, module),
       onDeleteSelected: () => this.deleteSelected(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
-      onToggleErase: () => this.toggleErase(),
       onCancelTool: () => this.disarmTool(),
     });
 
@@ -1093,7 +1091,6 @@ export class EditorMode {
       this.deny(`No ${getPartDef(defId).name} in inventory`);
       return;
     }
-    this.eraseArmed = false;
     this.ghost = { defId, orient: 0 };
     this.ui.setArmedPart(defId);
     this.selected.clear();
@@ -1287,19 +1284,7 @@ export class EditorMode {
     this.ui.ghostTip.style.display = 'none';
   }
 
-  private toggleErase(): void {
-    if (this.eraseArmed) {
-      this.disarmTool();
-      return;
-    }
-    this.disarmGhost();
-    this.eraseArmed = true;
-    this.ui.setArmedPart('erase');
-    this.ui.setStatus('Erase: click a part to remove it');
-  }
-
   private disarmTool(): void {
-    this.eraseArmed = false;
     this.disarmGhost();
   }
 
@@ -1624,8 +1609,7 @@ export class EditorMode {
       return;
     }
     if (e.button !== 0) return;
-    if (this.eraseArmed) this.deleteAt(e.clientX, e.clientY);
-    else if (this.ghost) this.placeGhost();
+    if (this.ghost) this.placeGhost();
     else this.selectAt(e.clientX, e.clientY, e.shiftKey);
   };
 

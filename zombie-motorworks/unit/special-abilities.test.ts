@@ -234,11 +234,13 @@ describe('nitro injector catalog entry', () => {
     expect(ability.kind).toBe('overdrive');
   });
 
-  it('always multiplies drive torque by more than one', () => {
+  it('is a real shove, not a nudge, at every level', () => {
     for (const level of [1, 2, 3, 4, 5]) {
-      expect(effectiveOverdrive(ability, level).torqueMultiplier).toBeGreaterThan(
-        1,
-      );
+      const overdrive = effectiveOverdrive(ability, level);
+      // At least triple torque: enough to haul a heavy rig out of a crowd.
+      expect(overdrive.torqueMultiplier).toBeGreaterThanOrEqual(3);
+      // And the ceiling lifts with it, so the surge is felt at speed too.
+      expect(overdrive.topSpeedMultiplier).toBeGreaterThan(1.25);
     }
   });
 
@@ -247,8 +249,12 @@ describe('nitro injector catalog entry', () => {
     const level5 = effectiveOverdrive(ability, 5);
     expect(level1.durationSeconds).toBe(ability.baseDurationSeconds);
     expect(level1.torqueMultiplier).toBe(ability.baseTorqueMultiplier);
+    expect(level1.topSpeedMultiplier).toBe(ability.baseTopSpeedMultiplier);
     expect(level5.durationSeconds).toBeGreaterThan(level1.durationSeconds);
     expect(level5.torqueMultiplier).toBeGreaterThan(level1.torqueMultiplier);
+    expect(level5.topSpeedMultiplier).toBeGreaterThan(
+      level1.topSpeedMultiplier,
+    );
     expect(level5.cooldownSeconds).toBe(ability.cooldownSeconds);
   });
 

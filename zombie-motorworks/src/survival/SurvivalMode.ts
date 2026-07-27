@@ -1905,6 +1905,8 @@ export class SurvivalMode {
     this.vehicle.grantOverdrive(
       overdrive.durationSeconds,
       overdrive.torqueMultiplier,
+      overdrive.topSpeedMultiplier,
+      overdrive.thrustAccel,
     );
     const rotation = this.vehicle.body.rotation();
     this.abilityQuaternion.set(
