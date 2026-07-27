@@ -6,7 +6,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { effectiveFreeze, effectiveShield } from '../core/abilities.ts';
-import type { EnvironmentModifiers } from '../core/biomes.ts';
+import {
+  combineEnvironments,
+  hazardEnvironment,
+  hazardIntensity,
+  type BiomeHazardSpec,
+  type EnvironmentModifiers,
+} from '../core/biomes.ts';
 import type { RunState } from '../core/economy.ts';
 import {
   leaderboardRows,
@@ -320,6 +326,9 @@ export class SurvivalMode {
   private readonly eventQueue: RAPIER.EventQueue;
   private readonly arena: Arena;
   private readonly biomeDrive: EnvironmentModifiers;
+  private readonly biomeHazard: BiomeHazardSpec;
+  private biomeEnvironment: EnvironmentModifiers;
+  private biomeEnvironmentWave = -1;
   private readonly vehicle: RuntimeVehicle;
   private readonly zombies: ZombieSystem;
   private readonly autoAim: AutoAim;
@@ -518,6 +527,8 @@ export class SurvivalMode {
     this.eventQueue = new RAPIER.EventQueue(true);
     const biome = getBiome(run.biomeId ?? DEFAULT_BIOME_ID);
     this.biomeDrive = biome.drive;
+    this.biomeHazard = biome.hazard;
+    this.biomeEnvironment = biome.drive;
     this.arena = new ArenaBuilder(
       this.scene,
       this.world,
@@ -1330,7 +1341,7 @@ export class SurvivalMode {
       FIXED_DT,
       this.controls,
       (colliderHandle) => this.arena.surfaceOf(colliderHandle),
-      this.biomeDrive,
+      this.biomeEnvironment,
     );
 
     this.fuelPickups.step(FIXED_DT);
@@ -1521,10 +1532,7 @@ export class SurvivalMode {
   }
 
   private beginCountdown(wave: number): void {
-    this.currentWave = Math.max(
-      1,
-      Math.floor(Number.isFinite(wave) ? wave : 1),
-    );
+    this.setCurrentWave(wave);
     this.phase = 'countdown';
     this.countdownRemaining = COUNTDOWN_SECONDS;
     this.lastCountdownSecond = -1;
@@ -1542,6 +1550,28 @@ export class SurvivalMode {
     this.mineWarningPulsed = new WeakSet<object>();
     this.mineWarningPulseSeconds = 0;
     this.integrityFill.style.boxShadow = '';
+  }
+
+  private setCurrentWave(wave: number): void {
+    const nextWave = Math.max(
+      1,
+      Math.floor(Number.isFinite(wave) ? wave : 1),
+    );
+    if (
+      this.currentWave === nextWave &&
+      this.biomeEnvironmentWave === nextWave
+    ) {
+      return;
+    }
+
+    this.currentWave = nextWave;
+    const intensity = hazardIntensity(this.biomeHazard, nextWave);
+    this.biomeEnvironment = combineEnvironments(
+      this.biomeDrive,
+      hazardEnvironment(this.biomeHazard, intensity),
+    );
+    this.arena.setHazardFog(intensity);
+    this.biomeEnvironmentWave = nextWave;
   }
 
   private startCurrentWave(): void {
@@ -1578,7 +1608,7 @@ export class SurvivalMode {
 
   private onWaveComplete(wave: number, reward: number): void {
     if (this.phase === 'gameOver') return;
-    this.currentWave = wave;
+    if (wave !== this.currentWave) this.setCurrentWave(wave);
     // Resolve the completed physics step before paying the clear bonus. If the
     // final zombie and vehicle die together, destruction wins consistently and
     // the uncleared wave is neither counted nor rewarded.
@@ -2243,10 +2273,7 @@ export class SurvivalMode {
     if (this.disposed || this.phase === 'gameOver') return;
     this.zombies.reset();
     this.waves.reset();
-    this.currentWave = Math.max(
-      1,
-      Math.floor(Number.isFinite(wave) ? wave : 1),
-    );
+    this.setCurrentWave(wave);
     this.phase = 'active';
     this.pendingWaveKillReward = 0;
     this.pendingWaveReward = 0;
