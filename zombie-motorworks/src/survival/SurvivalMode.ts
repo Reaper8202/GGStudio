@@ -47,6 +47,7 @@ import { createToggle } from '../ui/system.ts';
 import { ScopeCursor } from '../ui/ScopeCursor.ts';
 import { VfxSystem } from '../vfx/VfxSystem.ts';
 import { WarningHud } from './WarningHud.ts';
+import { DamageNumbersOverlay } from './DamageNumbers.ts';
 import { TracerRenderer, type TracerStyle } from './Tracers.ts';
 import {
   activeVehicleWarnings,
@@ -392,6 +393,8 @@ export class SurvivalMode {
   private readonly scopeCursor: ScopeCursor;
   /** Damage vignette plus the stacked red/amber alert chips. */
   private readonly warningHud: WarningHud;
+  /** Pooled, decorative hit totals anchored where zombies were damaged. */
+  private readonly damageNumbers: DamageNumbersOverlay;
   /**
    * Sum of live attached part health at the end of the previous fixed step.
    * Diffing it is how the HUD learns the vehicle was hurt, whatever the
@@ -642,6 +645,17 @@ export class SurvivalMode {
     );
     this.scopeCursor = new ScopeCursor(this.ui, this.renderer.domElement);
     this.warningHud = new WarningHud(this.ui);
+    this.damageNumbers = new DamageNumbersOverlay(this.ui);
+    this.zombies.setDamageListener((report) => {
+      this.damageNumbers.add(
+        report.targetKey,
+        report.amount,
+        report.x,
+        report.y,
+        report.z,
+        report.killed,
+      );
+    });
 
     if (Number.isFinite(run.kills) && (run.kills ?? 0) >= 0) {
       this.kills = Math.floor(run.kills ?? 0);
@@ -1173,6 +1187,7 @@ export class SurvivalMode {
   private onResetWave(): void {
     if (this.disposed) return;
     this.discardPendingWaveRewards();
+    this.damageNumbers?.clear();
     this.callbacks.onResetWave(this.currentRunState());
   }
 
@@ -1620,6 +1635,7 @@ export class SurvivalMode {
     this.recoveryRequested = false;
     this.stuckPrompt.classList.remove('is-visible');
     this.waveClearCard.hide();
+    this.damageNumbers?.clear();
     this.countdownOverlay.style.display = 'block';
     this.mineWarningDistances = new WeakMap<object, number>();
     this.mineWarningPulsed = new WeakSet<object>();
@@ -1976,6 +1992,7 @@ export class SurvivalMode {
     this.syncWarnings(frameDt);
     this.syncMineWarningHud(frameDt);
     this.followCamera.update(frameDt);
+    this.damageNumbers.update(frameDt, this.camera);
     this.arena.follow(this.vehicleGroup);
     this.syncHud();
     // Vehicles face local +Z, so the heading the arrow should point along is the
@@ -2445,6 +2462,7 @@ export class SurvivalMode {
   debugStartWave(wave: number): void {
     if (this.disposed || this.phase === 'gameOver') return;
     this.zombies.reset();
+    this.damageNumbers?.clear();
     this.waves.reset();
     this.setCurrentWave(wave);
     this.phase = 'active';
@@ -2591,6 +2609,8 @@ export class SurvivalMode {
     );
     this.settingsSoundButton.removeEventListener('click', this.onSoundToggle);
     this.fuelPickups.dispose();
+    this.zombies.setDamageListener(null);
+    this.damageNumbers.dispose();
     this.zombies.dispose();
     this.vfx.dispose();
     this.arena.dispose();

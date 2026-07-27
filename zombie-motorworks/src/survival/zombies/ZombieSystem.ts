@@ -53,6 +53,17 @@ interface VehiclePartAnchor {
 
 export type ZombieHitResult = 'miss' | 'shielded' | 'damaged' | 'killed';
 
+export interface ZombieDamageReport {
+  /** Stable collider handle for the hit zombie. */
+  targetKey: number;
+  /** Damage after mitigation, including Phone Addict shield leakage. */
+  amount: number;
+  x: number;
+  y: number;
+  z: number;
+  killed: boolean;
+}
+
 /** Contact effect for a touched part: its melee visual, or a bare ram. */
 function meleeVfxKindFor(visual: string | undefined): MeleeVfxKind {
   if (visual === 'blade') return 'blade';
@@ -80,6 +91,15 @@ export class ZombieSystem {
   private readonly fallbackGeometry: THREE.CapsuleGeometry;
   private readonly projectiles: ThrowerProjectiles;
   private readonly landmines: Landmines;
+  /** Reused because this callback runs on the fixed-step combat path. */
+  private readonly damageReport: ZombieDamageReport = {
+    targetKey: 0,
+    amount: 0,
+    x: 0,
+    y: 0,
+    z: 0,
+    killed: false,
+  };
   private readonly tryProjectileImpact = (
     x: number,
     y: number,
@@ -142,6 +162,7 @@ export class ZombieSystem {
   private attackDamageMultiplier = 1;
   private mineRevealRadiusM = 0;
   private currentWave = 1;
+  private damageListener: ((report: ZombieDamageReport) => void) | null = null;
   private disposed = false;
 
   constructor(
@@ -242,6 +263,13 @@ export class ZombieSystem {
       1,
       Math.floor(Number.isFinite(wave) ? wave : 1),
     );
+  }
+
+  /** Report every damage event without making gameplay depend on presentation. */
+  setDamageListener(
+    listener: ((report: ZombieDamageReport) => void) | null,
+  ): void {
+    this.damageListener = listener;
   }
 
   /** Pass-through for the minimap. */
@@ -424,14 +452,16 @@ export class ZombieSystem {
     // damage continues to wash around it at full strength.
     if (zombie.kind === 'phone-addict' && damageType !== 'aoe') {
       zombie.flashShield();
-      const killed = zombie.takeDamage(
-        damage * empShieldLeak(empLevel),
-        direction,
-      );
+      const appliedDamage = damage * empShieldLeak(empLevel);
+      const wasTargetable = zombie.isTargetable;
+      const killed = zombie.takeDamage(appliedDamage, direction);
+      if (wasTargetable) this.reportZombieDamage(zombie, appliedDamage, killed);
       if (killed) this.rebuildAliveTargets();
       return killed ? 'killed' : 'shielded';
     }
+    const wasTargetable = zombie.isTargetable;
     const killed = zombie.takeDamage(damage, direction);
+    if (wasTargetable) this.reportZombieDamage(zombie, damage, killed);
     if (killed) this.rebuildAliveTargets();
     return killed ? 'killed' : 'damaged';
   }
@@ -458,7 +488,8 @@ export class ZombieSystem {
     let hit = 0;
     let killedAny = false;
     for (const zombie of this.aliveTargets) {
-      if (skipHandle !== null && zombie.collider.handle === skipHandle) continue;
+      if (skipHandle !== null && zombie.collider.handle === skipHandle)
+        continue;
       const dx = zombie.position.x - x;
       const dy = zombie.position.y - y;
       const dz = zombie.position.z - z;
@@ -473,7 +504,9 @@ export class ZombieSystem {
       this.blastDirection.x = dx / distance;
       this.blastDirection.y = 0;
       this.blastDirection.z = dz / distance;
-      if (zombie.takeDamage(damage, this.blastDirection)) killedAny = true;
+      const killed = zombie.takeDamage(damage, this.blastDirection);
+      this.reportZombieDamage(zombie, damage, killed);
+      if (killed) killedAny = true;
     }
     if (killedAny) this.rebuildAliveTargets();
     return hit;
@@ -513,7 +546,30 @@ export class ZombieSystem {
     this.activeScratch.length = 0;
     this.aliveTargets.length = 0;
     this.vehicleAnchors.length = 0;
+    this.damageListener = null;
     this.fallbackGeometry.dispose();
+  }
+
+  /** The listener consumes synchronously, so one report object is enough for every hit. */
+  private reportZombieDamage(
+    zombie: Zombie,
+    amount: number,
+    killed: boolean,
+  ): void {
+    const listener = this.damageListener;
+    if (
+      typeof listener !== 'function' ||
+      !Number.isFinite(amount) ||
+      amount <= 0
+    )
+      return;
+    this.damageReport.targetKey = zombie.collider.handle;
+    this.damageReport.amount = amount;
+    this.damageReport.x = zombie.position.x;
+    this.damageReport.y = zombie.position.y;
+    this.damageReport.z = zombie.position.z;
+    this.damageReport.killed = killed;
+    listener(this.damageReport);
   }
 
   private buildVehicleAnchors(): void {
@@ -656,15 +712,19 @@ export class ZombieSystem {
           : vehicleSpeed >= MIN_IMPACT_SPEED
             ? vehicleSpeed * IMPACT_DAMAGE_PER_SPEED * massFactor
             : 0;
-      const landed = zombie.applyVehicleImpact(
-        Math.max(impactDamage, melee?.damage ?? 0),
-        awayX,
-        awayZ,
-      );
+      const damage = Math.max(impactDamage, melee?.damage ?? 0);
+      // The lethal ram sentinel intentionally bypasses health; display the
+      // remaining health instead of a 16-digit implementation detail.
+      const damageForReport =
+        damage === Number.MAX_SAFE_INTEGER ? zombie.currentHealth : damage;
+      const landed = zombie.applyVehicleImpact(damage, awayX, awayZ);
       // The per-zombie impact cooldown inside applyVehicleImpact is also what
       // paces the shred bursts: a drum touching a packed horde emits once per
       // zombie per cooldown, never once per fixed step.
-      if (landed !== 'ignored') this.emitShredVfx(zombie, melee, awayX, awayZ, vehicleSpeed);
+      if (landed !== 'ignored') {
+        this.reportZombieDamage(zombie, damageForReport, landed === 'killed');
+        this.emitShredVfx(zombie, melee, awayX, awayZ, vehicleSpeed);
+      }
     }
 
     if (contacts === 0) return;

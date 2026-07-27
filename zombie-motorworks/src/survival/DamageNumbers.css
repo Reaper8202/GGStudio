@@ -1,0 +1,56 @@
+.damage-numbers {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+}
+
+/* The generic HUD rule enables direct children, while this layer is decoration only. */
+.ui-layer > .damage-numbers {
+  pointer-events: none;
+}
+
+.damage-numbers__number {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--ui-text-muted);
+  font-family: var(--ui-font-display);
+  font-size: 1.5rem;
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+  -webkit-text-stroke: 1px var(--ui-ink);
+  text-shadow:
+    -2px -2px 0 var(--ui-ink),
+    2px -2px 0 var(--ui-ink),
+    -2px 2px 0 var(--ui-ink),
+    2px 2px 0 var(--ui-ink);
+  will-change: transform, opacity;
+}
+
+.damage-numbers__number--medium {
+  color: var(--ui-rust);
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+.damage-numbers__number--high {
+  color: var(--ui-danger);
+  font-size: 2.2rem;
+  font-weight: 900;
+  -webkit-text-stroke-width: 2px;
+}
+
+.damage-numbers__number--killing {
+  color: var(--ui-danger);
+  font-size: 2.55rem;
+  font-weight: 900;
+  -webkit-text-stroke-width: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .damage-numbers__number {
+    transition: none;
+  }
+}

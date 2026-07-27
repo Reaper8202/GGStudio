@@ -4,23 +4,23 @@
 > edit by hand. Search this file for a path or exported symbol; do not read
 > it end to end as routine task setup.
 
-- Source Modules: 83
-- Source lines: 29,191
-- Test files scanned: 77
+- Source Modules: 85
+- Source lines: 29,737
+- Test files scanned: 78
 
 ## Largest Modules
 
 | Module | LOC |
 | --- | ---: |
-| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2684 |
+| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2704 |
 | [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 1827 |
 | [`src/editor/ui.ts`](../../src/editor/ui.ts) | 1384 |
 | [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 1349 |
 | [`src/app/App.ts`](../../src/app/App.ts) | 1174 |
 | [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) | 1040 |
+| [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 866 |
 | [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 850 |
 | [`src/survival/arena/ArenaBuilder.ts`](../../src/survival/arena/ArenaBuilder.ts) | 813 |
-| [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 806 |
 | [`src/chamber/ChamberMode.ts`](../../src/chamber/ChamberMode.ts) | 747 |
 
 ## src/app
@@ -157,6 +157,14 @@
 - External packages: none
 - Direct tests: `unit/commands.test.ts`, `unit/wheel-config.test.ts`
 
+### [`src/core/damageNumbers.ts`](../../src/core/damageNumbers.ts) (238 LOC)
+
+- Exports: `DAMAGE_TIER_THRESHOLDS`, `DamageNumber`, `DamageNumberModel`, `DamageNumberOptions`, `damageTier`, `DamageTier`
+- Imports: `src/core/rng.ts`
+- Imported by: `src/survival/DamageNumbers.ts`
+- External packages: none
+- Direct tests: `unit/damage-numbers.test.ts`
+
 ### [`src/core/economy.ts`](../../src/core/economy.ts) (148 LOC)
 
 - Exports: `canAfford`, `isStarterUnlocked`, `nextUpgrade`, `partInvestment`, `partRepairCost`, `placeCost`, `RepairLineItem`, `repairPlan`, `RepairPlan`, `RunState`, `scaledHpOnUpgrade`, `sellRefund`, `unlockCost`
@@ -217,7 +225,7 @@
 
 - Exports: `makeRng`, `randomSeed`, `Rng`, `rngInt`, `rngPick`, `rngRange`, `rngShuffle`, `rngWeighted`
 - Imports: none
-- Imported by: `src/app/App.ts`, `src/core/runSave.ts`, `src/survival/SurvivalMode.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/placement.ts`
+- Imported by: `src/app/App.ts`, `src/core/damageNumbers.ts`, `src/core/runSave.ts`, `src/survival/SurvivalMode.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/placement.ts`
 - External packages: none
 - Direct tests: `unit/arena.test.ts`, `unit/rng.test.ts`
 
@@ -419,6 +427,14 @@
 - External packages: `@dimforge/rapier3d-compat`
 - Direct tests: `unit/auto-aim.test.ts`
 
+### [`src/survival/DamageNumbers.ts`](../../src/survival/DamageNumbers.ts) (228 LOC)
+
+- Exports: `DamageNumbersOverlay`
+- Imports: `src/core/damageNumbers.ts`, `src/survival/DamageNumbers.css`
+- Imported by: `src/survival/SurvivalMode.ts`
+- External packages: `three`
+- Direct tests: none
+
 ### [`src/survival/FollowCamera.ts`](../../src/survival/FollowCamera.ts) (141 LOC)
 
 - Exports: `FollowBounds`, `FollowCamera`
@@ -443,10 +459,10 @@
 - External packages: `three`
 - Direct tests: `unit/minimap.test.ts`
 
-### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (2684 LOC)
+### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (2704 LOC)
 
 - Exports: `applyZombieShot`, `createWaveClearPayload`, `SurvivalCallbacks`, `SurvivalMode`, `SurvivalPhase`, `SurvivalTelemetry`, `WaveClearPayload`
-- Imports: `src/app/badgeStore.ts`, `src/app/sfx.ts`, `src/core/abilities.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/waveTimeline.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/Tracers.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveClearCard.ts`, `src/survival/WaveManager.ts`, `src/survival/WaveTimelineHud.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/ScopeCursor.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
+- Imports: `src/app/badgeStore.ts`, `src/app/sfx.ts`, `src/core/abilities.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/waveTimeline.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/DamageNumbers.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/Tracers.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveClearCard.ts`, `src/survival/WaveManager.ts`, `src/survival/WaveTimelineHud.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/ScopeCursor.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
 - Imported by: `src/app/App.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/ice-cannon-slow.test.ts`, `unit/pending-rewards.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-score.test.ts`, `unit/turret-piercing.test.ts`
@@ -619,9 +635,9 @@
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/run-score.test.ts`, `unit/score.test.ts`, `unit/turret-emp.test.ts`, `unit/turret-piercing.test.ts`
 
-### [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) (806 LOC)
+### [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) (866 LOC)
 
-- Exports: `ZombieHitResult`, `ZombieSystem`
+- Exports: `ZombieDamageReport`, `ZombieHitResult`, `ZombieSystem`
 - Imports: `src/core/mass.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/zombies/Landmines.ts`, `src/survival/zombies/ThrowerProjectiles.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/zombieConfig.ts`, `src/vfx/VfxSystem.ts`
 - Imported by: `src/survival/AutoAim.ts`, `src/survival/SurvivalMode.ts`, `src/survival/WaveManager.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`

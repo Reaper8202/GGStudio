@@ -15,3 +15,4 @@ verify-ui.mjs
 probe.mjs
 verify-timeline.mjs
 verify-polish.mjs
+verify-damage.mjs
