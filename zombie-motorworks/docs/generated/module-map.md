@@ -5,14 +5,14 @@
 > it end to end as routine task setup.
 
 - Source Modules: 76
-- Source lines: 26,570
-- Test files scanned: 71
+- Source lines: 26,800
+- Test files scanned: 73
 
 ## Largest Modules
 
 | Module | LOC |
 | --- | ---: |
-| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2694 |
+| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2717 |
 | [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 1827 |
 | [`src/editor/ui.ts`](../../src/editor/ui.ts) | 1384 |
 | [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 1333 |
@@ -33,13 +33,13 @@
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/app.test.ts`, `unit/biome-selection.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-reset.test.ts`
 
-### [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) (316 LOC)
+### [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) (523 LOC)
 
-- Exports: `TitleScreen`, `TitleScreenHandlers`
-- Imports: `src/app/App.ts`, `src/app/profileStore.ts`, `src/core/parts.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/editor/EditorMode.ts`, `src/editor/meshes.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/graveyard.ts`
+- Exports: `formatRelativeDate`, `TitleScreen`, `TitleScreenHandlers`
+- Imports: `src/app/App.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/editor/EditorMode.ts`, `src/editor/meshes.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/graveyard.ts`
 - Imported by: `src/app/App.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`
-- Direct tests: none
+- Direct tests: `unit/leaderboard-rows.test.ts`
 
 ### [`src/app/crazyGamesSdk.ts`](../../src/app/crazyGamesSdk.ts) (182 LOC)
 
@@ -53,7 +53,7 @@
 
 - Exports: `LEADERBOARD_STORAGE_KEY`, `LeaderboardStorage`, `leaderboardStore`, `LeaderboardStore`
 - Imports: `src/core/leaderboard.ts`
-- Imported by: `src/app/App.ts`
+- Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`
 - External packages: none
 - Direct tests: `unit/leaderboard-store.test.ts`
 
@@ -153,9 +153,9 @@
 
 - Exports: `decodeLeaderboard`, `encodeLeaderboard`, `insertEntry`, `isPersonalBest`, `LEADERBOARD_MAX_ENTRIES`, `LeaderboardEntry`, `LeaderboardRow`, `leaderboardRows`, `personalBest`, `RunOutcome`
 - Imports: none
-- Imported by: `src/app/App.ts`, `src/app/leaderboardStore.ts`, `src/survival/SurvivalMode.ts`
+- Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/app/leaderboardStore.ts`, `src/survival/SurvivalMode.ts`
 - External packages: none
-- Direct tests: `unit/leaderboard-store.test.ts`, `unit/leaderboard.test.ts`
+- Direct tests: `unit/leaderboard-rows.test.ts`, `unit/leaderboard-store.test.ts`, `unit/leaderboard.test.ts`
 
 ### [`src/core/mass.ts`](../../src/core/mass.ts) (98 LOC)
 
@@ -411,7 +411,7 @@
 - External packages: `three`
 - Direct tests: `unit/minimap.test.ts`
 
-### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (2694 LOC)
+### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (2717 LOC)
 
 - Exports: `applyZombieShot`, `createWaveClearPayload`, `SurvivalCallbacks`, `SurvivalMode`, `SurvivalPhase`, `SurvivalTelemetry`, `WaveClearPayload`
 - Imports: `src/core/abilities.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveManager.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/ScopeCursor.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`

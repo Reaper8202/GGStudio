@@ -49,6 +49,7 @@ declare global {
       survivalTelemetry(): {
         mode: 'survival';
         kills: number;
+        score: number;
         wave: number;
         zombiesAlive: number;
         runMoney: number;

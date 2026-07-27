@@ -142,6 +142,73 @@ body,
   margin-top: 12px;
 }
 
+.title-leaderboard-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(4 5 4 / 0.84);
+}
+
+.title-leaderboard-dialog {
+  display: grid;
+  width: min(700px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  /* The board's table sets a min-width so its columns stay legible. Without an
+     explicit column track the grid sizes to that width and stretches every
+     other row (the actions button) past the viewport, where overflow clips it
+     out of reach. Pin the column to the dialog and let the board scroll. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  padding: 24px;
+  overflow: hidden;
+  background: var(--panel-bg-strong);
+  box-shadow:
+    12px 14px 0 rgb(0 0 0 / 0.52),
+    inset 3px 0 0 var(--ui-signal-dark);
+  text-align: left;
+}
+
+.title-leaderboard-dialog h2 {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.title-leaderboard-dialog > p {
+  margin-top: 7px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1.45 var(--ui-font-body);
+}
+
+.title-leaderboard__board {
+  min-width: 0;
+  min-height: 0;
+  margin-top: 18px;
+}
+
+.title-leaderboard__board .leaderboard {
+  max-height: min(52vh, 420px);
+  overflow: auto;
+}
+
+.title-leaderboard__board .leaderboard table {
+  min-width: 560px;
+}
+
+.title-leaderboard__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.title-leaderboard__actions button {
+  min-width: 150px;
+}
+
 button.danger {
   background: var(--ui-danger-dark);
   border-color: var(--ui-edge);
@@ -1899,6 +1966,14 @@ button:disabled {
     left: 4px;
     font-size: 8px !important;
   }
+
+  .title-leaderboard-overlay {
+    padding: 16px;
+  }
+
+  .title-leaderboard-dialog {
+    width: 100%;
+  }
 }
 
 /* Survival HUD ------------------------------------------------------------ */
@@ -2715,6 +2790,194 @@ button:disabled {
   }
 }
 
+.survival-gameover {
+  top: 50% !important;
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--panel-bg-strong);
+  box-shadow:
+    10px 12px 0 rgb(0 0 0 / 0.52),
+    inset 3px 0 0 var(--ui-rust);
+}
+
+.survival-gameover h2 {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.survival-gameover__best {
+  width: max-content;
+  margin: 10px auto 0;
+  padding: 4px 9px;
+  border: 1px solid var(--ui-signal-dark);
+  background: #1b2115;
+  color: var(--ui-signal-strong);
+  font: 400 var(--ui-text-12)/1 var(--ui-font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.survival-gameover__score-label {
+  margin-top: 17px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.survival-gameover__score {
+  margin-top: 4px;
+  color: var(--ui-bone);
+  font: 400 clamp(3.25rem, 11vw, 5.25rem)/0.82 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  text-shadow: 4px 4px 0 var(--ui-black);
+}
+
+.survival-gameover__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 22px;
+  background: var(--ui-edge);
+  border: 1px solid var(--ui-edge);
+  text-align: left;
+}
+
+.survival-gameover__stats > div {
+  display: grid;
+  gap: 5px;
+  padding: 11px 13px;
+  background: var(--ui-recess);
+}
+
+.survival-gameover__stats span {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.survival-gameover__stats strong {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-20)/1 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.survival-gameover__board {
+  margin-top: 16px;
+  text-align: left;
+}
+
+.survival-gameover__reset {
+  margin-top: 16px;
+  padding: 12px 13px;
+  border: 1px solid var(--ui-danger-dark);
+  background: rgb(79 37 34 / 0.38);
+  box-shadow: inset 4px 0 0 var(--ui-danger);
+  color: #d9c5bf;
+  font: 700 var(--ui-text-12)/1.5 var(--ui-font-body);
+  text-align: left;
+}
+
+.survival-gameover__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.survival-gameover__actions button {
+  min-width: 190px;
+  min-height: 46px;
+  padding-inline: 18px;
+  font-size: var(--ui-text-16);
+}
+
+.leaderboard {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-recess);
+}
+
+.leaderboard table {
+  width: 100%;
+  min-width: 400px;
+  border-collapse: collapse;
+  color: var(--ui-text);
+  font-family: var(--ui-font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard th,
+.leaderboard td {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--ui-edge-soft);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.leaderboard thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ui-surface-2);
+  color: var(--ui-text-muted);
+  font: 400 var(--ui-text-10)/1 var(--ui-font-display);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.leaderboard th:first-child {
+  text-align: left;
+}
+
+.leaderboard tbody th:first-child {
+  position: relative;
+}
+
+.leaderboard tbody th {
+  color: var(--ui-text-muted);
+  font-weight: 700;
+}
+
+.leaderboard tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.leaderboard tr.is-current-run > * {
+  border-top: 1px solid var(--ui-signal);
+  border-bottom: 1px solid var(--ui-signal);
+  background: #20261a;
+  font-weight: 900;
+}
+
+.leaderboard tr.is-current-run > *:first-child {
+  box-shadow: inset 4px 0 0 var(--ui-signal);
+}
+
+.leaderboard tr.is-current-run > th:first-child::after {
+  margin-left: 7px;
+  padding: 2px 4px;
+  background: var(--ui-signal);
+  color: var(--ui-black);
+  content: 'YOU';
+  font: 400 9px/1 var(--ui-font-display);
+  letter-spacing: 0.04em;
+}
+
+.leaderboard__empty {
+  padding: 18px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1.5 var(--ui-font-body);
+  text-align: center;
+}
+
 .survival-victory {
   width: min(620px, calc(100vw - 32px));
   max-height: min(760px, calc(100vh - 32px));
@@ -2806,6 +3069,48 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
+  .title-screen {
+    place-items: start center;
+    padding: 8px;
+    overflow-y: auto;
+  }
+
+  .title-panel {
+    width: 100%;
+    padding: 20px 16px;
+  }
+
+  .title-subtitle {
+    margin: 10px 0 16px;
+  }
+
+  .title-actions {
+    gap: 6px;
+  }
+
+  .title-action {
+    min-height: 44px;
+    font-size: var(--ui-text-16);
+  }
+
+  .title-leaderboard-overlay {
+    position: fixed;
+    padding: 8px;
+  }
+
+  .title-leaderboard-dialog {
+    max-height: calc(100vh - 16px);
+    padding: 18px;
+  }
+
+  .title-leaderboard__actions {
+    margin-top: 12px;
+  }
+
+  .title-leaderboard__actions button {
+    width: 100%;
+  }
+
   .run-banner.run-active {
     grid-template-columns: 1fr;
   }
@@ -2863,6 +3168,33 @@ button:disabled {
 
   .survival-earned {
     padding-top: 7px;
+  }
+
+  .survival-score {
+    grid-column: 1 / -1;
+  }
+
+  .survival-gameover {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    padding: 18px !important;
+  }
+
+  .survival-gameover__stats {
+    margin-top: 18px;
+  }
+
+  .survival-gameover__reset {
+    font-size: var(--ui-text-11);
+  }
+
+  .survival-gameover__actions button {
+    width: 100%;
+  }
+
+  .leaderboard th,
+  .leaderboard td {
+    padding: 8px 9px;
   }
 }
 

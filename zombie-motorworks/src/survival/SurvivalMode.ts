@@ -287,6 +287,7 @@ interface SurvivalUi {
   abilityValue: HTMLDivElement;
   waveValue: HTMLSpanElement;
   remainingValue: HTMLSpanElement;
+  scoreValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
   pendingMoneyValue: HTMLSpanElement;
   stuckPrompt: HTMLDivElement;
@@ -424,6 +425,7 @@ export class SurvivalMode {
   private shieldBubblePhase = 0;
   private readonly waveValue: HTMLSpanElement;
   private readonly remainingValue: HTMLSpanElement;
+  private readonly scoreValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
   private readonly pendingMoneyValue: HTMLSpanElement;
   private readonly stuckPrompt: HTMLDivElement;
@@ -473,6 +475,7 @@ export class SurvivalMode {
   private lastHudSpeed = -1;
   private lastHudWave = -1;
   private lastHudRemaining = -1;
+  private lastHudScore = -1;
   private lastHudMoney = -1;
   private lastHudPending = -1;
   private lastCountdownSecond = -1;
@@ -619,6 +622,7 @@ export class SurvivalMode {
     this.abilityValue = builtUi.abilityValue;
     this.waveValue = builtUi.waveValue;
     this.remainingValue = builtUi.remainingValue;
+    this.scoreValue = builtUi.scoreValue;
     this.moneyValue = builtUi.moneyValue;
     this.pendingMoneyValue = builtUi.pendingMoneyValue;
     this.stuckPrompt = builtUi.stuckPrompt;
@@ -906,7 +910,21 @@ export class SurvivalMode {
     pendingMoneyLabel.textContent = 'Pending';
     const pendingMoneyValue = document.createElement('span');
     pendingMoneyRow.append(pendingMoneyLabel, pendingMoneyValue);
-    hud.append(speedRow, health, fuel, ability, moneyRow, pendingMoneyRow);
+    const scoreRow = document.createElement('div');
+    scoreRow.className = 'survival-earned survival-score';
+    const scoreLabel = document.createElement('span');
+    scoreLabel.textContent = 'Score';
+    const scoreValue = document.createElement('span');
+    scoreRow.append(scoreLabel, scoreValue);
+    hud.append(
+      speedRow,
+      health,
+      fuel,
+      ability,
+      scoreRow,
+      moneyRow,
+      pendingMoneyRow,
+    );
     root.appendChild(hud);
 
     const stuckPrompt = document.createElement('div');
@@ -1171,6 +1189,7 @@ export class SurvivalMode {
       abilityValue,
       waveValue,
       remainingValue,
+      scoreValue,
       moneyValue,
       pendingMoneyValue,
       stuckPrompt,
@@ -2282,6 +2301,10 @@ export class SurvivalMode {
       this.fuelFill.classList.toggle('is-empty', telemetry.fuel <= 0);
     }
     this.syncAbilityHud();
+    if (this.runScore !== this.lastHudScore) {
+      this.lastHudScore = this.runScore;
+      this.scoreValue.textContent = this.runScore.toLocaleString();
+    }
     const money = this.callbacks.runEarnings();
     if (money !== this.lastHudMoney) {
       this.lastHudMoney = money;
