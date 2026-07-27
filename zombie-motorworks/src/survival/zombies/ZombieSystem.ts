@@ -64,6 +64,31 @@ export interface ZombieDamageReport {
   killed: boolean;
 }
 
+/**
+ * Pack integer grid coordinates into one number for the separation buckets.
+ * The graveyard is a few hundred metres across, so 16 bits a side is ample
+ * and keeps the key a small integer rather than a string.
+ */
+function packCell(cellX: number, cellZ: number): number {
+  return ((cellX + 0x8000) << 16) | ((cellZ + 0x8000) & 0xffff);
+}
+
+function separationCellKey(x: number, z: number): number {
+  return packCell(
+    Math.floor(x / SEPARATION_RADIUS),
+    Math.floor(z / SEPARATION_RADIUS),
+  );
+}
+
+/**
+ * Beyond this distance from the chassis a zombie is walking, not fighting, so
+ * it re-picks which part to head for only every few steps instead of scanning
+ * the whole rig every step. Comfortably outside any attack or contact range.
+ */
+const FULL_TARGET_SCAN_RANGE_M = 14;
+/** How often a distant zombie re-scans, in fixed steps (staggered by index). */
+const DISTANT_TARGET_RESCAN_STEPS = 8;
+
 /** Contact effect for a touched part: its melee visual, or a bare ram. */
 function meleeVfxKindFor(visual: string | undefined): MeleeVfxKind {
   if (visual === 'blade') return 'blade';
@@ -79,10 +104,19 @@ export class ZombieSystem {
   private readonly aliveTargets: Zombie[] = [];
   private readonly separationX = new Float32Array(ZOMBIE_POOL_SIZE);
   private readonly separationZ = new Float32Array(ZOMBIE_POOL_SIZE);
+  /** Reused cell buckets for crowd separation; see applySeparation. */
+  private readonly separationBuckets = new Map<number, Zombie[]>();
   private readonly watchdogX = new Float32Array(ZOMBIE_POOL_SIZE);
   private readonly watchdogZ = new Float32Array(ZOMBIE_POOL_SIZE);
   private readonly watchdogTimer = new Float32Array(ZOMBIE_POOL_SIZE);
   private readonly vehicleAnchors: VehiclePartAnchor[] = [];
+  /** Anchor lookup for the staggered far-field targeting path. */
+  private readonly anchorByPartId = new Map<string, VehiclePartAnchor>();
+  /** Chassis origin this step, for the cheap near/far targeting test. */
+  private vehicleCentreX = 0;
+  private vehicleCentreZ = 0;
+  /** Fixed steps run, used to stagger distant-zombie re-targeting. */
+  private stepCounter = 0;
   private readonly spawnCandidateIndices: Int16Array;
   private readonly spawnCandidateDistances: Float32Array;
   private readonly spawnScratch = new THREE.Vector3();
@@ -328,6 +362,7 @@ export class ZombieSystem {
   /** Advance AI and forces before the owning mode calls world.step(). */
   step(dt: number): void {
     if (this.disposed || dt <= 0) return;
+    this.stepCounter++;
     this.updateVehicleAnchors();
     this.activeScratch.length = 0;
     for (const zombie of this.pool) {
@@ -547,6 +582,8 @@ export class ZombieSystem {
     this.aliveTargets.length = 0;
     this.vehicleAnchors.length = 0;
     this.damageListener = null;
+    this.anchorByPartId.clear();
+    this.separationBuckets.clear();
     this.fallbackGeometry.dispose();
   }
 
@@ -584,7 +621,7 @@ export class ZombieSystem {
         localY += centre.y;
         localZ += centre.z;
       }
-      this.vehicleAnchors.push({
+      const anchor: VehiclePartAnchor = {
         partId,
         part,
         localX: localX / count,
@@ -593,13 +630,17 @@ export class ZombieSystem {
         worldX: 0,
         worldY: 0,
         worldZ: 0,
-      });
+      };
+      this.vehicleAnchors.push(anchor);
+      this.anchorByPartId.set(partId, anchor);
     }
   }
 
   /** Transform every attached part centroid once, not once per zombie. */
   private updateVehicleAnchors(): void {
     const position = this.vehicle.body.translation();
+    this.vehicleCentreX = position.x;
+    this.vehicleCentreZ = position.z;
     const rotation = this.vehicle.body.rotation();
     const qx = rotation.x;
     const qy = rotation.y;
@@ -619,7 +660,51 @@ export class ZombieSystem {
     }
   }
 
+  /**
+   * Point a zombie at the nearest live part. Scanning every anchor for every
+   * zombie every step is the rig-size × horde-size product, and the far half
+   * of the horde is only using the answer to walk in roughly the right
+   * direction. Zombies outside {@link FULL_TARGET_SCAN_RANGE_M} therefore keep
+   * the part they already chose — its world position is still refreshed every
+   * step, so they track the moving vehicle exactly — and re-scan on a stagger.
+   * Anything close enough to touch the rig scans in full, every step.
+   */
   private findNearestVehiclePart(zombie: Zombie): void {
+    const target = zombie.vehicleTarget;
+    if (target.partId !== null && !this.isNearVehicle(zombie)) {
+      const anchor = this.anchorByPartId.get(target.partId);
+      const stale =
+        (this.stepCounter + zombie.index) % DISTANT_TARGET_RESCAN_STEPS === 0;
+      if (
+        !stale &&
+        anchor !== undefined &&
+        anchor.part.alive &&
+        !anchor.part.detached &&
+        anchor.part.health > 0
+      ) {
+        target.x = anchor.worldX;
+        target.y = anchor.worldY;
+        target.z = anchor.worldZ;
+        const dx = anchor.worldX - zombie.position.x;
+        const dy = anchor.worldY - zombie.position.y;
+        const dz = anchor.worldZ - zombie.position.z;
+        target.distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        return;
+      }
+    }
+    this.scanNearestVehiclePart(zombie);
+  }
+
+  /** Rough distance test against the chassis origin, one check per zombie. */
+  private isNearVehicle(zombie: Zombie): boolean {
+    const dx = this.vehicleCentreX - zombie.position.x;
+    const dz = this.vehicleCentreZ - zombie.position.z;
+    return (
+      dx * dx + dz * dz <= FULL_TARGET_SCAN_RANGE_M * FULL_TARGET_SCAN_RANGE_M
+    );
+  }
+
+  private scanNearestVehiclePart(zombie: Zombie): void {
     const target = zombie.vehicleTarget;
     let nearestDistanceSq = Infinity;
     target.partId = null;
@@ -642,28 +727,62 @@ export class ZombieSystem {
     if (target.partId !== null) target.distance = Math.sqrt(nearestDistanceSq);
   }
 
+  /**
+   * Crowd separation over a uniform hash grid rather than every pair.
+   *
+   * Zombies only push each other inside SEPARATION_RADIUS, so bucketing them
+   * into cells of exactly that size means a zombie can only be pushed by the
+   * nine cells around it. A packed horde used to cost one distance check per
+   * pair — quadratic in the horde size, and the horde is what grows every
+   * wave. The result is identical: the same pairs are found, in the same
+   * order, with the same forces.
+   */
   private applySeparation(active: readonly Zombie[]): void {
     this.separationX.fill(0);
     this.separationZ.fill(0);
     const radiusSq = SEPARATION_RADIUS * SEPARATION_RADIUS;
+    if (active.length < 2) return;
 
-    for (let i = 0; i < active.length; i++) {
-      const first = active[i];
-      for (let j = i + 1; j < active.length; j++) {
-        const second = active[j];
-        const dx = first.position.x - second.position.x;
-        const dz = first.position.z - second.position.z;
-        const distanceSq = dx * dx + dz * dz;
-        if (distanceSq >= radiusSq || distanceSq < 1e-6) continue;
+    // Bucket by cell. Cells are keyed by their integer grid coordinates
+    // packed into one number, so the map stays allocation-free per entry.
+    const buckets = this.separationBuckets;
+    for (const list of buckets.values()) list.length = 0;
+    for (const zombie of active) {
+      const key = separationCellKey(zombie.position.x, zombie.position.z);
+      let bucket = buckets.get(key);
+      if (bucket === undefined) {
+        bucket = [];
+        buckets.set(key, bucket);
+      }
+      bucket.push(zombie);
+    }
 
-        const distance = Math.sqrt(distanceSq);
-        const strength = (SEPARATION_RADIUS - distance) * SEPARATION_STRENGTH;
-        const pushX = (dx / distance) * strength;
-        const pushZ = (dz / distance) * strength;
-        this.separationX[first.index] += pushX;
-        this.separationZ[first.index] += pushZ;
-        this.separationX[second.index] -= pushX;
-        this.separationZ[second.index] -= pushZ;
+    for (const zombie of active) {
+      const cellX = Math.floor(zombie.position.x / SEPARATION_RADIUS);
+      const cellZ = Math.floor(zombie.position.z / SEPARATION_RADIUS);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          const bucket = buckets.get(packCell(cellX + ox, cellZ + oz));
+          if (bucket === undefined) continue;
+          for (const other of bucket) {
+            // Each unordered pair is handled once, by the lower index.
+            if (other.index <= zombie.index) continue;
+            const dx = zombie.position.x - other.position.x;
+            const dz = zombie.position.z - other.position.z;
+            const distanceSq = dx * dx + dz * dz;
+            if (distanceSq >= radiusSq || distanceSq < 1e-6) continue;
+
+            const distance = Math.sqrt(distanceSq);
+            const strength =
+              (SEPARATION_RADIUS - distance) * SEPARATION_STRENGTH;
+            const pushX = (dx / distance) * strength;
+            const pushZ = (dz / distance) * strength;
+            this.separationX[zombie.index] += pushX;
+            this.separationZ[zombie.index] += pushZ;
+            this.separationX[other.index] -= pushX;
+            this.separationZ[other.index] -= pushZ;
+          }
+        }
       }
     }
   }

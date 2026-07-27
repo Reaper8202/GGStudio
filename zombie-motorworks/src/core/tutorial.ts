@@ -18,6 +18,7 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'wheel-offroad',
   'wheel-moto',
   'tread-tank',
+  'nitro-injector',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
@@ -26,6 +27,7 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'cannon-heavy',
   'ice-cannon',
   'shield-generator',
+  'pulse-emitter',
   'barrel-drum',
   'spike-ram',
   'sawblade',
@@ -82,7 +84,8 @@ export const KID_LABELS: Record<string, PartLabel> = {
   },
   'ice-cannon': {
     name: 'Ice Cannon',
-    blurb: 'Shoots chilly shards that slow zombies — press Q to freeze them solid!',
+    blurb:
+      'Shoots chilly shards that slow zombies — hit its key to freeze them solid!',
   },
   'barrel-drum': {
     name: 'Grinder Drum',
@@ -106,7 +109,15 @@ export const KID_LABELS: Record<string, PartLabel> = {
   },
   'shield-generator': {
     name: 'Shield Bubble',
-    blurb: 'Press Q for a blue bubble that keeps your truck safe for a bit!',
+    blurb: 'Press its key for a blue bubble that keeps your truck safe for a bit!',
+  },
+  'pulse-emitter': {
+    name: 'Push Blaster',
+    blurb: 'BOOM! Shoves every zombie around you away and hurts them too!',
+  },
+  'nitro-injector': {
+    name: 'Speed Boost',
+    blurb: 'Gives your truck a big push of go-fast for smashing through!',
   },
 };
 

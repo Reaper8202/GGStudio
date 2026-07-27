@@ -18,12 +18,14 @@ describe('AutoAim', () => {
       mountLocal: { x: 1, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 },
       yaw: 0,
+      pitch: 0,
       cooldown: 0,
       cycleTime: 0,
       shotsFired: 0,
       label: 'Test Weapon',
       empLevel: 0,
       piercingLevel: 0,
+      overcharge: null,
     };
     const manualWeapon: RuntimeWeapon = {
       partId: 'manual',
@@ -33,12 +35,14 @@ describe('AutoAim', () => {
       mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 },
       yaw: 0,
+      pitch: 0,
       cooldown: 0,
       cycleTime: 0,
       shotsFired: 0,
       label: 'Test Weapon',
       empLevel: 0,
       piercingLevel: 0,
+      overcharge: null,
     };
     const vehicle = {
       body: {
@@ -95,12 +99,14 @@ describe('AutoAim', () => {
       mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 },
       yaw: 0,
+      pitch: 0,
       cooldown: 0,
       cycleTime: 0,
       shotsFired: 0,
       label: 'Test Weapon',
       empLevel: 0,
       piercingLevel: 0,
+      overcharge: null,
     };
     const vehicle = {
       body: {
@@ -131,7 +137,7 @@ describe('AutoAim', () => {
   it('holds fire when all bounded candidates are occluded', () => {
     const weapon: RuntimeWeapon = {
       partId: 'auto', weaponDefId: 'ice-cannon', def: PART_CATALOG['ice-cannon'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, pitch: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0, overcharge: null,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -148,7 +154,7 @@ describe('AutoAim', () => {
   it('prefers an in-range thrower over a nearer walker for ranged-priority weapons', () => {
     const weapon: RuntimeWeapon = {
       partId: 'sniper', weaponDefId: 'sniper-light', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, pitch: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0, overcharge: null,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -184,7 +190,7 @@ describe('AutoAim', () => {
         targetPriority: 'strongest',
       },
       mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, pitch: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0, overcharge: null,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -210,7 +216,7 @@ describe('AutoAim', () => {
   it('holds fire when the only target sits inside the minimum range', () => {
     const weapon: RuntimeWeapon = {
       partId: 'sniper', weaponDefId: 'sniper-light', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
-      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0,
+      forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, pitch: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0, overcharge: null,
     };
     const vehicle = {
       body: { translation: () => ({ x: 0, y: 0, z: 0 }), rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }) },
@@ -267,12 +273,14 @@ function autoTurret(empLevel: number): RuntimeWeapon {
     mountLocal: { x: 0, y: 0, z: 0 },
     forwardLocal: { x: 0, y: 0, z: 1 },
     yaw: 0,
+    pitch: 0,
     cooldown: 0,
     cycleTime: 0,
     shotsFired: 0,
     label: 'Test Weapon',
     empLevel,
     piercingLevel: 0,
+    overcharge: null,
   };
 }
 

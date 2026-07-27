@@ -5,7 +5,19 @@
 
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { effectiveFreeze, effectiveShield } from '../core/abilities.ts';
+import {
+  ABILITY_KIND_META,
+  ABILITY_SLOT_KEYS,
+  effectiveFreeze,
+  effectiveHellfire,
+  effectiveOverdrive,
+  effectivePulse,
+  effectiveShield,
+  MAX_ABILITY_SLOTS,
+  resolveAbilityLoadout,
+  type AbilityCandidate,
+  type AbilitySlotAssignment,
+} from '../core/abilities.ts';
 import { evaluateWaveBadges, type WaveResultStats } from '../core/badges.ts';
 import {
   combineEnvironments,
@@ -34,7 +46,7 @@ import { randomSeed } from '../core/rng.ts';
 import { badgeStore } from '../app/badgeStore.ts';
 import { isSfxMuted, playSfx, setSfxMuted, unlockAudio } from '../app/sfx.ts';
 import type { RuntimePart } from '../runtime/assembler.ts';
-import { buildPartMesh } from '../editor/meshes.ts';
+import { applyWeaponAim, buildPartMesh } from '../editor/meshes.ts';
 import { lowestPointM } from '../runtime/assembler.ts';
 import {
   RuntimeVehicle,
@@ -44,6 +56,7 @@ import {
 import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
+import { AbilityBar, type AbilitySlotView } from '../ui/AbilityBar.ts';
 import { ScopeCursor } from '../ui/ScopeCursor.ts';
 import { VfxSystem } from '../vfx/VfxSystem.ts';
 import { WarningHud } from './WarningHud.ts';
@@ -321,10 +334,6 @@ interface SurvivalUi {
   integrityFill: HTMLSpanElement;
   fuelValue: HTMLSpanElement;
   fuelFill: HTMLSpanElement;
-  abilityRoot: HTMLDivElement;
-  abilityLabel: HTMLSpanElement;
-  abilityFill: HTMLSpanElement;
-  abilityValue: HTMLDivElement;
   waveTimeline: WaveTimelineHud;
   scoreValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
@@ -413,6 +422,9 @@ export class SurvivalMode {
   private readonly shotDirection = new THREE.Vector3();
   private readonly stoppedVelocity = { x: 0, y: 0, z: 0 };
   private readonly minimapForward = new THREE.Vector3();
+  /** Scratch heading for ability effects that fire along the rig's forward axis. */
+  private readonly abilityForward = new THREE.Vector3();
+  private readonly abilityQuaternion = new THREE.Quaternion();
   private readonly ui: HTMLDivElement;
   private readonly minimap: Minimap;
   private readonly scopeCursor: ScopeCursor;
@@ -438,11 +450,9 @@ export class SurvivalMode {
   private readonly fuelValue: HTMLSpanElement;
   private readonly fuelFill: HTMLSpanElement;
   private lastHudFuel = -1;
-  private readonly abilityRoot: HTMLDivElement;
-  private readonly abilityLabel: HTMLSpanElement;
-  private readonly abilityFill: HTMLSpanElement;
-  private readonly abilityValue: HTMLDivElement;
-  /** Translucent blue bubble shown while the Shield Generator is active. */
+  /** Centre-screen bar of special abilities, one box per special. */
+  private readonly abilityBar: AbilityBar;
+  /** Translucent blue bubble shown while the shield special is active. */
   private shieldBubble: THREE.Mesh | null = null;
   private shieldBubbleMaterial: THREE.MeshBasicMaterial | null = null;
   private shieldBubblePhase = 0;
@@ -505,10 +515,24 @@ export class SurvivalMode {
   private recoveryCooldown = 0;
   private recoverySettleSeconds = 0;
   private recoveryRequested = false;
-  private abilityRequested = false;
-  private abilityCooldown = 0;
-  private lastHudAbilityCooldown = -1;
-  private lastHudAbilityName = '';
+  /** Ability slots pressed since the last fixed step, drained by updateAbility. */
+  private readonly abilityRequests = new Set<number>();
+  /**
+   * Seconds left on each ability's cooldown, keyed by the placed part backing
+   * it. Keyed by part rather than by slot so a cooldown follows its emitter:
+   * losing one ability part mid-wave must not hand another a free recharge.
+   */
+  private readonly abilityCooldowns = new Map<string, number>();
+  /** Ability parts filling the bar right now, rebuilt from the live rig. */
+  private abilityLoadout: AbilitySlotAssignment[] = [];
+  /** Scratch buffers refilled in place each frame, so the HUD never allocates. */
+  private readonly abilityCandidates: AbilityCandidate[] = [];
+  private readonly abilitySlotViews: (AbilitySlotView | undefined)[] =
+    ABILITY_SLOT_KEYS.map(() => undefined);
+  /** Loadout the slot views were built from; see abilityLoadoutSignature. */
+  private abilitySlotViewSignature = '';
+  /** Whether the shield bubble was up last frame, for its raise/drop effects. */
+  private shieldWasUp = false;
   private debugProgressionSuppressed = false;
   private audioUnlocked = false;
   private devPanel: DevTunerPanel | null = null;
@@ -541,8 +565,11 @@ export class SurvivalMode {
       event.preventDefault();
       return;
     }
-    if (key === 'q') {
-      if (!event.repeat) this.abilityRequested = true;
+    const abilitySlot = ABILITY_SLOT_KEYS.indexOf(
+      key as (typeof ABILITY_SLOT_KEYS)[number],
+    );
+    if (abilitySlot >= 0) {
+      if (!event.repeat) this.requestAbility(abilitySlot);
       event.preventDefault();
       return;
     }
@@ -629,10 +656,6 @@ export class SurvivalMode {
     this.integrityFill = builtUi.integrityFill;
     this.fuelValue = builtUi.fuelValue;
     this.fuelFill = builtUi.fuelFill;
-    this.abilityRoot = builtUi.abilityRoot;
-    this.abilityLabel = builtUi.abilityLabel;
-    this.abilityFill = builtUi.abilityFill;
-    this.abilityValue = builtUi.abilityValue;
     this.waveTimelineHud = builtUi.waveTimeline;
     this.scoreValue = builtUi.scoreValue;
     this.moneyValue = builtUi.moneyValue;
@@ -681,6 +704,9 @@ export class SurvivalMode {
         report.killed,
       );
     });
+    this.abilityBar = new AbilityBar(this.ui, MAX_ABILITY_SLOTS, (slot) =>
+      this.requestAbility(slot),
+    );
 
     if (Number.isFinite(run.kills) && (run.kills ?? 0) >= 0) {
       this.kills = Math.floor(run.kills ?? 0);
@@ -861,28 +887,8 @@ export class SurvivalMode {
     fuelFill.className = 'survival-fuel__fill';
     fuelTrack.appendChild(fuelFill);
     fuel.append(fuelHeader, fuelTrack);
-    // Ability chip — hidden until an ability part is equipped. Shows the active
-    // ability's name, the Q keybind, and the cooldown. The label is updated at
-    // runtime to whichever ability the player bound to Q in the garage.
-    const ability = document.createElement('div');
-    ability.className = 'survival-ability';
-    ability.hidden = true;
-    const abilityHeader = document.createElement('div');
-    const abilityLabel = document.createElement('span');
-    abilityLabel.textContent = 'Ability';
-    const abilityKey = document.createElement('span');
-    abilityKey.className = 'survival-ability__key';
-    abilityKey.textContent = 'Q';
-    abilityHeader.append(abilityLabel, abilityKey);
-    const abilityTrack = document.createElement('div');
-    abilityTrack.className = 'survival-ability__track';
-    const abilityFill = document.createElement('span');
-    abilityFill.className = 'survival-ability__fill';
-    abilityTrack.appendChild(abilityFill);
-    const abilityValue = document.createElement('div');
-    abilityValue.className = 'survival-ability__status';
-    abilityValue.textContent = 'Ready';
-    ability.append(abilityHeader, abilityTrack, abilityValue);
+    // Specials live in their own centre-screen bar (see AbilityBar), not in
+    // this corner panel — the driver reads them mid-fight, eyes on the road.
     const moneyRow = document.createElement('div');
     moneyRow.className = 'survival-earned';
     const moneyLabel = document.createElement('span');
@@ -901,15 +907,7 @@ export class SurvivalMode {
     scoreLabel.textContent = 'Score';
     const scoreValue = document.createElement('span');
     scoreRow.append(scoreLabel, scoreValue);
-    hud.append(
-      speedRow,
-      health,
-      fuel,
-      ability,
-      scoreRow,
-      moneyRow,
-      pendingMoneyRow,
-    );
+    hud.append(speedRow, health, fuel, scoreRow, moneyRow, pendingMoneyRow);
     root.appendChild(hud);
 
     const stuckPrompt = document.createElement('div');
@@ -1130,10 +1128,6 @@ export class SurvivalMode {
       integrityFill,
       fuelValue,
       fuelFill,
-      abilityRoot: ability,
-      abilityLabel,
-      abilityFill,
-      abilityValue,
       waveTimeline,
       scoreValue,
       moneyValue,
@@ -1663,6 +1657,9 @@ export class SurvivalMode {
     this.stuckSeconds = 0;
     this.recoverySettleSeconds = 0;
     this.recoveryRequested = false;
+    // Each wave is its own fight: abilities come back charged for it.
+    this.abilityCooldowns.clear();
+    this.abilityRequests.clear();
     this.stuckPrompt.classList.remove('is-visible');
     this.waveClearCard.hide();
     this.damageNumbers?.clear();
@@ -1972,6 +1969,13 @@ export class SurvivalMode {
       if (wheelMesh) wheelMesh.visible = false;
     }
 
+    // Turn each gun to where it is actually shooting.
+    for (const weapon of this.vehicle.weaponStates()) {
+      const mesh = this.vehicleGroup.getObjectByName(`part:${weapon.partId}`);
+      if (mesh)
+        applyWeaponAim(mesh, weapon.forwardLocal, weapon.yaw, weapon.pitch);
+    }
+
     for (const wheel of this.vehicle.wheels()) {
       const mesh = this.wheelMeshes.get(wheel.partId);
       if (!mesh || wheel.broken) continue;
@@ -2013,6 +2017,7 @@ export class SurvivalMode {
     this.zombies.updateVisuals(frameDt);
     this.fuelPickups.updateVisuals(frameDt);
     this.syncShieldBubble(frameDt);
+    this.syncOverdriveTrail();
     this.tracerRenderer.update(frameDt, this.camera);
     // Camera-relative LOD, so a firefight across the graveyard costs less than
     // the same firefight under the player's nose.
@@ -2052,48 +2057,129 @@ export class SurvivalMode {
   }
 
   /**
-   * The single ability part bound to Q. Among attached-alive parts with an
-   * ability, prefer the one the player flagged in the garage
-   * (config.activeAbility); otherwise fall back to the first one found.
+   * Rebuild the ability bar's loadout from the rig as it stands right now.
+   * Only attached, living parts count, so an ability disappears the moment a
+   * zombie tears its emitter off — and comes back if the part is repaired.
    */
-  private resolveActiveAbilityPart(): RuntimePart | null {
-    let fallback: RuntimePart | null = null;
+  private refreshAbilityLoadout(): void {
+    this.abilityCandidates.length = 0;
     for (const part of this.vehicle.assembled.parts.values()) {
-      if (part.def.ability === undefined) continue;
+      const ability = part.def.ability;
+      if (ability === undefined) continue;
       if (!this.isAttachedAlivePart(part)) continue;
-      if (part.placed.config.activeAbility === true) return part;
-      fallback ??= part;
+      this.abilityCandidates.push({
+        partId: part.placed.id,
+        partName: part.def.name,
+        ability,
+        level: part.placed.config.level ?? 1,
+        preferred: part.placed.config.activeAbility === true,
+        slot: part.placed.config.abilitySlot,
+      });
     }
-    return fallback;
+    this.abilityLoadout = resolveAbilityLoadout(this.abilityCandidates);
   }
 
-  /** Tick the ability cooldown and, on a Q press, discharge the active ability. */
-  private updateAbility(): void {
-    if (this.abilityCooldown > 0) {
-      this.abilityCooldown = Math.max(0, this.abilityCooldown - FIXED_DT);
-    }
-    const requested = this.abilityRequested;
-    this.abilityRequested = false;
-    const part = this.resolveActiveAbilityPart();
-    const ability = part?.def.ability;
-    if (!requested || ability === undefined || this.abilityCooldown > 0) return;
+  /** Queue an ability slot, from either its keybind or a click on its box. */
+  private requestAbility(slot: number): void {
+    if (this.phase !== 'active' || this.settingsOpen) return;
+    this.abilityRequests.add(slot);
+  }
 
-    const level = part?.placed.config.level ?? 1;
+  /** Tick every ability's cooldown and discharge the ones pressed this step. */
+  private updateAbility(): void {
+    for (const [partId, remaining] of this.abilityCooldowns) {
+      if (remaining <= FIXED_DT) this.abilityCooldowns.delete(partId);
+      else this.abilityCooldowns.set(partId, remaining - FIXED_DT);
+    }
+    this.refreshAbilityLoadout();
+    if (this.abilityRequests.size === 0) return;
+
+    for (const assignment of this.abilityLoadout) {
+      if (!this.abilityRequests.delete(assignment.slot)) continue;
+      if ((this.abilityCooldowns.get(assignment.partId) ?? 0) > 0) continue;
+      this.abilityCooldowns.set(
+        assignment.partId,
+        this.fireAbility(assignment),
+      );
+    }
+    // Anything left asked for an empty slot; drop it rather than let it fire
+    // the moment an ability part is bolted on.
+    this.abilityRequests.clear();
+  }
+
+  /**
+   * Apply one ability's effect at the vehicle's current position and return
+   * the cooldown it starts.
+   */
+  private fireAbility(assignment: AbilitySlotAssignment): number {
+    const { ability, level } = assignment;
+    const pos = this.vehicle.body.translation();
+    if (ability.kind === 'shield') {
+      const shield = effectiveShield(ability, level);
+      this.vehicle.grantInvulnerability(shield.durationSeconds);
+      // The bubble itself is raised by syncShieldBubble, which also plays the
+      // skin-forming burst off this state change.
+      return shield.cooldownSeconds;
+    }
     if (ability.kind === 'freeze') {
       const freeze = effectiveFreeze(ability, level);
-      const pos = this.vehicle.body.translation();
       this.zombies.freezeNearest(
         { x: pos.x, z: pos.z },
         freeze.targets,
         freeze.rangeM,
         freeze.durationSeconds,
       );
-      this.abilityCooldown = freeze.cooldownSeconds;
-    } else {
-      const shield = effectiveShield(ability, level);
-      this.vehicle.grantInvulnerability(shield.durationSeconds);
-      this.abilityCooldown = shield.cooldownSeconds;
+      // Cold front off the chassis, out to the exact catch radius. Each zombie
+      // it catches plays its own encasing burst from inside the zombie pool.
+      this.vfx.freezeBurst(pos.x, pos.y, pos.z, freeze.rangeM);
+      return freeze.cooldownSeconds;
     }
+    if (ability.kind === 'pulse') {
+      const pulse = effectivePulse(ability, level);
+      // explodeAt already pushes survivors away from the centre, which is the
+      // whole point of the ring.
+      this.zombies.explodeAt(pos.x, pos.y, pos.z, pulse.radiusM, pulse.damage);
+      this.vfx.pulseRing(pos.x, pos.y, pos.z, pulse.radiusM);
+      return pulse.cooldownSeconds;
+    }
+    if (ability.kind === 'hellfire') {
+      const hellfire = effectiveHellfire(ability, level);
+      // The overcharge rides on the nozzle that fired it, so a rig with two
+      // flamethrowers lights each one from its own slot. The flame itself is
+      // the feedback: it starts on the next weapon step and comes out visibly
+      // longer and wider.
+      const lit = this.vehicle.grantHellfire(
+        assignment.partId,
+        hellfire.durationSeconds,
+        hellfire,
+      );
+      // A part with no weapon has nothing to overcharge — don't burn the
+      // cooldown on a no-op.
+      return lit ? hellfire.cooldownSeconds : 0;
+    }
+    const overdrive = effectiveOverdrive(ability, level);
+    this.vehicle.grantOverdrive(
+      overdrive.durationSeconds,
+      overdrive.torqueMultiplier,
+      overdrive.topSpeedMultiplier,
+      overdrive.thrustAccel,
+    );
+    const rotation = this.vehicle.body.rotation();
+    this.abilityQuaternion.set(
+      rotation.x,
+      rotation.y,
+      rotation.z,
+      rotation.w,
+    );
+    this.abilityForward.set(0, 0, 1).applyQuaternion(this.abilityQuaternion);
+    this.vfx.overdriveBurst(
+      pos.x,
+      pos.y,
+      pos.z,
+      this.abilityForward.x,
+      this.abilityForward.z,
+    );
+    return overdrive.cooldownSeconds;
   }
 
   private isAttachedAlivePart(part: RuntimePart): boolean {
@@ -2150,41 +2236,99 @@ export class SurvivalMode {
         : '';
   }
 
-  /** Show the active-ability chip with its cooldown only while one is equipped. */
+  /**
+   * Refresh the ability boxes from the live loadout. The bar is a
+   * fighting-phase HUD: it shows from the pre-wave countdown through the wave
+   * itself and hides once the run is over, so it never sits on top of the
+   * victory or game-over panels. A rig with no ability parts shows no boxes.
+   */
   private syncAbilityHud(): void {
-    const part = this.resolveActiveAbilityPart();
-    const ability = part?.def.ability;
-    if (ability === undefined || part === null) {
-      if (!this.abilityRoot.hidden) this.abilityRoot.hidden = true;
-      this.lastHudAbilityCooldown = -1;
-      this.lastHudAbilityName = '';
-      return;
+    // While a wave is running the fixed step already refreshes the loadout
+    // every step; outside one nothing else does, so the HUD keeps it current.
+    if (this.phase !== 'active') this.refreshAbilityLoadout();
+    this.abilityBar.setVisible(
+      (this.phase === 'countdown' || this.phase === 'active') &&
+        this.abilityLoadout.length > 0,
+    );
+    // The loadout only changes when a part is fitted, lost, or repaired, and
+    // the labels only change with it — so the views (and the strings in them)
+    // are rebuilt on that signature, not every frame. Cooldowns are the one
+    // thing that moves continuously, so only those are written per frame.
+    const signature = this.abilityLoadoutSignature();
+    if (signature !== this.abilitySlotViewSignature) {
+      this.abilitySlotViewSignature = signature;
+      // Indexed by slot, not packed: the player can leave box E empty and
+      // still have an ability bound to R.
+      this.abilitySlotViews.fill(undefined);
+      for (const assignment of this.abilityLoadout) {
+        const meta = ABILITY_KIND_META[assignment.ability.kind];
+        const keyLabel = assignment.key.toUpperCase();
+        this.abilitySlotViews[assignment.slot] = {
+          partId: assignment.partId,
+          keyLabel,
+          glyph: meta.glyph,
+          name: meta.label,
+          detail: abilityDetail(assignment),
+          tooltip: `${meta.label} (${keyLabel}) — ${meta.blurb} [${assignment.partName}]`,
+          cooldownSeconds: assignment.ability.cooldownSeconds,
+          remainingSeconds: 0,
+        };
+      }
     }
-    if (this.abilityRoot.hidden) this.abilityRoot.hidden = false;
-    if (part.def.name !== this.lastHudAbilityName) {
-      this.lastHudAbilityName = part.def.name;
-      this.abilityLabel.textContent = part.def.name;
+    for (const assignment of this.abilityLoadout) {
+      const view = this.abilitySlotViews[assignment.slot];
+      if (view === undefined) continue;
+      view.remainingSeconds = this.abilityCooldowns.get(assignment.partId) ?? 0;
     }
-
-    const remaining = Math.ceil(this.abilityCooldown);
-    if (remaining === this.lastHudAbilityCooldown) return;
-    this.lastHudAbilityCooldown = remaining;
-    const ready = this.abilityCooldown <= 0;
-    const pct = ready
-      ? 100
-      : 100 * (1 - this.abilityCooldown / ability.cooldownSeconds);
-    this.abilityValue.textContent = ready ? 'Ready — press Q' : `${remaining}s`;
-    this.abilityFill.style.width = `${pct}%`;
-    this.abilityRoot.classList.toggle('is-ready', ready);
+    this.abilityBar.render(this.abilitySlotViews);
   }
 
   /**
-   * Show a bright blue bubble around the vehicle while the Shield Generator's
+   * Cheap identity for the current loadout: which part is in which box, and at
+   * what upgrade level. Changes exactly when the bar's labels need rewriting.
+   */
+  private abilityLoadoutSignature(): string {
+    let signature = '';
+    for (const assignment of this.abilityLoadout) {
+      signature += `${assignment.slot}:${assignment.partId}:${assignment.level}|`;
+    }
+    return signature;
+  }
+
+  /** Exhaust trail behind the rig for as long as an overdrive surge runs. */
+  private syncOverdriveTrail(): void {
+    if (!this.vehicle.isOverdriving) return;
+    const pos = this.vehicle.body.translation();
+    const rotation = this.vehicle.body.rotation();
+    this.abilityQuaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    this.abilityForward.set(0, 0, 1).applyQuaternion(this.abilityQuaternion);
+    this.vfx.overdriveTrail(
+      pos.x,
+      pos.y,
+      pos.z,
+      this.abilityForward.x,
+      this.abilityForward.z,
+    );
+  }
+
+  /**
+   * Show a bright blue bubble around the vehicle while the shield special's
    * invulnerability is active. The mesh is a child of the vehicle group, so it
    * follows the chassis automatically; opacity pulses gently for a live feel.
    */
   private syncShieldBubble(frameDt: number): void {
     const active = this.vehicle.isInvulnerable;
+    if (active !== this.shieldWasUp) {
+      this.shieldWasUp = active;
+      const pos = this.vehicle.body.translation();
+      // The skin forms on the way up and lets go on the way down, so both ends
+      // of the ability read without watching the timer.
+      if (active) {
+        this.vfx.shieldRaise(pos.x, pos.y, pos.z, SHIELD_BUBBLE_RADIUS_M);
+      } else {
+        this.vfx.shieldCollapse(pos.x, pos.y, pos.z, SHIELD_BUBBLE_RADIUS_M);
+      }
+    }
     if (!active) {
       if (this.shieldBubble && this.shieldBubble.visible) {
         this.shieldBubble.visible = false;
@@ -2411,7 +2555,9 @@ export class SurvivalMode {
    */
   private emitShotVfx(shot: TracerShot): void {
     this.vfx.muzzleFlash(shot.from, shot.to, muzzleStyleForShot(shot));
-    if (shot.damageType === 'aoe') this.vfx.flameJet(shot.from, shot.to);
+    if (shot.damageType === 'aoe') {
+      this.vfx.flameJet(shot.from, shot.to, shot.overcharged);
+    }
 
     const shielded =
       shot.hitZombieHandle !== null &&
@@ -2652,6 +2798,7 @@ export class SurvivalMode {
     this.warningHud.dispose();
     this.waveTimelineHud.dispose();
     this.waveClearCard.dispose();
+    this.abilityBar.dispose();
     this.ui.remove();
     this.tracerRenderer.dispose();
     disposeObject(this.scene);
@@ -2705,6 +2852,38 @@ function buildLeaderboardTable(rows: readonly LeaderboardRow[]): HTMLElement {
   wrapper.appendChild(table);
   return wrapper;
 }
+
+/**
+ * The line under an ability's name in the HUD bar: what one activation buys at
+ * the backing part's current upgrade level.
+ */
+function abilityDetail(assignment: AbilitySlotAssignment): string {
+  const { ability, level } = assignment;
+  if (ability.kind === 'shield') {
+    const shield = effectiveShield(ability, level);
+    return `${trimSeconds(shield.durationSeconds)}s immune`;
+  }
+  if (ability.kind === 'freeze') {
+    const freeze = effectiveFreeze(ability, level);
+    return `${freeze.targets} × ${trimSeconds(freeze.durationSeconds)}s`;
+  }
+  if (ability.kind === 'pulse') {
+    const pulse = effectivePulse(ability, level);
+    return `${Math.round(pulse.damage)} dmg · ${trimSeconds(pulse.radiusM)}m`;
+  }
+  if (ability.kind === 'hellfire') {
+    const hellfire = effectiveHellfire(ability, level);
+    return `×${trimSeconds(hellfire.damageMultiplier)} for ${trimSeconds(hellfire.durationSeconds)}s`;
+  }
+  const overdrive = effectiveOverdrive(ability, level);
+  return `×${trimSeconds(overdrive.torqueMultiplier)} for ${trimSeconds(overdrive.durationSeconds)}s`;
+}
+
+/** One decimal at most, with no trailing ".0" — "2.5" and "4", never "4.0". */
+function trimSeconds(seconds: number): string {
+  return `${Math.round(seconds * 10) / 10}`;
+}
+
 
 function overlayPanel(): HTMLDivElement {
   const overlay = document.createElement('div');

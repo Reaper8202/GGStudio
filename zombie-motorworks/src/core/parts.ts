@@ -1,5 +1,5 @@
 import type { Face, PartDefinition, StructuralSocket, Vec3i } from './types.ts';
-import { ALL_FACES, rotateVec } from './grid.ts';
+import { ALL_FACES, orientationFromSteps, rotateVec } from './grid.ts';
 import type { OrientationIndex } from './types.ts';
 
 const ORIGIN: Vec3i = { x: 0, y: 0, z: 0 };
@@ -57,6 +57,17 @@ function singleSocket(
 }
 
 const oneCell = [ORIGIN];
+
+/** Long Spikes: origin cell plus the one it reaches into, along local +Z. */
+const SPIKE_CELLS: Vec3i[] = [ORIGIN, v(0, 0, 1)];
+
+/** Sawblade: a 2x2 pad in the horizontal plane, back edge on local -Z. */
+const SAW_CELLS: Vec3i[] = [ORIGIN, v(1, 0, 0), v(0, 0, 1), v(1, 0, 1)];
+
+/** The four turns about the vertical axis, for parts that must stay level. */
+const YAW_ORIENTATIONS: OrientationIndex[] = [0, 1, 2, 3].map((quarter) =>
+  orientationFromSteps(0, quarter, 0),
+);
 
 function upgrade(maxLevel: number, cost: number) {
   return { maxLevel, basePrice: Math.round(cost * 0.6), priceGrowth: 1.6 };
@@ -432,9 +443,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Ice Cannon',
     category: 'weapon',
     description:
-      'Cryo emitter. Auto-fires ice shards that chill and slow zombies. ' +
-      'Press Q to flash-freeze the nearest zombies solid (22s cooldown); ' +
-      'upgrades freeze more zombies for longer.',
+      'Cryo emitter. Auto-fires ice shards that chill and slow zombies, and ' +
+      'fills an ability slot with a Cryo Nova that flash-freezes the nearest ' +
+      'ones solid (22s cooldown); upgrades freeze more zombies for longer.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -445,21 +456,24 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     unlockCost: 600,
     reinforcement: 1.15,
     // Normal fire: an auto-aim cryo turret whose shards slow zombies on hit.
+    // A control weapon, not a damage dealer — its damage is deliberately kept
+    // well under the basic turret's, so it earns its slot by holding the horde
+    // still for the guns that do the killing.
     weapon: {
       mountType: 'turret',
       aimMode: 'auto',
       arcDeg: 360,
       damageType: 'projectile',
-      damage: 6,
+      damage: 4,
       fireRate: 2.5,
       recoilImpulse: 30,
       projectileSpeed: 150,
       rangeM: 18,
-      slowFactor: 0.5,
-      slowDurationSeconds: 2.5,
+      slowFactor: 0.35,
+      slowDurationSeconds: 3,
     },
-    // Player-triggered active ability: the full flash-freeze, driven off Q by
-    // SurvivalMode independently of the normal fire above.
+    // Payload for the Cryo Nova special: SurvivalMode folds this into the
+    // base nova when the part is fitted, independently of the normal fire.
     ability: {
       kind: 'freeze',
       cooldownSeconds: 22,
@@ -492,10 +506,15 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Long Spikes',
     category: 'weapon',
     description:
-      'A long, heavy pike that impales anything it touches. Long reach, but a small contact area — line it up.',
-    cells: oneCell,
+      'A long, heavy pike that impales anything it touches. Two blocks of ' +
+      'reach, but a small contact area — line it up.',
+    // Two cells deep along the part's forward axis: the pike is as long as it
+    // looks, so the footprint the editor blocks out matches the reach.
+    cells: SPIKE_CELLS,
     clearanceCells: [],
-    sockets: frameSockets(oneCell),
+    // Bolts on by its back plate alone. Melee weapons are terminal — see the
+    // socket note on `sawblade`.
+    sockets: [singleSocket('spike-mount', 'frame', ORIGIN, 'nz')],
     massKg: 90,
     health: 130,
     cost: 170,
@@ -511,10 +530,22 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Sawblade',
     category: 'weapon',
     description:
-      'Big flat blade that sweeps a wide area, sawing through anything it grazes.',
-    cells: oneCell,
+      'Big flat blade on a two-by-two mount that sweeps a wide area, sawing ' +
+      'through anything it grazes.',
+    // A 2x2 pad under the disc: the blade sweeps a full two blocks across, so
+    // it reserves the square it actually spins through.
+    cells: SAW_CELLS,
     clearanceCells: [],
-    sockets: frameSockets(oneCell),
+    // Only the two back cells carry a socket, and they carry the modelled arm.
+    // Nothing bolts onto a spinning blade, so the rest of the pad is bare —
+    // `canPlacePart` refuses to support a part on a melee weapon as well.
+    sockets: [
+      singleSocket('saw-mount-left', 'frame', ORIGIN, 'nz'),
+      singleSocket('saw-mount-right', 'frame', v(1, 0, 0), 'nz'),
+    ],
+    // The disc is always flat and horizontal, so the pad only ever turns about
+    // the vertical axis with it.
+    allowedOrientations: YAW_ORIENTATIONS,
     massKg: 85,
     health: 120,
     cost: 150,
@@ -559,7 +590,10 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Flamethrower',
     category: 'weapon',
     description:
-      'Heavy fixed nozzle that periodically sprays a cone of flame ahead.',
+      'Heavy fixed nozzle that periodically sprays a cone of flame ahead. ' +
+      'Also fills an ability slot with Hellfire: the nozzle stays wide open ' +
+      'for six seconds, throwing a hotter, longer, wider sheet of fire with ' +
+      'no pause between bursts. 20s cooldown; upgrades run hotter and longer.',
     cells: oneCell,
     clearanceCells: [v(0, 0, 1)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -574,7 +608,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       aimMode: 'manual',
       arcDeg: 50,
       damageType: 'aoe',
-      damage: 9,
+      damage: 21,
       fireRate: 4,
       recoilImpulse: 30,
       projectileSpeed: 30,
@@ -585,15 +619,28 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       burstSeconds: 1.5,
       burstIntervalSeconds: 6.6,
     },
+    // Hellfire overcharges this part's own nozzle rather than the whole rig:
+    // 7m → 12.6m of reach and a 50° → 80° cone at 2.4× damage (21 → ~50 per
+    // ray), sprayed continuously instead of in bursts. The burst gap is worth
+    // as much as the multiplier here — six seconds of unbroken spray is
+    // roughly four times the flame the nozzle would otherwise put out.
+    ability: {
+      kind: 'hellfire',
+      cooldownSeconds: 20,
+      baseDurationSeconds: 6,
+      baseDamageMultiplier: 2.4,
+      rangeMultiplier: 1.8,
+      coneMultiplier: 1.6,
+    },
   },
   'shield-generator': {
     id: 'shield-generator',
     name: 'Shield Generator',
     category: 'weapon',
     description:
-      'Defensive emitter. Press Q to raise a bright blue bubble that makes ' +
-      'the whole vehicle invulnerable for a few seconds. 25s cooldown; ' +
-      'upgrades extend how long the shield holds.',
+      'Defensive emitter. Fills an ability slot: raise a bright blue bubble ' +
+      'that makes the whole vehicle invulnerable for a few seconds. 25s ' +
+      'cooldown; upgrades extend how long the shield holds.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -603,12 +650,73 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     upgrade: upgrade(5, 320),
     unlockCost: 650,
     reinforcement: 1.15,
-    // Player-triggered active ability only (no `weapon` payload): SurvivalMode
-    // grants the vehicle temporary invulnerability off the Q key.
+    // Ability payload only (no `weapon`): SurvivalMode grants the vehicle
+    // temporary invulnerability when this ability's slot key is pressed.
     ability: {
       kind: 'shield',
       cooldownSeconds: 25,
       baseDurationSeconds: 4,
+    },
+  },
+  'pulse-emitter': {
+    id: 'pulse-emitter',
+    name: 'Pulse Emitter',
+    category: 'weapon',
+    description:
+      'Kinetic slammer. Fills an ability slot: punch out a ring of force ' +
+      'that damages every zombie around the rig and throws the survivors ' +
+      'clear. 18s cooldown; upgrades hit harder and reach further.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 130,
+    health: 150,
+    cost: 300,
+    upgrade: upgrade(5, 300),
+    unlockCost: 600,
+    reinforcement: 1.15,
+    // The panic button for a rig that has been swarmed: no aim, no travel
+    // time, everything within the ring takes it at once.
+    ability: {
+      kind: 'pulse',
+      cooldownSeconds: 18,
+      baseDurationSeconds: 0,
+      rangeM: 9,
+      baseDamage: 60,
+    },
+  },
+  'nitro-injector': {
+    id: 'nitro-injector',
+    name: 'Nitro Injector',
+    category: 'weapon',
+    description:
+      'Strapped-on rocket bottle. Fills an ability slot: five seconds of raw ' +
+      'thrust that shoves the rig along whether you are on the throttle or ' +
+      'not, plus triple drive torque and a lifted speed limit. 20s cooldown; ' +
+      'upgrades run longer and push harder.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 95,
+    health: 120,
+    cost: 260,
+    upgrade: upgrade(5, 260),
+    unlockCost: 520,
+    reinforcement: 1.1,
+    // Multiplies drive torque rather than granting speed directly, so it pays
+    // off exactly where ramming does: heavy rigs digging out of a crowd.
+    ability: {
+      kind: 'overdrive',
+      cooldownSeconds: 20,
+      baseDurationSeconds: 5,
+      // A shove, not a nudge: triple torque hauls even a heavy rig out of a
+      // crowd, and the ceiling lift is what makes it read as speed rather
+      // than just quicker acceleration into the same wall.
+      baseTorqueMultiplier: 3.2,
+      baseTopSpeedMultiplier: 1.35,
+      // Propellant: fires through the chassis, so it still shoves when the
+      // driver is coasting or the wheels are bogged in a crowd.
+      baseThrustAccel: 16,
     },
   },
 };

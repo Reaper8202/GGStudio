@@ -47,6 +47,7 @@ export type MuzzleVfxStyle =
   | 'heavy'
   | 'sniper'
   | 'flame'
+  | 'hellfire'
   | 'ice';
 
 /** What a projectile or ray terminated against. */
@@ -70,7 +71,8 @@ export type ImpactVfxKind =
   | 'shield'
   | 'hard'
   | 'ice'
-  | 'burn';
+  | 'burn'
+  | 'hellburn';
 
 interface Vector3Like {
   readonly x: number;
@@ -95,8 +97,11 @@ function canonicalMuzzleStyle(style: MuzzleVfxStyle): WeaponMuzzleStyle {
     case 'sniper':
     case 'sniper-light':
       return 'sniper-light';
+    // An overcharged nozzle is still a nozzle; the hotter look is carried by
+    // the hellfire flag passed on to the emitter, not by a separate barrel.
     case 'flame':
     case 'flamethrower':
+    case 'hellfire':
       return 'flamethrower';
   }
 }
@@ -599,7 +604,7 @@ export class VfxSystem {
 
     const weaponStyle = canonicalMuzzleStyle(style);
     if (weaponStyle === 'flamethrower') {
-      this.flameMuzzle(from, dirX, dirY, dirZ, detail);
+      this.flameMuzzle(from, dirX, dirY, dirZ, detail, style === 'hellfire');
       return;
     }
     if (weaponStyle === 'turret') {
@@ -911,8 +916,8 @@ export class VfxSystem {
         return;
     }
 
-    if (kind === 'burn') {
-      this.burnImpact(x, y, z, detail);
+    if (kind === 'burn' || kind === 'hellburn') {
+      this.burnImpact(x, y, z, detail, kind === 'hellburn');
       return;
     }
 
@@ -1280,8 +1285,13 @@ export class VfxSystem {
    * and float up, and greasy smoke off the far end. Each ray of the cone plays
    * a thinner version of the same recipe, so the six rays composite into one
    * body of fire rather than six visible lines.
+   *
+   * `hellfire` is the overcharged spray (the flamethrower's ability): the same
+   * recipe run hotter and heavier, in yellow and red rather than the stock
+   * white-to-orange, plus a rolling red underbody and a spray of yellow sparks
+   * the normal nozzle never throws.
    */
-  flameJet(from: Vector3Like, to: Vector3Like): void {
+  flameJet(from: Vector3Like, to: Vector3Like, hellfire = false): void {
     if (this.disposed) return;
     const detail = this.detailAt(to.x, to.y, to.z);
     if (detail <= 0) return;
@@ -1297,22 +1307,30 @@ export class VfxSystem {
 
     // Rolling body of the flame. Spawned along the near two-thirds of the ray
     // and heavily damped, so each puff blooms outward instead of streaking.
-    const puffs = this.count(4, detail);
+    const puffs = this.count(hellfire ? 7 : 4, detail);
     for (let i = 0; i < puffs; i++) {
       const along = Math.random() * 0.65 * range;
       const speed = this.rand(4, 11);
       this.reset0();
-      this.spec.x = from.x + dirX * along + this.randSigned(0.18);
-      this.spec.y = from.y + dirY * along + this.randSigned(0.18);
-      this.spec.z = from.z + dirZ * along + this.randSigned(0.18);
+      this.spec.x = from.x + dirX * along + this.randSigned(hellfire ? 0.3 : 0.18);
+      this.spec.y = from.y + dirY * along + this.randSigned(hellfire ? 0.3 : 0.18);
+      this.spec.z = from.z + dirZ * along + this.randSigned(hellfire ? 0.3 : 0.18);
       this.spec.vx = dirX * speed + this.randSigned(1.6);
       this.spec.vy = dirY * speed + this.rand(0.4, 1.8);
       this.spec.vz = dirZ * speed + this.randSigned(1.6);
       this.spec.size = this.rand(0.12, 0.2);
-      this.spec.endSize = this.rand(0.36, 0.55);
-      this.spec.lifeSeconds = this.rand(0.18, 0.36);
-      this.spec.colorStart = VFX_PALETTE.sparkHot;
-      this.spec.colorEnd = VFX_PALETTE.emberDark;
+      this.spec.endSize = hellfire ? this.rand(0.5, 0.8) : this.rand(0.36, 0.55);
+      this.spec.lifeSeconds = hellfire
+        ? this.rand(0.26, 0.5)
+        : this.rand(0.18, 0.36);
+      // Hellfire's puffs start yellow instead of near-white and die red rather
+      // than brown, which is what turns the whole cone from orange to fire.
+      this.spec.colorStart = hellfire
+        ? VFX_PALETTE.hellYellow
+        : VFX_PALETTE.sparkHot;
+      this.spec.colorEnd = hellfire
+        ? VFX_PALETTE.hellRed
+        : VFX_PALETTE.emberDark;
       this.spec.gravity = 2.2;
       this.spec.drag = 3.2;
       this.spec.spin = 3;
@@ -1320,7 +1338,7 @@ export class VfxSystem {
     }
 
     // Licks: the hot white core, only near the nozzle and gone almost at once.
-    const licks = this.count(2, detail);
+    const licks = this.count(hellfire ? 4 : 2, detail);
     for (let i = 0; i < licks; i++) {
       const speed = this.rand(12, 22);
       this.reset0();
@@ -1330,19 +1348,68 @@ export class VfxSystem {
       this.spec.vx = dirX * speed + this.randSigned(1);
       this.spec.vy = dirY * speed + this.randSigned(1);
       this.spec.vz = dirZ * speed + this.randSigned(1);
-      this.spec.size = this.rand(0.08, 0.14);
-      this.spec.endSize = 0.22;
+      this.spec.size = hellfire ? this.rand(0.11, 0.19) : this.rand(0.08, 0.14);
+      this.spec.endSize = hellfire ? 0.32 : 0.22;
       this.spec.lifeSeconds = this.rand(0.08, 0.16);
       this.spec.colorStart = 0xffffff;
-      this.spec.colorEnd = VFX_PALETTE.ember;
+      this.spec.colorEnd = hellfire ? VFX_PALETTE.hellAmber : VFX_PALETTE.ember;
       this.spec.gravity = 1;
       this.spec.drag = 2;
       this.spec.spin = 4;
       this.glow.spawn(this.take());
     }
 
+    // Hellfire only: a slow red underbody rolling beneath the yellow core, and
+    // yellow sparks shed sideways off the cone. Together they give the
+    // overcharge the two colours the stock jet never separates out.
+    if (hellfire) {
+      const underbody = this.count(4, detail);
+      for (let i = 0; i < underbody; i++) {
+        const along = Math.random() * 0.85 * range;
+        const speed = this.rand(2.5, 6);
+        this.reset0();
+        this.spec.x = from.x + dirX * along + this.randSigned(0.34);
+        this.spec.y = from.y + dirY * along + this.rand(-0.32, 0.05);
+        this.spec.z = from.z + dirZ * along + this.randSigned(0.34);
+        this.spec.vx = dirX * speed + this.randSigned(1.2);
+        this.spec.vy = this.rand(-0.2, 0.9);
+        this.spec.vz = dirZ * speed + this.randSigned(1.2);
+        this.spec.size = this.rand(0.2, 0.34);
+        this.spec.endSize = this.rand(0.6, 0.95);
+        this.spec.lifeSeconds = this.rand(0.35, 0.62);
+        this.spec.colorStart = VFX_PALETTE.hellRed;
+        this.spec.colorEnd = VFX_PALETTE.hellRedDark;
+        this.spec.gravity = 1.2;
+        this.spec.drag = 2.6;
+        this.spec.spin = 2;
+        this.glow.spawn(this.take());
+      }
+
+      const sparks = this.count(3, detail);
+      for (let i = 0; i < sparks; i++) {
+        const along = Math.random() * range;
+        const speed = this.rand(3, 9);
+        this.reset0();
+        this.spec.x = from.x + dirX * along;
+        this.spec.y = from.y + dirY * along + this.randSigned(0.2);
+        this.spec.z = from.z + dirZ * along;
+        this.spec.vx = -dirZ * this.randSigned(speed) + this.randSigned(1.5);
+        this.spec.vy = this.rand(1.5, 4.5);
+        this.spec.vz = dirX * this.randSigned(speed) + this.randSigned(1.5);
+        this.spec.size = this.rand(0.05, 0.09);
+        this.spec.endSize = 0.02;
+        this.spec.lifeSeconds = this.rand(0.3, 0.7);
+        this.spec.colorStart = VFX_PALETTE.hellYellow;
+        this.spec.colorEnd = VFX_PALETTE.hellRed;
+        this.spec.gravity = 3.2;
+        this.spec.drag = 1;
+        this.spec.spin = 9;
+        this.glow.spawn(this.take());
+      }
+    }
+
     // Embers break off the cone and drift upward well after the fire has gone.
-    const embers = this.count(2, detail);
+    const embers = this.count(hellfire ? 4 : 2, detail);
     for (let i = 0; i < embers; i++) {
       const along = Math.random() * range;
       this.reset0();
@@ -1355,8 +1422,12 @@ export class VfxSystem {
       this.spec.size = this.rand(0.045, 0.085);
       this.spec.endSize = 0.015;
       this.spec.lifeSeconds = this.rand(0.4, 0.85);
-      this.spec.colorStart = VFX_PALETTE.spark;
-      this.spec.colorEnd = VFX_PALETTE.emberDark;
+      this.spec.colorStart = hellfire
+        ? VFX_PALETTE.hellYellow
+        : VFX_PALETTE.spark;
+      this.spec.colorEnd = hellfire
+        ? VFX_PALETTE.hellRedDark
+        : VFX_PALETTE.emberDark;
       this.spec.gravity = 1.8;
       this.spec.drag = 1.2;
       this.spec.spin = 8;
@@ -1365,7 +1436,7 @@ export class VfxSystem {
 
     // Greasy smoke off the head of the cone, on the lit layer so it reads as
     // matter blocking the moonlight rather than as more light.
-    const smoke = this.count(1.5, detail);
+    const smoke = this.count(hellfire ? 2.5 : 1.5, detail);
     for (let i = 0; i < smoke; i++) {
       this.reset0();
       this.spec.x = to.x + this.randSigned(0.3);
@@ -1377,7 +1448,11 @@ export class VfxSystem {
       this.spec.size = this.rand(0.14, 0.24);
       this.spec.endSize = this.spec.size * this.rand(2.4, 3.6);
       this.spec.lifeSeconds = this.rand(0.6, 1.1);
-      this.spec.colorStart = VFX_PALETTE.smoke;
+      // Overcharged smoke leaves the head of the cone still glowing red before
+      // it cools, so the far end of the spray never looks clean.
+      this.spec.colorStart = hellfire
+        ? VFX_PALETTE.hellRedDark
+        : VFX_PALETTE.smoke;
       this.spec.colorEnd = VFX_PALETTE.smokeDark;
       this.spec.gravity = 1.5;
       this.spec.drag = 2.2;
@@ -1388,7 +1463,9 @@ export class VfxSystem {
 
   /**
    * The nozzle itself: a fat ball of ignition rather than a powder flash, with
-   * a pilot glow that sits on the barrel for a beat after the burst.
+   * a pilot glow that sits on the barrel for a beat after the burst. An
+   * overcharged nozzle adds a wide yellow bloom over the top of it and burns
+   * its ignition down through red instead of brown.
    */
   private flameMuzzle(
     from: Vector3Like,
@@ -1396,17 +1473,28 @@ export class VfxSystem {
     dirY: number,
     dirZ: number,
     detail: number,
+    hellfire = false,
   ): void {
     this.flash(
       from.x + dirX * 0.25,
       from.y + dirY * 0.25,
       from.z + dirZ * 0.25,
-      0.44,
-      0.09,
+      hellfire ? 0.62 : 0.44,
+      hellfire ? 0.13 : 0.09,
       0xffffff,
     );
+    if (hellfire) {
+      this.flash(
+        from.x + dirX * 0.5,
+        from.y + dirY * 0.5,
+        from.z + dirZ * 0.5,
+        0.9,
+        0.18,
+        VFX_PALETTE.hellYellow,
+      );
+    }
 
-    const ignition = this.count(6, detail);
+    const ignition = this.count(hellfire ? 10 : 6, detail);
     for (let i = 0; i < ignition; i++) {
       const speed = this.rand(5, 14);
       this.reset0();
@@ -1417,10 +1505,12 @@ export class VfxSystem {
       this.spec.vy = dirY * speed + this.rand(0.2, 1.6);
       this.spec.vz = dirZ * speed + this.randSigned(2);
       this.spec.size = this.rand(0.1, 0.18);
-      this.spec.endSize = this.rand(0.3, 0.46);
+      this.spec.endSize = hellfire ? this.rand(0.42, 0.62) : this.rand(0.3, 0.46);
       this.spec.lifeSeconds = this.rand(0.12, 0.26);
       this.spec.colorStart = 0xffffff;
-      this.spec.colorEnd = VFX_PALETTE.emberDark;
+      this.spec.colorEnd = hellfire
+        ? VFX_PALETTE.hellRed
+        : VFX_PALETTE.emberDark;
       this.spec.gravity = 2;
       this.spec.drag = 3.4;
       this.spec.spin = 4;
@@ -1430,23 +1520,37 @@ export class VfxSystem {
 
   /**
    * Something caught fire: flames climbing off it, a couple of burning scraps
-   * that drop and smoulder where they land, and a wisp of smoke.
+   * that drop and smoulder where they land, and a wisp of smoke. Hellfire
+   * doubles the flames and burns them yellow-to-red, so a zombie caught in the
+   * overcharge is visibly cooking rather than merely singed.
    */
-  private burnImpact(x: number, y: number, z: number, detail: number): void {
-    const flames = this.count(5, detail);
+  private burnImpact(
+    x: number,
+    y: number,
+    z: number,
+    detail: number,
+    hellfire = false,
+  ): void {
+    const flames = this.count(hellfire ? 10 : 5, detail);
     for (let i = 0; i < flames; i++) {
       this.reset0();
-      this.spec.x = x + this.randSigned(0.22);
+      this.spec.x = x + this.randSigned(hellfire ? 0.32 : 0.22);
       this.spec.y = y + this.rand(-0.2, 0.3);
-      this.spec.z = z + this.randSigned(0.22);
+      this.spec.z = z + this.randSigned(hellfire ? 0.32 : 0.22);
       this.spec.vx = this.randSigned(0.9);
-      this.spec.vy = this.rand(1.6, 3.6);
+      this.spec.vy = this.rand(1.6, hellfire ? 5 : 3.6);
       this.spec.vz = this.randSigned(0.9);
-      this.spec.size = this.rand(0.1, 0.18);
+      this.spec.size = hellfire ? this.rand(0.14, 0.26) : this.rand(0.1, 0.18);
       this.spec.endSize = this.rand(0.02, 0.06);
-      this.spec.lifeSeconds = this.rand(0.3, 0.6);
-      this.spec.colorStart = VFX_PALETTE.sparkHot;
-      this.spec.colorEnd = VFX_PALETTE.emberDark;
+      this.spec.lifeSeconds = hellfire
+        ? this.rand(0.4, 0.8)
+        : this.rand(0.3, 0.6);
+      this.spec.colorStart = hellfire
+        ? VFX_PALETTE.hellYellow
+        : VFX_PALETTE.sparkHot;
+      this.spec.colorEnd = hellfire
+        ? VFX_PALETTE.hellRed
+        : VFX_PALETTE.emberDark;
       this.spec.gravity = 2.4;
       this.spec.drag = 1.8;
       this.spec.spin = 5;
@@ -1477,7 +1581,15 @@ export class VfxSystem {
       this.glow.spawn(this.take());
     }
 
-    this.flash(x, y + 0.15, z, 0.28, 0.08, VFX_PALETTE.ember);
+    this.flash(
+      x,
+      y + 0.15,
+      z,
+      hellfire ? 0.46 : 0.28,
+      hellfire ? 0.12 : 0.08,
+      hellfire ? VFX_PALETTE.hellYellow : VFX_PALETTE.ember,
+    );
+    if (hellfire) this.flash(x, y + 0.1, z, 0.7, 0.2, VFX_PALETTE.hellRed);
   }
 
   /**
@@ -1685,6 +1797,391 @@ export class VfxSystem {
       this.spec.drag = 2.2;
       this.spec.spin = 1.5;
       this.lit.spawn(this.take());
+    }
+  }
+
+  // --------------------------------------------------------------- freeze ---
+
+  /**
+   * Ice Cannon Q ability: a cold front rolling off the vehicle. The blast
+   * counterpart with nothing hot in it — a rime ring that stops exactly on the
+   * freeze radius so one activation teaches the player the ability's reach,
+   * mist that sinks instead of rising, and crystals that fall back as frost.
+   */
+  freezeBurst(x: number, y: number, z: number, radiusM: number): void {
+    if (this.disposed || radiusM <= 0) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y + 0.4, z, radiusM * 0.3, 0.12, VFX_PALETTE.frost);
+    this.flash(x, y + 0.5, z, radiusM * 0.55, 0.3, VFX_PALETTE.ice);
+
+    const ring = this.count(24, detail);
+    for (let i = 0; i < ring; i++) {
+      const angle =
+        (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.15);
+      // Reach the rim inside the particle's life, so the ring stops where the
+      // freeze does rather than sailing past it.
+      const life = this.rand(0.4, 0.6);
+      const speed = (radiusM / life) * this.rand(0.8, 1);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * 0.3;
+      this.spec.y = y + 0.12;
+      this.spec.z = z + Math.sin(angle) * 0.3;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(0.3, 1.4);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.13, 0.24);
+      this.spec.endSize = 0.03;
+      this.spec.lifeSeconds = life;
+      this.spec.colorStart = VFX_PALETTE.frost;
+      this.spec.colorEnd = VFX_PALETTE.iceDeep;
+      this.spec.gravity = 0;
+      this.spec.drag = 0.7;
+      this.spec.spin = 7;
+      this.glow.spawn(this.take());
+    }
+
+    const mist = this.count(11, detail);
+    for (let i = 0; i < mist; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(2, 6);
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.4);
+      this.spec.y = y + this.rand(0.4, 1.1);
+      this.spec.z = z + this.randSigned(0.4);
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(-0.6, 0.4);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.22, 0.4);
+      this.spec.endSize = this.spec.size * this.rand(2, 3);
+      this.spec.lifeSeconds = this.rand(0.6, 1.1);
+      this.spec.colorStart = VFX_PALETTE.frost;
+      this.spec.colorEnd = VFX_PALETTE.iceDeep;
+      this.spec.gravity = -1.2;
+      this.spec.drag = 2.4;
+      this.spec.spin = 1;
+      this.glow.spawn(this.take());
+    }
+
+    const crystals = this.count(10, detail);
+    for (let i = 0; i < crystals; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(2, 7);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y + 0.2;
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(2.5, 6);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.07, 0.14);
+      this.spec.endSize = this.spec.size * 0.7;
+      this.spec.lifeSeconds = this.rand(0.8, 1.4);
+      this.spec.colorStart = VFX_PALETTE.ice;
+      this.spec.colorEnd = VFX_PALETTE.iceDeep;
+      this.spec.gravity = -14;
+      this.spec.spin = 9;
+      this.spec.bounce = 0.25;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+  }
+
+  /**
+   * One zombie caught by a freeze: shards rush inward and lock around it. The
+   * converging direction is what separates this from every other burst in the
+   * game — everything else throws matter away from the point.
+   */
+  freezeEncase(x: number, y: number, z: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const shards = this.count(12, detail);
+    for (let i = 0; i < shards; i++) {
+      const angle = (i / Math.max(1, shards)) * Math.PI * 2 + this.rand(0, 0.4);
+      const radius = this.rand(1.1, 1.9);
+      const life = this.rand(0.16, 0.26);
+      const height = this.randSigned(0.7);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * radius;
+      this.spec.y = y + height;
+      this.spec.z = z + Math.sin(angle) * radius;
+      this.spec.vx = (-Math.cos(angle) * radius) / life;
+      this.spec.vy = -height / life;
+      this.spec.vz = (-Math.sin(angle) * radius) / life;
+      this.spec.size = this.rand(0.09, 0.17);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = life;
+      this.spec.colorStart = VFX_PALETTE.frost;
+      this.spec.colorEnd = VFX_PALETTE.ice;
+      this.spec.gravity = 0;
+      this.spec.spin = 10;
+      this.glow.spawn(this.take());
+    }
+    this.flash(x, y, z, 0.7, 0.14, VFX_PALETTE.ice);
+  }
+
+  /** A freeze ended, or its host died inside the ice: the shell bursts. */
+  frostShatter(x: number, y: number, z: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const shards = this.count(14, detail);
+    for (let i = 0; i < shards; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(2.5, 7);
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.3);
+      this.spec.y = y + this.randSigned(0.6);
+      this.spec.z = z + this.randSigned(0.3);
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(1, 4.5);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.06, 0.13);
+      this.spec.endSize = this.spec.size * 0.5;
+      this.spec.lifeSeconds = this.rand(0.4, 0.8);
+      this.spec.colorStart = VFX_PALETTE.frost;
+      this.spec.colorEnd = VFX_PALETTE.iceDeep;
+      this.spec.gravity = -16;
+      this.spec.spin = 13;
+      this.spec.bounce = 0.35;
+      this.glow.spawn(this.take());
+    }
+    this.flash(x, y, z, 0.45, 0.1, VFX_PALETTE.frost);
+  }
+
+  // ------------------------------------------------------------ abilities ---
+
+  /**
+   * Shield ability coming up: the bubble snaps into being. Cubes rush *outward*
+   * to the bubble's skin and stop there, so the effect reads as a surface being
+   * drawn rather than as an explosion — nothing here is thrown loose.
+   */
+  shieldRaise(x: number, y: number, z: number, radiusM: number): void {
+    if (this.disposed || radiusM <= 0) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y + 0.5, z, radiusM * 0.7, 0.12, 0xffffff);
+    this.flash(x, y + 0.5, z, radiusM * 1.25, 0.26, VFX_PALETTE.shield);
+
+    // Skin: a band of cubes that arrive on the bubble's radius as it inflates.
+    const skin = this.count(26, detail);
+    for (let i = 0; i < skin; i++) {
+      const angle = (i / Math.max(1, skin)) * Math.PI * 2 + this.randSigned(0.2);
+      const lift = this.rand(-0.5, 1.4);
+      const life = this.rand(0.3, 0.45);
+      const speed = (radiusM / life) * this.rand(0.85, 1);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y + 0.5 + lift * 0.3;
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = lift;
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.14, 0.26);
+      this.spec.endSize = 0.04;
+      this.spec.lifeSeconds = life;
+      this.spec.colorStart = 0xffffff;
+      this.spec.colorEnd = VFX_PALETTE.shield;
+      this.spec.gravity = 0;
+      this.spec.drag = 2.6;
+      this.spec.spin = 3;
+      this.glow.spawn(this.take());
+    }
+
+    // Charge motes climbing the emitter, to sell where the bubble came from.
+    const motes = this.count(9, detail);
+    for (let i = 0; i < motes; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * this.rand(0.2, 0.9);
+      this.spec.y = y - 0.2;
+      this.spec.z = z + Math.sin(angle) * this.rand(0.2, 0.9);
+      this.spec.vy = this.rand(3, 6.5);
+      this.spec.size = this.rand(0.06, 0.12);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.35, 0.6);
+      this.spec.colorStart = VFX_PALETTE.shield;
+      this.spec.colorEnd = 0x0b3f66;
+      this.spec.gravity = 0;
+      this.spec.drag = 1.6;
+      this.spec.spin = 5;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /** Shield ability running out: the skin lets go and falls apart. */
+  shieldCollapse(x: number, y: number, z: number, radiusM: number): void {
+    if (this.disposed || radiusM <= 0) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const shards = this.count(16, detail);
+    for (let i = 0; i < shards; i++) {
+      const angle = (i / Math.max(1, shards)) * Math.PI * 2;
+      const height = this.rand(0.1, 1.6);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * radiusM * 0.9;
+      this.spec.y = y + height;
+      this.spec.z = z + Math.sin(angle) * radiusM * 0.9;
+      this.spec.vx = Math.cos(angle) * this.rand(0.4, 1.6);
+      this.spec.vy = this.rand(-0.5, 0.8);
+      this.spec.vz = Math.sin(angle) * this.rand(0.4, 1.6);
+      this.spec.size = this.rand(0.1, 0.2);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.3, 0.55);
+      this.spec.colorStart = VFX_PALETTE.shield;
+      this.spec.colorEnd = 0x0b3f66;
+      this.spec.gravity = -3.5;
+      this.spec.drag = 1.2;
+      this.spec.spin = 6;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
+   * Pulse ability: a ring of force, not of fire. Everything travels flat and
+   * outward and dies on the damage radius — the one blast in the game with no
+   * ember in it, so the player never confuses it with an explosion.
+   */
+  pulseRing(x: number, y: number, z: number, radiusM: number): void {
+    if (this.disposed || radiusM <= 0) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y + 0.3, z, radiusM * 0.5, 0.1, 0xffffff);
+    this.flash(x, y + 0.35, z, radiusM * 0.95, 0.2, VFX_PALETTE.steel);
+
+    const ring = this.count(30, detail);
+    for (let i = 0; i < ring; i++) {
+      const angle =
+        (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.12);
+      // Stop on the rim inside one life, so the ring draws the exact reach.
+      const life = this.rand(0.24, 0.34);
+      const speed = (radiusM / life) * this.rand(0.85, 1);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * 0.25;
+      this.spec.y = y + 0.14;
+      this.spec.z = z + Math.sin(angle) * 0.25;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(0.1, 0.7);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.18, 0.3);
+      this.spec.endSize = 0.03;
+      this.spec.lifeSeconds = life;
+      this.spec.colorStart = 0xffffff;
+      this.spec.colorEnd = VFX_PALETTE.steel;
+      this.spec.gravity = 0;
+      this.spec.drag = 1.1;
+      this.spec.spin = 4;
+      this.glow.spawn(this.take());
+    }
+
+    // Dirt kicked up under the ring, so the ground registers the slam.
+    const dust = this.count(12, detail);
+    for (let i = 0; i < dust; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(3, 9);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * this.rand(0.3, 1.2);
+      this.spec.y = y + 0.1;
+      this.spec.z = z + Math.sin(angle) * this.rand(0.3, 1.2);
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(1.2, 3.6);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.2, 0.36);
+      this.spec.endSize = this.spec.size * this.rand(1.8, 2.6);
+      this.spec.lifeSeconds = this.rand(0.5, 0.95);
+      this.spec.colorStart = VFX_PALETTE.dust;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -2.4;
+      this.spec.drag = 2.2;
+      this.spec.spin = 2;
+      this.lit.spawn(this.take());
+    }
+  }
+
+  /**
+   * Overdrive kicking in: a hard shove of exhaust out the back of the rig.
+   * `dirX/dirZ` is the vehicle's normalised forward heading — the flare fires
+   * against it, so the boost reads as thrust.
+   */
+  overdriveBurst(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirZ: number,
+  ): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x - dirX, y + 0.3, z - dirZ, 1.4, 0.1, 0xffffff);
+    this.flash(x - dirX * 1.4, y + 0.35, z - dirZ * 1.4, 2.6, 0.2, VFX_PALETTE.sparkHot);
+
+    const jet = this.count(26, detail);
+    for (let i = 0; i < jet; i++) {
+      const spread = this.randSigned(0.5);
+      const speed = this.rand(11, 24);
+      this.reset0();
+      this.spec.x = x - dirX * this.rand(0.6, 1.4);
+      this.spec.y = y + this.rand(0.1, 0.6);
+      this.spec.z = z - dirZ * this.rand(0.6, 1.4);
+      this.spec.vx = -dirX * speed + dirZ * spread * speed * 0.3;
+      this.spec.vy = this.rand(0.5, 2.5);
+      this.spec.vz = -dirZ * speed - dirX * spread * speed * 0.3;
+      this.spec.size = this.rand(0.12, 0.24);
+      this.spec.endSize = 0.03;
+      this.spec.lifeSeconds = this.rand(0.25, 0.45);
+      this.spec.colorStart = 0xffffff;
+      this.spec.colorEnd = VFX_PALETTE.ember;
+      this.spec.gravity = 1.2;
+      this.spec.drag = 2.6;
+      this.spec.spin = 6;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
+   * Overdrive still running: a thin trail behind the rig. Deliberately a few
+   * particles per call — this is ticked every frame for the whole surge, so it
+   * has to cost about as little as a muzzle flash does once.
+   */
+  overdriveTrail(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirZ: number,
+  ): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const puffs = this.count(3, detail);
+    for (let i = 0; i < puffs; i++) {
+      const speed = this.rand(3, 7);
+      this.reset0();
+      this.spec.x = x - dirX * this.rand(0.7, 1.5) + this.randSigned(0.25);
+      this.spec.y = y + this.rand(0.05, 0.5);
+      this.spec.z = z - dirZ * this.rand(0.7, 1.5) + this.randSigned(0.25);
+      this.spec.vx = -dirX * speed;
+      this.spec.vy = this.rand(0.4, 1.6);
+      this.spec.vz = -dirZ * speed;
+      this.spec.size = this.rand(0.1, 0.2);
+      this.spec.endSize = this.spec.size * this.rand(1.4, 2.2);
+      this.spec.lifeSeconds = this.rand(0.2, 0.4);
+      this.spec.colorStart = VFX_PALETTE.spark;
+      this.spec.colorEnd = VFX_PALETTE.emberDark;
+      this.spec.gravity = 1.4;
+      this.spec.drag = 2.4;
+      this.spec.spin = 4;
+      this.glow.spawn(this.take());
     }
   }
 

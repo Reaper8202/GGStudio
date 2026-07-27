@@ -64,6 +64,8 @@ export interface ShotAppearance {
   readonly slowFactor: number;
   readonly hitZombieHandle: number | null;
   readonly hitSurface: boolean;
+  /** Fired by a nozzle running the Hellfire overcharge. */
+  readonly overcharged: boolean;
 }
 
 /**
@@ -80,6 +82,9 @@ function weaponAppearanceId(weaponDefId: string): WeaponAppearanceId {
 
 /** Barrel character is keyed by the firing part, never by upgraded damage. */
 export function muzzleStyleForShot(shot: ShotAppearance): MuzzleVfxStyle {
+  // Overcharge outranks the per-weapon barrel: a Hellfire nozzle has to read as
+  // a different fire, not as a louder flamethrower.
+  if (shot.damageType === 'aoe' && shot.overcharged) return 'hellfire';
   if (shot.weaponDefId !== undefined) {
     return WEAPON_MUZZLES[weaponAppearanceId(shot.weaponDefId)];
   }
@@ -87,6 +92,19 @@ export function muzzleStyleForShot(shot: ShotAppearance): MuzzleVfxStyle {
   if (shot.slowFactor > 0) return 'ice';
   if (shot.damage < 20) return 'standard';
   return shot.damageType === 'hitscan' ? 'sniper' : 'heavy';
+}
+
+/**
+ * Colour of the tracer line drawn along the shot, or null when the shot draws
+ * no line at all: the flamethrower renders its own cone of fire, and a tracer
+ * on top of it just reads as a stray orange wire. Cryo fire runs turquoise so
+ * the freezing weapon is obvious from its ray alone.
+ */
+export function tracerStyleForShot(
+  shot: ShotAppearance,
+): 'standard' | 'ice' | null {
+  if (shot.damageType === 'aoe') return null;
+  return shot.slowFactor > 0 ? 'ice' : 'standard';
 }
 
 /**
@@ -100,6 +118,11 @@ export function impactKindForShot(
 ): ImpactVfxKind | null {
   const landed = shot.hitZombieHandle !== null || shot.hitSurface;
   if (!landed) return null;
+
+  // Overcharge outranks the per-weapon impact, as it does the muzzle. Flame
+  // washes around the phone addict's bubble at full strength, and it sets light
+  // to headstones as readily as to zombies — one effect for both.
+  if (shot.damageType === 'aoe' && shot.overcharged) return 'hellburn';
 
   if (shot.weaponDefId !== undefined) {
     const kinds = WEAPON_IMPACTS[weaponAppearanceId(shot.weaponDefId)];

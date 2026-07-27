@@ -20,15 +20,28 @@ export const VFX_PALETTE = {
   /** Matches the existing flamethrower tracer. */
   ember: 0xff6b2b,
   emberDark: 0x7a1c05,
+  /**
+   * Hellfire: the overcharged nozzle pushes the flame's orange apart into a
+   * hotter yellow core and a deep red body, so an overcharged spray reads as a
+   * different fire from across the graveyard rather than as a bigger one.
+   */
+  hellYellow: 0xffe14a,
+  hellAmber: 0xffa412,
+  hellRed: 0xe22208,
+  hellRedDark: 0x5e0c02,
   smoke: 0x6e7379,
   smokeDark: 0x24282d,
   dust: 0x8b8577,
   brass: 0xd6a13c,
-  /** Matches the Ice Cannon freeze glow. */
-  ice: 0x8fd8ff,
-  iceDeep: 0x2e6f9e,
-  /** Near-white cold core for ice beams, frost motes, and sniper cracks. */
-  frost: 0xe9f8ff,
+  /**
+   * Ice Cannon turquoise. One family drives the whole weapon: its tracer, its
+   * muzzle mist, its impacts, and the shell around a frozen zombie — so a
+   * turquoise glow anywhere on screen means "cold" and nothing else.
+   */
+  ice: 0x40e0d0,
+  /** Near-white rime at the heart of a freeze, and of a sniper crack. */
+  frost: 0xd9fff9,
+  iceDeep: 0x0f5f6b,
   /** Matches the phone-addict shield bubble. */
   shield: 0x35d7ff,
   /** Matches the Long Spikes pike. */

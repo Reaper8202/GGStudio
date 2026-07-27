@@ -45,9 +45,12 @@ import {
   rotateVec,
 } from '../core/grid.ts';
 import { buildPartMesh } from './meshes.ts';
+import { ARMOUR_FACE_AXIS } from './parts/armourPlate.ts';
 import { Overlays, defaultToggles, type OverlayToggles } from './overlays.ts';
 import {
   buildEditorUI,
+  type AbilityLoadoutSlotView,
+  type AbilitySlotStatus,
   type EditorUI,
   type NewGarageDisposalSummary,
   type RunSummary,
@@ -56,6 +59,14 @@ import {
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
+import {
+  ABILITY_KIND_META,
+  ABILITY_SLOT_KEYS,
+  BENCHED_ABILITY_SLOT,
+  MAX_ABILITY_SLOTS,
+  resolveAbilityLoadout,
+  type AbilityCandidate,
+} from '../core/abilities.ts';
 import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
 import {
   canAfford,
@@ -70,6 +81,7 @@ import {
   type RunState,
 } from '../core/economy.ts';
 import type { PlayerProfile } from '../core/profile.ts';
+import { resolveHotbar, withHotbarSlot } from '../core/hotbar.ts';
 import {
   isEmpUnlocked,
   isPiercingUnlocked,
@@ -81,6 +93,28 @@ import { threatWarningsForWave } from '../survival/waveBalance.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
+
+/**
+ * How far a build-face hit is stepped along its normal to land in the
+ * neighbouring cell. Generous enough to clear a curved placement surface — a
+ * drum or a tyre is hit well inside its cell everywhere but the tangent point —
+ * while staying under half a cell, so it can never skip past the neighbour.
+ */
+const FACE_STEP_M = CELL_SIZE * 0.3;
+
+/**
+ * Snap a surface normal to the nearest grid axis. Flat blocks already hit exact
+ * axes; rounding each component instead would turn a curved hit into a diagonal
+ * like (1,0,1) and resolve to no cell at all.
+ */
+function dominantAxis(normal: THREE.Vector3): THREE.Vector3 {
+  const ax = Math.abs(normal.x);
+  const ay = Math.abs(normal.y);
+  const az = Math.abs(normal.z);
+  if (ax >= ay && ax >= az) return new THREE.Vector3(Math.sign(normal.x), 0, 0);
+  if (ay >= az) return new THREE.Vector3(0, Math.sign(normal.y), 0);
+  return new THREE.Vector3(0, 0, Math.sign(normal.z));
+}
 
 /** Exact consequences of selling an installed build before starting over. */
 export function newGarageDisposalSummary(
@@ -304,7 +338,6 @@ export class EditorMode {
   private tutorialActive = false;
   private pointerDown: { x: number; y: number } | null = null;
   private lastPointer: { x: number; y: number } | null = null;
-  private eraseArmed = false;
   private disposed = false;
   private explicitRenamePending = false;
   private readonly profile: PlayerProfile;
@@ -375,6 +408,7 @@ export class EditorMode {
       onPurchasePart: (defId) => this.buyAndArmPart(defId),
       onBuyPart: (defId) => this.buyInventoryPart(defId),
       onArmPart: (defId) => this.armGhost(defId),
+      onHotbarChange: (defIds) => this.setHotbar(defIds),
       newGarageDisposalSummary: () =>
         newGarageDisposalSummary(this.bp.parts, getPartDef),
       onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
@@ -423,6 +457,7 @@ export class EditorMode {
       },
       onStartTutorial: () => this.startTutorial(),
       onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
+      onAbilitySlotClick: (slot) => this.cycleAbilitySlot(slot),
       onUpgradePart: (partId) => this.buyUpgrade(partId),
       onRepairPart: (partId) => this.repairPart(partId),
       onRepairAll: () => this.repairAll(),
@@ -430,7 +465,6 @@ export class EditorMode {
         this.buyTurretModule(partId, module),
       onDeleteSelected: () => this.deleteSelected(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
-      onToggleErase: () => this.toggleErase(),
       onCancelTool: () => this.disarmTool(),
     }, {
       selectedBiomeId: this.selectedBiomeId,
@@ -689,6 +723,30 @@ export class EditorMode {
     return this.profile.inventory;
   }
 
+  /**
+   * Block types on the build bar. A profile that has never had one is seeded
+   * from what the player owns and the seed is kept, so the bar stops moving
+   * under them as soon as they see it.
+   */
+  private hotbar(): string[] {
+    const resolved = resolveHotbar(this.profile.hotbarDefIds, this.inventory());
+    this.profile.hotbarDefIds = resolved;
+    return resolved;
+  }
+
+  /** Persists a bar the player just re-curated, rolling back a failed save. */
+  private setHotbar(defIds: readonly string[]): void {
+    const previous = this.profile.hotbarDefIds;
+    this.profile.hotbarDefIds = [...defIds];
+    try {
+      this.persistProfile();
+    } catch (err) {
+      this.profile.hotbarDefIds = previous;
+      this.deny(`Build bar could not be saved: ${this.errorMessage(err)}`);
+    }
+    this.refreshProfile();
+  }
+
   private isInventoryPlacementLabel(label: string): boolean {
     return label.startsWith('Place ') || label === 'symmetric place';
   }
@@ -733,27 +791,132 @@ export class EditorMode {
     this.selectOnly(partId);
   }
 
+  /** Every ability part on the rig, in build order, as loadout candidates. */
+  private abilityCandidates(): AbilityCandidate[] {
+    const candidates: AbilityCandidate[] = [];
+    for (const placed of this.bp.parts) {
+      const def = getPartDef(placed.defId);
+      if (def.ability === undefined) continue;
+      candidates.push({
+        partId: placed.id,
+        partName: def.name,
+        ability: def.ability,
+        level: placed.config.level ?? 1,
+        preferred: placed.config.activeAbility === true,
+        slot: placed.config.abilitySlot,
+      });
+    }
+    return candidates;
+  }
+
   /**
-   * Bind the single Q ability to one placed part. Only one ability part may be
-   * active at a time, so activating one clears the flag on every other ability
-   * part in the same edit.
+   * Write a whole ability loadout back to the blueprint: every ability part
+   * ends up with an explicit box or benched. Making the implicit auto-fill
+   * explicit on the first edit is what keeps the other two boxes still when
+   * the player changes one of them.
    */
-  private setActiveAbility(partId: string, active: boolean): void {
+  private commitAbilityLoadout(
+    slotByPartId: ReadonlyMap<string, number>,
+    label: string,
+  ): boolean {
     const updates: ReturnType<typeof updateConfigCommand>[] = [];
-    for (const p of this.bp.parts) {
-      if (!getPartDef(p.defId).ability) continue;
-      const shouldBeActive = active && p.id === partId;
-      if ((p.config.activeAbility === true) === shouldBeActive) continue;
+    for (const placed of this.bp.parts) {
+      if (getPartDef(placed.defId).ability === undefined) continue;
+      const slot = slotByPartId.get(placed.id) ?? BENCHED_ABILITY_SLOT;
+      if (placed.config.abilitySlot === slot) continue;
       updates.push(
-        updateConfigCommand(p.id, {
-          ...p.config,
-          activeAbility: shouldBeActive,
+        updateConfigCommand(placed.id, {
+          ...placed.config,
+          abilitySlot: slot,
+          // The old tick is what this replaces; drop it so the two can never
+          // disagree about the same part.
+          activeAbility: undefined,
         }),
       );
     }
-    if (updates.length === 1) this.exec(updates[0]);
-    else if (updates.length > 1)
-      this.exec(batchCommand('set active ability', updates));
+    if (updates.length === 0) return false;
+    return this.exec(
+      updates.length === 1 ? updates[0] : batchCommand(label, updates),
+    );
+  }
+
+  /** Slot index per part id for the loadout as it stands right now. */
+  private currentAbilitySlots(
+    candidates: readonly AbilityCandidate[],
+  ): Map<string, number> {
+    const slots = new Map<string, number>();
+    for (const assignment of resolveAbilityLoadout(candidates)) {
+      slots.set(assignment.partId, assignment.slot);
+    }
+    return slots;
+  }
+
+  /**
+   * A box in the garage ability planner was clicked: load the next ability the
+   * rig carries into it, cycling through the ones no other box has claimed and
+   * passing through empty on the way round.
+   */
+  private cycleAbilitySlot(slot: number): void {
+    const candidates = this.abilityCandidates();
+    if (candidates.length === 0) {
+      this.ui.setStatus('Fit an ability part to fill this box');
+      return;
+    }
+    const slots = this.currentAbilitySlots(candidates);
+    const occupantId = [...slots].find(([, at]) => at === slot)?.[0] ?? null;
+    // Abilities another box is showing stay put; the rest are this box's ring.
+    const ring = candidates.filter(
+      (candidate) =>
+        candidate.partId === occupantId || !slots.has(candidate.partId),
+    );
+    const currentIndex = ring.findIndex(
+      (candidate) => candidate.partId === occupantId,
+    );
+    const next = ring[currentIndex + 1] ?? null;
+
+    const nextSlots = new Map<string, number>();
+    for (const [partId, at] of slots) {
+      if (at !== slot) nextSlots.set(partId, at);
+    }
+    if (next !== null) nextSlots.set(next.partId, slot);
+    if (!this.commitAbilityLoadout(nextSlots, 'set ability slot')) return;
+    this.ui.setStatus(
+      next === null
+        ? `${ABILITY_SLOT_KEYS[slot].toUpperCase()} slot cleared`
+        : `${ABILITY_SLOT_KEYS[slot].toUpperCase()}: ${ABILITY_KIND_META[next.ability.kind].label}`,
+    );
+  }
+
+  /**
+   * The selected part's "equip" tick: drop it into the first free box, or take
+   * it out of the bar. Equipping with every box full is refused rather than
+   * silently bumping something the player already chose — the planner's boxes
+   * are where a deliberate swap is made.
+   */
+  private setActiveAbility(partId: string, active: boolean): void {
+    const part = getPart(this.bp, partId);
+    if (!part || !getPartDef(part.defId).ability) return;
+    const candidates = this.abilityCandidates();
+    const slots = this.currentAbilitySlots(candidates);
+    const equipped = slots.has(partId);
+    if (equipped === active) return;
+
+    const nextSlots = new Map(slots);
+    if (active) {
+      const taken = new Set(slots.values());
+      const free = ABILITY_SLOT_KEYS.findIndex((_, slot) => !taken.has(slot));
+      if (free === -1) {
+        this.deny(
+          `Only ${MAX_ABILITY_SLOTS} abilities fit the bar — clear a box first`,
+        );
+        this.selectOnly(partId);
+        return;
+      }
+      nextSlots.set(partId, free);
+    } else {
+      nextSlots.delete(partId);
+    }
+    this.commitAbilityLoadout(nextSlots, 'set ability slot');
     this.selectOnly(partId);
   }
 
@@ -944,14 +1107,28 @@ export class EditorMode {
     return true;
   }
 
+  /**
+   * One 90° step for the R (turn) and F (flip) keys.
+   *
+   * Guns flip about Z — a roll — because that is the turn that swings their
+   * hardpoint onto the side of a block, which is how a gun gets side-mounted.
+   * Rolling about X would only tip it nose-up or nose-down.
+   */
+  private rotationStep(def: PartDefinition, axis: 'y' | 'x'): number {
+    if (axis === 'y') return orientationFromSteps(0, 1, 0);
+    return def.weapon
+      ? orientationFromSteps(0, 0, 1)
+      : orientationFromSteps(1, 0, 0);
+  }
+
   private rotateSelected(axis: 'y' | 'x'): void {
     const first = [...this.selected][0];
     if (!first) return;
     const part = getPart(this.bp, first);
     if (!part) return;
-    const step = axis === 'y' ? orientationFromSteps(0, 1, 0) : orientationFromSteps(1, 0, 0);
-    let next = composeOrientations(step, part.orient);
     const def = getPartDef(part.defId);
+    const step = this.rotationStep(def, axis);
+    let next = composeOrientations(step, part.orient);
     for (let i = 0; i < 4; i++) {
       if (!def.allowedOrientations || def.allowedOrientations.includes(next)) break;
       next = composeOrientations(step, next);
@@ -970,7 +1147,6 @@ export class EditorMode {
       this.deny(`No ${getPartDef(defId).name} in inventory`);
       return;
     }
-    this.eraseArmed = false;
     this.ghost = { defId, orient: 0 };
     this.ui.setArmedPart(defId);
     this.selected.clear();
@@ -1039,12 +1215,16 @@ export class EditorMode {
     const previousMoney = this.profile.money;
     const stock = this.inventory();
     const previousCount = stock[defId] ?? 0;
+    const previousHotbar = this.profile.hotbarDefIds;
     this.profile.money -= def.cost;
     stock[defId] = previousCount + 1;
+    // A part you just paid for should be one click from placement.
+    this.profile.hotbarDefIds = withHotbarSlot(this.hotbar(), defId);
     try {
       this.persistProfile();
     } catch (err) {
       this.profile.money = previousMoney;
+      this.profile.hotbarDefIds = previousHotbar;
       const restoredStock = this.inventory();
       if (previousCount === 0) delete restoredStock[defId];
       else restoredStock[defId] = previousCount;
@@ -1094,14 +1274,18 @@ export class EditorMode {
 
     const previousMoney = this.profile.money;
     const previousUnlocks = [...this.profile.unlockedDefIds];
+    const previousHotbar = this.profile.hotbarDefIds;
     this.profile.money -= total;
     if (!wasUnlocked) this.profile.unlockedDefIds.push(defId);
     stock[defId] = previousCount + 1;
+    // A part you just paid for should be one click from placement.
+    this.profile.hotbarDefIds = withHotbarSlot(this.hotbar(), defId);
 
     try {
       this.persistProfile();
     } catch (err) {
       this.profile.money = previousMoney;
+      this.profile.hotbarDefIds = previousHotbar;
       this.profile.unlockedDefIds.splice(
         0,
         this.profile.unlockedDefIds.length,
@@ -1156,19 +1340,7 @@ export class EditorMode {
     this.ui.ghostTip.style.display = 'none';
   }
 
-  private toggleErase(): void {
-    if (this.eraseArmed) {
-      this.disarmTool();
-      return;
-    }
-    this.disarmGhost();
-    this.eraseArmed = true;
-    this.ui.setArmedPart('erase');
-    this.ui.setStatus('Erase: click a part to remove it');
-  }
-
   private disarmTool(): void {
-    this.eraseArmed = false;
     this.disarmGhost();
   }
 
@@ -1187,6 +1359,10 @@ export class EditorMode {
     this.raycaster.setFromCamera(ndc, this.camera);
     const def = getPartDef(this.ghost.defId);
     const isFaceMounted = def.cells.length === 0;
+    // Armour that owns a cell still wants to lie flat on whatever it was
+    // dropped against, so the ghost picks its own orientation the way
+    // face-mounted armour does instead of waiting for R/F.
+    const isFlatArmour = !isFaceMounted && Boolean(def.armour);
 
     let target: Vec3i | null = null;
     let orient = this.ghost.orient;
@@ -1194,16 +1370,22 @@ export class EditorMode {
     const hits = this.raycaster.intersectObjects(this.partsGroup.children, true);
     const hit = hits.find((candidate) => this.isPlacementSurfaceHit(candidate));
     if (hit && hit.face) {
-      const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).round();
+      const n = dominantAxis(
+        hit.face.normal.clone().transformDirection(hit.object.matrixWorld),
+      );
       const p = hit.point;
       if (isFaceMounted) {
-        const host = new THREE.Vector3(p.x - n.x * 0.02, p.y - n.y * 0.02, p.z - n.z * 0.02);
+        const host = p.clone().addScaledVector(n, -FACE_STEP_M);
         target = this.toCell(host);
         // Orient the armour socket ('pz' canonical) toward the hit face.
         orient = this.orientFacing({ x: n.x, y: n.y, z: n.z });
       } else {
-        const adj = new THREE.Vector3(p.x + n.x * 0.02, p.y + n.y * 0.02, p.z + n.z * 0.02);
+        const adj = p.clone().addScaledVector(n, FACE_STEP_M);
         target = this.toCell(adj);
+        // Point the plate's outward face away from the block it covers.
+        if (isFlatArmour) {
+          orient = this.orientFacing({ x: n.x, y: n.y, z: n.z }, ARMOUR_FACE_AXIS);
+        }
       }
     } else {
       // Ground / layer plane.
@@ -1212,6 +1394,8 @@ export class EditorMode {
       const pt = new THREE.Vector3();
       if (this.raycaster.ray.intersectPlane(plane, pt) && !isFaceMounted) {
         target = this.toCell(new THREE.Vector3(pt.x, planeY + 0.02, pt.z));
+        // Nothing above the layer plane to hug: lie flat, face up.
+        if (isFlatArmour) orient = this.orientFacing({ x: 0, y: 1, z: 0 }, ARMOUR_FACE_AXIS);
       }
     }
 
@@ -1264,10 +1448,10 @@ export class EditorMode {
     }
   }
 
-  private orientFacing(normal: Vec3i): number {
-    // Find an orientation sending +Z to the given axis normal.
+  private orientFacing(normal: Vec3i, localAxis: Vec3i = { x: 0, y: 0, z: 1 }): number {
+    // Find an orientation sending the part's local axis to the given normal.
     for (let o = 0; o < 24; o++) {
-      const v = rotateVec(o, { x: 0, y: 0, z: 1 });
+      const v = rotateVec(o, localAxis);
       if (v.x === normal.x && v.y === normal.y && v.z === normal.z) return o;
     }
     return 0;
@@ -1391,6 +1575,44 @@ export class EditorMode {
     this.rebuildMeshes();
   }
 
+  /**
+   * Which survival ability-bar slot a placed part currently claims, resolved
+   * exactly the way the fight resolves it — so the garage and the HUD can
+   * never disagree about what is equipped.
+   */
+  private abilitySlotStatus(partId: string): AbilitySlotStatus {
+    const candidates = this.abilityCandidates();
+    const assignment = resolveAbilityLoadout(candidates).find(
+      (slot) => slot.partId === partId,
+    );
+    return {
+      key: assignment?.key ?? null,
+      candidates: candidates.length,
+      capacity: MAX_ABILITY_SLOTS,
+    };
+  }
+
+  /**
+   * Redraw the garage ability planner from the blueprint. The boxes show
+   * exactly what the fight will show, resolved by the same function.
+   */
+  private refreshAbilityLoadout(): void {
+    const assignments = resolveAbilityLoadout(this.abilityCandidates());
+    const boxes: (AbilityLoadoutSlotView | null)[] = ABILITY_SLOT_KEYS.map(
+      () => null,
+    );
+    for (const assignment of assignments) {
+      const meta = ABILITY_KIND_META[assignment.ability.kind];
+      boxes[assignment.slot] = {
+        name: meta.label,
+        glyph: meta.glyph,
+        partName: assignment.partName,
+        blurb: meta.blurb,
+      };
+    }
+    this.ui.setAbilityLoadout(boxes);
+  }
+
   private refreshSelectionUI(): void {
     const first = [...this.selected][0];
     if (!first) {
@@ -1428,7 +1650,8 @@ export class EditorMode {
       upgradePreview: previewUpgradeMetrics(this.bp, part.id) ?? undefined,
     }, part.config, def.wheel
       ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
-      : undefined);
+      : undefined,
+      def.ability ? this.abilitySlotStatus(part.id) : undefined);
     this.refreshOverlays();
   }
 
@@ -1454,8 +1677,7 @@ export class EditorMode {
       return;
     }
     if (e.button !== 0) return;
-    if (this.eraseArmed) this.deleteAt(e.clientX, e.clientY);
-    else if (this.ghost) this.placeGhost();
+    if (this.ghost) this.placeGhost();
     else this.selectAt(e.clientX, e.clientY, e.shiftKey);
   };
 
@@ -1598,9 +1820,11 @@ export class EditorMode {
       this.profile.unlockedDefIds,
       this.inventory(),
       this.bp.parts.map((part) => part.defId),
+      this.hotbar(),
     );
     this.refreshRunContext();
     this.refreshSelectionUI();
+    this.refreshAbilityLoadout();
     if (this.tutorialActive) this.tutorialOverlay?.update(this.bp, getPartDef);
   }
 
@@ -1611,6 +1835,7 @@ export class EditorMode {
       this.profile.unlockedDefIds,
       this.inventory(),
       this.bp.parts.map((part) => part.defId),
+      this.hotbar(),
     );
     this.refreshRunContext();
     this.refreshSelectionUI();

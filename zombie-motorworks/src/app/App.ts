@@ -258,6 +258,8 @@ export function resetProfileForNewGame(profile: PlayerProfile): void {
   profile.money = fresh.money;
   profile.unlockedDefIds = [...fresh.unlockedDefIds];
   profile.inventory = { ...fresh.inventory };
+  // Curated slots would otherwise outlive the stock that justified them.
+  delete profile.hotbarDefIds;
   delete profile.currentBlueprintName;
   delete profile.highestWaveCleared;
   delete profile.phoneAddictsKilled;
