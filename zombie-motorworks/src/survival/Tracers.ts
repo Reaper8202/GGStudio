@@ -88,7 +88,14 @@ export interface TracerRendererOptions {
   capacity?: number;
 }
 
+export interface TracerSpawnOptions {
+  /** Misses remain visible, but should not compete visually with a connection. */
+  readonly faded?: boolean;
+}
+
 const DEFAULT_CAPACITY = 64;
+const FADED_ALPHA_SCALE = 0.5;
+const FADED_LIFE_SCALE = 0.6;
 const QUADS_PER_TRACER = 2;
 const VERTICES_PER_QUAD = 4;
 const INDICES_PER_QUAD = 6;
@@ -246,6 +253,7 @@ export class TracerRenderer {
     from: { x: number; y: number; z: number },
     to: { x: number; y: number; z: number },
     style: TracerStyle,
+    options?: TracerSpawnOptions,
   ): void {
     if (this.disposed) return;
     const slot = this.cursor;
@@ -261,11 +269,12 @@ export class TracerRenderer {
     this.toY[slot] = to.y;
     this.toZ[slot] = to.z;
     this.widths[slot] = tuning.width;
-    this.lives[slot] = tuning.lifeSeconds;
+    const faded = options?.faded === true;
+    this.lives[slot] = tuning.lifeSeconds * (faded ? FADED_LIFE_SCALE : 1);
     this.travels[slot] = tuning.travelSeconds;
     this.tailScales[slot] = tuning.tailScale;
     this.coreScales[slot] = tuning.coreScale;
-    this.styleAlphas[slot] = tuning.alpha;
+    this.styleAlphas[slot] = tuning.alpha * (faded ? FADED_ALPHA_SCALE : 1);
     this.styleR[slot] = ((tuning.color >> 16) & 0xff) / 0xff;
     this.styleG[slot] = ((tuning.color >> 8) & 0xff) / 0xff;
     this.styleB[slot] = (tuning.color & 0xff) / 0xff;

@@ -465,13 +465,7 @@ export class VfxSystem {
    * A zombie died: burst it into its own body voxels. `tintHex` should be the
    * dead zombie's body tint so the gibs read as that specific corpse.
    */
-  zombieGib(
-    x: number,
-    y: number,
-    z: number,
-    tintHex: number,
-    scale = 1,
-  ): void {
+  zombieGib(x: number, y: number, z: number, tintHex: number, scale = 1): void {
     if (this.disposed) return;
     const detail = this.detailAt(x, y, z);
     if (detail <= 0) return;
@@ -700,17 +694,17 @@ export class VfxSystem {
     if (kind === 'flesh') {
       const spray = this.count(7, detail);
       for (let i = 0; i < spray; i++) {
-        const speed = this.rand(2.5, 7);
+        const speed = this.rand(3.5, 8.5);
         this.reset0();
         this.spec.x = x;
         this.spec.y = y;
         this.spec.z = z;
         this.spec.vx = dirX * speed + this.randSigned(2.2);
-        this.spec.vy = dirY * speed + this.rand(0.5, 3);
+        this.spec.vy = dirY * speed + this.rand(0.8, 3.8);
         this.spec.vz = dirZ * speed + this.randSigned(2.2);
         this.spec.size = this.rand(0.045, 0.09);
         this.spec.endSize = this.spec.size * 0.6;
-        this.spec.lifeSeconds = this.rand(0.45, 0.85);
+        this.spec.lifeSeconds = this.rand(0.35, 0.65);
         this.spec.colorStart = VFX_PALETTE.gore;
         this.spec.colorEnd = VFX_PALETTE.goreDark;
         this.spec.gravity = -18;
@@ -719,7 +713,28 @@ export class VfxSystem {
         this.spec.stick = true;
         this.lit.spawn(this.take());
       }
-      this.flash(x, y, z, 0.16, 0.06, VFX_PALETTE.gore);
+      // A bright arcade spark sells a solid connection without increasing gore.
+      const sparks = this.count(3, detail);
+      for (let i = 0; i < sparks; i++) {
+        const speed = this.rand(4, 10);
+        this.reset0();
+        this.spec.x = x;
+        this.spec.y = y;
+        this.spec.z = z;
+        this.spec.vx = dirX * speed + this.randSigned(2.4);
+        this.spec.vy = dirY * speed + this.rand(1, 4);
+        this.spec.vz = dirZ * speed + this.randSigned(2.4);
+        this.spec.size = this.rand(0.025, 0.05);
+        this.spec.endSize = 0.008;
+        this.spec.lifeSeconds = this.rand(0.14, 0.28);
+        this.spec.colorStart = VFX_PALETTE.sparkHot;
+        this.spec.colorEnd = VFX_PALETTE.ember;
+        this.spec.gravity = -13;
+        this.spec.spin = 14;
+        this.spec.bounce = 0.32;
+        this.glow.spawn(this.take());
+      }
+      this.flash(x, y, z, 0.28, 0.09, VFX_PALETTE.sparkHot);
       return;
     }
 
@@ -1044,7 +1059,8 @@ export class VfxSystem {
     // Shockwave: low, flat cubes travelling out to exactly the blast radius.
     const ring = this.count(18, detail);
     for (let i = 0; i < ring; i++) {
-      const angle = (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.2);
+      const angle =
+        (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.2);
       // Reach the rim inside the particle's life, so the ring stops where the
       // damage does rather than sailing past it.
       const life = this.rand(0.26, 0.36);

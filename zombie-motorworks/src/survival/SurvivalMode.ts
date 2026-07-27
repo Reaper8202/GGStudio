@@ -95,6 +95,7 @@ import type { ZombieKind } from './zombies/Zombie.ts';
 
 const FIXED_DT = 1 / 60;
 const COUNTDOWN_SECONDS = 3;
+const FADED_TRACER_OPTIONS = { faded: true } as const;
 /** Radius of the Shield Generator bubble, generous enough to enclose most rigs. */
 const SHIELD_BUBBLE_RADIUS_M = 3.4;
 const STUCK_PROMPT_SECONDS = 1.6;
@@ -1374,7 +1375,8 @@ export class SurvivalMode {
 
     const shots = this.vehicle.shotsThisStep();
     for (const shot of shots) {
-      this.showTracer(shot);
+      const missed = shot.hitZombieHandle === null && !shot.hitSurface;
+      this.showTracer(shot, missed);
       this.shotDirection.set(
         shot.to.x - shot.from.x,
         shot.to.y - shot.from.y,
@@ -1384,6 +1386,8 @@ export class SurvivalMode {
       this.emitShotVfx(shot);
       this.detonateShell(shot);
       if (shot.hitZombieHandle === null) continue;
+      this.scopeCursor.flashHit('hit');
+      playSfx('hitTick');
       const pierceContinues = applyZombieShot(
         this.zombies,
         shot,
@@ -1666,6 +1670,8 @@ export class SurvivalMode {
   private handleZombieKilled(reward: number, kind: ZombieKind): void {
     this.kills++;
     if (!this.debugProgressionSuppressed) {
+      this.scopeCursor?.flashHit('kill');
+      playSfx('killThud');
       this.runScore = addScore(
         this.runScore,
         killScore(kind, this.currentWave),
@@ -2376,11 +2382,16 @@ export class SurvivalMode {
     );
   }
 
-  private showTracer(shot: TracerShot): void {
+  private showTracer(shot: TracerShot, faded: boolean): void {
     // The flamethrower draws its own cone of fire in the VFX layer; a tracer
     // line on top of it just reads as a stray orange wire.
     if (shot.damageType === 'aoe') return;
-    this.tracerRenderer.spawn(shot.from, shot.to, tracerStyleForShot(shot));
+    this.tracerRenderer.spawn(
+      shot.from,
+      shot.to,
+      tracerStyleForShot(shot),
+      faded ? FADED_TRACER_OPTIONS : undefined,
+    );
   }
 
   /** Debug seam control injection, matching ChamberMode's key-backed path. */
