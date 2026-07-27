@@ -55,6 +55,7 @@ describe('run checkpoints', () => {
     expect(checkpoint).toMatchObject({
       wave: 1,
       kills: 0,
+      score: 0,
       bankedEarnings: 0,
       partHp: fullPartHp(blueprint),
     });
@@ -70,6 +71,7 @@ describe('run checkpoints', () => {
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 217.5, seat: 61, frame: 0 },
       kills: 9,
+      score: 0,
       bankedEarnings: 73,
     });
 
@@ -77,6 +79,7 @@ describe('run checkpoints', () => {
       wave: 2,
       partHp: { core: 217.5, seat: 61 },
       kills: 9,
+      score: 0,
       bankedEarnings: 73,
     });
     expect(checkpoint.blueprint.parts.map((part) => part.id)).toEqual([
@@ -92,6 +95,7 @@ describe('run checkpoints', () => {
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 188, seat: 47 },
       kills: 31,
+      score: 0,
       bankedEarnings: 240,
     });
 
@@ -115,6 +119,7 @@ describe('run checkpoints', () => {
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 155, seat: 39, frame: 0 },
       kills: 54,
+      score: 0,
       bankedEarnings: 410,
     });
 
@@ -141,6 +146,7 @@ describe('run checkpoints', () => {
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 201, seat: 72 },
       kills: 18,
+      score: 0,
       bankedEarnings: 165,
     });
     const liveMidWave = {
@@ -152,7 +158,7 @@ describe('run checkpoints', () => {
     const saved = savedRunFromCheckpoint(checkpoint, 1_800_000_000_000);
 
     expect(saved).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       wave: checkpoint.wave,
       kills: checkpoint.kills,
       bankedEarnings: checkpoint.bankedEarnings,
@@ -168,6 +174,7 @@ describe('run checkpoints', () => {
       ['core', 'seat'],
       { core: 175, seat: 44 },
       23,
+      940,
     );
 
     expect(payload).toEqual({
@@ -176,6 +183,7 @@ describe('run checkpoints', () => {
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 175, seat: 44 },
       kills: 23,
+      score: 940,
     });
   });
 
@@ -194,6 +202,7 @@ describe('run checkpoints', () => {
       lastHudPending: -1,
       currentWave: 2,
       kills: 23,
+      runScore: 940,
       vehicle: {
         isDestroyed: () => false,
         survivingPartIds: () => ['core', 'seat'],
@@ -221,6 +230,7 @@ describe('run checkpoints', () => {
         ['core', 'seat'],
         { core: 175, seat: 44 },
         23,
+        940,
       ],
     ]);
   });

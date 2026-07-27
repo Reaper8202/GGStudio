@@ -44,6 +44,7 @@ function appWithDamagedCheckpoint(
     blueprint,
     partHp: { ...partHp },
     kills: 0,
+    score: 0,
     bankedEarnings: 0,
   };
   const profile = defaultProfile();

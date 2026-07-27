@@ -72,8 +72,12 @@ export interface TurretModuleEconomy {
 
 export interface RunSummary {
   failedWave: number;
-  bankedMoneyRetained: number;
-  pendingMoneyDiscarded: number;
+  /** Final arcade score recorded on the leaderboard. */
+  score: number;
+  kills: number;
+  isPersonalBest: boolean;
+  /** 1-based local-board rank, or null when the run did not place. */
+  rank: number | null;
   destroyedPartNames: string[];
 }
 
@@ -1029,13 +1033,17 @@ export function buildEditorUI(
         primary.className = 'run-banner__summary-line';
         primary.textContent =
           `Run ended on Wave ${summary.failedWave} · ` +
-          `$${summary.bankedMoneyRetained} banked money retained · ` +
-          `$${summary.pendingMoneyDiscarded} failed-wave pending money discarded`;
+          `Score ${summary.score.toLocaleString()} · ` +
+          `${summary.kills.toLocaleString()} zombies killed`;
         const recovery = document.createElement('div');
         recovery.className = 'run-banner__summary-line';
-        recovery.textContent =
-          `Wave ${summary.failedWave} checkpoint restored · ` +
-          'Survivors recovered to full HP';
+        const resetNote =
+          'Rig and cash reset · Unlocked parts kept';
+        recovery.textContent = summary.isPersonalBest
+          ? `New best score! · ${resetNote}`
+          : summary.rank === null
+            ? resetNote
+            : `Ranked #${summary.rank} · ${resetNote}`;
         const losses = document.createElement('div');
         losses.className = 'run-banner__summary-line';
         losses.textContent = `Earlier cleared-wave losses: ${

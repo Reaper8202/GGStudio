@@ -81,6 +81,8 @@ declare global {
       debugStartWave(wave: number): void;
       debugKillAllZombies(): void;
       forceWaveComplete(): void;
+      /** Destroy the rig outright to reach the game-over screen. */
+      forceGameOver(): void;
       setScenario(s: string): void;
       resetVehicle(): void;
       orient: { yaw90: number; yaw180: number; rollX90: number };

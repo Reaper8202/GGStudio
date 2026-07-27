@@ -61,7 +61,8 @@ function sampleBlueprint(): VehicleBlueprint {
 
 function sampleRun(): SavedRun {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    score: 12_450,
     wave: 7,
     kills: 42,
     bankedEarnings: 135,
@@ -72,7 +73,7 @@ function sampleRun(): SavedRun {
 }
 
 describe('saved run codec', () => {
-  it('round-trips schema-2 checkpoint fields', () => {
+  it('round-trips schema-3 checkpoint fields', () => {
     const run = sampleRun();
 
     expect(decodeSavedRun(encodeSavedRun(run))).toEqual(run);
@@ -84,7 +85,7 @@ describe('saved run codec', () => {
     ['missing fields', '{}'],
     [
       'wrong schema version',
-      JSON.stringify({ ...sampleRun(), schemaVersion: 3 }),
+      JSON.stringify({ ...sampleRun(), schemaVersion: 4 }),
     ],
     ['wave zero', JSON.stringify({ ...sampleRun(), wave: 0 })],
     ['fractional wave', JSON.stringify({ ...sampleRun(), wave: 2.5 })],
@@ -107,7 +108,7 @@ describe('saved run codec', () => {
     expect(decodeSavedRun(json)?.partHp).toEqual({ core: 50 });
   });
 
-  it('migrates schema-1 moneyEarned into schema-2 bankedEarnings', () => {
+  it('migrates schema-1 moneyEarned into schema 3 with score zero', () => {
     const current = sampleRun();
     const legacy = {
       ...current,
@@ -116,7 +117,41 @@ describe('saved run codec', () => {
     };
     delete (legacy as Partial<typeof legacy>).bankedEarnings;
 
-    expect(decodeSavedRun(JSON.stringify(legacy))).toEqual(current);
+    expect(decodeSavedRun(JSON.stringify(legacy))).toEqual({
+      ...current,
+      score: 0,
+    });
+  });
+
+  it('migrates schema 2 into schema 3 with score zero', () => {
+    const current = sampleRun();
+    const legacy = {
+      ...current,
+      schemaVersion: 2,
+    };
+    delete (legacy as Partial<typeof legacy>).score;
+
+    expect(decodeSavedRun(JSON.stringify(legacy))).toEqual({
+      ...current,
+      score: 0,
+    });
+  });
+
+  it('preserves a valid schema-3 score', () => {
+    expect(decodeSavedRun(JSON.stringify(sampleRun()))?.score).toBe(12_450);
+  });
+
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN])(
+    'normalizes an invalid score of %s to zero',
+    (score) => {
+      expect(
+        decodeSavedRun(JSON.stringify({ ...sampleRun(), score }))?.score,
+      ).toBe(0);
+    },
+  );
+
+  it('always returns the current schema version', () => {
+    expect(decodeSavedRun(JSON.stringify(sampleRun()))?.schemaVersion).toBe(3);
   });
 
   it('clamps negative kills and banked earnings to zero', () => {

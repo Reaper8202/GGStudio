@@ -153,8 +153,17 @@ describe('hazard intensity', () => {
     }
   });
 
+  it('stays at zero for every wave when a biome has no hazard', () => {
+    for (const spec of HAZARD_SPECS.filter((s) => s.kind === 'none')) {
+      for (let wave = 1; wave <= 30; wave++) {
+        expect(hazardIntensity(spec, wave)).toBe(0);
+      }
+    }
+  });
+
   it('uses exact endpoints and rises monotonically through wave 30', () => {
-    for (const spec of HAZARD_SPECS) {
+    // Only ramping hazards have endpoints; a 'none' hazard never leaves zero.
+    for (const spec of HAZARD_SPECS.filter((s) => s.kind !== 'none')) {
       expect(hazardIntensity(spec, spec.startWave - 1)).toBe(0);
       expect(hazardIntensity(spec, spec.startWave)).toBe(0);
       expect(hazardIntensity(spec, spec.fullWave)).toBe(1);

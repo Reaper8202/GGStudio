@@ -1,8 +1,11 @@
 import { deserializeBlueprint } from './serialize.ts';
 import type { VehicleBlueprint } from './types.ts';
 
+/** Persisted wave-start checkpoint for a survival run. */
 export interface SavedRun {
-  schemaVersion: 2;
+  schemaVersion: 3;
+  /** Arcade score accumulated across the run. */
+  score: number;
   /** Wave the player resumes at (>= 1). */
   wave: number;
   kills: number;
@@ -20,7 +23,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 interface RawSavedRun {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
+  score: unknown;
   wave: number;
   kills: number;
   bankedEarnings: number;
@@ -32,7 +36,9 @@ interface RawSavedRun {
 function normalizeShape(value: unknown): RawSavedRun | null {
   if (!isRecord(value)) return null;
   if (
-    (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
+    (value.schemaVersion !== 1 &&
+      value.schemaVersion !== 2 &&
+      value.schemaVersion !== 3) ||
     typeof value.wave !== 'number' ||
     typeof value.kills !== 'number' ||
     !isRecord(value.blueprint) ||
@@ -46,6 +52,7 @@ function normalizeShape(value: unknown): RawSavedRun | null {
   if (typeof bankedEarnings !== 'number') return null;
   return {
     schemaVersion: value.schemaVersion,
+    score: value.schemaVersion === 3 ? value.score : 0,
     wave: value.wave,
     kills: value.kills,
     bankedEarnings,
@@ -97,14 +104,21 @@ export function decodeSavedRun(json: string | null): SavedRun | null {
   ) as Record<string, number>;
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    score:
+      typeof normalized.score === 'number' &&
+      Number.isSafeInteger(normalized.score) &&
+      normalized.score >= 0
+        ? normalized.score
+        : 0,
     wave: normalized.wave,
     kills:
       Number.isFinite(normalized.kills) && normalized.kills >= 0
         ? normalized.kills
         : 0,
     bankedEarnings:
-      Number.isFinite(normalized.bankedEarnings) && normalized.bankedEarnings >= 0
+      Number.isFinite(normalized.bankedEarnings) &&
+      normalized.bankedEarnings >= 0
         ? normalized.bankedEarnings
         : 0,
     blueprint,
@@ -117,6 +131,7 @@ export function decodeSavedRun(json: string | null): SavedRun | null {
 export function encodeSavedRun(run: SavedRun): string {
   return JSON.stringify({
     schemaVersion: run.schemaVersion,
+    score: run.score,
     wave: run.wave,
     kills: run.kills,
     bankedEarnings: run.bankedEarnings,

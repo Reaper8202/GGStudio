@@ -5,7 +5,9 @@ import { deserializeBlueprint } from '../core/serialize.ts';
 import { getPartDef } from '../core/parts.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { BLUEPRINT_STORAGE_KEY } from '../editor/EditorMode.ts';
-import { Graveyard } from '../survival/Graveyard.ts';
+import type { Arena } from '../survival/arena/Arena.ts';
+import { ArenaBuilder } from '../survival/arena/ArenaBuilder.ts';
+import { GRAVEYARD } from '../survival/arena/recipes/graveyard.ts';
 import type { SavedRun } from '../core/runSave.ts';
 import { profileStore } from './profileStore.ts';
 // buildStarterBlueprint is a plain function export; the cross-import back
@@ -103,7 +105,7 @@ export class TitleScreen {
   private readonly camera: THREE.PerspectiveCamera;
   private readonly clock = new THREE.Clock();
   private readonly backdropWorld: RAPIER.World;
-  private readonly graveyard: Graveyard;
+  private readonly arena: Arena;
   private readonly vehicleGroup: THREE.Group;
   private readonly orbitCenter: THREE.Vector3;
 
@@ -228,9 +230,13 @@ export class TitleScreen {
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 200);
 
     this.backdropWorld = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-    this.graveyard = new Graveyard(this.scene, this.backdropWorld, {
-      collidersEnabled: false,
-    });
+    this.arena = new ArenaBuilder(
+      this.scene,
+      this.backdropWorld,
+      GRAVEYARD,
+      0x47524156,
+      { collidersEnabled: false },
+    );
 
     const parkPosition = new THREE.Vector3(2, 0, 2);
     this.vehicleGroup = buildVehicleGroup(loadBackdropBlueprint());
@@ -246,7 +252,7 @@ export class TitleScreen {
   update(): void {
     if (this.disposed) return;
     this.updateCamera(this.clock.getElapsedTime());
-    this.graveyard.follow(this.vehicleGroup);
+    this.arena.follow(this.vehicleGroup);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -302,7 +308,7 @@ export class TitleScreen {
     this.cancelButton.removeEventListener('click', this.onCancelClick);
     this.root.remove();
 
-    this.graveyard.dispose();
+    this.arena.dispose();
     disposeObjectResources(this.scene);
     this.scene.clear();
     this.backdropWorld.free();

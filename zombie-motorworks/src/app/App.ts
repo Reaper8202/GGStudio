@@ -45,7 +45,10 @@ import {
   MINE_SWEEPER_UNLOCK_WAVE,
   type PlayerProfile,
 } from '../core/profile.ts';
+import type { RunOutcome } from '../core/leaderboard.ts';
 import type { SavedRun } from '../core/runSave.ts';
+import { submitCrazyGamesScore } from './crazyGamesSdk.ts';
+import { leaderboardStore } from './leaderboardStore.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
 import { runSaveStore } from './runSaveStore.ts';
 import { TitleScreen } from './TitleScreen.ts';
@@ -59,6 +62,8 @@ export interface RunCheckpoint {
   partHp: Record<string, number>;
   /** Cumulative kills committed before `wave`. */
   kills: number;
+  /** Arcade run score committed before `wave`. */
+  score: number;
   /** Run earnings already credited before `wave`. */
   bankedEarnings: number;
 }
@@ -66,6 +71,7 @@ export interface RunCheckpoint {
 export interface CheckpointRunState extends RunState {
   partHp: Record<string, number>;
   kills: number;
+  score: number;
 }
 
 /** Effective maximum HP for every placed part in a blueprint. */
@@ -87,6 +93,7 @@ export function createInitialRunCheckpoint(
     ),
     partHp: fullPartHp(bp),
     kills: 0,
+    score: 0,
     bankedEarnings: 0,
   };
 }
@@ -110,6 +117,7 @@ export function createClearedWaveCheckpoint(input: {
   survivingPartIds: readonly string[];
   partHp: Readonly<Record<string, number>>;
   kills: number;
+  score: number;
   bankedEarnings: number;
 }): RunCheckpoint {
   const blueprint = pruneBlueprintToSurvivors(
@@ -121,6 +129,7 @@ export function createClearedWaveCheckpoint(input: {
     blueprint,
     partHp: partHpForBlueprint(blueprint, input.partHp),
     kills: input.kills,
+    score: input.score,
     bankedEarnings: input.bankedEarnings,
   };
 }
@@ -164,6 +173,7 @@ export function runStateFromCheckpoint(
     wave: checkpoint.wave,
     partHp: { ...checkpoint.partHp },
     kills: checkpoint.kills,
+    score: checkpoint.score,
   };
 }
 
@@ -185,9 +195,10 @@ export function savedRunFromCheckpoint(
   savedAt: number,
 ): SavedRun {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     wave: checkpoint.wave,
     kills: checkpoint.kills,
+    score: checkpoint.score,
     bankedEarnings: checkpoint.bankedEarnings,
     blueprint: checkpoint.blueprint,
     partHp: { ...checkpoint.partHp },
@@ -215,6 +226,18 @@ export function recordWaveCleared(
 /** Apply the lifetime kill progress used by the EMP unlock gate. */
 export function recordPhoneAddictKilled(profile: PlayerProfile): void {
   profile.phoneAddictsKilled = (profile.phoneAddictsKilled ?? 0) + 1;
+}
+
+/**
+ * Reset what a finished run costs: money, inventory, and the vehicle its
+ * upgrades lived on. Permanently unlocked parts and lifetime progression
+ * counters survive, so the catalog a player earned carries into the next run.
+ */
+export function resetProfileForNewRun(profile: PlayerProfile): void {
+  const fresh = defaultProfile();
+  profile.money = fresh.money;
+  profile.inventory = { ...fresh.inventory };
+  delete profile.currentBlueprintName;
 }
 
 /** Restore every persistent profile field owned by a fresh game. */
@@ -333,6 +356,7 @@ export class App {
       blueprint: savedRun.blueprint,
       partHp: { ...savedRun.partHp },
       kills: savedRun.kills,
+      score: savedRun.score,
       bankedEarnings: savedRun.bankedEarnings,
     };
     this.activeRun = { wave: savedRun.wave };
@@ -468,6 +492,15 @@ export class App {
     }
   }
 
+  /** Drop saved vehicle designs without touching persistent profile progress. */
+  private clearStoredBlueprints(): void {
+    try {
+      localStorage.removeItem(BLUEPRINT_STORAGE_KEY);
+    } catch {
+      // Keep the fresh in-memory game usable if persistence is unavailable.
+    }
+  }
+
   private enterChamber(bp: VehicleBlueprint): void {
     this.bp = bp;
     this.savedView = this.editor?.viewState();
@@ -528,28 +561,31 @@ export class App {
       profileMoney: () => this.profile.money,
       runEarnings: () => this.runMoneyEarned,
       onReward: (amount) => this.creditRunReward(amount),
-      onExit: (state) => this.finishRun(state),
-      onWaveAdvance: (state, survivingPartIds, partHp, kills) => {
+      onExit: () => this.abandonRun(),
+      onWaveAdvance: (state, survivingPartIds, partHp, kills, score) => {
         this.commitClearedWaveCheckpoint(
           state.wave,
           survivingPartIds,
           partHp,
           kills,
+          score,
         );
         this.activeRun = { wave: state.wave };
       },
-      onBuildPhase: (state, survivingPartIds, partHp, kills) =>
-        this.enterBuildPhase(state, survivingPartIds, partHp, kills),
-      onWaveCheckpoint: (state, survivingPartIds, partHp, kills) => {
+      onBuildPhase: (state, survivingPartIds, partHp, kills, score) =>
+        this.enterBuildPhase(state, survivingPartIds, partHp, kills, score),
+      onWaveCheckpoint: (state, survivingPartIds, partHp, kills, score) => {
         this.commitClearedWaveCheckpoint(
           state.wave,
           survivingPartIds,
           partHp,
           kills,
+          score,
         );
       },
-      onGameOver: (state, pendingMoneyDiscarded) =>
-        this.finishRun(state, pendingMoneyDiscarded),
+      onGameOver: (state, pendingMoneyDiscarded, score, kills) =>
+        this.concludeRun(state, pendingMoneyDiscarded, score, kills),
+      onGameOverContinue: () => this.openEditor(),
       onResetWave: (state) => this.resetSurvivalWave(state),
       onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
       onPhoneAddictKilled: () => {
@@ -570,6 +606,7 @@ export class App {
     survivingPartIds: readonly string[],
     partHp: Record<string, number>,
     kills: number,
+    score: number,
   ): void {
     const survivors = new Set(survivingPartIds);
     this.committedDestroyedPartNames.push(
@@ -583,6 +620,7 @@ export class App {
       survivingPartIds,
       partHp,
       kills,
+      score,
       bankedEarnings: this.runMoneyEarned,
     });
     this.bp = this.checkpoint.blueprint;
@@ -594,6 +632,7 @@ export class App {
     survivingPartIds: readonly string[],
     partHp: Record<string, number>,
     kills: number,
+    score: number,
   ): void {
     this.flushProfile();
     this.commitClearedWaveCheckpoint(
@@ -601,6 +640,7 @@ export class App {
       survivingPartIds,
       partHp,
       kills,
+      score,
     );
     this.activeRun = { wave: run.wave };
     this.inBuildPhase = true;
@@ -611,19 +651,74 @@ export class App {
     this.editor?.persistGarage();
   }
 
-  private finishRun(run: RunState, pendingMoneyDiscarded = 0): void {
+  /**
+   * Record a finished run and wipe the garage back to a fresh start. Survival
+   * stays on screen showing the result until `onGameOverContinue` opens the
+   * new garage, so the reset is never a surprise.
+   */
+  private concludeRun(
+    run: RunState,
+    _pendingMoneyDiscarded: number,
+    score: number,
+    kills: number,
+  ): RunOutcome {
+    const destroyedPartNames = [...this.committedDestroyedPartNames];
+    const recorded = leaderboardStore.record({
+      score,
+      wave: run.wave,
+      kills,
+      at: Date.now(),
+    });
+    // Best effort. The local board is what the game actually displays, so a
+    // failed or absent CrazyGames submission must not change anything here.
+    void submitCrazyGamesScore(score);
+
+    this.resetProgressionForNewRun();
+    this.runSummary = {
+      failedWave: run.wave,
+      score,
+      kills,
+      isPersonalBest: recorded.isPersonalBest,
+      rank: recorded.rank,
+      destroyedPartNames,
+    };
+    return {
+      score,
+      wave: run.wave,
+      kills,
+      isPersonalBest: recorded.isPersonalBest,
+      rank: recorded.rank,
+      entries: recorded.entries,
+    };
+  }
+
+  /**
+   * A finished run costs the garage: money, vehicle, parts, and the upgrades
+   * on them all return to the starter state. Unlocked catalog entries and
+   * lifetime progression survive, so each run starts from the same equipment
+   * but the player keeps what they have permanently earned.
+   */
+  private resetProgressionForNewRun(): void {
+    this.clearStoredBlueprints();
+    resetProfileForNewRun(this.profile);
+    this.resetSessionState();
+    this.bp = buildStarterBlueprint();
+    // The profile key is deliberately kept (unlocks survive a run), so the
+    // wiped money and inventory must be written back explicitly — a flush
+    // alone is skipped while the profile is not marked dirty.
+    this.profileDirty = true;
+    this.flushProfile();
+  }
+
+  /** Leave a run without finishing it: no score recorded, no reset. */
+  private abandonRun(): void {
     runSaveStore.clear();
     this.flushProfile();
     if (this.checkpoint !== null) {
       this.bp = recoverRunFromCheckpoint(this.checkpoint).blueprint;
     }
     this.history.clear();
-    this.runSummary = {
-      failedWave: run.wave,
-      bankedMoneyRetained: this.runMoneyEarned,
-      pendingMoneyDiscarded,
-      destroyedPartNames: [...this.committedDestroyedPartNames],
-    };
+    this.runSummary = undefined;
     this.activeRun = null;
     this.checkpoint = null;
     this.inBuildPhase = false;
@@ -876,7 +971,7 @@ export class App {
         return true;
       },
       backToEditor: () => {
-        if (this.survival && this.activeRun) this.finishRun(this.activeRun);
+        if (this.survival && this.activeRun) this.abandonRun();
         else if (!this.editor && !this.title) this.openEditor();
       },
       setControls: (c: Partial<VehicleControls>) => {
@@ -957,6 +1052,7 @@ export class App {
       },
       debugKillAllZombies: () => this.survival?.debugKillAllZombies(),
       forceWaveComplete: () => this.survival?.debugForceWaveComplete(),
+      forceGameOver: () => this.survival?.debugDestroyVehicle(),
       setScenario: (s: ScenarioName) => this.chamber?.debugSetScenario(s),
       resetVehicle: () => this.chamber?.reset(),
     };

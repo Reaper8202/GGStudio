@@ -7,17 +7,23 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { effectiveFreeze, effectiveShield } from '../core/abilities.ts';
 import type { RunState } from '../core/economy.ts';
+import {
+  leaderboardRows,
+  type LeaderboardRow,
+  type RunOutcome,
+} from '../core/leaderboard.ts';
 import { getPartDef } from '../core/parts.ts';
+import { addScore, killScore, waveClearScore } from '../core/score.ts';
 import { deriveConnections } from '../core/structural.ts';
 import {
   MINE_SWEEPER_MINIMAP_LEVEL,
   mineSweeperRadius,
 } from '../core/turretModules.ts';
 import type { Vec3, VehicleBlueprint } from '../core/types.ts';
+import { randomSeed } from '../core/rng.ts';
 import type { RuntimePart } from '../runtime/assembler.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
-import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
-import type { SurfaceKind } from '../core/surfaces.ts';
+import { lowestPointM } from '../runtime/assembler.ts';
 import {
   RuntimeVehicle,
   brakeInputWithAutoHold,
@@ -29,7 +35,9 @@ import { createToggle } from '../ui/system.ts';
 import { FuelPickups } from './FuelPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
-import { GRAVEYARD_HALF_SIZE, Graveyard } from './Graveyard.ts';
+import type { Arena } from './arena/Arena.ts';
+import { ArenaBuilder } from './arena/ArenaBuilder.ts';
+import { GRAVEYARD } from './arena/recipes/graveyard.ts';
 import { Minimap } from './Minimap.ts';
 import {
   WaveManager,
@@ -54,8 +62,6 @@ import {
 import type { ZombieKind } from './zombies/Zombie.ts';
 
 const FIXED_DT = 1 / 60;
-const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
-const GROUND_HALF_SIZE = GRAVEYARD_HALF_SIZE;
 const COUNTDOWN_SECONDS = 3;
 /** Radius of the Shield Generator bubble, generous enough to enclose most rigs. */
 const SHIELD_BUBBLE_RADIUS_M = 3.4;
@@ -74,12 +80,14 @@ export interface SurvivalCallbacks {
     survivingPartIds: readonly string[],
     partHp: Record<string, number>,
     kills: number,
+    score: number,
   ): void;
   onBuildPhase(
     run: RunState,
     survivingPartIds: readonly string[],
     partHp: Record<string, number>,
     kills: number,
+    score: number,
   ): void;
   /** Commit the next wave's start state as soon as a clear is resolved. */
   onWaveCheckpoint?(
@@ -87,8 +95,21 @@ export interface SurvivalCallbacks {
     survivingPartIds: readonly string[],
     partHp: Record<string, number>,
     kills: number,
+    score: number,
   ): void;
-  onGameOver(run: RunState, pendingMoneyDiscarded: number): void;
+  /**
+   * The run is over. App records the score, wipes the garage back to a fresh
+   * start, and returns where this run placed so the overlay can show it.
+   * The mode stays alive until `onGameOverContinue`.
+   */
+  onGameOver(
+    run: RunState,
+    pendingMoneyDiscarded: number,
+    score: number,
+    kills: number,
+  ): RunOutcome;
+  /** Dismiss the game-over overlay and open the freshly reset garage. */
+  onGameOverContinue(): void;
   onResetWave(run: RunState): void;
   onCheatInfiniteMoney(): void;
   /** Lifetime progression: a Phone Addict died, which unlocks the EMP module. */
@@ -103,6 +124,7 @@ export interface SurvivalCallbacks {
   onSaveAndQuit(snapshot: {
     wave: number;
     kills: number;
+    score: number;
   }): void;
 }
 
@@ -112,6 +134,7 @@ export interface WaveClearPayload {
   survivingPartIds: readonly string[];
   partHp: Record<string, number>;
   kills: number;
+  score: number;
 }
 
 /** Shared payload for both choices offered after a cleared wave. */
@@ -120,6 +143,7 @@ export function createWaveClearPayload(
   survivingPartIds: readonly string[],
   partHp: Readonly<Record<string, number>>,
   kills: number,
+  score: number,
 ): WaveClearPayload {
   return {
     clearedRun: { wave: clearedWave },
@@ -127,6 +151,7 @@ export function createWaveClearPayload(
     survivingPartIds: [...survivingPartIds],
     partHp: { ...partHp },
     kills,
+    score,
   };
 }
 
@@ -135,6 +160,8 @@ export type SurvivalPhase = 'countdown' | 'active' | 'cleared' | 'gameOver';
 export interface SurvivalTelemetry {
   mode: 'survival';
   kills: number;
+  /** Arcade run score, as shown on the HUD and submitted at game over. */
+  score: number;
   phoneAddictKills: number;
   wave: number;
   zombiesAlive: number;
@@ -252,6 +279,12 @@ interface SurvivalUi {
   victoryLostPartsValue: HTMLElement;
   victoryNextWaveValue: HTMLElement;
   victoryWarning: HTMLDivElement;
+  gameOverOverlay: HTMLDivElement;
+  gameOverBest: HTMLDivElement;
+  gameOverScore: HTMLDivElement;
+  gameOverWaveValue: HTMLElement;
+  gameOverKillsValue: HTMLElement;
+  gameOverBoard: HTMLDivElement;
   settingsOverlay: HTMLDivElement;
   settingsButton: HTMLButtonElement;
   settingsEyebrow: HTMLSpanElement;
@@ -266,6 +299,7 @@ type PendingTransition =
       survivingPartIds: string[];
       partHp: Record<string, number>;
       kills: number;
+      score: number;
     }
   | {
       kind: 'gameOver';
@@ -273,15 +307,14 @@ type PendingTransition =
       pendingMoneyDiscarded: number;
     };
 
-type SurvivalRunState = RunState & { kills?: number };
+type SurvivalRunState = RunState & { kills?: number; score?: number };
 
 export class SurvivalMode {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly world: RAPIER.World;
   private readonly eventQueue: RAPIER.EventQueue;
-  private readonly surfaceByCollider = new Map<number, SurfaceKind>();
-  private readonly graveyard: Graveyard;
+  private readonly arena: Arena;
   private readonly vehicle: RuntimeVehicle;
   private readonly zombies: ZombieSystem;
   private readonly autoAim: AutoAim;
@@ -352,6 +385,12 @@ export class SurvivalMode {
   private readonly countdownOverlay: HTMLDivElement;
   private readonly countdownValue: HTMLDivElement;
   private readonly victoryOverlay: HTMLDivElement;
+  private readonly gameOverOverlay: HTMLDivElement;
+  private readonly gameOverBest: HTMLDivElement;
+  private readonly gameOverScore: HTMLDivElement;
+  private readonly gameOverWaveValue: HTMLElement;
+  private readonly gameOverKillsValue: HTMLElement;
+  private readonly gameOverBoard: HTMLDivElement;
   private readonly victorySubtitle: HTMLDivElement;
   private readonly victoryMoneyValue: HTMLElement;
   private readonly victoryRunMoneyValue: HTMLElement;
@@ -377,6 +416,8 @@ export class SurvivalMode {
   private ramDamageThresholdKmh = MIN_IMPACT_SPEED * 3.6;
   private ramKillThresholdKmh = LETHAL_IMPACT_SPEED * 3.6;
   private kills = 0;
+  /** Arcade score for the whole run. Never spent, never rolled back. */
+  private runScore = 0;
   private phoneAddictKills = 0;
   private currentWave = 1;
   private countdownRemaining = COUNTDOWN_SECONDS;
@@ -470,19 +511,27 @@ export class SurvivalMode {
     );
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.eventQueue = new RAPIER.EventQueue(true);
-    this.buildGround();
-    this.graveyard = new Graveyard(this.scene, this.world);
+    const arenaSeed =
+      'seed' in run && typeof run.seed === 'number'
+        ? run.seed
+        : randomSeed(); // TODO(biome): seed comes from the run checkpoint
+    this.arena = new ArenaBuilder(
+      this.scene,
+      this.world,
+      GRAVEYARD,
+      arenaSeed,
+    );
     this.vehicle = this.spawnVehicle(bp);
     this.followCamera = new FollowCamera(
       this.camera,
       this.vehicle,
-      this.graveyard.bounds,
+      this.arena.bounds,
     );
     const firstZombieVisualIndex = this.scene.children.length;
     this.zombies = new ZombieSystem(
       this.world,
       this.scene,
-      this.graveyard.spawnPoints,
+      this.arena.spawnPoints,
       this.vehicle,
       (reward, kind) => this.handleZombieKilled(reward, kind),
     );
@@ -494,7 +543,7 @@ export class SurvivalMode {
     this.fuelPickups = new FuelPickups(
       this.scene,
       this.vehicle,
-      this.graveyard.bounds,
+      this.arena.bounds,
     );
     this.waves = new WaveManager(this.zombies, {
       onRemainingChanged: () => {
@@ -527,6 +576,12 @@ export class SurvivalMode {
     this.countdownOverlay = builtUi.countdownOverlay;
     this.countdownValue = builtUi.countdownValue;
     this.victoryOverlay = builtUi.victoryOverlay;
+    this.gameOverOverlay = builtUi.gameOverOverlay;
+    this.gameOverBest = builtUi.gameOverBest;
+    this.gameOverScore = builtUi.gameOverScore;
+    this.gameOverWaveValue = builtUi.gameOverWaveValue;
+    this.gameOverKillsValue = builtUi.gameOverKillsValue;
+    this.gameOverBoard = builtUi.gameOverBoard;
     this.victorySubtitle = builtUi.victorySubtitle;
     this.victoryMoneyValue = builtUi.victoryMoneyValue;
     this.victoryRunMoneyValue = builtUi.victoryRunMoneyValue;
@@ -545,8 +600,8 @@ export class SurvivalMode {
     this.settingsStatus = builtUi.settingsStatus;
     this.minimap = new Minimap(
       this.ui,
-      this.graveyard.bounds,
-      this.graveyard.minimapFeatures,
+      this.arena.bounds,
+      this.arena.minimapFeatures,
       {
         renderer: this.renderer,
         scene: this.scene,
@@ -555,12 +610,15 @@ export class SurvivalMode {
           ...this.wheelMeshes.values(),
           this.zombieVisualRoot,
         ],
-        ready: this.graveyard.whenReady(),
+        ready: this.arena.whenReady(),
       },
     );
 
     if (Number.isFinite(run.kills) && (run.kills ?? 0) >= 0) {
       this.kills = Math.floor(run.kills ?? 0);
+    }
+    if (Number.isFinite(run.score) && (run.score ?? 0) >= 0) {
+      this.runScore = Math.floor(run.score ?? 0);
     }
 
     // A resumed run begins from App's committed wave-start damage.
@@ -609,19 +667,6 @@ export class SurvivalMode {
       attackDamageMultiplierForWave(wave),
     );
     this.zombies.reapplyTuningToAlive();
-  }
-
-  private buildGround(): void {
-    const body = this.world.createRigidBody(
-      RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.5, 0),
-    );
-    const collider = this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(GROUND_HALF_SIZE, 0.5, GROUND_HALF_SIZE)
-        .setFriction(0.9)
-        .setCollisionGroups(TERRAIN_GROUPS),
-      body,
-    );
-    this.surfaceByCollider.set(collider.handle, 'asphalt');
   }
 
   private spawnVehicle(bp: VehicleBlueprint): RuntimeVehicle {
@@ -895,6 +940,63 @@ export class SurvivalMode {
     );
     root.appendChild(victoryOverlay);
 
+    const gameOverOverlay = overlayPanel();
+    gameOverOverlay.classList.add('survival-gameover');
+    gameOverOverlay.style.display = 'none';
+    gameOverOverlay.setAttribute('role', 'dialog');
+    gameOverOverlay.setAttribute('aria-modal', 'true');
+    gameOverOverlay.setAttribute('aria-labelledby', 'survival-gameover-title');
+    const gameOverTitle = document.createElement('h2');
+    gameOverTitle.id = 'survival-gameover-title';
+    gameOverTitle.textContent = 'Run Over';
+    const gameOverBest = document.createElement('div');
+    gameOverBest.className = 'survival-gameover__best';
+    gameOverBest.textContent = 'New Best!';
+    gameOverBest.hidden = true;
+    const gameOverScore = document.createElement('div');
+    gameOverScore.className = 'survival-gameover__score';
+    const gameOverScoreLabel = document.createElement('div');
+    gameOverScoreLabel.className = 'survival-gameover__score-label';
+    gameOverScoreLabel.textContent = 'Final Score';
+    const gameOverStats = document.createElement('div');
+    gameOverStats.className = 'survival-gameover__stats';
+    const gameOverStatRow = (label: string): HTMLElement => {
+      const row = document.createElement('div');
+      const rowLabel = document.createElement('span');
+      rowLabel.textContent = label;
+      const rowValue = document.createElement('strong');
+      row.append(rowLabel, rowValue);
+      gameOverStats.appendChild(row);
+      return rowValue;
+    };
+    const gameOverWaveValue = gameOverStatRow('Wave Reached');
+    const gameOverKillsValue = gameOverStatRow('Zombies Killed');
+    const gameOverBoard = document.createElement('div');
+    gameOverBoard.className = 'survival-gameover__board';
+    const gameOverReset = document.createElement('p');
+    gameOverReset.className = 'survival-gameover__reset';
+    gameOverReset.textContent =
+      'Your rig, cash and upgrades are gone. Parts you unlocked stay unlocked — build again and go further.';
+    const gameOverActions = document.createElement('div');
+    gameOverActions.className = 'survival-gameover__actions';
+    const gameOverButton = document.createElement('button');
+    gameOverButton.type = 'button';
+    gameOverButton.className = 'primary';
+    gameOverButton.textContent = 'Back to Garage';
+    gameOverButton.addEventListener('click', this.onGameOverContinue);
+    gameOverActions.appendChild(gameOverButton);
+    gameOverOverlay.append(
+      gameOverTitle,
+      gameOverBest,
+      gameOverScoreLabel,
+      gameOverScore,
+      gameOverStats,
+      gameOverBoard,
+      gameOverReset,
+      gameOverActions,
+    );
+    root.appendChild(gameOverOverlay);
+
     const settingsButton = document.createElement('button');
     settingsButton.type = 'button';
     settingsButton.className =
@@ -1035,6 +1137,12 @@ export class SurvivalMode {
       victoryLostPartsValue,
       victoryNextWaveValue,
       victoryWarning,
+      gameOverOverlay,
+      gameOverBest,
+      gameOverScore,
+      gameOverWaveValue,
+      gameOverKillsValue,
+      gameOverBoard,
       settingsOverlay,
       settingsButton,
       settingsEyebrow,
@@ -1091,6 +1199,7 @@ export class SurvivalMode {
     this.callbacks.onSaveAndQuit({
       wave: this.currentWave,
       kills: this.kills,
+      score: this.runScore,
     });
   }
 
@@ -1103,6 +1212,7 @@ export class SurvivalMode {
       payload.survivingPartIds,
       payload.partHp,
       payload.kills,
+      payload.score,
     );
   };
 
@@ -1115,6 +1225,7 @@ export class SurvivalMode {
       payload.survivingPartIds,
       payload.partHp,
       payload.kills,
+      payload.score,
     );
   };
 
@@ -1124,6 +1235,7 @@ export class SurvivalMode {
       this.vehicle.survivingPartIds(),
       this.vehicle.partHpSnapshot(),
       this.kills,
+      this.runScore,
     );
   }
 
@@ -1214,8 +1326,7 @@ export class SurvivalMode {
     this.vehicle.preStep(
       FIXED_DT,
       this.controls,
-      (colliderHandle) =>
-        this.surfaceByCollider.get(colliderHandle) ?? 'asphalt',
+      (colliderHandle) => this.arena.surfaceOf(colliderHandle),
     );
 
     this.fuelPickups.step(FIXED_DT);
@@ -1447,6 +1558,12 @@ export class SurvivalMode {
     kind: ZombieKind,
   ): void {
     this.kills++;
+    if (!this.debugProgressionSuppressed) {
+      this.runScore = addScore(
+        this.runScore,
+        killScore(kind, this.currentWave),
+      );
+    }
     if (kind === 'phone-addict' && !this.debugProgressionSuppressed) {
       this.phoneAddictKills++;
       this.callbacks.onPhoneAddictKilled();
@@ -1463,7 +1580,10 @@ export class SurvivalMode {
     // the uncleared wave is neither counted nor rewarded.
     this.pendingWaveReward =
       Number.isSafeInteger(reward) && reward > 0 ? reward : 0;
-    if (!this.debugProgressionSuppressed) this.callbacks.onWaveCleared(wave);
+    if (!this.debugProgressionSuppressed) {
+      this.runScore = addScore(this.runScore, waveClearScore(wave));
+      this.callbacks.onWaveCleared(wave);
+    }
     this.zombies.clearLandmines();
     this.phase = 'cleared';
     this.pointerFiring = false;
@@ -1528,6 +1648,7 @@ export class SurvivalMode {
           payload.survivingPartIds,
           payload.partHp,
           payload.kills,
+          payload.score,
         );
       }
       this.stopVehicleMotion();
@@ -1605,14 +1726,39 @@ export class SurvivalMode {
         pending.survivingPartIds,
         pending.partHp,
         pending.kills,
+        pending.score,
       );
     } else {
-      this.callbacks.onGameOver(
-        pending.run,
-        pending.pendingMoneyDiscarded,
+      // The run is recorded and the garage wiped now, but the mode stays alive
+      // so the player can read the result before the reset garage appears.
+      this.showGameOver(
+        this.callbacks.onGameOver(
+          pending.run,
+          pending.pendingMoneyDiscarded,
+          this.runScore,
+          this.kills,
+        ),
       );
     }
   }
+
+  /** Present the finished run and its leaderboard placing. */
+  private showGameOver(outcome: RunOutcome): void {
+    this.gameOverScore.textContent = outcome.score.toLocaleString();
+    this.gameOverBest.hidden = !outcome.isPersonalBest;
+    this.gameOverWaveValue.textContent = outcome.wave.toLocaleString();
+    this.gameOverKillsValue.textContent = outcome.kills.toLocaleString();
+    this.gameOverBoard.replaceChildren(
+      buildLeaderboardTable(leaderboardRows(outcome.entries, outcome.rank)),
+    );
+    this.gameOverOverlay.style.display = 'block';
+  }
+
+  private readonly onGameOverContinue = (): void => {
+    if (this.disposed) return;
+    this.gameOverOverlay.style.display = 'none';
+    this.callbacks.onGameOverContinue();
+  };
 
   private stopVehicleMotion(): void {
     this.vehicle.body.setLinvel(this.stoppedVelocity, false);
@@ -1691,7 +1837,7 @@ export class SurvivalMode {
     this.syncTracers(frameDt);
     this.syncMineWarningHud(frameDt);
     this.followCamera.update(frameDt);
-    this.graveyard.follow(this.vehicleGroup);
+    this.arena.follow(this.vehicleGroup);
     this.syncHud();
     // Vehicles face local +Z, so the heading the arrow should point along is the
     // yaw of the rotated forward axis. The minimap throttles its own redraws.
@@ -2130,6 +2276,21 @@ export class SurvivalMode {
     this.flushPendingTransition();
   }
 
+  /** Destroy the rig outright so tests can reach the game-over screen. */
+  debugDestroyVehicle(): void {
+    if (this.disposed || this.pendingTransition !== null) return;
+    if (this.phase === 'countdown') this.startCurrentWave();
+    if (this.phase !== 'active') return;
+    for (const partId of Object.keys(this.vehicle.partHpSnapshot())) {
+      this.vehicle.applyDirectDamage(partId, Number.MAX_SAFE_INTEGER);
+    }
+    this.attachNewIslands(this.vehicle.finishStep());
+    this.queueCompletedStepTransition();
+    this.syncView(0);
+    this.renderer.render(this.scene, this.camera);
+    this.flushPendingTransition();
+  }
+
   debugForceWaveComplete(): void {
     if (this.disposed || this.pendingTransition !== null) return;
     if (this.phase === 'countdown') this.startCurrentWave();
@@ -2148,6 +2309,7 @@ export class SurvivalMode {
     return {
       mode: 'survival',
       kills: this.kills,
+      score: this.runScore,
       phoneAddictKills: this.phoneAddictKills,
       wave: this.currentWave,
       zombiesAlive: this.zombies.getActiveCount(),
@@ -2210,7 +2372,7 @@ export class SurvivalMode {
     );
     this.fuelPickups.dispose();
     this.zombies.dispose();
-    this.graveyard.dispose();
+    this.arena.dispose();
     this.vehicle.dispose();
     this.eventQueue.free();
     this.world.free();
@@ -2224,7 +2386,6 @@ export class SurvivalMode {
     this.wheelMeshes.clear();
     this.wheelSpin.clear();
     this.islandGroups.clear();
-    this.surfaceByCollider.clear();
     this.tracers.length = 0;
   }
 }
@@ -2234,6 +2395,50 @@ function formatDuration(seconds: number): string {
   const minutes = Math.floor(whole / 60);
   const rest = whole % 60;
   return `${minutes}:${String(rest).padStart(2, '0')}`;
+}
+
+/** Ranked board as a table; the current run's row is marked for styling. */
+function buildLeaderboardTable(rows: readonly LeaderboardRow[]): HTMLElement {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'leaderboard';
+  if (rows.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'leaderboard__empty';
+    empty.textContent = 'No runs recorded yet.';
+    wrapper.appendChild(empty);
+    return wrapper;
+  }
+
+  const table = document.createElement('table');
+  const head = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  for (const label of ['#', 'Score', 'Wave', 'Kills']) {
+    const cell = document.createElement('th');
+    cell.scope = 'col';
+    cell.textContent = label;
+    headRow.appendChild(cell);
+  }
+  head.appendChild(headRow);
+
+  const body = document.createElement('tbody');
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    if (row.isCurrentRun) tr.className = 'is-current-run';
+    const rank = document.createElement('th');
+    rank.scope = 'row';
+    rank.textContent = String(row.rank);
+    tr.appendChild(rank);
+    for (const value of [row.score, row.wave, row.kills]) {
+      const cell = document.createElement('td');
+      cell.textContent = value.toLocaleString();
+      tr.appendChild(cell);
+    }
+    body.appendChild(tr);
+  }
+
+  table.append(head, body);
+  wrapper.appendChild(table);
+  return wrapper;
 }
 
 function overlayPanel(): HTMLDivElement {

@@ -5,6 +5,7 @@ playwright-report/
 test-results/
 .vite/
 .DS_Store
+.env
 *.local
 npm-debug.log*
 verify-minimap-save.mjs

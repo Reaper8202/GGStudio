@@ -29,6 +29,9 @@ export const NEUTRAL_ENVIRONMENT: EnvironmentModifiers = {
   topSpeedMul: 1,
 };
 
+/** A single colour applied to every material, or per-material-name overrides. */
+export type Tint = number | Readonly<Record<string, number>>;
+
 /** Component-wise multiply, used to fold a hazard into a biome's base modifiers. */
 export function combineEnvironments(
   a: EnvironmentModifiers,
@@ -56,7 +59,7 @@ export interface PropEntry {
   collider?: 'none' | 'box' | 'cylinder';
   /** Half-extents for 'box', or [radius, height] for 'cylinder'. */
   colliderSize?: readonly [number, number, number];
-  tint?: number;
+  tint?: Tint;
 }
 
 export interface PropScatter {
@@ -74,6 +77,23 @@ export interface SurfacePatchSpec {
   radius: readonly [number, number];
 }
 
+/** One deliberately authored placement. Copied through generation untouched. */
+export interface FixturePlacement {
+  asset: string;
+  x: number;
+  z: number;
+  y?: number;
+  rotation?: number;
+  scale?: number;
+  scaleY?: number;
+  castShadow?: boolean;
+  tint?: Tint;
+  emissive?: number;
+  collider?: 'none' | 'box' | 'cylinder';
+  /** Half-extents for 'box', [radius, height] for 'cylinder'. */
+  colliderSize?: readonly [number, number, number];
+}
+
 export interface BiomeLayout {
   halfSize: number;
   baseSurface: SurfaceKind;
@@ -87,6 +107,7 @@ export interface BiomeLayout {
   /** 0 = dead flat cosmetic ground, 1 = maximum per-tile height jitter. */
   terrainRoughness: number;
   spawnPointCount: number;
+  fixtures?: readonly FixturePlacement[];
 }
 
 export interface BiomeLook {
@@ -128,6 +149,11 @@ export interface BiomeDefinition {
 
 /** 0 at and below startWave, 1 at and above fullWave, smooth in between. */
 export function hazardIntensity(spec: BiomeHazardSpec, wave: number): number {
+  // A biome with no hazard is never intense, whatever its wave range says.
+  // Recipes without weather leave startWave/fullWave at a degenerate 1/1, which
+  // would otherwise read as fully ramped from wave one and light up any caller
+  // that drives fog or particles from intensity alone.
+  if (spec.kind === 'none') return 0;
   if (spec.fullWave <= spec.startWave) {
     return wave < spec.startWave ? 0 : 1;
   }
