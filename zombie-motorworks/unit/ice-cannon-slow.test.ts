@@ -9,11 +9,13 @@ function shot(overrides: Partial<TracerShot> = {}): TracerShot {
   return {
     from: { x: 0, y: 0, z: 0 },
     to: { x: 0, y: 0, z: 1 },
+    weaponDefId: 'turret',
     hitZombieHandle: 1,
     hitSurface: false,
     damage: 6,
     damageType: 'projectile',
     empLevel: 0,
+    piercingLevel: 0,
     pierceZombieHandle: null,
     pierceDamage: 0,
     pierceTo: null,
@@ -45,7 +47,11 @@ describe('ice-fire slow via applyZombieShot', () => {
 
   it('does not slow when the weapon carries no slow', () => {
     const zombies = fakeZombies({ hitResult: 'damaged' });
-    applyZombieShot(zombies, shot({ slowFactor: 0, slowDurationSeconds: 0 }), DIR);
+    applyZombieShot(
+      zombies,
+      shot({ slowFactor: 0, slowDurationSeconds: 0 }),
+      DIR,
+    );
     expect(zombies.slowZombieHandle).not.toHaveBeenCalled();
   });
 

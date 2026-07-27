@@ -38,6 +38,8 @@ import {
 
 export interface RuntimeWeapon {
   partId: string;
+  /** Catalog part id, retained so each fired shot can keep its visual identity. */
+  weaponDefId: string;
   def: WeaponDefinition;
   /** Display name of the mounting part, for the ammo HUD. */
   label: string;
@@ -57,6 +59,11 @@ export interface RuntimeWeapon {
 export interface TracerShot {
   from: Vec3;
   to: Vec3;
+  /**
+   * Part id of the weapon that fired, so presentation can be per-weapon
+   * instead of guessed from damage numbers.
+   */
+  weaponDefId: string;
   hitZombieHandle: number | null;
   /**
    * True when the ray terminated against terrain or debris rather than a
@@ -69,6 +76,8 @@ export interface TracerShot {
   damageType: DamageType;
   /** EMP level of the firing weapon, for shield-leak resolution. */
   empLevel: number;
+  /** Piercing module level, retained for the weapon's tracer treatment. */
+  piercingLevel: number;
   /** Second target struck by a piercing round, if any. */
   pierceZombieHandle: number | null;
   /** Damage for the secondary target; 0 when there is no pierce. */
@@ -97,6 +106,7 @@ export function createWeapon(
   const isTurret = placed.defId === 'turret';
   return {
     partId: placed.id,
+    weaponDefId: partDef.id,
     def,
     label: KID_LABELS[partDef.id]?.name ?? partDef.name,
     mountLocal: cellCentreM(placed.pos),
@@ -106,9 +116,7 @@ export function createWeapon(
     cycleTime: 0,
     shotsFired: 0,
     empLevel: isTurret ? turretModuleLevel(placed.config, 'emp') : 0,
-    piercingLevel: isTurret
-      ? turretModuleLevel(placed.config, 'piercing')
-      : 0,
+    piercingLevel: isTurret ? turretModuleLevel(placed.config, 'piercing') : 0,
   };
 }
 
@@ -229,9 +237,8 @@ export function stepWeapons(
 
     // Cone weapons fan raysPerShot rays across coneDeg around the fire
     // direction; conventional weapons are the single-ray special case.
-    const rays = wpn.def.coneDeg !== undefined
-      ? Math.max(1, wpn.def.raysPerShot ?? 1)
-      : 1;
+    const rays =
+      wpn.def.coneDeg !== undefined ? Math.max(1, wpn.def.raysPerShot ?? 1) : 1;
     const halfCone = ((wpn.def.coneDeg ?? 0) / 2) * (Math.PI / 180);
     for (let i = 0; i < rays; i++) {
       const offset =
@@ -296,11 +303,13 @@ export function stepWeapons(
       shots.push({
         from: muzzle,
         to: end,
+        weaponDefId: wpn.weaponDefId,
         hitZombieHandle: zombieHandle,
         hitSurface: hit !== null && zombieHandle === null,
         damage: wpn.def.damage,
         damageType: wpn.def.damageType,
         empLevel: wpn.empLevel,
+        piercingLevel: wpn.piercingLevel,
         pierceZombieHandle,
         pierceDamage,
         pierceTo,
@@ -362,7 +371,9 @@ function pitchedDirection(
     -MAX_AUTO_PITCH,
     MAX_AUTO_PITCH,
   );
-  return norm(add(scale(horizontalDir, Math.cos(pitch)), scale(up, Math.sin(pitch))));
+  return norm(
+    add(scale(horizontalDir, Math.cos(pitch)), scale(up, Math.sin(pitch))),
+  );
 }
 
 function halfArc(def: WeaponDefinition): number {

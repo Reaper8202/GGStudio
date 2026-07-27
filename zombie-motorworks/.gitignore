@@ -16,3 +16,7 @@ probe.mjs
 verify-timeline.mjs
 verify-polish.mjs
 verify-damage.mjs
+verify-damage.mjs
+verify-weapons.mjs
+shot-dmg.mjs
+shot-timeline.mjs

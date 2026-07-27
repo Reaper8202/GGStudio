@@ -3306,7 +3306,10 @@ button:disabled {
   }
 
   .survival-settings-button {
-    top: 64px;
+    /* The wave timeline is centred and spans nearly the full width on a phone,
+       so there is no room beside it — the button clears it vertically instead
+       of sitting on top of the last wave tile. */
+    top: 122px;
     right: 8px;
   }
 

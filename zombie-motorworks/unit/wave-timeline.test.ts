@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildWaveTimeline,
-  waveIcon,
+  waveMarker,
+  type TimelineNode,
   type WaveTimelineInput,
 } from '../src/core/waveTimeline.ts';
 
@@ -135,31 +136,45 @@ describe('wave timeline progress', () => {
   });
 });
 
-describe('wave icon', () => {
-  it('prioritizes a specialist threat over a fifth-wave milestone', () => {
-    expect(waveIcon(5, ['worker'])).toEqual({
-      kind: 'threat',
-      icon: '💣',
-      label: 'Wave 5 — Mine layers',
-    });
-  });
+describe('wave marker', () => {
+  function node(overrides: Partial<TimelineNode> = {}): TimelineNode {
+    return {
+      wave: 6,
+      state: 'future',
+      threats: [],
+      isMilestone: false,
+      ...overrides,
+    };
+  }
 
-  it('uses a landmark glyph for every fifth wave without a threat', () => {
-    expect(waveIcon(10, [])).toEqual({
-      kind: 'milestone',
-      icon: '☣️',
-      label: 'Wave 10 — milestone',
-    });
-  });
-
-  it('escalates ordinary waves from walkers into a horde', () => {
-    expect(waveIcon(4, []).kind).toBe('walker');
-    expect(waveIcon(6, []).kind).toBe('horde');
-  });
-
-  it('returns the same data for the same wave input', () => {
-    expect(waveIcon(12, ['phone-addict'])).toEqual(
-      waveIcon(12, ['phone-addict']),
+  it('shows past and current waves before considering their composition', () => {
+    expect(waveMarker(node({ state: 'past', threats: ['phone-addict'] }))).toBe(
+      'cleared',
     );
+    expect(
+      waveMarker(node({ state: 'current', threats: ['phone-addict'] })),
+    ).toBe('current');
+  });
+
+  it('uses the boss marker for the Phone Addict introduction', () => {
+    expect(
+      waveMarker(
+        node({
+          wave: 10,
+          threats: ['phone-addict'],
+          isMilestone: true,
+        }),
+      ),
+    ).toBe('boss');
+  });
+
+  it('keeps other specialist introductions as milestones', () => {
+    expect(waveMarker(node({ threats: ['worker'], isMilestone: true }))).toBe(
+      'milestone',
+    );
+  });
+
+  it('uses the ordinary marker for a future non-milestone wave', () => {
+    expect(waveMarker(node())).toBe('wave');
   });
 });

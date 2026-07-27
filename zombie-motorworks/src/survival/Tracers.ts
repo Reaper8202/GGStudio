@@ -1,8 +1,13 @@
 import * as THREE from 'three';
 import { VFX_PALETTE } from '../vfx/vfxConfig.ts';
 
+/**
+ * Weapon-owned tracer looks. Unknown catalog ids intentionally fall back to
+ * the light turret streak: it is readable without falsely advertising an
+ * unsupported weapon as a cannon or sniper.
+ */
 export type TracerStyle =
-  'standard' | 'heavy' | 'sniper' | 'ice' | 'emp' | 'pierce';
+  'turret' | 'cannon-heavy' | 'ice-cannon' | 'sniper-light' | 'flamethrower';
 
 export interface TracerStyleTuning {
   /** Full width of the coloured halo, in world metres. */
@@ -18,6 +23,8 @@ export interface TracerStyleTuning {
   /** Additive opacity before the lifetime fade. */
   readonly alpha: number;
   readonly color: number;
+  /** The core can stay white-hot while the halo carries weapon colour. */
+  readonly coreColor: number;
 }
 
 /**
@@ -27,61 +34,65 @@ export interface TracerStyleTuning {
 export const TRACER_STYLE_TUNING: Readonly<
   Record<TracerStyle, TracerStyleTuning>
 > = {
-  standard: {
-    width: 0.17,
-    lifeSeconds: 0.14,
-    travelSeconds: 0.035,
-    tailScale: 0.28,
-    coreScale: 0.38,
-    alpha: 0.9,
+  turret: {
+    width: 0.095,
+    lifeSeconds: 0.115,
+    travelSeconds: 0.022,
+    tailScale: 0.16,
+    coreScale: 0.34,
+    alpha: 0.7,
     color: VFX_PALETTE.spark,
+    coreColor: VFX_PALETTE.sparkHot,
   },
-  heavy: {
-    width: 0.3,
-    lifeSeconds: 0.2,
-    travelSeconds: 0.045,
-    tailScale: 0.36,
-    coreScale: 0.42,
+  'cannon-heavy': {
+    width: 0.42,
+    lifeSeconds: 0.32,
+    travelSeconds: 0.12,
+    tailScale: 0.58,
+    coreScale: 0.36,
     alpha: 1,
     color: VFX_PALETTE.ember,
+    coreColor: VFX_PALETTE.sparkHot,
   },
-  sniper: {
-    width: 0.13,
-    lifeSeconds: 0.26,
-    travelSeconds: 0.045,
-    tailScale: 0.18,
-    coreScale: 0.36,
-    alpha: 0.82,
-    color: VFX_PALETTE.sparkHot,
-  },
-  ice: {
-    width: 0.22,
-    lifeSeconds: 0.17,
-    travelSeconds: 0.04,
-    tailScale: 0.3,
-    coreScale: 0.42,
-    alpha: 0.78,
+  'ice-cannon': {
+    width: 0.25,
+    lifeSeconds: 0.2,
+    travelSeconds: 0.05,
+    tailScale: 0.34,
+    coreScale: 0.72,
+    alpha: 0.72,
     color: VFX_PALETTE.ice,
+    coreColor: VFX_PALETTE.frost,
   },
-  emp: {
-    width: 0.2,
-    lifeSeconds: 0.12,
-    travelSeconds: 0.025,
-    tailScale: 0.22,
-    coreScale: 0.38,
-    alpha: 0.8,
-    color: VFX_PALETTE.shield,
+  'sniper-light': {
+    width: 0.075,
+    lifeSeconds: 0.56,
+    travelSeconds: 0.035,
+    tailScale: 0.12,
+    coreScale: 0.5,
+    alpha: 1,
+    color: VFX_PALETTE.sparkHot,
+    coreColor: VFX_PALETTE.frost,
   },
-  pierce: {
-    width: 0.12,
-    lifeSeconds: 0.11,
+  flamethrower: {
+    width: 0.48,
+    lifeSeconds: 0.07,
     travelSeconds: 0.025,
-    tailScale: 0.24,
-    coreScale: 0.34,
-    alpha: 0.4,
-    color: VFX_PALETTE.spark,
+    tailScale: 0.62,
+    coreScale: 0.8,
+    alpha: 0.55,
+    color: VFX_PALETTE.ember,
+    coreColor: VFX_PALETTE.frost,
   },
 };
+
+/** Resolve a catalog id without importing core catalog data into the renderer. */
+export function tracerStyleForWeapon(weaponDefId: string): TracerStyle {
+  if (Object.prototype.hasOwnProperty.call(TRACER_STYLE_TUNING, weaponDefId)) {
+    return weaponDefId as TracerStyle;
+  }
+  return 'turret';
+}
 
 export interface TracerRendererOptions {
   /** Max simultaneous tracers. Default 64. */
@@ -91,18 +102,30 @@ export interface TracerRendererOptions {
 export interface TracerSpawnOptions {
   /** Misses remain visible, but should not compete visually with a connection. */
   readonly faded?: boolean;
+  /** EMP shifts the familiar weapon halo toward shield cyan. */
+  readonly emp?: boolean;
+  /** Piercing rounds brighten and widen the weapon's own core. */
+  readonly piercing?: boolean;
+  /** A continued pierce segment stays recognisably secondary. */
+  readonly secondary?: boolean;
 }
 
 const DEFAULT_CAPACITY = 64;
 const FADED_ALPHA_SCALE = 0.5;
 const FADED_LIFE_SCALE = 0.6;
+const PIERCING_ALPHA_SCALE = 1.12;
+const PIERCING_WIDTH_SCALE = 1.08;
+const SECONDARY_ALPHA_SCALE = 0.62;
+const SECONDARY_LIFE_SCALE = 0.72;
+const SECONDARY_WIDTH_SCALE = 0.72;
+const EMP_COLOR_MIX = 0.45;
 const QUADS_PER_TRACER = 2;
 const VERTICES_PER_QUAD = 4;
 const INDICES_PER_QUAD = 6;
 const MIN_SEGMENT_LENGTH_SQ = 1e-8;
-const HOT_R = ((VFX_PALETTE.sparkHot >> 16) & 0xff) / 0xff;
-const HOT_G = ((VFX_PALETTE.sparkHot >> 8) & 0xff) / 0xff;
-const HOT_B = (VFX_PALETTE.sparkHot & 0xff) / 0xff;
+const EMP_R = ((VFX_PALETTE.shield >> 16) & 0xff) / 0xff;
+const EMP_G = ((VFX_PALETTE.shield >> 8) & 0xff) / 0xff;
+const EMP_B = (VFX_PALETTE.shield & 0xff) / 0xff;
 
 const VERTEX_SHADER = `
 attribute vec3 tracerColor;
@@ -161,6 +184,9 @@ export class TracerRenderer {
   private readonly styleR: Float32Array;
   private readonly styleG: Float32Array;
   private readonly styleB: Float32Array;
+  private readonly coreR: Float32Array;
+  private readonly coreG: Float32Array;
+  private readonly coreB: Float32Array;
   private readonly cameraPosition = new THREE.Vector3();
   private readonly direction = new THREE.Vector3();
   private readonly viewDirection = new THREE.Vector3();
@@ -246,6 +272,9 @@ export class TracerRenderer {
     this.styleR = new Float32Array(this.capacity);
     this.styleG = new Float32Array(this.capacity);
     this.styleB = new Float32Array(this.capacity);
+    this.coreR = new Float32Array(this.capacity);
+    this.coreG = new Float32Array(this.capacity);
+    this.coreB = new Float32Array(this.capacity);
   }
 
   /** Fire one tracer from muzzle to impact. */
@@ -268,16 +297,43 @@ export class TracerRenderer {
     this.toX[slot] = to.x;
     this.toY[slot] = to.y;
     this.toZ[slot] = to.z;
-    this.widths[slot] = tuning.width;
     const faded = options?.faded === true;
-    this.lives[slot] = tuning.lifeSeconds * (faded ? FADED_LIFE_SCALE : 1);
+    const emp = options?.emp === true;
+    const piercing = options?.piercing === true;
+    const secondary = options?.secondary === true;
+    const widthScale =
+      (piercing ? PIERCING_WIDTH_SCALE : 1) *
+      (secondary ? SECONDARY_WIDTH_SCALE : 1);
+    const lifeScale =
+      (faded ? FADED_LIFE_SCALE : 1) * (secondary ? SECONDARY_LIFE_SCALE : 1);
+    const alphaScale =
+      (faded ? FADED_ALPHA_SCALE : 1) *
+      (piercing ? PIERCING_ALPHA_SCALE : 1) *
+      (secondary ? SECONDARY_ALPHA_SCALE : 1);
+    this.widths[slot] = tuning.width * widthScale;
+    this.lives[slot] = tuning.lifeSeconds * lifeScale;
     this.travels[slot] = tuning.travelSeconds;
     this.tailScales[slot] = tuning.tailScale;
-    this.coreScales[slot] = tuning.coreScale;
-    this.styleAlphas[slot] = tuning.alpha * (faded ? FADED_ALPHA_SCALE : 1);
-    this.styleR[slot] = ((tuning.color >> 16) & 0xff) / 0xff;
-    this.styleG[slot] = ((tuning.color >> 8) & 0xff) / 0xff;
-    this.styleB[slot] = (tuning.color & 0xff) / 0xff;
+    this.coreScales[slot] = tuning.coreScale * (piercing ? 1.16 : 1);
+    this.styleAlphas[slot] = Math.min(1, tuning.alpha * alphaScale);
+    const baseR = ((tuning.color >> 16) & 0xff) / 0xff;
+    const baseG = ((tuning.color >> 8) & 0xff) / 0xff;
+    const baseB = (tuning.color & 0xff) / 0xff;
+    const baseCoreR = ((tuning.coreColor >> 16) & 0xff) / 0xff;
+    const baseCoreG = ((tuning.coreColor >> 8) & 0xff) / 0xff;
+    const baseCoreB = (tuning.coreColor & 0xff) / 0xff;
+    this.styleR[slot] = emp ? baseR + (EMP_R - baseR) * EMP_COLOR_MIX : baseR;
+    this.styleG[slot] = emp ? baseG + (EMP_G - baseG) * EMP_COLOR_MIX : baseG;
+    this.styleB[slot] = emp ? baseB + (EMP_B - baseB) * EMP_COLOR_MIX : baseB;
+    this.coreR[slot] = emp
+      ? baseCoreR + (EMP_R - baseCoreR) * EMP_COLOR_MIX
+      : baseCoreR;
+    this.coreG[slot] = emp
+      ? baseCoreG + (EMP_G - baseCoreG) * EMP_COLOR_MIX
+      : baseCoreG;
+    this.coreB[slot] = emp
+      ? baseCoreB + (EMP_B - baseCoreB) * EMP_COLOR_MIX
+      : baseCoreB;
   }
 
   /** Advance every live tracer. Call once per rendered frame. */
@@ -390,9 +446,9 @@ export class TracerRenderer {
       toZ,
       tailWidth * this.coreScales[slot],
       headWidth * this.coreScales[slot],
-      HOT_R,
-      HOT_G,
-      HOT_B,
+      this.coreR[slot],
+      this.coreG[slot],
+      this.coreB[slot],
       styleAlpha,
     );
   }

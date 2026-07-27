@@ -27,6 +27,8 @@ export const VFX_PALETTE = {
   /** Matches the Ice Cannon freeze glow. */
   ice: 0x8fd8ff,
   iceDeep: 0x2e6f9e,
+  /** Near-white cold core for ice beams, frost motes, and sniper cracks. */
+  frost: 0xe9f8ff,
   /** Matches the phone-addict shield bubble. */
   shield: 0x35d7ff,
   /** Matches the Long Spikes pike. */

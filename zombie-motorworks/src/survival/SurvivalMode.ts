@@ -48,7 +48,7 @@ import { ScopeCursor } from '../ui/ScopeCursor.ts';
 import { VfxSystem } from '../vfx/VfxSystem.ts';
 import { WarningHud } from './WarningHud.ts';
 import { DamageNumbersOverlay } from './DamageNumbers.ts';
-import { TracerRenderer, type TracerStyle } from './Tracers.ts';
+import { TracerRenderer, tracerStyleForWeapon } from './Tracers.ts';
 import {
   activeVehicleWarnings,
   HULL_CRITICAL_PCT,
@@ -96,7 +96,26 @@ import type { ZombieKind } from './zombies/Zombie.ts';
 
 const FIXED_DT = 1 / 60;
 const COUNTDOWN_SECONDS = 3;
-const FADED_TRACER_OPTIONS = { faded: true } as const;
+// These are shared immutable options, not per-shot literals: the firing loop
+// runs at physics rate and the tracer pool must stay allocation-free.
+const TRACER_OPTIONS = [
+  undefined,
+  { faded: true },
+  { emp: true },
+  { faded: true, emp: true },
+  { piercing: true },
+  { faded: true, piercing: true },
+  { emp: true, piercing: true },
+  { faded: true, emp: true, piercing: true },
+  { secondary: true },
+  { faded: true, secondary: true },
+  { emp: true, secondary: true },
+  { faded: true, emp: true, secondary: true },
+  { piercing: true, secondary: true },
+  { faded: true, piercing: true, secondary: true },
+  { emp: true, piercing: true, secondary: true },
+  { faded: true, emp: true, piercing: true, secondary: true },
+] as const;
 /** Radius of the Shield Generator bubble, generous enough to enclose most rigs. */
 const SHIELD_BUBBLE_RADIUS_M = 3.4;
 const STUCK_PROMPT_SECONDS = 1.6;
@@ -278,11 +297,17 @@ export function applyZombieShot(
   return true;
 }
 
-function tracerStyleForShot(shot: TracerShot): TracerStyle {
-  if (shot.empLevel > 0) return 'emp';
-  if (shot.slowFactor > 0) return 'ice';
-  if (shot.damage < 20) return 'standard';
-  return shot.damageType === 'hitscan' ? 'sniper' : 'heavy';
+function tracerOptionsForShot(
+  shot: TracerShot,
+  faded: boolean,
+  secondary = false,
+) {
+  return TRACER_OPTIONS[
+    (faded ? 1 : 0) |
+      (shot.empLevel > 0 ? 2 : 0) |
+      (shot.piercingLevel > 0 ? 4 : 0) |
+      (secondary ? 8 : 0)
+  ];
 }
 
 interface SurvivalUi {
@@ -1409,7 +1434,12 @@ export class SurvivalMode {
         this.shotDirection,
       );
       if (pierceContinues && shot.pierceTo !== null) {
-        this.tracerRenderer.spawn(shot.to, shot.pierceTo, 'pierce');
+        this.tracerRenderer.spawn(
+          shot.to,
+          shot.pierceTo,
+          tracerStyleForWeapon(shot.weaponDefId),
+          tracerOptionsForShot(shot, false, true),
+        );
       }
     }
 
@@ -2406,8 +2436,8 @@ export class SurvivalMode {
     this.tracerRenderer.spawn(
       shot.from,
       shot.to,
-      tracerStyleForShot(shot),
-      faded ? FADED_TRACER_OPTIONS : undefined,
+      tracerStyleForWeapon(shot.weaponDefId),
+      tracerOptionsForShot(shot, faded),
     );
   }
 

@@ -14,39 +14,56 @@
   position: absolute;
   left: 0;
   top: 0;
-  color: var(--ui-text-muted);
+  color: var(--ui-damage-low);
   font-family: var(--ui-font-display);
-  font-size: 1.5rem;
-  font-weight: 400;
+  font-size: 2.1rem;
+  font-weight: 700;
   line-height: 1;
   white-space: nowrap;
-  -webkit-text-stroke: 1px var(--ui-ink);
+  -webkit-text-stroke: 2px var(--ui-ink);
+  /* Eight-way outline, not four: at this size a diagonal-only ring leaves the
+     glyph edges bleeding into whatever is behind them. */
   text-shadow:
     -2px -2px 0 var(--ui-ink),
     2px -2px 0 var(--ui-ink),
     -2px 2px 0 var(--ui-ink),
-    2px 2px 0 var(--ui-ink);
+    2px 2px 0 var(--ui-ink),
+    0 -3px 0 var(--ui-ink),
+    0 3px 0 var(--ui-ink),
+    -3px 0 0 var(--ui-ink),
+    3px 0 0 var(--ui-ink),
+    0 2px 6px rgba(0, 0, 0, 0.85);
   will-change: transform, opacity;
 }
 
 .damage-numbers__number--medium {
-  color: var(--ui-rust);
-  font-size: 1.8rem;
-  font-weight: 700;
+  color: var(--ui-damage-medium);
+  font-size: 2.6rem;
+  font-weight: 900;
 }
 
 .damage-numbers__number--high {
-  color: var(--ui-danger);
-  font-size: 2.2rem;
+  color: var(--ui-damage-high);
+  font-size: 3.2rem;
   font-weight: 900;
-  -webkit-text-stroke-width: 2px;
+  -webkit-text-stroke-width: 3px;
 }
 
 .damage-numbers__number--killing {
-  color: var(--ui-danger);
-  font-size: 2.55rem;
+  color: var(--ui-damage-high);
+  font-size: 3.6rem;
   font-weight: 900;
-  -webkit-text-stroke-width: 2px;
+  -webkit-text-stroke-width: 3px;
+  text-shadow:
+    -2px -2px 0 var(--ui-ink),
+    2px -2px 0 var(--ui-ink),
+    -2px 2px 0 var(--ui-ink),
+    2px 2px 0 var(--ui-ink),
+    0 -3px 0 var(--ui-ink),
+    0 3px 0 var(--ui-ink),
+    -3px 0 0 var(--ui-ink),
+    3px 0 0 var(--ui-ink),
+    0 0 14px rgba(255, 74, 52, 0.65);
 }
 
 @media (prefers-reduced-motion: reduce) {

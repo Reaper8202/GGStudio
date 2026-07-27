@@ -36,16 +36,69 @@ import {
  */
 export type MeleeVfxKind = 'blade' | 'spikes' | 'drum' | 'ram';
 
-/** Barrel character, chosen from the firing weapon's shape and damage type. */
-export type MuzzleVfxStyle = 'standard' | 'heavy' | 'sniper' | 'flame' | 'ice';
+/** Barrel character, keyed by weapon id; the old names remain adapter aliases. */
+export type MuzzleVfxStyle =
+  | 'turret'
+  | 'cannon-heavy'
+  | 'ice-cannon'
+  | 'sniper-light'
+  | 'flamethrower'
+  | 'standard'
+  | 'heavy'
+  | 'sniper'
+  | 'flame'
+  | 'ice';
 
 /** What a projectile or ray terminated against. */
-export type ImpactVfxKind = 'flesh' | 'shield' | 'hard' | 'ice' | 'burn';
+export type ImpactVfxKind =
+  | 'turret-zombie'
+  | 'turret-terrain'
+  | 'turret-shield'
+  | 'cannon-heavy-zombie'
+  | 'cannon-heavy-terrain'
+  | 'cannon-heavy-shield'
+  | 'ice-cannon-zombie'
+  | 'ice-cannon-terrain'
+  | 'ice-cannon-shield'
+  | 'sniper-light-zombie'
+  | 'sniper-light-terrain'
+  | 'sniper-light-shield'
+  | 'flamethrower-zombie'
+  | 'flamethrower-terrain'
+  | 'flamethrower-shield'
+  | 'flesh'
+  | 'shield'
+  | 'hard'
+  | 'ice'
+  | 'burn';
 
 interface Vector3Like {
   readonly x: number;
   readonly y: number;
   readonly z: number;
+}
+
+type WeaponMuzzleStyle =
+  'turret' | 'cannon-heavy' | 'ice-cannon' | 'sniper-light' | 'flamethrower';
+
+function canonicalMuzzleStyle(style: MuzzleVfxStyle): WeaponMuzzleStyle {
+  switch (style) {
+    case 'standard':
+    case 'turret':
+      return 'turret';
+    case 'heavy':
+    case 'cannon-heavy':
+      return 'cannon-heavy';
+    case 'ice':
+    case 'ice-cannon':
+      return 'ice-cannon';
+    case 'sniper':
+    case 'sniper-light':
+      return 'sniper-light';
+    case 'flame':
+    case 'flamethrower':
+      return 'flamethrower';
+  }
 }
 
 export class VfxSystem {
@@ -544,14 +597,19 @@ export class VfxSystem {
     dirY /= length;
     dirZ /= length;
 
-    if (style === 'flame') {
+    const weaponStyle = canonicalMuzzleStyle(style);
+    if (weaponStyle === 'flamethrower') {
       this.flameMuzzle(from, dirX, dirY, dirZ, detail);
       return;
     }
+    if (weaponStyle === 'turret') {
+      this.turretMuzzle(from, dirX, dirY, dirZ, detail);
+      return;
+    }
 
-    const ice = style === 'ice';
-    const heavy = style === 'heavy';
-    const sniper = style === 'sniper';
+    const ice = weaponStyle === 'ice-cannon';
+    const heavy = weaponStyle === 'cannon-heavy';
+    const sniper = weaponStyle === 'sniper-light';
     const hot = ice ? VFX_PALETTE.ice : VFX_PALETTE.sparkHot;
     const cool = ice ? VFX_PALETTE.iceDeep : VFX_PALETTE.emberDark;
     const scale = heavy ? 1.6 : sniper ? 1.25 : 1;
@@ -644,6 +702,7 @@ export class VfxSystem {
       (ice ? this.glow : this.lit).spawn(this.take());
     }
 
+    if (heavy) this.cannonTrail(from, dirX, dirY, dirZ, length, detail);
     if (ice) return;
 
     // Brass out of the ejection port: one casing per shot, tumbling to rest.
@@ -670,6 +729,81 @@ export class VfxSystem {
   }
 
   /**
+   * The rapid turret fires often enough that its muzzle has to register as a
+   * blink, not a persistent fountain of particles competing with its tracers.
+   */
+  private turretMuzzle(
+    from: Vector3Like,
+    dirX: number,
+    dirY: number,
+    dirZ: number,
+    detail: number,
+  ): void {
+    this.flash(
+      from.x + dirX * 0.16,
+      from.y + dirY * 0.16,
+      from.z + dirZ * 0.16,
+      0.12,
+      0.035,
+      VFX_PALETTE.sparkHot,
+    );
+    const sparks = this.count(2, detail);
+    for (let i = 0; i < sparks; i++) {
+      const speed = this.rand(5, 10);
+      this.reset0();
+      this.spec.x = from.x + dirX * 0.14;
+      this.spec.y = from.y + dirY * 0.14;
+      this.spec.z = from.z + dirZ * 0.14;
+      this.spec.vx = dirX * speed + this.randSigned(0.8);
+      this.spec.vy = dirY * speed + this.randSigned(0.8);
+      this.spec.vz = dirZ * speed + this.randSigned(0.8);
+      this.spec.size = this.rand(0.02, 0.035);
+      this.spec.endSize = 0.005;
+      this.spec.lifeSeconds = this.rand(0.035, 0.07);
+      this.spec.colorStart = VFX_PALETTE.sparkHot;
+      this.spec.colorEnd = VFX_PALETTE.ember;
+      this.spec.gravity = -4;
+      this.spec.spin = 10;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
+   * The ribbon supplies the hot shell core; a few pooled smoke puffs along
+   * its early path give the Heavy Cannon the slow, dirty tail its impact earns.
+   */
+  private cannonTrail(
+    from: Vector3Like,
+    dirX: number,
+    dirY: number,
+    dirZ: number,
+    range: number,
+    detail: number,
+  ): void {
+    const puffs = this.count(3, detail);
+    const tailLength = Math.min(range * 0.38, 4.5);
+    for (let i = 0; i < puffs; i++) {
+      const along = tailLength * ((i + this.rand(0.15, 0.85)) / puffs);
+      this.reset0();
+      this.spec.x = from.x + dirX * along + this.randSigned(0.08);
+      this.spec.y = from.y + dirY * along + this.randSigned(0.08);
+      this.spec.z = from.z + dirZ * along + this.randSigned(0.08);
+      this.spec.vx = dirX * this.rand(0.5, 1.5) + this.randSigned(0.35);
+      this.spec.vy = dirY * this.rand(0.5, 1.5) + this.rand(0.4, 1.1);
+      this.spec.vz = dirZ * this.rand(0.5, 1.5) + this.randSigned(0.35);
+      this.spec.size = this.rand(0.07, 0.13);
+      this.spec.endSize = this.spec.size * this.rand(2.2, 3.1);
+      this.spec.lifeSeconds = this.rand(0.35, 0.62);
+      this.spec.colorStart = VFX_PALETTE.smoke;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = 0.9;
+      this.spec.drag = 2.8;
+      this.spec.spin = 1.5;
+      this.lit.spawn(this.take());
+    }
+  }
+
+  /**
    * A shot terminated. `dirX/dirY/dirZ` is the travel direction, so flesh
    * sprays through and hard surfaces spit sparks back at the shooter.
    */
@@ -685,6 +819,97 @@ export class VfxSystem {
     if (this.disposed) return;
     const detail = this.detailAt(x, y, z);
     if (detail <= 0) return;
+
+    switch (kind) {
+      case 'turret-zombie':
+        this.turretImpact(x, y, z, dirX, dirY, dirZ, false, detail);
+        return;
+      case 'turret-terrain':
+        this.turretImpact(x, y, z, dirX, dirY, dirZ, true, detail);
+        return;
+      case 'cannon-heavy-zombie':
+        this.cannonImpact(x, y, z, dirX, dirY, dirZ, false, detail);
+        return;
+      case 'cannon-heavy-terrain':
+        this.cannonImpact(x, y, z, dirX, dirY, dirZ, true, detail);
+        return;
+      case 'ice-cannon-zombie':
+        this.iceCannonImpact(x, y, z, dirX, dirY, dirZ, false, detail);
+        return;
+      case 'ice-cannon-terrain':
+        this.iceCannonImpact(x, y, z, dirX, dirY, dirZ, true, detail);
+        return;
+      case 'sniper-light-zombie':
+        this.sniperImpact(x, y, z, dirX, dirY, dirZ, false, detail);
+        return;
+      case 'sniper-light-terrain':
+        this.sniperImpact(x, y, z, dirX, dirY, dirZ, true, detail);
+        return;
+      case 'flamethrower-zombie':
+      case 'flamethrower-terrain':
+        this.flameImpact(x, y, z, dirX, dirY, dirZ, detail);
+        return;
+      case 'turret-shield':
+        this.weaponShieldImpact(
+          x,
+          y,
+          z,
+          dirX,
+          dirY,
+          dirZ,
+          detail,
+          VFX_PALETTE.spark,
+        );
+        return;
+      case 'cannon-heavy-shield':
+        this.weaponShieldImpact(
+          x,
+          y,
+          z,
+          dirX,
+          dirY,
+          dirZ,
+          detail,
+          VFX_PALETTE.ember,
+        );
+        return;
+      case 'ice-cannon-shield':
+        this.weaponShieldImpact(
+          x,
+          y,
+          z,
+          dirX,
+          dirY,
+          dirZ,
+          detail,
+          VFX_PALETTE.ice,
+        );
+        return;
+      case 'sniper-light-shield':
+        this.weaponShieldImpact(
+          x,
+          y,
+          z,
+          dirX,
+          dirY,
+          dirZ,
+          detail,
+          VFX_PALETTE.frost,
+        );
+        return;
+      case 'flamethrower-shield':
+        this.weaponShieldImpact(
+          x,
+          y,
+          z,
+          dirX,
+          dirY,
+          dirZ,
+          detail,
+          VFX_PALETTE.ember,
+        );
+        return;
+    }
 
     if (kind === 'burn') {
       this.burnImpact(x, y, z, detail);
@@ -830,6 +1055,221 @@ export class VfxSystem {
       this.spec.spin = 2;
       this.lit.spawn(this.take());
     }
+  }
+
+  /** Small rapid-fire contact: a clean spark puff, with a dust tick on dirt. */
+  private turretImpact(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirY: number,
+    dirZ: number,
+    terrain: boolean,
+    detail: number,
+  ): void {
+    this.flash(x, y, z, 0.14, 0.045, VFX_PALETTE.sparkHot);
+    const sparks = this.count(terrain ? 3 : 2, detail);
+    for (let i = 0; i < sparks; i++) {
+      const speed = this.rand(2.5, 6);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y;
+      this.spec.z = z;
+      this.spec.vx = -dirX * speed + this.randSigned(1.2);
+      this.spec.vy = -dirY * speed + this.rand(0.2, 1.8);
+      this.spec.vz = -dirZ * speed + this.randSigned(1.2);
+      this.spec.size = this.rand(0.018, 0.035);
+      this.spec.endSize = 0.004;
+      this.spec.lifeSeconds = this.rand(0.06, 0.12);
+      this.spec.colorStart = VFX_PALETTE.sparkHot;
+      this.spec.colorEnd = VFX_PALETTE.ember;
+      this.spec.gravity = -9;
+      this.spec.spin = 11;
+      this.glow.spawn(this.take());
+    }
+    if (!terrain) return;
+    this.reset0();
+    this.spec.x = x;
+    this.spec.y = y;
+    this.spec.z = z;
+    this.spec.vx = -dirX * 0.5 + this.randSigned(0.5);
+    this.spec.vy = this.rand(0.3, 0.8);
+    this.spec.vz = -dirZ * 0.5 + this.randSigned(0.5);
+    this.spec.size = 0.045;
+    this.spec.endSize = 0.11;
+    this.spec.lifeSeconds = 0.16;
+    this.spec.colorStart = VFX_PALETTE.dust;
+    this.spec.colorEnd = VFX_PALETTE.smokeDark;
+    this.spec.gravity = 0.4;
+    this.spec.drag = 3;
+    this.lit.spawn(this.take());
+  }
+
+  /** Heavy shell contact reinforces the splash with a direct flash and chunks. */
+  private cannonImpact(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirY: number,
+    dirZ: number,
+    terrain: boolean,
+    detail: number,
+  ): void {
+    this.flash(x, y + 0.08, z, 0.62, 0.13, VFX_PALETTE.sparkHot);
+    const debris = this.count(terrain ? 7 : 5, detail);
+    for (let i = 0; i < debris; i++) {
+      const speed = this.rand(3, 9);
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.12);
+      this.spec.y = y + this.rand(0, 0.2);
+      this.spec.z = z + this.randSigned(0.12);
+      this.spec.vx = -dirX * speed + this.randSigned(3.5);
+      this.spec.vy = -dirY * speed + this.rand(3, 8);
+      this.spec.vz = -dirZ * speed + this.randSigned(3.5);
+      this.spec.size = this.rand(0.075, 0.16);
+      this.spec.endSize = this.spec.size * 0.72;
+      this.spec.lifeSeconds = this.rand(0.45, 0.9);
+      this.spec.colorStart = terrain ? VFX_PALETTE.dust : VFX_PALETTE.ember;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -18;
+      this.spec.spin = 12;
+      this.spec.bounce = 0.28;
+      this.lit.spawn(this.take());
+    }
+  }
+
+  /** Frost shards burst once, then pale motes drift slowly where the round hit. */
+  private iceCannonImpact(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirY: number,
+    dirZ: number,
+    terrain: boolean,
+    detail: number,
+  ): void {
+    this.flash(x, y, z, terrain ? 0.26 : 0.22, 0.1, VFX_PALETTE.frost);
+    const motes = this.count(terrain ? 9 : 7, detail);
+    for (let i = 0; i < motes; i++) {
+      const speed = this.rand(0.8, 3.5);
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.08);
+      this.spec.y = y + this.randSigned(0.08);
+      this.spec.z = z + this.randSigned(0.08);
+      this.spec.vx = -dirX * speed + this.randSigned(1.1);
+      this.spec.vy = -dirY * speed + this.rand(0.15, 1.4);
+      this.spec.vz = -dirZ * speed + this.randSigned(1.1);
+      this.spec.size = this.rand(0.035, 0.075);
+      this.spec.endSize = 0.012;
+      this.spec.lifeSeconds = this.rand(0.75, 1.35);
+      this.spec.colorStart = VFX_PALETTE.sparkHot;
+      this.spec.colorEnd = VFX_PALETTE.iceDeep;
+      this.spec.gravity = terrain ? -0.5 : 0.25;
+      this.spec.drag = 2.8;
+      this.spec.spin = 4;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /** A sniper hit is a narrow, high-contrast crack rather than a broad burst. */
+  private sniperImpact(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirY: number,
+    dirZ: number,
+    terrain: boolean,
+    detail: number,
+  ): void {
+    this.flash(x, y, z, terrain ? 0.26 : 0.22, 0.055, VFX_PALETTE.frost);
+    const cracks = this.count(terrain ? 5 : 4, detail);
+    for (let i = 0; i < cracks; i++) {
+      const speed = this.rand(12, 22);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y;
+      this.spec.z = z;
+      this.spec.vx = dirX * speed + this.randSigned(0.35);
+      this.spec.vy = dirY * speed + this.randSigned(0.35);
+      this.spec.vz = dirZ * speed + this.randSigned(0.35);
+      this.spec.size = this.rand(0.012, 0.025);
+      this.spec.endSize = 0.002;
+      this.spec.lifeSeconds = this.rand(0.05, 0.11);
+      this.spec.colorStart = VFX_PALETTE.frost;
+      this.spec.colorEnd = VFX_PALETTE.sparkHot;
+      this.spec.gravity = 0;
+      this.spec.drag = 5;
+      this.spec.spin = 0;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /** Flame ends in soft, short-lived light with no hard projectile particles. */
+  private flameImpact(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirY: number,
+    dirZ: number,
+    detail: number,
+  ): void {
+    const licks = this.count(3, detail);
+    for (let i = 0; i < licks; i++) {
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.1);
+      this.spec.y = y + this.randSigned(0.08);
+      this.spec.z = z + this.randSigned(0.1);
+      this.spec.vx = dirX * this.rand(1, 3) + this.randSigned(0.8);
+      this.spec.vy = dirY * this.rand(1, 3) + this.rand(0.6, 1.8);
+      this.spec.vz = dirZ * this.rand(1, 3) + this.randSigned(0.8);
+      this.spec.size = this.rand(0.1, 0.17);
+      this.spec.endSize = this.rand(0.2, 0.3);
+      this.spec.lifeSeconds = this.rand(0.08, 0.16);
+      this.spec.colorStart = VFX_PALETTE.frost;
+      this.spec.colorEnd = VFX_PALETTE.emberDark;
+      this.spec.gravity = 1.8;
+      this.spec.drag = 4;
+      this.spec.spin = 3;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /** Shield bounces retain a small colour accent from the round that hit it. */
+  private weaponShieldImpact(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirY: number,
+    dirZ: number,
+    detail: number,
+    accent: number,
+  ): void {
+    const shards = this.count(5, detail);
+    for (let i = 0; i < shards; i++) {
+      const speed = this.rand(3, 8);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y;
+      this.spec.z = z;
+      this.spec.vx = -dirX * speed + this.randSigned(1.6);
+      this.spec.vy = -dirY * speed + this.rand(0.3, 2.2);
+      this.spec.vz = -dirZ * speed + this.randSigned(1.6);
+      this.spec.size = this.rand(0.025, 0.055);
+      this.spec.endSize = 0.008;
+      this.spec.lifeSeconds = this.rand(0.12, 0.26);
+      this.spec.colorStart = accent;
+      this.spec.colorEnd = VFX_PALETTE.shield;
+      this.spec.gravity = -4;
+      this.spec.spin = 10;
+      this.glow.spawn(this.take());
+    }
+    this.flash(x, y, z, 0.24, 0.06, VFX_PALETTE.shield);
   }
 
   /**

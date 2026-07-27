@@ -5,17 +5,17 @@
 > it end to end as routine task setup.
 
 - Source Modules: 85
-- Source lines: 29,737
+- Source lines: 30,532
 - Test files scanned: 78
 
 ## Largest Modules
 
 | Module | LOC |
 | --- | ---: |
-| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2704 |
+| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2734 |
 | [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 1827 |
+| [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 1789 |
 | [`src/editor/ui.ts`](../../src/editor/ui.ts) | 1384 |
-| [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 1349 |
 | [`src/app/App.ts`](../../src/app/App.ts) | 1174 |
 | [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) | 1040 |
 | [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 866 |
@@ -301,9 +301,9 @@
 - External packages: none
 - Direct tests: `unit/app.test.ts`, `unit/cannon-splash.test.ts`, `unit/run-checkpoint.test.ts`, `unit/turret-module-ui.test.ts`, `unit/upgrades.test.ts`
 
-### [`src/core/waveTimeline.ts`](../../src/core/waveTimeline.ts) (138 LOC)
+### [`src/core/waveTimeline.ts`](../../src/core/waveTimeline.ts) (104 LOC)
 
-- Exports: `buildWaveTimeline`, `THREAT_ICONS`, `THREAT_LABELS`, `TimelineNode`, `TimelineNodeState`, `waveIcon`, `WaveIconKind`, `WaveTimeline`, `WaveTimelineInput`
+- Exports: `buildWaveTimeline`, `THREAT_LABELS`, `TimelineNode`, `TimelineNodeState`, `waveMarker`, `WaveMarkerKind`, `WaveTimeline`, `WaveTimelineInput`
 - Imports: none
 - Imported by: `src/survival/SurvivalMode.ts`, `src/survival/WaveTimelineHud.ts`
 - External packages: none
@@ -401,7 +401,7 @@
 - External packages: `@dimforge/rapier3d-compat`
 - Direct tests: `unit/auto-aim.test.ts`, `unit/runtime-upgrades.test.ts`, `unit/suspension-sim.test.ts`, `unit/tread-steering.test.ts`, `unit/weapon-ammo.test.ts`
 
-### [`src/runtime/weapons.ts`](../../src/runtime/weapons.ts) (376 LOC)
+### [`src/runtime/weapons.ts`](../../src/runtime/weapons.ts) (387 LOC)
 
 - Exports: `createWeapon`, `RuntimeWeapon`, `stepWeapons`, `TracerShot`, `WeaponAimInput`, `WeaponStepInput`, `WeaponStepResult`
 - Imports: `src/core/grid.ts`, `src/core/mass.ts`, `src/core/parts.ts`, `src/core/turretModules.ts`, `src/core/tutorial.ts`, `src/core/types.ts`, `src/runtime/assembler.ts`, `src/runtime/vec.ts`
@@ -459,7 +459,7 @@
 - External packages: `three`
 - Direct tests: `unit/minimap.test.ts`
 
-### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (2704 LOC)
+### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (2734 LOC)
 
 - Exports: `applyZombieShot`, `createWaveClearPayload`, `SurvivalCallbacks`, `SurvivalMode`, `SurvivalPhase`, `SurvivalTelemetry`, `WaveClearPayload`
 - Imports: `src/app/badgeStore.ts`, `src/app/sfx.ts`, `src/core/abilities.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/waveTimeline.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/DamageNumbers.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/Tracers.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveClearCard.ts`, `src/survival/WaveManager.ts`, `src/survival/WaveTimelineHud.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/ScopeCursor.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
@@ -467,9 +467,9 @@
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/ice-cannon-slow.test.ts`, `unit/pending-rewards.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-score.test.ts`, `unit/turret-piercing.test.ts`
 
-### [`src/survival/Tracers.ts`](../../src/survival/Tracers.ts) (460 LOC)
+### [`src/survival/Tracers.ts`](../../src/survival/Tracers.ts) (516 LOC)
 
-- Exports: `TRACER_STYLE_TUNING`, `TracerRenderer`, `TracerRendererOptions`, `TracerSpawnOptions`, `TracerStyle`, `TracerStyleTuning`
+- Exports: `TRACER_STYLE_TUNING`, `TracerRenderer`, `TracerRendererOptions`, `TracerSpawnOptions`, `TracerStyle`, `tracerStyleForWeapon`, `TracerStyleTuning`
 - Imports: `src/vfx/vfxConfig.ts`
 - Imported by: `src/survival/SurvivalMode.ts`
 - External packages: `three`
@@ -507,7 +507,7 @@
 - External packages: none
 - Direct tests: `unit/summaries.test.ts`, `unit/wave-balance.test.ts`, `unit/waves.test.ts`, `unit/zombie-balance.test.ts`
 
-### [`src/survival/WaveTimelineHud.ts`](../../src/survival/WaveTimelineHud.ts) (240 LOC)
+### [`src/survival/WaveTimelineHud.ts`](../../src/survival/WaveTimelineHud.ts) (462 LOC)
 
 - Exports: `WaveTimelineHud`
 - Imports: `src/core/waveTimeline.ts`, `src/survival/WaveTimelineHud.css`
@@ -689,7 +689,7 @@
 
 ## src/vfx
 
-### [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) (1349 LOC)
+### [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) (1789 LOC)
 
 - Exports: `ImpactVfxKind`, `MeleeVfxKind`, `MuzzleVfxStyle`, `VfxSystem`
 - Imports: `src/vfx/VoxelParticles.ts`, `src/vfx/vfxConfig.ts`
@@ -705,7 +705,7 @@
 - External packages: `three`
 - Direct tests: `unit/vfx.test.ts`
 
-### [`src/vfx/shotVfx.ts`](../../src/vfx/shotVfx.ts) (52 LOC)
+### [`src/vfx/shotVfx.ts`](../../src/vfx/shotVfx.ts) (120 LOC)
 
 - Exports: `impactKindForShot`, `muzzleStyleForShot`, `ShotAppearance`
 - Imports: `src/core/types.ts`, `src/vfx/VfxSystem.ts`
@@ -713,7 +713,7 @@
 - External packages: none
 - Direct tests: `unit/vfx.test.ts`
 
-### [`src/vfx/vfxConfig.ts`](../../src/vfx/vfxConfig.ts) (62 LOC)
+### [`src/vfx/vfxConfig.ts`](../../src/vfx/vfxConfig.ts) (64 LOC)
 
 - Exports: `FRAME_SPAWN_BUDGET`, `GLOW_PARTICLE_CAPACITY`, `LIT_PARTICLE_CAPACITY`, `LOD_CULL_DISTANCE_M`, `LOD_FULL_DISTANCE_M`, `LOD_HALF_DISTANCE_M`, `SPLAT_FLATTEN`, `SPLAT_SPREAD`, `VFX_GROUND_Y`, `VFX_PALETTE`
 - Imports: none

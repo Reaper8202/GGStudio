@@ -30,13 +30,6 @@ export interface WaveTimelineInput {
   windowForward?: number;
 }
 
-/** Emoji marker per specialist kind, for the HUD. No image assets. */
-export const THREAT_ICONS: Readonly<Record<string, string>> = Object.freeze({
-  thrower: '🪨',
-  worker: '💣',
-  'phone-addict': '📱',
-});
-
 /** Human-readable label per specialist kind, for tooltips and aria-labels. */
 export const THREAT_LABELS: Readonly<Record<string, string>> = Object.freeze({
   thrower: 'Throwers',
@@ -44,48 +37,21 @@ export const THREAT_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'phone-addict': 'Phone Addicts (shielded)',
 });
 
-export type WaveIconKind = 'walker' | 'horde' | 'threat' | 'milestone';
+export type WaveMarkerKind =
+  'cleared' | 'current' | 'wave' | 'milestone' | 'boss';
 
 /**
- * The glyph a wave node shows. Threat waves surface their specialist marker;
- * everything else escalates with the wave number.
+ * Which marker a wave tile draws. Pure — no DOM, no emoji.
+ *
+ * Phone Addicts are the heaviest known specialist, so their introduction is
+ * shown as the boss marker ahead of ordinary specialist milestones.
  */
-export function waveIcon(
-  wave: number,
-  threats: readonly string[],
-): { kind: WaveIconKind; icon: string; label: string } {
-  const normalizedWave = normalizeWave(wave);
-  const threat = threats[0];
-
-  if (threat !== undefined) {
-    return {
-      kind: 'threat',
-      icon: THREAT_ICONS[threat] ?? '⚠️',
-      label: `Wave ${normalizedWave} — ${THREAT_LABELS[threat] ?? 'specialist threat'}`,
-    };
-  }
-
-  if (normalizedWave % 5 === 0) {
-    return {
-      kind: 'milestone',
-      icon: '☣️',
-      label: `Wave ${normalizedWave} — milestone`,
-    };
-  }
-
-  if (normalizedWave <= 4) {
-    return {
-      kind: 'walker',
-      icon: '🧟',
-      label: `Wave ${normalizedWave} — walkers`,
-    };
-  }
-
-  return {
-    kind: 'horde',
-    icon: '☠️',
-    label: `Wave ${normalizedWave} — horde`,
-  };
+export function waveMarker(node: TimelineNode): WaveMarkerKind {
+  if (node.state === 'past') return 'cleared';
+  if (node.state === 'current') return 'current';
+  if (node.threats.includes('phone-addict')) return 'boss';
+  if (node.isMilestone) return 'milestone';
+  return 'wave';
 }
 
 function normalizeWave(value: number): number {
