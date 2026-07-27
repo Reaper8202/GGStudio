@@ -6,6 +6,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { effectiveFreeze, effectiveShield } from '../core/abilities.ts';
+import type { EnvironmentModifiers } from '../core/biomes.ts';
 import type { RunState } from '../core/economy.ts';
 import {
   leaderboardRows,
@@ -37,7 +38,10 @@ import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import type { Arena } from './arena/Arena.ts';
 import { ArenaBuilder } from './arena/ArenaBuilder.ts';
-import { GRAVEYARD } from './arena/recipes/graveyard.ts';
+import {
+  DEFAULT_BIOME_ID,
+  getBiome,
+} from './arena/recipes/index.ts';
 import { Minimap } from './Minimap.ts';
 import {
   WaveManager,
@@ -315,6 +319,7 @@ export class SurvivalMode {
   private readonly world: RAPIER.World;
   private readonly eventQueue: RAPIER.EventQueue;
   private readonly arena: Arena;
+  private readonly biomeDrive: EnvironmentModifiers;
   private readonly vehicle: RuntimeVehicle;
   private readonly zombies: ZombieSystem;
   private readonly autoAim: AutoAim;
@@ -511,15 +516,13 @@ export class SurvivalMode {
     );
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.eventQueue = new RAPIER.EventQueue(true);
-    const arenaSeed =
-      'seed' in run && typeof run.seed === 'number'
-        ? run.seed
-        : randomSeed(); // TODO(biome): seed comes from the run checkpoint
+    const biome = getBiome(run.biomeId ?? DEFAULT_BIOME_ID);
+    this.biomeDrive = biome.drive;
     this.arena = new ArenaBuilder(
       this.scene,
       this.world,
-      GRAVEYARD,
-      arenaSeed,
+      biome,
+      run.seed ?? randomSeed(),
     );
     this.vehicle = this.spawnVehicle(bp);
     this.followCamera = new FollowCamera(
@@ -1327,6 +1330,7 @@ export class SurvivalMode {
       FIXED_DT,
       this.controls,
       (colliderHandle) => this.arena.surfaceOf(colliderHandle),
+      this.biomeDrive,
     );
 
     this.fuelPickups.step(FIXED_DT);

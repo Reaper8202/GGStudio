@@ -13,6 +13,7 @@ interface SnowfieldLayout extends BiomeLayout {
 const layout: SnowfieldLayout = {
   halfSize: 52.5,
   spawnPointCount: 20,
+  groundUntextured: true,
   terrainRoughness: 0.35,
   baseSurface: 'snow',
   roadSurface: 'hardpan',
@@ -32,7 +33,7 @@ const layout: SnowfieldLayout = {
           scale: [0.9, 1.5],
           tint: {
             PineTree_Bark: 0x4a3b30,
-            PineTree_Leaves: 0xdfeaf6,
+            PineTree_Leaves: 0x9fc0c4,
           },
           collider: 'cylinder',
           colliderSize: [0.5, 3.2, 0.5],
@@ -43,7 +44,7 @@ const layout: SnowfieldLayout = {
           scale: [0.9, 1.5],
           tint: {
             PineTree_Bark: 0x4a3b30,
-            PineTree_Leaves: 0xdfeaf6,
+            PineTree_Leaves: 0x9fc0c4,
           },
           collider: 'cylinder',
           colliderSize: [0.5, 3.2, 0.5],
@@ -59,7 +60,7 @@ const layout: SnowfieldLayout = {
           asset: 'nature/Rock_1',
           weight: 1,
           scale: [0.7, 1.6],
-          tint: { Rock: 0xc8d6e4 },
+          tint: { Rock: 0xdce9f5 },
           collider: 'box',
           colliderSize: [0.7, 0.6, 0.7],
         },
@@ -67,7 +68,7 @@ const layout: SnowfieldLayout = {
           asset: 'nature/Rock_2',
           weight: 1,
           scale: [0.7, 1.6],
-          tint: { Rock: 0xc8d6e4 },
+          tint: { Rock: 0xdce9f5 },
           collider: 'box',
           colliderSize: [0.7, 0.6, 0.7],
         },
@@ -90,14 +91,19 @@ export const SNOWFIELD: BiomeDefinition = {
   blurb: 'Snow and ice make the car drift and reduce its top speed.',
   layout,
   look: {
-    background: 0x0d1a2b,
-    fogColor: 0x12263d,
-    fogDensity: 0.016,
-    hemiSky: 0x8fb4e8,
-    hemiGround: 0x3d4c66,
-    hemiIntensity: 1.35,
-    keyColor: 0xcfe4ff,
-    keyIntensity: 3.1,
+    // Still a moonlit night, but snow has roughly 0.8 albedo: it is the
+    // brightest surface in the game and bounces light back up. Lit at the
+    // graveyard's levels it reads as dark slate rather than snow, so the
+    // ambient fill and the sky half of the hemisphere are pushed well up and
+    // the horizon fog is lifted to a snowy haze instead of near-black.
+    background: 0x243d55,
+    fogColor: 0x2c4a66,
+    fogDensity: 0.014,
+    hemiSky: 0xcfe4ff,
+    hemiGround: 0x6d8199,
+    hemiIntensity: 2.9,
+    keyColor: 0xe4f0ff,
+    keyIntensity: 3.6,
     focusColor: 0xffd6a0,
     focusIntensity: 58,
     groundTint: 0xdce8f7,

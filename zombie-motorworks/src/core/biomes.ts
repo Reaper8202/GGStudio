@@ -104,6 +104,13 @@ export interface BiomeLayout {
   groundAsset: string;
   scatters: readonly PropScatter[];
   perimeterProp?: PropEntry;
+  /**
+   * Drop the ground tile's texture and show `look.groundTint` as a flat
+   * colour. The shared ground mesh ships the graveyard's dark dirt texture,
+   * and a tint multiplies against it, so tinting alone can only ever darken —
+   * snow can never be made white. Biomes that recolour the ground set this.
+   */
+  groundUntextured?: boolean;
   /** 0 = dead flat cosmetic ground, 1 = maximum per-tile height jitter. */
   terrainRoughness: number;
   spawnPointCount: number;

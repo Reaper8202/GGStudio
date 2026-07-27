@@ -413,7 +413,29 @@ export class ArenaBuilder implements Arena {
     )
       .then(({ geometry, material, pivot }) => {
         if (this.disposed) return;
-        const mesh = new THREE.InstancedMesh(geometry, material, tiles.length);
+        // Every biome shares one ground mesh, so the tint is the only thing
+        // making snow white and sand tan. Clone before recolouring: the loader
+        // caches materials per asset, so mutating this one would repaint the
+        // ground of every arena built afterwards.
+        // Only recolour when the recipe drops the texture. A tint multiplies
+        // against the map, so applying it to a textured ground can only darken
+        // it — that silently crushed the graveyard, whose look depends on the
+        // texture showing through untouched.
+        let groundMaterial = material;
+        if (layout.groundUntextured === true) {
+          const tinted = material.clone() as THREE.Material & {
+            color?: THREE.Color;
+            map?: THREE.Texture | null;
+          };
+          tinted.map = null;
+          tinted.color?.set(this.biome.look.groundTint);
+          groundMaterial = tinted;
+        }
+        const mesh = new THREE.InstancedMesh(
+          geometry,
+          groundMaterial,
+          tiles.length,
+        );
         mesh.name = `${this.biome.id}-ground`;
         const pivotMatrix = new THREE.Matrix4().makeTranslation(
           pivot.x,

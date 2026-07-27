@@ -1,14 +1,18 @@
+import type { BiomeId } from './biomes.ts';
+import { randomSeed } from './rng.ts';
 import { deserializeBlueprint } from './serialize.ts';
 import type { VehicleBlueprint } from './types.ts';
 
 /** Persisted wave-start checkpoint for a survival run. */
 export interface SavedRun {
-  schemaVersion: 3;
+  schemaVersion: 4;
   /** Arcade score accumulated across the run. */
   score: number;
   /** Wave the player resumes at (>= 1). */
   wave: number;
   kills: number;
+  biomeId: BiomeId;
+  seed: number;
   /** Money banked during this run so far. */
   bankedEarnings: number;
   blueprint: VehicleBlueprint;
@@ -23,10 +27,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 interface RawSavedRun {
-  schemaVersion: 1 | 2 | 3;
+  schemaVersion: 1 | 2 | 3 | 4;
   score: unknown;
   wave: number;
   kills: number;
+  biomeId: unknown;
+  seed: unknown;
   bankedEarnings: number;
   blueprint: Record<string, unknown>;
   partHp: Record<string, unknown>;
@@ -38,7 +44,8 @@ function normalizeShape(value: unknown): RawSavedRun | null {
   if (
     (value.schemaVersion !== 1 &&
       value.schemaVersion !== 2 &&
-      value.schemaVersion !== 3) ||
+      value.schemaVersion !== 3 &&
+      value.schemaVersion !== 4) ||
     typeof value.wave !== 'number' ||
     typeof value.kills !== 'number' ||
     !isRecord(value.blueprint) ||
@@ -52,14 +59,26 @@ function normalizeShape(value: unknown): RawSavedRun | null {
   if (typeof bankedEarnings !== 'number') return null;
   return {
     schemaVersion: value.schemaVersion,
-    score: value.schemaVersion === 3 ? value.score : 0,
+    score: value.schemaVersion >= 3 ? value.score : 0,
     wave: value.wave,
     kills: value.kills,
+    biomeId: value.schemaVersion === 4 ? value.biomeId : undefined,
+    seed: value.schemaVersion === 4 ? value.seed : undefined,
     bankedEarnings,
     blueprint: value.blueprint,
     partHp: value.partHp,
     savedAt: value.savedAt,
   };
+}
+
+const DEFAULT_BIOME_ID: BiomeId = 'graveyard';
+
+function normalizeBiomeId(value: unknown): BiomeId {
+  return value === 'graveyard' ||
+    value === 'snowfield' ||
+    value === 'desert'
+    ? value
+    : DEFAULT_BIOME_ID;
 }
 
 /** Returns null rather than allowing malformed persisted data to escape. */
@@ -104,7 +123,7 @@ export function decodeSavedRun(json: string | null): SavedRun | null {
   ) as Record<string, number>;
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     score:
       typeof normalized.score === 'number' &&
       Number.isSafeInteger(normalized.score) &&
@@ -116,6 +135,12 @@ export function decodeSavedRun(json: string | null): SavedRun | null {
       Number.isFinite(normalized.kills) && normalized.kills >= 0
         ? normalized.kills
         : 0,
+    biomeId: normalizeBiomeId(normalized.biomeId),
+    seed:
+      typeof normalized.seed === 'number' &&
+      Number.isFinite(normalized.seed)
+        ? normalized.seed
+        : randomSeed(),
     bankedEarnings:
       Number.isFinite(normalized.bankedEarnings) &&
       normalized.bankedEarnings >= 0
@@ -134,6 +159,8 @@ export function encodeSavedRun(run: SavedRun): string {
     score: run.score,
     wave: run.wave,
     kills: run.kills,
+    biomeId: run.biomeId,
+    seed: run.seed,
     bankedEarnings: run.bankedEarnings,
     blueprint: run.blueprint,
     partHp: run.partHp,

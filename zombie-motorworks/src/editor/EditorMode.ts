@@ -6,6 +6,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type {
+  BiomeId,
+} from '../core/biomes.ts';
+import type {
   PartConfig,
   PartDefinition,
   PlacedPart,
@@ -264,6 +267,9 @@ export interface EditorModeContext {
   profile: PlayerProfile;
   persistProfile(): void;
   onMenu(): void;
+  selectedBiomeId: BiomeId;
+  biomeSelectionLocked?: boolean;
+  onBiomeSelected(biomeId: BiomeId): void;
   notice?: string;
   runContext?: RunState;
   runRepair?: {
@@ -307,6 +313,7 @@ export class EditorMode {
   private readonly runRepair: EditorModeContext['runRepair'];
   private readonly runPartMaxHpAtEntry: ReadonlyMap<string, number>;
   private readonly runSummary: RunSummary | undefined;
+  private selectedBiomeId: BiomeId;
   private readonly keyHandler = (e: KeyboardEvent) => this.onKey(e);
 
   constructor(
@@ -314,7 +321,10 @@ export class EditorMode {
     private readonly renderer: THREE.WebGLRenderer,
     initial: VehicleBlueprint,
     private readonly onTestDrive: (bp: VehicleBlueprint) => void,
-    private readonly onFightZombies: (bp: VehicleBlueprint) => void,
+    private readonly onFightZombies: (
+      bp: VehicleBlueprint,
+      biomeId: BiomeId,
+    ) => void,
     context: EditorModeContext,
   ) {
     this.bp = initial;
@@ -326,6 +336,7 @@ export class EditorMode {
       initial.parts.map((part) => [part.id, getEffectiveDef(part).health]),
     );
     this.runSummary = context.runSummary;
+    this.selectedBiomeId = context.selectedBiomeId;
     this.history = context.history ?? new CommandHistory((moneyDelta) => this.mutateMoney(moneyDelta));
     this.scene.background = new THREE.Color(0x1a1e26);
     this.scene.add(new THREE.HemisphereLight(0xcfd8e8, 0x2a2620, 1.05));
@@ -402,8 +413,13 @@ export class EditorMode {
             localStorage.setItem(TUTORIAL_DONE_KEY, '1');
             this.stopTutorial();
           }
-          this.onFightZombies(this.bp);
+          this.onFightZombies(this.bp, this.selectedBiomeId);
         }
+      },
+      onBiomeSelected: (biomeId) => {
+        if (context.biomeSelectionLocked) return;
+        this.selectedBiomeId = biomeId;
+        context.onBiomeSelected(biomeId);
       },
       onStartTutorial: () => this.startTutorial(),
       onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
@@ -416,6 +432,9 @@ export class EditorMode {
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onToggleErase: () => this.toggleErase(),
       onCancelTool: () => this.disarmTool(),
+    }, {
+      selectedBiomeId: this.selectedBiomeId,
+      biomeSelectionLocked: context.biomeSelectionLocked,
     });
 
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);

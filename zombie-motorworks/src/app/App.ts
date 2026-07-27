@@ -40,6 +40,7 @@ import {
   scaledHpOnUpgrade,
   type RunState,
 } from '../core/economy.ts';
+import type { BiomeId } from '../core/biomes.ts';
 import {
   defaultProfile,
   MINE_SWEEPER_UNLOCK_WAVE,
@@ -47,6 +48,8 @@ import {
 } from '../core/profile.ts';
 import type { RunOutcome } from '../core/leaderboard.ts';
 import type { SavedRun } from '../core/runSave.ts';
+import { randomSeed } from '../core/rng.ts';
+import { DEFAULT_BIOME_ID } from '../survival/arena/recipes/index.ts';
 import { submitCrazyGamesScore } from './crazyGamesSdk.ts';
 import { leaderboardStore } from './leaderboardStore.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
@@ -62,6 +65,10 @@ export interface RunCheckpoint {
   partHp: Record<string, number>;
   /** Cumulative kills committed before `wave`. */
   kills: number;
+  /** Arena recipe shared by every wave in this run. */
+  biomeId: BiomeId;
+  /** Procedural arena seed shared by every wave in this run. */
+  seed: number;
   /** Arcade run score committed before `wave`. */
   score: number;
   /** Run earnings already credited before `wave`. */
@@ -72,6 +79,8 @@ export interface CheckpointRunState extends RunState {
   partHp: Record<string, number>;
   kills: number;
   score: number;
+  biomeId: BiomeId;
+  seed: number;
 }
 
 /** Effective maximum HP for every placed part in a blueprint. */
@@ -84,6 +93,7 @@ export function fullPartHp(bp: VehicleBlueprint): Record<string, number> {
 /** The immutable wave-start state for a brand-new run. */
 export function createInitialRunCheckpoint(
   bp: VehicleBlueprint,
+  biomeId: BiomeId,
 ): RunCheckpoint {
   return {
     wave: 1,
@@ -93,6 +103,8 @@ export function createInitialRunCheckpoint(
     ),
     partHp: fullPartHp(bp),
     kills: 0,
+    biomeId,
+    seed: randomSeed(),
     score: 0,
     bankedEarnings: 0,
   };
@@ -117,6 +129,8 @@ export function createClearedWaveCheckpoint(input: {
   survivingPartIds: readonly string[];
   partHp: Readonly<Record<string, number>>;
   kills: number;
+  biomeId: BiomeId;
+  seed: number;
   score: number;
   bankedEarnings: number;
 }): RunCheckpoint {
@@ -129,6 +143,8 @@ export function createClearedWaveCheckpoint(input: {
     blueprint,
     partHp: partHpForBlueprint(blueprint, input.partHp),
     kills: input.kills,
+    biomeId: input.biomeId,
+    seed: input.seed,
     score: input.score,
     bankedEarnings: input.bankedEarnings,
   };
@@ -173,6 +189,8 @@ export function runStateFromCheckpoint(
     wave: checkpoint.wave,
     partHp: { ...checkpoint.partHp },
     kills: checkpoint.kills,
+    biomeId: checkpoint.biomeId,
+    seed: checkpoint.seed,
     score: checkpoint.score,
   };
 }
@@ -195,9 +213,11 @@ export function savedRunFromCheckpoint(
   savedAt: number,
 ): SavedRun {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     wave: checkpoint.wave,
     kills: checkpoint.kills,
+    biomeId: checkpoint.biomeId,
+    seed: checkpoint.seed,
     score: checkpoint.score,
     bankedEarnings: checkpoint.bankedEarnings,
     blueprint: checkpoint.blueprint,
@@ -269,6 +289,7 @@ export class App {
   private inBuildPhase = false;
   private runMoneyEarned = 0;
   private runSummary: RunSummary | undefined;
+  private preferredBiomeId: BiomeId = DEFAULT_BIOME_ID;
   private readonly committedDestroyedPartNames: string[] = [];
   private profileDirty = false;
   private profileFlushTimer: number | undefined;
@@ -356,9 +377,12 @@ export class App {
       blueprint: savedRun.blueprint,
       partHp: { ...savedRun.partHp },
       kills: savedRun.kills,
+      biomeId: savedRun.biomeId,
+      seed: savedRun.seed,
       score: savedRun.score,
       bankedEarnings: savedRun.bankedEarnings,
     };
+    this.preferredBiomeId = savedRun.biomeId;
     this.activeRun = { wave: savedRun.wave };
     this.inBuildPhase = false;
     this.enterSurvival(this.bp, runStateFromCheckpoint(this.checkpoint));
@@ -376,13 +400,19 @@ export class App {
       this.renderer,
       this.bp,
       (bp) => this.enterChamber(bp),
-      (bp) => this.startOrResumeRun(bp),
+      (bp, biomeId) => this.startOrResumeRun(bp, biomeId),
       {
         history: this.history,
         view: this.savedView,
         profile: this.profile,
         persistProfile: () => this.saveProfileOrThrow(),
         onMenu: () => this.returnToTitle(),
+        selectedBiomeId:
+          this.checkpoint?.biomeId ?? this.preferredBiomeId,
+        biomeSelectionLocked: this.checkpoint !== null,
+        onBiomeSelected: (biomeId) => {
+          if (this.checkpoint === null) this.preferredBiomeId = biomeId;
+        },
         runContext:
           this.activeRun && this.inBuildPhase ? this.activeRun : undefined,
         runRepair:
@@ -512,20 +542,24 @@ export class App {
     this.chamber.resize(this.root.clientWidth, this.root.clientHeight);
   }
 
-  private startOrResumeRun(bp: VehicleBlueprint): void {
+  private startOrResumeRun(
+    bp: VehicleBlueprint,
+    biomeId: BiomeId = this.preferredBiomeId,
+  ): void {
     if (this.checkpoint !== null) {
       this.resumeRun(bp);
     } else {
-      this.startRun(bp);
+      this.startRun(bp, biomeId);
     }
   }
 
-  private startRun(bp: VehicleBlueprint): void {
+  private startRun(bp: VehicleBlueprint, biomeId: BiomeId): void {
     runSaveStore.clear();
     this.runMoneyEarned = 0;
     this.runSummary = undefined;
     this.committedDestroyedPartNames.length = 0;
-    this.checkpoint = createInitialRunCheckpoint(bp);
+    this.preferredBiomeId = biomeId;
+    this.checkpoint = createInitialRunCheckpoint(bp, biomeId);
     this.activeRun = { wave: this.checkpoint.wave };
     this.inBuildPhase = false;
     this.enterSurvival(
@@ -536,7 +570,7 @@ export class App {
 
   private resumeRun(bp: VehicleBlueprint): void {
     if (this.checkpoint === null) {
-      this.startRun(bp);
+      this.startRun(bp, this.preferredBiomeId);
       return;
     }
     this.checkpoint = prepareCheckpointForGarageFight(this.checkpoint, bp);
@@ -608,6 +642,7 @@ export class App {
     kills: number,
     score: number,
   ): void {
+    if (this.checkpoint === null) return;
     const survivors = new Set(survivingPartIds);
     this.committedDestroyedPartNames.push(
       ...this.bp.parts
@@ -620,6 +655,8 @@ export class App {
       survivingPartIds,
       partHp,
       kills,
+      biomeId: this.checkpoint.biomeId,
+      seed: this.checkpoint.seed,
       score,
       bankedEarnings: this.runMoneyEarned,
     });
@@ -967,7 +1004,7 @@ export class App {
         if (!bp) return false;
         const v = validateBlueprint(bp, getPartDef);
         if (v.errors.length > 0) return false;
-        this.startOrResumeRun(bp);
+        this.startOrResumeRun(bp, this.preferredBiomeId);
         return true;
       },
       backToEditor: () => {

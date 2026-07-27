@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   RUN_SAVE_STORAGE_KEY,
   RunSaveStore,
@@ -61,10 +61,12 @@ function sampleBlueprint(): VehicleBlueprint {
 
 function sampleRun(): SavedRun {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     score: 12_450,
     wave: 7,
     kills: 42,
+    biomeId: 'snowfield',
+    seed: 2_718_281,
     bankedEarnings: 135,
     blueprint: sampleBlueprint(),
     partHp: { core: 80, frame: 12.5 },
@@ -73,7 +75,7 @@ function sampleRun(): SavedRun {
 }
 
 describe('saved run codec', () => {
-  it('round-trips schema-3 checkpoint fields', () => {
+  it('round-trips schema-4 checkpoint fields', () => {
     const run = sampleRun();
 
     expect(decodeSavedRun(encodeSavedRun(run))).toEqual(run);
@@ -85,7 +87,7 @@ describe('saved run codec', () => {
     ['missing fields', '{}'],
     [
       'wrong schema version',
-      JSON.stringify({ ...sampleRun(), schemaVersion: 4 }),
+      JSON.stringify({ ...sampleRun(), schemaVersion: 5 }),
     ],
     ['wave zero', JSON.stringify({ ...sampleRun(), wave: 0 })],
     ['fractional wave', JSON.stringify({ ...sampleRun(), wave: 2.5 })],
@@ -108,7 +110,7 @@ describe('saved run codec', () => {
     expect(decodeSavedRun(json)?.partHp).toEqual({ core: 50 });
   });
 
-  it('migrates schema-1 moneyEarned into schema 3 with score zero', () => {
+  it('migrates schema-1 moneyEarned into schema 4 with score zero', () => {
     const current = sampleRun();
     const legacy = {
       ...current,
@@ -116,25 +118,43 @@ describe('saved run codec', () => {
       moneyEarned: current.bankedEarnings,
     };
     delete (legacy as Partial<typeof legacy>).bankedEarnings;
+    delete (legacy as Partial<typeof legacy>).biomeId;
+    delete (legacy as Partial<typeof legacy>).seed;
 
-    expect(decodeSavedRun(JSON.stringify(legacy))).toEqual({
-      ...current,
-      score: 0,
-    });
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.25);
+    try {
+      expect(decodeSavedRun(JSON.stringify(legacy))).toEqual({
+        ...current,
+        score: 0,
+        biomeId: 'graveyard',
+        seed: 1_073_741_824,
+      });
+    } finally {
+      random.mockRestore();
+    }
   });
 
-  it('migrates schema 2 into schema 3 with score zero', () => {
+  it('migrates schema 2 into schema 4 with score zero', () => {
     const current = sampleRun();
     const legacy = {
       ...current,
       schemaVersion: 2,
     };
     delete (legacy as Partial<typeof legacy>).score;
+    delete (legacy as Partial<typeof legacy>).biomeId;
+    delete (legacy as Partial<typeof legacy>).seed;
 
-    expect(decodeSavedRun(JSON.stringify(legacy))).toEqual({
-      ...current,
-      score: 0,
-    });
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.25);
+    try {
+      expect(decodeSavedRun(JSON.stringify(legacy))).toEqual({
+        ...current,
+        score: 0,
+        biomeId: 'graveyard',
+        seed: 1_073_741_824,
+      });
+    } finally {
+      random.mockRestore();
+    }
   });
 
   it('preserves a valid schema-3 score', () => {
@@ -151,7 +171,7 @@ describe('saved run codec', () => {
   );
 
   it('always returns the current schema version', () => {
-    expect(decodeSavedRun(JSON.stringify(sampleRun()))?.schemaVersion).toBe(3);
+    expect(decodeSavedRun(JSON.stringify(sampleRun()))?.schemaVersion).toBe(4);
   });
 
   it('clamps negative kills and banked earnings to zero', () => {

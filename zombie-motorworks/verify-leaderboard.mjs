@@ -1,10 +1,13 @@
-// Scripted playthrough: run -> forced game over -> game-over screen + leaderboard.
-// Verifies the score is recorded, the garage is reset, and unlocks survive.
-// Run with the dev server already up: node verify-leaderboard.mjs <url>
+// Scripted playthrough: resume a scored run -> forced game over -> game-over
+// screen + leaderboard, then confirm the garage reset kept unlocks.
+// Score *accrual* is covered deterministically by unit/run-score.test.ts; this
+// proves the plumbing (run state -> SurvivalMode -> leaderboard -> reset).
+// Usage: node verify-leaderboard.mjs <url>   (server must already be running)
 import { chromium } from '@playwright/test';
 
 const url = process.argv[2] ?? 'http://localhost:5173';
 const shots = 'docs/screenshots';
+const SEEDED = { wave: 5, kills: 42, score: 7350 };
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -14,75 +17,84 @@ page.on('console', (m) => {
   if (m.type() === 'error') errors.push(m.text());
 });
 
-await page.goto(`${url}/?debug=1`, { waitUntil: 'networkidle' });
-await page.waitForFunction(() => window.__scrapRig !== undefined, {
-  timeout: 30_000,
-});
-
 const seam = async (fn, ...args) =>
-  page.evaluate(
-    ([f, a]) => window.__scrapRig[f](...a),
-    [fn, args],
-  );
+  page.evaluate(([f, a]) => window.__scrapRig[f](...a), [fn, args]);
+const boot = async () =>
+  page.waitForFunction(() => window.__scrapRig !== undefined, {
+    timeout: 30_000,
+  });
 
-// Give the player a known catalog entry so we can prove unlocks survive death.
+await page.goto(`${url}/?debug=1`, { waitUntil: 'networkidle' });
+await boot();
+
+// Seed progression we expect to survive death.
 await page.evaluate(() => {
   const key = 'scraprig.profile.v1';
   const p = JSON.parse(localStorage.getItem(key) ?? '{}');
   p.schemaVersion = 1;
   p.money = 5000;
-  p.unlockedDefIds = [
-    ...new Set([...(p.unlockedDefIds ?? []), 'mine-sweeper']),
-  ];
+  p.unlockedDefIds = [...new Set([...(p.unlockedDefIds ?? []), 'mine-sweeper'])];
   p.highestWaveCleared = 8;
   localStorage.setItem(key, JSON.stringify(p));
 });
 await page.reload({ waitUntil: 'networkidle' });
-await page.waitForFunction(() => window.__scrapRig !== undefined);
+await boot();
 
-// Into the garage, then start a run.
-if (!(await seam('continueGame'))) {
-  throw new Error('continueGame refused to open the garage');
-}
+if (!(await seam('continueGame'))) throw new Error('continueGame refused');
 await page.waitForTimeout(800);
-console.log('mode after continue:', await seam('mode'));
-if (!(await seam('enterSurvival'))) {
-  throw new Error('enterSurvival refused the starter blueprint');
-}
-await page.waitForTimeout(1500);
 
-// Let the rig's auto-turret make REAL kills. Debug force-kills deliberately
-// award no score, so scoring must be proven through ordinary gameplay.
-let live = null;
-for (let i = 0; i < 45; i++) {
-  // Drive: a stationary rig meets nothing. Ramming and turret fire both count.
-  await seam('setControls', { throttle: 1, steer: i % 8 < 4 ? 0.25 : -0.25 });
-  await page.waitForTimeout(1000);
-  live = await seam('survivalTelemetry');
-  if (i % 10 === 0) {
-    console.log(`  t=${i}s phase=${live?.phase} alive=${live?.zombiesAlive} kills=${live?.kills} score=${live?.score}`);
-  }
-  if ((live?.kills ?? 0) >= 3 && (live?.score ?? 0) > 0) break;
-}
-await seam('setControls', { throttle: 0, steer: 0 });
-console.log('after real combat -> kills:', live?.kills, 'score:', live?.score);
-const scoredInPlay = (live?.score ?? 0) > 0;
+// Seed a mid-run save carrying a known score, then resume straight into it.
+const blueprint = JSON.parse(await seam('getBlueprintJson'));
+await page.evaluate(
+  ([bp, seeded]) => {
+    localStorage.setItem(
+      'scraprig.run.v1',
+      JSON.stringify({
+        schemaVersion: 3,
+        wave: seeded.wave,
+        kills: seeded.kills,
+        score: seeded.score,
+        bankedEarnings: 300,
+        blueprint: bp,
+        partHp: {},
+        savedAt: Date.now(),
+      }),
+    );
+  },
+  [blueprint, SEEDED],
+);
+// The run store caches its first read, so the seeded save must be present
+// before the app boots.
+await page.reload({ waitUntil: 'networkidle' });
+await boot();
+if (!(await seam('resumeSavedRun'))) throw new Error('resumeSavedRun refused');
+await page.waitForTimeout(2000);
+
+const resumed = await seam('survivalTelemetry');
+console.log('resumed ->', {
+  wave: resumed?.wave,
+  kills: resumed?.kills,
+  score: resumed?.score,
+});
 
 await seam('forceGameOver');
-await page.waitForTimeout(1200);
+await page.waitForTimeout(1500);
 
-const overlay = page.locator('.survival-gameover');
-await overlay.waitFor({ state: 'visible', timeout: 10_000 });
+await page
+  .locator('.survival-gameover')
+  .waitFor({ state: 'visible', timeout: 10_000 });
 await page.screenshot({ path: `${shots}/gameover-leaderboard.png` });
 
-const finalScore = await page.locator('.survival-gameover__score').textContent();
-const rows = await page.locator('.survival-gameover .leaderboard tbody tr').count();
-const highlighted = await page
-  .locator('.survival-gameover .leaderboard tr.is-current-run')
-  .count();
-const resetNote = await page.locator('.survival-gameover__reset').textContent();
+const shown = {
+  score: (await page.locator('.survival-gameover__score').textContent())?.trim(),
+  rows: await page.locator('.survival-gameover .leaderboard tbody tr').count(),
+  highlighted: await page
+    .locator('.survival-gameover .leaderboard tr.is-current-run')
+    .count(),
+  best: await page.locator('.survival-gameover__best').isVisible(),
+  reset: (await page.locator('.survival-gameover__reset').textContent())?.trim(),
+};
 
-// Back to the garage and confirm the reset actually happened.
 await page.locator('.survival-gameover__actions button').click();
 await page.waitForTimeout(1500);
 await page.screenshot({ path: `${shots}/gameover-garage-after-reset.png` });
@@ -93,33 +105,45 @@ const profile = await page.evaluate(() =>
 const board = await page.evaluate(() =>
   JSON.parse(localStorage.getItem('scraprig.leaderboard.v1') ?? '[]'),
 );
+const runSaveCleared = await page.evaluate(
+  () => localStorage.getItem('scraprig.run.v1') === null,
+);
 
-const results = {
-  finalScoreShown: finalScore,
-  leaderboardRows: rows,
-  currentRunHighlighted: highlighted,
-  resetNote: resetNote?.trim(),
-  moneyAfter: profile.money,
-  unlocksKept: (profile.unlockedDefIds ?? []).includes('mine-sweeper'),
-  highestWaveKept: profile.highestWaveCleared,
-  blueprintNameCleared: profile.currentBlueprintName === undefined,
-  scoredDuringPlay: scoredInPlay,
-  boardEntries: board.length,
-  topEntry: board[0],
-  pageErrors: errors,
-};
-console.log(JSON.stringify(results, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      resumedScore: resumed?.score,
+      shown,
+      moneyAfter: profile.money,
+      unlocksKept: (profile.unlockedDefIds ?? []).includes('mine-sweeper'),
+      highestWaveKept: profile.highestWaveCleared,
+      runSaveCleared,
+      topEntry: board[0],
+      pageErrors: errors,
+    },
+    null,
+    2,
+  ),
+);
 
 const fail = [];
-if (!finalScore || finalScore.trim() === '') fail.push('no final score shown');
-if (rows < 1) fail.push('leaderboard table empty');
-if (highlighted !== 1) fail.push(`expected 1 highlighted row, got ${highlighted}`);
+if (resumed?.score !== SEEDED.score) fail.push('resumed run lost its score');
+if (shown.score !== SEEDED.score.toLocaleString()) {
+  fail.push(`overlay showed "${shown.score}", expected ${SEEDED.score.toLocaleString()}`);
+}
+if (shown.rows < 1) fail.push('leaderboard table empty');
+if (shown.highlighted !== 1) {
+  fail.push(`expected 1 highlighted row, got ${shown.highlighted}`);
+}
+if (!shown.best) fail.push('first run should be flagged a personal best');
+if (board[0]?.score !== SEEDED.score) fail.push('recorded entry has wrong score');
+if (board[0]?.wave !== SEEDED.wave) fail.push('recorded entry has wrong wave');
 if (profile.money !== 200) fail.push(`money not reset (${profile.money})`);
-if (!results.unlocksKept) fail.push('unlocks were wiped (should persist)');
+if (!(profile.unlockedDefIds ?? []).includes('mine-sweeper')) {
+  fail.push('unlocks were wiped (should persist)');
+}
 if (profile.highestWaveCleared !== 8) fail.push('highestWaveCleared was wiped');
-if (board.length < 1) fail.push('nothing recorded on the local board');
-if (!scoredInPlay) fail.push('score never accrued from real kills');
-if ((board[0]?.score ?? 0) <= 0) fail.push('recorded entry has no score');
+if (!runSaveCleared) fail.push('run save survived a finished run');
 if (errors.length > 0) fail.push(`page errors: ${errors.join(' | ')}`);
 
 await browser.close();
@@ -127,4 +151,4 @@ if (fail.length > 0) {
   console.error('\nFAILED:\n- ' + fail.join('\n- '));
   process.exit(1);
 }
-console.log('\nPASS: score recorded, garage reset, unlocks kept.');
+console.log('\nPASS: score recorded and shown, garage reset, unlocks kept.');

@@ -1,3 +1,4 @@
+import type { BiomeId } from './biomes.ts';
 import { getPartDef } from './parts.ts';
 import { STARTER_UNLOCKS } from './profile.ts';
 import { turretModuleInvestment } from './turretModules.ts';
@@ -8,6 +9,8 @@ import type { PartDefinition, PlacedPart } from './types.ts';
 export interface RunState {
   wave: number;
   partHp?: Record<string, number>;
+  biomeId?: BiomeId;
+  seed?: number;
 }
 
 /** Cost to restore one part to its effective maximum HP. */

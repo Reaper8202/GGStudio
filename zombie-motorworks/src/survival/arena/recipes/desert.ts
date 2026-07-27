@@ -13,6 +13,7 @@ interface DesertLayout extends BiomeLayout {
 const layout: DesertLayout = {
   halfSize: 52.5,
   spawnPointCount: 20,
+  groundUntextured: true,
   terrainRoughness: 0.5,
   baseSurface: 'sand',
   roadSurface: 'hardpan',
