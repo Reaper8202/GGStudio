@@ -287,6 +287,10 @@ export class Zombie {
   private frostShardMaterial: THREE.MeshLambertMaterial | null = null;
   /** True while the body tint is shifted to ice, so the reset runs once. */
   private frostTinted = false;
+  /** Body tint strength currently written into the materials (0 = stock). */
+  private appliedTint = 0;
+  /** Emissive look currently written into the materials. */
+  private appliedGlow: 'none' | 'flash' | 'frozen' | 'slowed' = 'none';
   private ringMesh: THREE.Mesh | null = null;
   private ringMaterial: THREE.MeshBasicMaterial | null = null;
   private ringPhase = 0;
@@ -505,6 +509,11 @@ export class Zombie {
     if (this.frostShellMesh) this.frostShellMesh.visible = false;
     if (this.frostGlowMesh) this.frostGlowMesh.visible = false;
     if (this.frostTinted) this.applyFrostTint(0);
+    // A recycled zombie starts from the resting look, so the next visual
+    // frame writes whatever it needs rather than trusting a stale cache.
+    this.appliedGlow = 'none';
+    for (const material of this.visualMaterials)
+      material.emissive.setScalar(BASE_EMISSIVE);
     this.detourSign = Math.random() < 0.5 ? -1 : 1;
     this.bobPhase = Math.random() * Math.PI * 2;
 
@@ -697,6 +706,10 @@ export class Zombie {
   updateVisuals(dt: number): void {
     if (!this.active) return;
 
+    // Emissive and tint are written through every body material, so they are
+    // only touched when the look actually changes. A walker crossing the
+    // graveyard in its resting state — the overwhelming majority of the horde,
+    // every frame — costs nothing here.
     if (this.hitFlashTimer > 0) {
       this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
       const amount =
@@ -704,17 +717,29 @@ export class Zombie {
       for (const material of this.visualMaterials) {
         material.emissive.copy(HIT_FLASH_COLOR).multiplyScalar(amount);
       }
+      // The flash fades continuously, so the next frame must rewrite whatever
+      // state follows it.
+      this.appliedGlow = 'flash';
     } else if (this.freezeTimer > 0) {
       // Icy blue glow while frozen (a hit-flash briefly overrides it above).
-      for (const material of this.visualMaterials)
-        material.emissive.copy(ICE_FREEZE_COLOR).multiplyScalar(ICE_FREEZE_EMISSIVE);
+      if (this.appliedGlow !== 'frozen') {
+        this.appliedGlow = 'frozen';
+        for (const material of this.visualMaterials)
+          material.emissive
+            .copy(ICE_FREEZE_COLOR)
+            .multiplyScalar(ICE_FREEZE_EMISSIVE);
+      }
     } else if (this.slowTimer > 0) {
       // Fainter icy glow while merely slowed by ice fire.
-      for (const material of this.visualMaterials)
-        material.emissive
-          .copy(ICE_FREEZE_COLOR)
-          .multiplyScalar(ICE_FREEZE_EMISSIVE * 0.4);
-    } else {
+      if (this.appliedGlow !== 'slowed') {
+        this.appliedGlow = 'slowed';
+        for (const material of this.visualMaterials)
+          material.emissive
+            .copy(ICE_FREEZE_COLOR)
+            .multiplyScalar(ICE_FREEZE_EMISSIVE * 0.4);
+      }
+    } else if (this.appliedGlow !== 'none') {
+      this.appliedGlow = 'none';
       for (const material of this.visualMaterials)
         material.emissive.setScalar(BASE_EMISSIVE);
     }
@@ -723,9 +748,8 @@ export class Zombie {
     // body tint moves too: frozen zombies go turquoise, slowed ones frost over.
     const frozen = this.freezeTimer > 0 && this.isAlive;
     const slowed = !frozen && this.slowTimer > 0 && this.isAlive;
-    if (frozen) this.applyFrostTint(ICE_FREEZE_TINT);
-    else if (slowed) this.applyFrostTint(ICE_SLOW_TINT);
-    else if (this.frostTinted) this.applyFrostTint(0);
+    const tint = frozen ? ICE_FREEZE_TINT : slowed ? ICE_SLOW_TINT : 0;
+    if (tint !== this.appliedTint) this.applyFrostTint(tint);
     this.updateFrostShell(dt, frozen);
     this.updateFrostShards(frozen || slowed);
 
@@ -1075,6 +1099,7 @@ export class Zombie {
       material.color.copy(base).lerp(ICE_FREEZE_COLOR, strength);
     }
     this.frostTinted = strength > 0;
+    this.appliedTint = strength;
   }
 
   /**

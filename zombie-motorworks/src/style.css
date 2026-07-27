@@ -990,11 +990,17 @@ button:disabled {
   gap: 5px;
 }
 
-/* The bar's own cancel affordance; only rendered while a tool is armed. */
+/*
+ * Cancel sits just off the bar's left edge, out of flow: it appears and
+ * disappears with the armed tool, and the five slots must not shift when it does.
+ */
 .hotbar-panel .cancel-tool {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 8px);
   width: 30px;
   height: 30px;
-  flex: 0 0 30px;
+  transform: translateY(-50%);
   margin: 0;
   border: 1px solid #3a2a22;
   color: var(--ui-rust);

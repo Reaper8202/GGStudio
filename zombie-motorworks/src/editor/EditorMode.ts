@@ -42,6 +42,7 @@ import {
   rotateVec,
 } from '../core/grid.ts';
 import { buildPartMesh } from './meshes.ts';
+import { ARMOUR_FACE_AXIS } from './parts/armourPlate.ts';
 import { Overlays, defaultToggles, type OverlayToggles } from './overlays.ts';
 import {
   buildEditorUI,
@@ -89,6 +90,28 @@ import { threatWarningsForWave } from '../survival/waveBalance.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
+
+/**
+ * How far a build-face hit is stepped along its normal to land in the
+ * neighbouring cell. Generous enough to clear a curved placement surface — a
+ * drum or a tyre is hit well inside its cell everywhere but the tangent point —
+ * while staying under half a cell, so it can never skip past the neighbour.
+ */
+const FACE_STEP_M = CELL_SIZE * 0.3;
+
+/**
+ * Snap a surface normal to the nearest grid axis. Flat blocks already hit exact
+ * axes; rounding each component instead would turn a curved hit into a diagonal
+ * like (1,0,1) and resolve to no cell at all.
+ */
+function dominantAxis(normal: THREE.Vector3): THREE.Vector3 {
+  const ax = Math.abs(normal.x);
+  const ay = Math.abs(normal.y);
+  const az = Math.abs(normal.z);
+  if (ax >= ay && ax >= az) return new THREE.Vector3(Math.sign(normal.x), 0, 0);
+  if (ay >= az) return new THREE.Vector3(0, Math.sign(normal.y), 0);
+  return new THREE.Vector3(0, 0, Math.sign(normal.z));
+}
 
 /** Exact consequences of selling an installed build before starting over. */
 export function newGarageDisposalSummary(
@@ -1303,6 +1326,10 @@ export class EditorMode {
     this.raycaster.setFromCamera(ndc, this.camera);
     const def = getPartDef(this.ghost.defId);
     const isFaceMounted = def.cells.length === 0;
+    // Armour that owns a cell still wants to lie flat on whatever it was
+    // dropped against, so the ghost picks its own orientation the way
+    // face-mounted armour does instead of waiting for R/F.
+    const isFlatArmour = !isFaceMounted && Boolean(def.armour);
 
     let target: Vec3i | null = null;
     let orient = this.ghost.orient;
@@ -1310,16 +1337,22 @@ export class EditorMode {
     const hits = this.raycaster.intersectObjects(this.partsGroup.children, true);
     const hit = hits.find((candidate) => this.isPlacementSurfaceHit(candidate));
     if (hit && hit.face) {
-      const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).round();
+      const n = dominantAxis(
+        hit.face.normal.clone().transformDirection(hit.object.matrixWorld),
+      );
       const p = hit.point;
       if (isFaceMounted) {
-        const host = new THREE.Vector3(p.x - n.x * 0.02, p.y - n.y * 0.02, p.z - n.z * 0.02);
+        const host = p.clone().addScaledVector(n, -FACE_STEP_M);
         target = this.toCell(host);
         // Orient the armour socket ('pz' canonical) toward the hit face.
         orient = this.orientFacing({ x: n.x, y: n.y, z: n.z });
       } else {
-        const adj = new THREE.Vector3(p.x + n.x * 0.02, p.y + n.y * 0.02, p.z + n.z * 0.02);
+        const adj = p.clone().addScaledVector(n, FACE_STEP_M);
         target = this.toCell(adj);
+        // Point the plate's outward face away from the block it covers.
+        if (isFlatArmour) {
+          orient = this.orientFacing({ x: n.x, y: n.y, z: n.z }, ARMOUR_FACE_AXIS);
+        }
       }
     } else {
       // Ground / layer plane.
@@ -1328,6 +1361,8 @@ export class EditorMode {
       const pt = new THREE.Vector3();
       if (this.raycaster.ray.intersectPlane(plane, pt) && !isFaceMounted) {
         target = this.toCell(new THREE.Vector3(pt.x, planeY + 0.02, pt.z));
+        // Nothing above the layer plane to hug: lie flat, face up.
+        if (isFlatArmour) orient = this.orientFacing({ x: 0, y: 1, z: 0 }, ARMOUR_FACE_AXIS);
       }
     }
 
@@ -1380,10 +1415,10 @@ export class EditorMode {
     }
   }
 
-  private orientFacing(normal: Vec3i): number {
-    // Find an orientation sending +Z to the given axis normal.
+  private orientFacing(normal: Vec3i, localAxis: Vec3i = { x: 0, y: 0, z: 1 }): number {
+    // Find an orientation sending the part's local axis to the given normal.
     for (let o = 0; o < 24; o++) {
-      const v = rotateVec(o, { x: 0, y: 0, z: 1 });
+      const v = rotateVec(o, localAxis);
       if (v.x === normal.x && v.y === normal.y && v.z === normal.z) return o;
     }
     return 0;
