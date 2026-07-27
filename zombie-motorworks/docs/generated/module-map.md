@@ -4,15 +4,15 @@
 > edit by hand. Search this file for a path or exported symbol; do not read
 > it end to end as routine task setup.
 
-- Source Modules: 76
-- Source lines: 26,800
-- Test files scanned: 73
+- Source Modules: 82
+- Source lines: 28,495
+- Test files scanned: 76
 
 ## Largest Modules
 
 | Module | LOC |
 | --- | ---: |
-| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2717 |
+| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2662 |
 | [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 1827 |
 | [`src/editor/ui.ts`](../../src/editor/ui.ts) | 1384 |
 | [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 1333 |
@@ -33,13 +33,21 @@
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/app.test.ts`, `unit/biome-selection.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-reset.test.ts`
 
-### [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) (523 LOC)
+### [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) (695 LOC)
 
 - Exports: `formatRelativeDate`, `TitleScreen`, `TitleScreenHandlers`
-- Imports: `src/app/App.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/editor/EditorMode.ts`, `src/editor/meshes.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/graveyard.ts`
+- Imports: `src/app/App.ts`, `src/app/badgeGallery.css`, `src/app/badgeStore.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/core/badges.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/editor/EditorMode.ts`, `src/editor/meshes.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/graveyard.ts`
 - Imported by: `src/app/App.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/leaderboard-rows.test.ts`
+
+### [`src/app/badgeStore.ts`](../../src/app/badgeStore.ts) (226 LOC)
+
+- Exports: `BADGE_STORAGE_KEY`, `BadgeCollection`, `badgeProgress`, `BadgeRecord`, `BadgeRecordResult`, `BadgeStorage`, `badgeStore`, `BadgeStore`, `WAVE_TIMES_STORAGE_KEY`
+- Imports: `src/core/badges.ts`
+- Imported by: `src/app/TitleScreen.ts`, `src/survival/SurvivalMode.ts`
+- External packages: none
+- Direct tests: `unit/badge-store.test.ts`
 
 ### [`src/app/crazyGamesSdk.ts`](../../src/app/crazyGamesSdk.ts) (182 LOC)
 
@@ -81,6 +89,14 @@
 - External packages: none
 - Direct tests: `unit/run-save.test.ts`
 
+### [`src/app/sfx.ts`](../../src/app/sfx.ts) (314 LOC)
+
+- Exports: `disposeSfx`, `isSfxMuted`, `playSfx`, `setSfxMuted`, `SFX_MUTED_STORAGE_KEY`, `SfxName`, `unlockAudio`
+- Imports: none
+- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/WaveClearCard.ts`
+- External packages: none
+- Direct tests: `unit/badge-store.test.ts`
+
 ## src/chamber
 
 ### [`src/chamber/ChamberMode.ts`](../../src/chamber/ChamberMode.ts) (747 LOC)
@@ -108,6 +124,14 @@
 - Imported by: `src/app/App.ts`, `src/editor/EditorMode.ts`
 - External packages: none
 - Direct tests: `unit/analysis.test.ts`, `unit/fixtures.test.ts`, `unit/store-flow.test.ts`
+
+### [`src/core/badges.ts`](../../src/core/badges.ts) (160 LOC)
+
+- Exports: `BadgeDefinition`, `BADGES`, `BadgeTier`, `evaluateWaveBadges`, `getBadge`, `WaveResultStats`
+- Imports: none
+- Imported by: `src/app/TitleScreen.ts`, `src/app/badgeStore.ts`, `src/survival/SurvivalMode.ts`, `src/survival/WaveClearCard.ts`
+- External packages: none
+- Direct tests: `unit/badge-store.test.ts`, `unit/badges.test.ts`
 
 ### [`src/core/biomes.ts`](../../src/core/biomes.ts) (189 LOC)
 
@@ -269,6 +293,14 @@
 - External packages: none
 - Direct tests: `unit/app.test.ts`, `unit/cannon-splash.test.ts`, `unit/run-checkpoint.test.ts`, `unit/turret-module-ui.test.ts`, `unit/upgrades.test.ts`
 
+### [`src/core/waveTimeline.ts`](../../src/core/waveTimeline.ts) (94 LOC)
+
+- Exports: `buildWaveTimeline`, `THREAT_ICONS`, `THREAT_LABELS`, `TimelineNode`, `TimelineNodeState`, `WaveTimeline`, `WaveTimelineInput`
+- Imports: none
+- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/WaveTimelineHud.ts`
+- External packages: none
+- Direct tests: `unit/wave-timeline.test.ts`
+
 ### [`src/core/wheelLayout.ts`](../../src/core/wheelLayout.ts) (104 LOC)
 
 - Exports: `AutomaticWheelLayout`, `deriveAutomaticWheelLayout`, `resolveDrivenPartIds`
@@ -411,10 +443,10 @@
 - External packages: `three`
 - Direct tests: `unit/minimap.test.ts`
 
-### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (2717 LOC)
+### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (2662 LOC)
 
 - Exports: `applyZombieShot`, `createWaveClearPayload`, `SurvivalCallbacks`, `SurvivalMode`, `SurvivalPhase`, `SurvivalTelemetry`, `WaveClearPayload`
-- Imports: `src/core/abilities.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveManager.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/ScopeCursor.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
+- Imports: `src/app/badgeStore.ts`, `src/app/sfx.ts`, `src/core/abilities.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/waveTimeline.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveClearCard.ts`, `src/survival/WaveManager.ts`, `src/survival/WaveTimelineHud.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/ScopeCursor.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
 - Imported by: `src/app/App.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/ice-cannon-slow.test.ts`, `unit/pending-rewards.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-score.test.ts`, `unit/turret-piercing.test.ts`
@@ -435,6 +467,14 @@
 - External packages: none
 - Direct tests: none
 
+### [`src/survival/WaveClearCard.ts`](../../src/survival/WaveClearCard.ts) (545 LOC)
+
+- Exports: `WaveClearCard`, `WaveClearCardHandlers`, `WaveClearCardView`
+- Imports: `src/app/sfx.ts`, `src/core/badges.ts`, `src/survival/WaveClearCard.css`
+- Imported by: `src/survival/SurvivalMode.ts`
+- External packages: none
+- Direct tests: none
+
 ### [`src/survival/WaveManager.ts`](../../src/survival/WaveManager.ts) (312 LOC)
 
 - Exports: `attackDamageMultiplierForWave`, `healthMultiplierForWave`, `hordeIntervalForWave`, `maxActiveZombiesForWave`, `speedMultiplierForWave`, `WaveComposition`, `WaveManager`, `WaveManagerCallbacks`, `waveRewardForWave`, `zombieCompositionForWave`, `zombieCountForWave`
@@ -442,6 +482,14 @@
 - Imported by: `src/survival/SurvivalMode.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/waveBalance.ts`
 - External packages: none
 - Direct tests: `unit/summaries.test.ts`, `unit/wave-balance.test.ts`, `unit/waves.test.ts`, `unit/zombie-balance.test.ts`
+
+### [`src/survival/WaveTimelineHud.ts`](../../src/survival/WaveTimelineHud.ts) (239 LOC)
+
+- Exports: `WaveTimelineHud`
+- Imports: `src/core/waveTimeline.ts`, `src/survival/WaveTimelineHud.css`
+- Imported by: `src/survival/SurvivalMode.ts`
+- External packages: none
+- Direct tests: none
 
 ### [`src/survival/arena/Arena.ts`](../../src/survival/arena/Arena.ts) (31 LOC)
 

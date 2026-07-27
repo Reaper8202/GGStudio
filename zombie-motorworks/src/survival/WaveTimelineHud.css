@@ -1,0 +1,218 @@
+.wave-timeline {
+  position: relative;
+  width: min(520px, calc(100vw - 16px));
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 6px 9px 7px;
+  border: 1px solid var(--ui-edge);
+  border-radius: 0;
+  background: var(--ui-ink);
+  box-shadow: 6px 7px 0 rgb(0 0 0 / 0.32);
+  color: var(--ui-text);
+  font-family: var(--ui-font-display);
+}
+
+.wave-timeline::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 3px,
+    rgb(0 0 0 / 0.12) 3px 4px
+  );
+  content: '';
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+.wave-timeline > * {
+  position: relative;
+  z-index: 1;
+}
+
+.wave-timeline__track {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.wave-timeline__connector {
+  position: relative;
+  flex: 1 1 22px;
+  min-width: 5px;
+  height: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+  background: var(--ui-text-faint);
+}
+
+.wave-timeline__connector--lead {
+  display: none;
+  flex: 0 0 14px;
+}
+
+.wave-timeline__connector--lead.wave-timeline__connector--current {
+  display: block;
+}
+
+.wave-timeline__connector--past {
+  background: var(--ui-signal-dark);
+}
+
+.wave-timeline__connector--current {
+  background: var(--ui-signal-dark);
+}
+
+.wave-timeline__connector--future {
+  height: 0;
+  overflow: visible;
+  border-top: 2px dashed var(--ui-text-faint);
+  background: transparent;
+}
+
+.wave-timeline__connector-fill {
+  display: none;
+  width: var(--wave-timeline-progress, 0%);
+  height: 100%;
+  background: var(--ui-signal-strong);
+}
+
+.wave-timeline__connector--current .wave-timeline__connector-fill {
+  display: block;
+}
+
+.wave-timeline__node {
+  display: flex;
+  flex: 0 0 38px;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  color: var(--ui-text-muted);
+}
+
+.wave-timeline__marker {
+  display: block;
+  width: 17px;
+  height: 17px;
+  border: 2px solid currentcolor;
+  border-radius: 50%;
+  background: var(--ui-ink);
+}
+
+.wave-timeline__node--past {
+  color: var(--ui-signal-dark);
+}
+
+.wave-timeline__node--past .wave-timeline__marker {
+  background: var(--ui-signal-dark);
+}
+
+.wave-timeline__node--current {
+  color: var(--ui-signal-strong);
+}
+
+.wave-timeline__node--current .wave-timeline__marker {
+  width: 21px;
+  height: 21px;
+  margin-top: -2px;
+  background: var(--ui-signal-strong);
+  box-shadow: 0 0 0 0 var(--ui-signal);
+  animation: wave-timeline-pulse 1.4s steps(2, end) infinite;
+}
+
+.wave-timeline__node--milestone .wave-timeline__marker {
+  box-shadow:
+    0 0 0 2px var(--ui-ink),
+    0 0 0 4px var(--ui-rust);
+}
+
+.wave-timeline__number {
+  min-height: 10px;
+  margin-top: 3px;
+  color: currentcolor;
+  font: 400 10px/1 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.wave-timeline__node--current .wave-timeline__number {
+  color: var(--ui-signal-strong);
+}
+
+.wave-timeline__threats {
+  display: flex;
+  min-width: 0;
+  min-height: 13px;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  margin-top: 1px;
+}
+
+.wave-timeline__threat {
+  font: 11px/1 var(--ui-font-body);
+  filter: saturate(0.72);
+}
+
+.wave-timeline__summary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  margin-top: -1px;
+  text-align: center;
+}
+
+.wave-timeline__wave-label {
+  color: var(--ui-signal-strong);
+  font: 400 13px/1 var(--ui-font-display);
+  letter-spacing: 0.09em;
+}
+
+.wave-timeline__cleared {
+  margin-top: 2px;
+  color: var(--ui-text-muted);
+  font: 400 10px/1 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+@keyframes wave-timeline-pulse {
+  50% {
+    filter: drop-shadow(0 0 3px var(--ui-signal-strong));
+    transform: scale(1.08);
+  }
+}
+
+@media (max-width: 420px) {
+  .wave-timeline {
+    padding-inline: 6px;
+  }
+
+  .wave-timeline__connector {
+    flex-basis: 12px;
+  }
+
+  .wave-timeline__node {
+    flex-basis: 29px;
+  }
+
+  .wave-timeline__node:not(.wave-timeline__node--current)
+    .wave-timeline__number {
+    display: none;
+  }
+
+  .wave-timeline__node:not(.wave-timeline__node--current)
+    .wave-timeline__threats {
+    margin-top: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-timeline__node--current .wave-timeline__marker {
+    animation: none;
+    transform: none;
+  }
+}
