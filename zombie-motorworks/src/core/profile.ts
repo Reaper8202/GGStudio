@@ -39,15 +39,9 @@ export function defaultProfile(): PlayerProfile {
     schemaVersion: 1,
     money: DEFAULT_MONEY,
     unlockedDefIds: [...STARTER_UNLOCKS],
-    inventory: {
-      'frame-box': 4,
-      'wheel-standard': 4,
-      'engine-small': 1,
-      'fuel-tank': 1,
-      turret: 1,
-      'spike-ram': 1,
-      sawblade: 1,
-    },
+    // A new garage starts bare: every block is bought from the store, so the
+    // build bar starts empty too.
+    inventory: {},
   };
 }
 
