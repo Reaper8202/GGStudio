@@ -5,7 +5,7 @@
 > it end to end as routine task setup.
 
 - Source Modules: 82
-- Source lines: 28,495
+- Source lines: 28,515
 - Test files scanned: 76
 
 ## Largest Modules
@@ -467,7 +467,7 @@
 - External packages: none
 - Direct tests: none
 
-### [`src/survival/WaveClearCard.ts`](../../src/survival/WaveClearCard.ts) (545 LOC)
+### [`src/survival/WaveClearCard.ts`](../../src/survival/WaveClearCard.ts) (565 LOC)
 
 - Exports: `WaveClearCard`, `WaveClearCardHandlers`, `WaveClearCardView`
 - Imports: `src/app/sfx.ts`, `src/core/badges.ts`, `src/survival/WaveClearCard.css`
