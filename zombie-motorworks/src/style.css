@@ -3886,7 +3886,9 @@ button:disabled {
 
 .leaderboard table {
   width: 100%;
-  min-width: 400px;
+  /* Six columns of tabular numbers; below this the wrapper scrolls instead
+     of crushing the biome names. */
+  min-width: 470px;
   border-collapse: collapse;
   color: var(--ui-text);
   font-family: var(--ui-font-body);
@@ -3948,6 +3950,34 @@ button:disabled {
   content: 'YOU';
   font: 400 9px/1 var(--ui-font-display);
   letter-spacing: 0.04em;
+}
+
+.leaderboard__time {
+  color: var(--ui-text-muted);
+}
+
+.leaderboard tr.is-current-run .leaderboard__time {
+  color: var(--ui-text);
+}
+
+/* Each arena carries its own colour so runs are sortable by eye. */
+.leaderboard__biome {
+  color: var(--ui-text-faint);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.leaderboard__biome--graveyard {
+  color: var(--ui-biome-graveyard);
+}
+
+.leaderboard__biome--snowfield {
+  color: var(--ui-biome-snowfield);
+}
+
+.leaderboard__biome--desert {
+  color: var(--ui-biome-desert);
 }
 
 .leaderboard__empty {

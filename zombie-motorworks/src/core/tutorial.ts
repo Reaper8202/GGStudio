@@ -19,6 +19,7 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'wheel-moto',
   'tread-tank',
   'nitro-injector',
+  'phase-drive',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
@@ -118,6 +119,10 @@ export const KID_LABELS: Record<string, PartLabel> = {
   'nitro-injector': {
     name: 'Speed Boost',
     blurb: 'Gives your truck a big push of go-fast for smashing through!',
+  },
+  'phase-drive': {
+    name: 'Blink Coil',
+    blurb: 'Zap! Jump forward right through zombies and walls!',
   },
 };
 

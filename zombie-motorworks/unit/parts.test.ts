@@ -44,6 +44,7 @@ const EXPECTED_CATALOG_IDS = [
   'shield-generator',
   'pulse-emitter',
   'nitro-injector',
+  'phase-drive',
 ];
 
 function vecKey(v: Vec3i): string {

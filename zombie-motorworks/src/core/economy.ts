@@ -11,6 +11,8 @@ export interface RunState {
   partHp?: Record<string, number>;
   biomeId?: BiomeId;
   seed?: number;
+  /** Arena seconds accumulated across every wave of the run so far. */
+  elapsedSeconds?: number;
 }
 
 /** Cost to restore one part to its effective maximum HP. */

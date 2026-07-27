@@ -68,6 +68,7 @@ function sampleRun(): SavedRun {
     biomeId: 'snowfield',
     seed: 2_718_281,
     bankedEarnings: 135,
+    elapsedSeconds: 372,
     blueprint: sampleBlueprint(),
     partHp: { core: 80, frame: 12.5 },
     savedAt: 1_752_000_000_000,

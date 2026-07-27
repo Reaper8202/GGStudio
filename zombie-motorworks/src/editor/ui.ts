@@ -140,7 +140,7 @@ const DEFENSIVE_WEAPON_PART_IDS = new Set([
 ]);
 
 /** Catalog parts filed under `weapon` that are really about getting around. */
-const MOBILITY_WEAPON_PART_IDS = new Set(['nitro-injector']);
+const MOBILITY_WEAPON_PART_IDS = new Set(['nitro-injector', 'phase-drive']);
 
 function storeGroupForPart(def: PartDefinition): StoreGroup {
   if (def.category === 'movement' || MOBILITY_WEAPON_PART_IDS.has(def.id)) {
@@ -378,6 +378,16 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
       <path d="M26 18H38V21H26Z" fill="#1c6b45"/>
       <path d="M38 32 48 28 44 34 52 36 36 40Z" fill="#e0a13e"/>
       <path d="M39 34 45 32 43 36Z" fill="#fff3c4"/>
+    `,
+    // Coil throwing a stack of thinning copies forward.
+    'phase-drive': `
+      ${common}
+      <path d="M22 18H30V34H22Z" fill="#35d7ff"/>
+      <path d="M22 18H26V34H22Z" fill="#d9fff9"/>
+      <path d="M34 20H40V32H34Z" fill="#35d7ff" opacity="0.7"/>
+      <path d="M44 22H48V30H44Z" fill="#35d7ff" opacity="0.45"/>
+      <path d="M52 24H55V28H52Z" fill="#35d7ff" opacity="0.25"/>
+      <path d="M18 40H32V44H18Z" fill="#1c6f8a"/>
     `,
   };
   const drawing = drawings[def.id] ?? common;
@@ -1758,6 +1768,14 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Torque', `x${formatStat(def.ability.baseTorqueMultiplier ?? 1)}`],
       ['Top Speed', `x${formatStat(def.ability.baseTopSpeedMultiplier ?? 1)}`],
       ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'phase') {
+    labels.push(
+      ['Ability', 'Phase'],
+      ['Blink', `${formatStat(def.ability.rangeM ?? 0)} M`],
+      ['Effect', 'Passes through'],
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }

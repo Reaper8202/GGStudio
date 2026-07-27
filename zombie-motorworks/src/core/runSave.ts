@@ -15,6 +15,8 @@ export interface SavedRun {
   seed: number;
   /** Money banked during this run so far. */
   bankedEarnings: number;
+  /** Arena seconds played so far. 0 on saves written before run timing. */
+  elapsedSeconds: number;
   blueprint: VehicleBlueprint;
   /** Per-part remaining HP at save time, keyed by blueprint part id. */
   partHp: Record<string, number>;
@@ -34,6 +36,7 @@ interface RawSavedRun {
   biomeId: unknown;
   seed: unknown;
   bankedEarnings: number;
+  elapsedSeconds: unknown;
   blueprint: Record<string, unknown>;
   partHp: Record<string, unknown>;
   savedAt: number;
@@ -65,6 +68,8 @@ function normalizeShape(value: unknown): RawSavedRun | null {
     biomeId: value.schemaVersion === 4 ? value.biomeId : undefined,
     seed: value.schemaVersion === 4 ? value.seed : undefined,
     bankedEarnings,
+    // Added after schema 4 shipped, so saves written before it simply omit it.
+    elapsedSeconds: value.elapsedSeconds,
     blueprint: value.blueprint,
     partHp: value.partHp,
     savedAt: value.savedAt,
@@ -142,6 +147,12 @@ export function decodeSavedRun(json: string | null): SavedRun | null {
       normalized.bankedEarnings >= 0
         ? normalized.bankedEarnings
         : 0,
+    elapsedSeconds:
+      typeof normalized.elapsedSeconds === 'number' &&
+      Number.isFinite(normalized.elapsedSeconds) &&
+      normalized.elapsedSeconds >= 0
+        ? normalized.elapsedSeconds
+        : 0,
     blueprint,
     partHp,
     savedAt: normalized.savedAt,
@@ -158,6 +169,7 @@ export function encodeSavedRun(run: SavedRun): string {
     biomeId: run.biomeId,
     seed: run.seed,
     bankedEarnings: run.bankedEarnings,
+    elapsedSeconds: run.elapsedSeconds,
     blueprint: run.blueprint,
     partHp: run.partHp,
     savedAt: run.savedAt,

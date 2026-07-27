@@ -48,6 +48,7 @@ function appWithDamagedCheckpoint(
     seed: 1234,
     score: 0,
     bankedEarnings: 0,
+    elapsedSeconds: 0,
   };
   const profile = defaultProfile();
   profile.money = money;

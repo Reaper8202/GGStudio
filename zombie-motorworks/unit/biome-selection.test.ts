@@ -43,6 +43,7 @@ describe('biome selection', () => {
           seed: checkpoint.seed,
           score: nextWave * 100,
           bankedEarnings: nextWave * 10,
+          elapsedSeconds: nextWave * 30,
         });
 
         expect(checkpoint.biomeId).toBe(biomeId);

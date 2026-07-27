@@ -33,6 +33,7 @@ const COLORS: Record<string, number> = {
   'shield-generator': 0x2f7bd6,
   'pulse-emitter': 0x7a53c8,
   'nitro-injector': 0x2fa86a,
+  'phase-drive': 0x35d7ff,
   'barrel-drum': 0x7d5a3a,
   'spike-ram': 0x8a8f98,
   sawblade: 0x5c6570,

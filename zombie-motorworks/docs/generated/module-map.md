@@ -4,28 +4,28 @@
 > edit by hand. Search this file for a path or exported symbol; do not read
 > it end to end as routine task setup.
 
-- Source Modules: 94
-- Source lines: 34,959
+- Source Modules: 96
+- Source lines: 35,557
 - Test files scanned: 83
 
 ## Largest Modules
 
 | Module | LOC |
 | --- | ---: |
-| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 2938 |
-| [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 2286 |
+| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 3021 |
+| [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 2334 |
 | [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 2033 |
-| [`src/editor/ui.ts`](../../src/editor/ui.ts) | 1818 |
+| [`src/editor/ui.ts`](../../src/editor/ui.ts) | 1836 |
 | [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) | 1342 |
-| [`src/app/App.ts`](../../src/app/App.ts) | 1180 |
-| [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 996 |
+| [`src/app/App.ts`](../../src/app/App.ts) | 1196 |
+| [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 1023 |
 | [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 985 |
-| [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) | 963 |
+| [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) | 925 |
 | [`src/survival/arena/ArenaBuilder.ts`](../../src/survival/arena/ArenaBuilder.ts) | 813 |
 
 ## src/app
 
-### [`src/app/App.ts`](../../src/app/App.ts) (1180 LOC)
+### [`src/app/App.ts`](../../src/app/App.ts) (1196 LOC)
 
 - Exports: `App`, `buildStarterBlueprint`, `CheckpointRunState`, `createClearedWaveCheckpoint`, `createInitialRunCheckpoint`, `fullPartHp`, `prepareCheckpointForGarageFight`, `recordPhoneAddictKilled`, `recordWaveCleared`, `recoverRunFromCheckpoint`, `resetProfileForNewGame`, `resetProfileForNewRun`, `RunCheckpoint`, `runStateFromCheckpoint`, `savedRunFromCheckpoint`
 - Imports: `src/app/TitleScreen.ts`, `src/app/crazyGamesSdk.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/app/runSaveStore.ts`, `src/chamber/ChamberMode.ts`, `src/core/analysis.ts`, `src/core/biomes.ts`, `src/core/blueprint.ts`, `src/core/commands.ts`, `src/core/economy.ts`, `src/core/grid.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/placement.ts`, `src/core/profile.ts`, `src/core/rng.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/core/upgrades.ts`, `src/editor/EditorMode.ts`, `src/editor/ui.ts`, `src/runtime/vehicle.ts`, `src/survival/SurvivalMode.ts`, `src/survival/arena/recipes/index.ts`
@@ -33,10 +33,10 @@
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/app.test.ts`, `unit/biome-selection.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-reset.test.ts`
 
-### [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) (963 LOC)
+### [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) (925 LOC)
 
 - Exports: `formatRelativeDate`, `TitleScreen`, `TitleScreenHandlers`
-- Imports: `src/app/App.ts`, `src/app/badgeGallery.css`, `src/app/badgeStore.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/app/sfx.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/editor/EditorMode.ts`, `src/editor/meshes.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`
+- Imports: `src/app/App.ts`, `src/app/badgeGallery.css`, `src/app/badgeStore.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/app/sfx.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/editor/EditorMode.ts`, `src/editor/meshes.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/ui/leaderboardTable.ts`
 - Imported by: `src/app/App.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/leaderboard-rows.test.ts`
@@ -109,9 +109,9 @@
 
 ## src/core
 
-### [`src/core/abilities.ts`](../../src/core/abilities.ts) (298 LOC)
+### [`src/core/abilities.ts`](../../src/core/abilities.ts) (404 LOC)
 
-- Exports: `ABILITY_KIND_META`, `ABILITY_SLOT_KEYS`, `AbilityCandidate`, `AbilityKindMeta`, `AbilitySlotAssignment`, `BENCHED_ABILITY_SLOT`, `effectiveFreeze`, `effectiveHellfire`, `effectiveOverdrive`, `effectivePulse`, `effectiveShield`, `FreezeStats`, `HellfireStats`, `MAX_ABILITY_SLOTS`, `OverdriveStats`, `PulseStats`, `resolveAbilityLoadout`, `ShieldStats`
+- Exports: `ABILITY_KIND_META`, `ABILITY_SLOT_KEYS`, `AbilityCandidate`, `AbilityKindMeta`, `AbilitySlotAssignment`, `BENCHED_ABILITY_SLOT`, `effectiveFreeze`, `effectiveHellfire`, `effectiveOverdrive`, `effectivePhase`, `effectivePulse`, `effectiveShield`, `FreezeStats`, `HellfireStats`, `MAX_ABILITY_SLOTS`, `OverdriveStats`, `PhaseBounds`, `phaseDestination`, `PhaseDestination`, `PhaseStats`, `PulseStats`, `resolveAbilityLoadout`, `ShieldStats`
 - Imports: `src/core/types.ts`
 - Imported by: `src/core/serialize.ts`, `src/editor/EditorMode.ts`, `src/editor/ui.ts`, `src/survival/SurvivalMode.ts`
 - External packages: none
@@ -137,7 +137,7 @@
 
 - Exports: `BIOME_IDS`, `BiomeDefinition`, `BiomeDifficulty`, `biomeHandlingSummary`, `BiomeHazardSpec`, `BiomeId`, `BiomeLayout`, `BiomeLook`, `combineEnvironments`, `EnvironmentModifiers`, `FixturePlacement`, `hazardEnvironment`, `hazardIntensity`, `isBiomeId`, `NEUTRAL_ENVIRONMENT`, `PropEntry`, `PropScatter`, `SurfacePatchSpec`, `Tint`
 - Imports: `src/core/surfaces.ts`
-- Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/chamber/ChamberMode.ts`, `src/core/economy.ts`, `src/core/profile.ts`, `src/core/runSave.ts`, `src/runtime/vehicle.ts`, `src/runtime/wheels.ts`, `src/survival/SurvivalMode.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/placement.ts`, `src/survival/arena/recipes/desert.ts`, `src/survival/arena/recipes/graveyard.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/arena/recipes/snowfield.ts`
+- Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/chamber/ChamberMode.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/profile.ts`, `src/core/runSave.ts`, `src/runtime/vehicle.ts`, `src/runtime/wheels.ts`, `src/survival/SurvivalMode.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/placement.ts`, `src/survival/arena/recipes/desert.ts`, `src/survival/arena/recipes/graveyard.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/arena/recipes/snowfield.ts`, `src/ui/leaderboardTable.ts`
 - External packages: none
 - Direct tests: `unit/arena.test.ts`, `unit/biome-hazard.test.ts`, `unit/biome-recipes.test.ts`, `unit/biome-selection.test.ts`, `unit/surfaces.test.ts`
 
@@ -165,7 +165,7 @@
 - External packages: none
 - Direct tests: `unit/damage-numbers.test.ts`
 
-### [`src/core/economy.ts`](../../src/core/economy.ts) (148 LOC)
+### [`src/core/economy.ts`](../../src/core/economy.ts) (150 LOC)
 
 - Exports: `canAfford`, `isStarterUnlocked`, `nextUpgrade`, `partInvestment`, `partRepairCost`, `placeCost`, `RepairLineItem`, `repairPlan`, `RepairPlan`, `RunState`, `scaledHpOnUpgrade`, `sellRefund`, `unlockCost`
 - Imports: `src/core/biomes.ts`, `src/core/parts.ts`, `src/core/profile.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/upgrades.ts`
@@ -189,11 +189,11 @@
 - External packages: none
 - Direct tests: `unit/hotbar.test.ts`
 
-### [`src/core/leaderboard.ts`](../../src/core/leaderboard.ts) (135 LOC)
+### [`src/core/leaderboard.ts`](../../src/core/leaderboard.ts) (182 LOC)
 
-- Exports: `decodeLeaderboard`, `encodeLeaderboard`, `insertEntry`, `isPersonalBest`, `LEADERBOARD_MAX_ENTRIES`, `LeaderboardEntry`, `LeaderboardRow`, `leaderboardRows`, `personalBest`, `RunOutcome`
-- Imports: none
-- Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/app/leaderboardStore.ts`, `src/survival/SurvivalMode.ts`
+- Exports: `decodeLeaderboard`, `encodeLeaderboard`, `formatRunDuration`, `GAME_OVER_LEADERBOARD_ROWS`, `insertEntry`, `isPersonalBest`, `LEADERBOARD_MAX_ENTRIES`, `LeaderboardEntry`, `LeaderboardRow`, `leaderboardRows`, `personalBest`, `RunOutcome`
+- Imports: `src/core/biomes.ts`
+- Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/app/leaderboardStore.ts`, `src/survival/SurvivalMode.ts`, `src/ui/leaderboardTable.ts`
 - External packages: none
 - Direct tests: `unit/leaderboard-rows.test.ts`, `unit/leaderboard-store.test.ts`, `unit/leaderboard.test.ts`
 
@@ -205,7 +205,7 @@
 - External packages: none
 - Direct tests: `unit/analysis.test.ts`, `unit/zombie-balance.test.ts`
 
-### [`src/core/parts.ts`](../../src/core/parts.ts) (730 LOC)
+### [`src/core/parts.ts`](../../src/core/parts.ts) (759 LOC)
 
 - Exports: `getPartDef`, `PART_CATALOG`, `wheelAxleWorld`, `wheelSuspensionWorld`
 - Imports: `src/core/grid.ts`, `src/core/types.ts`
@@ -237,7 +237,7 @@
 - External packages: none
 - Direct tests: `unit/arena.test.ts`, `unit/rng.test.ts`
 
-### [`src/core/runSave.ts`](../../src/core/runSave.ts) (165 LOC)
+### [`src/core/runSave.ts`](../../src/core/runSave.ts) (177 LOC)
 
 - Exports: `decodeSavedRun`, `encodeSavedRun`, `SavedRun`
 - Imports: `src/core/biomes.ts`, `src/core/rng.ts`, `src/core/serialize.ts`, `src/core/types.ts`
@@ -285,7 +285,7 @@
 - External packages: none
 - Direct tests: `unit/landmines.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-modules.test.ts`
 
-### [`src/core/tutorial.ts`](../../src/core/tutorial.ts) (202 LOC)
+### [`src/core/tutorial.ts`](../../src/core/tutorial.ts) (207 LOC)
 
 - Exports: `createTutorialBlueprint`, `GetDef`, `KID_LABELS`, `PartLabel`, `SIMPLE_PART_IDS`, `TUTORIAL_STEPS`, `tutorialProgress`, `TutorialStep`
 - Imports: `src/core/blueprint.ts`, `src/core/placement.ts`, `src/core/types.ts`
@@ -293,7 +293,7 @@
 - External packages: none
 - Direct tests: `unit/tutorial.test.ts`
 
-### [`src/core/types.ts`](../../src/core/types.ts) (462 LOC)
+### [`src/core/types.ts`](../../src/core/types.ts) (466 LOC)
 
 - Exports: `AbilityDefinition`, `ArmourDefinition`, `BLUEPRINT_SCHEMA_VERSION`, `CELL_SIZE`, `DamageType`, `DrivetrainConnection`, `EngineDefinition`, `Face`, `GRID_MAX`, `GRID_MIN`, `MeleeDefinition`, `OrientationIndex`, `PAINT_COLORS`, `PaintColor`, `PartCategory`, `PartConfig`, `PartDefinition`, `PlacedPart`, `PlacementResult`, `Severity`, `SocketType`, `StructuralConnection`, `StructuralSocket`, `SUSPENSION_PRESET_MULTIPLIERS`, `SuspensionParams`, `SuspensionPreset`, `UpgradeDefinition`, `ValidationIssue`, `ValidationReport`, `Vec3`, `Vec3i`, `VehicleAnalysisReport`, `VehicleBlueprint`, `WeaponDefinition`, `WeaponMountType`, `WheelContactEstimate`, `WheelDefinition`
 - Imports: none
@@ -391,7 +391,7 @@
 - External packages: `three`
 - Direct tests: none
 
-### [`src/editor/parts/shared.ts`](../../src/editor/parts/shared.ts) (194 LOC)
+### [`src/editor/parts/shared.ts`](../../src/editor/parts/shared.ts) (195 LOC)
 
 - Exports: `boltRing`, `BoltRingOptions`, `boxWithEdges`, `DARK_STEEL`, `EDGE_COLOR`, `edgesOf`, `glowLambert`, `lambert`, `orientationQuaternion`, `partColor`, `shade`, `STEEL`, `toVector3`
 - Imports: `src/core/grid.ts`, `src/core/types.ts`
@@ -415,7 +415,7 @@
 - External packages: `three`
 - Direct tests: none
 
-### [`src/editor/ui.ts`](../../src/editor/ui.ts) (1818 LOC)
+### [`src/editor/ui.ts`](../../src/editor/ui.ts) (1836 LOC)
 
 - Exports: `AbilityLoadoutSlotView`, `AbilitySlotStatus`, `buildEditorUI`, `EditorUI`, `EditorUIHandlers`, `NewGarageDisposalSummary`, `RunRepairEconomy`, `RunSummary`, `SelectedPartEconomy`, `TurretModuleEconomy`
 - Imports: `src/core/abilities.ts`, `src/core/hotbar.ts`, `src/core/turretModules.ts`, `src/core/tutorial.ts`, `src/core/types.ts`
@@ -457,7 +457,7 @@
 - External packages: none
 - Direct tests: `unit/overdrive-sim.test.ts`, `unit/suspension-sim.test.ts`
 
-### [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) (996 LOC)
+### [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) (1023 LOC)
 
 - Exports: `AUTO_HOLD_SPEED`, `brakeInputWithAutoHold`, `isAllTreadRig`, `RuntimePartTarget`, `RuntimeVehicle`, `VehicleControls`, `VehicleTelemetry`
 - Imports: `src/core/biomes.ts`, `src/core/mass.ts`, `src/core/surfaces.ts`, `src/core/types.ts`, `src/runtime/assembler.ts`, `src/runtime/damage.ts`, `src/runtime/drivetrain.ts`, `src/runtime/vec.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`
@@ -523,10 +523,18 @@
 - External packages: `three`
 - Direct tests: `unit/minimap.test.ts`
 
-### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (2938 LOC)
+### [`src/survival/PhaseGhosts.ts`](../../src/survival/PhaseGhosts.ts) (147 LOC)
+
+- Exports: `PhaseGhosts`
+- Imports: none
+- Imported by: `src/survival/SurvivalMode.ts`
+- External packages: `three`
+- Direct tests: none
+
+### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (3021 LOC)
 
 - Exports: `applyZombieShot`, `createWaveClearPayload`, `SurvivalCallbacks`, `SurvivalMode`, `SurvivalPhase`, `SurvivalTelemetry`, `WaveClearPayload`
-- Imports: `src/app/badgeStore.ts`, `src/app/sfx.ts`, `src/core/abilities.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/waveTimeline.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/DamageNumbers.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/Tracers.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveClearCard.ts`, `src/survival/WaveManager.ts`, `src/survival/WaveTimelineHud.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/AbilityBar.ts`, `src/ui/ScopeCursor.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
+- Imports: `src/app/badgeStore.ts`, `src/app/sfx.ts`, `src/core/abilities.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/waveTimeline.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/DamageNumbers.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/PhaseGhosts.ts`, `src/survival/Tracers.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveClearCard.ts`, `src/survival/WaveManager.ts`, `src/survival/WaveTimelineHud.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/AbilityBar.ts`, `src/ui/ScopeCursor.ts`, `src/ui/leaderboardTable.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
 - Imported by: `src/app/App.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/ice-cannon-slow.test.ts`, `unit/pending-rewards.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-score.test.ts`, `unit/turret-piercing.test.ts`
@@ -623,7 +631,7 @@
 
 - Exports: `BIOMES`, `DEFAULT_BIOME_ID`, `getBiome`
 - Imports: `src/core/biomes.ts`, `src/survival/arena/recipes/desert.ts`, `src/survival/arena/recipes/graveyard.ts`, `src/survival/arena/recipes/snowfield.ts`
-- Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/chamber/ChamberMode.ts`, `src/survival/SurvivalMode.ts`
+- Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/chamber/ChamberMode.ts`, `src/survival/SurvivalMode.ts`, `src/ui/leaderboardTable.ts`
 - External packages: none
 - Direct tests: `unit/arena-perimeter.test.ts`, `unit/biome-hazard.test.ts`, `unit/biome-recipes.test.ts`, `unit/biome-selection.test.ts`, `unit/run-checkpoint.test.ts`
 
@@ -751,6 +759,14 @@
 - External packages: none
 - Direct tests: none
 
+### [`src/ui/leaderboardTable.ts`](../../src/ui/leaderboardTable.ts) (91 LOC)
+
+- Exports: `buildLeaderboardTable`, `LeaderboardTableOptions`
+- Imports: `src/core/biomes.ts`, `src/core/leaderboard.ts`, `src/survival/arena/recipes/index.ts`
+- Imported by: `src/app/TitleScreen.ts`, `src/survival/SurvivalMode.ts`
+- External packages: none
+- Direct tests: none
+
 ### [`src/ui/system.ts`](../../src/ui/system.ts) (292 LOC)
 
 - Exports: `ButtonOptions`, `classes`, `createBadge`, `createButton`, `createField`, `createKey`, `createMeter`, `createNotice`, `createPanel`, `createStat`, `createStatus`, `createTabs`, `createToggle`, `FieldOptions`, `MeterOptions`, `PanelOptions`, `UIIntent`, `UISize`
@@ -761,7 +777,7 @@
 
 ## src/vfx
 
-### [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) (2286 LOC)
+### [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) (2334 LOC)
 
 - Exports: `ImpactVfxKind`, `MeleeVfxKind`, `MuzzleVfxStyle`, `VfxSystem`
 - Imports: `src/vfx/VoxelParticles.ts`, `src/vfx/vfxConfig.ts`

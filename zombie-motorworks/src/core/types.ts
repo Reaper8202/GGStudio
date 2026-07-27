@@ -204,14 +204,18 @@ export interface AbilityDefinition {
    * 'freeze' flash-freezes the nearest zombies in place; 'shield' wraps the
    * vehicle in a bubble granting temporary invulnerability; 'pulse' slams out
    * a damaging ring of force; 'overdrive' floods the drivetrain with torque;
-   * 'hellfire' overcharges the part's own flame nozzle.
+   * 'hellfire' overcharges the part's own flame nozzle; 'phase' blinks the rig
+   * forward through whatever is in the way.
    */
-  kind: 'freeze' | 'shield' | 'pulse' | 'overdrive' | 'hellfire';
+  kind: 'freeze' | 'shield' | 'pulse' | 'overdrive' | 'hellfire' | 'phase';
   /** Seconds between activations (fixed across levels). */
   cooldownSeconds: number;
   /** Effect duration in seconds at level 1 (grows with upgrade level). */
   baseDurationSeconds: number;
-  /** Freeze/pulse: metres from the vehicle the effect reaches. */
+  /**
+   * Freeze/pulse: metres from the vehicle the effect reaches. Phase: metres the
+   * blink covers at level 1 (grows with upgrade level).
+   */
   rangeM?: number;
   /** Freeze only: zombies frozen at level 1 (grows with upgrade level). */
   baseTargets?: number;

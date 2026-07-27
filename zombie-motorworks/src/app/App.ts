@@ -73,6 +73,8 @@ export interface RunCheckpoint {
   score: number;
   /** Run earnings already credited before `wave`. */
   bankedEarnings: number;
+  /** Arena seconds played before `wave`, carried across garage trips. */
+  elapsedSeconds: number;
 }
 
 export interface CheckpointRunState extends RunState {
@@ -81,6 +83,7 @@ export interface CheckpointRunState extends RunState {
   score: number;
   biomeId: BiomeId;
   seed: number;
+  elapsedSeconds: number;
 }
 
 /** Effective maximum HP for every placed part in a blueprint. */
@@ -107,6 +110,7 @@ export function createInitialRunCheckpoint(
     seed: randomSeed(),
     score: 0,
     bankedEarnings: 0,
+    elapsedSeconds: 0,
   };
 }
 
@@ -133,6 +137,7 @@ export function createClearedWaveCheckpoint(input: {
   seed: number;
   score: number;
   bankedEarnings: number;
+  elapsedSeconds: number;
 }): RunCheckpoint {
   const blueprint = pruneBlueprintToSurvivors(
     input.blueprint,
@@ -147,6 +152,7 @@ export function createClearedWaveCheckpoint(input: {
     seed: input.seed,
     score: input.score,
     bankedEarnings: input.bankedEarnings,
+    elapsedSeconds: input.elapsedSeconds,
   };
 }
 
@@ -189,6 +195,7 @@ export function runStateFromCheckpoint(
     biomeId: checkpoint.biomeId,
     seed: checkpoint.seed,
     score: checkpoint.score,
+    elapsedSeconds: checkpoint.elapsedSeconds,
   };
 }
 
@@ -217,6 +224,7 @@ export function savedRunFromCheckpoint(
     seed: checkpoint.seed,
     score: checkpoint.score,
     bankedEarnings: checkpoint.bankedEarnings,
+    elapsedSeconds: checkpoint.elapsedSeconds,
     blueprint: checkpoint.blueprint,
     partHp: { ...checkpoint.partHp },
     savedAt,
@@ -376,6 +384,7 @@ export class App {
       seed: savedRun.seed,
       score: savedRun.score,
       bankedEarnings: savedRun.bankedEarnings,
+      elapsedSeconds: savedRun.elapsedSeconds,
     };
     // The resumed run keeps the map on its checkpoint; the title-screen pick
     // stays untouched so it still describes the player's next new run.
@@ -599,6 +608,7 @@ export class App {
           partHp,
           kills,
           score,
+          state.elapsedSeconds ?? 0,
         );
         this.activeRun = { wave: state.wave };
       },
@@ -611,6 +621,7 @@ export class App {
           partHp,
           kills,
           score,
+          state.elapsedSeconds ?? 0,
         );
       },
       onGameOver: (state, pendingMoneyDiscarded, score, kills) =>
@@ -637,6 +648,7 @@ export class App {
     partHp: Record<string, number>,
     kills: number,
     score: number,
+    elapsedSeconds: number,
   ): void {
     if (this.checkpoint === null) return;
     const survivors = new Set(survivingPartIds);
@@ -655,6 +667,7 @@ export class App {
       seed: this.checkpoint.seed,
       score,
       bankedEarnings: this.runMoneyEarned,
+      elapsedSeconds,
     });
     this.bp = this.checkpoint.blueprint;
     this.history.clear();
@@ -674,6 +687,7 @@ export class App {
       partHp,
       kills,
       score,
+      run.elapsedSeconds ?? 0,
     );
     this.activeRun = { wave: run.wave };
     this.inBuildPhase = true;
@@ -701,6 +715,8 @@ export class App {
       wave: run.wave,
       kills,
       at: Date.now(),
+      durationSeconds: Math.max(0, Math.round(run.elapsedSeconds ?? 0)),
+      biomeId: this.checkpoint?.biomeId ?? this.preferredBiomeId,
     });
     // Best effort. The local board is what the game actually displays, so a
     // failed or absent CrazyGames submission must not change anything here.

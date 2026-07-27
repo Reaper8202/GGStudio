@@ -721,6 +721,35 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       baseThrustAccel: 16,
     },
   },
+  'phase-drive': {
+    id: 'phase-drive',
+    name: 'Phase Drive',
+    category: 'weapon',
+    description:
+      'Displacement coil. Fills an ability slot: blink ten metres straight ' +
+      'ahead, passing clean through zombies, wrecks and scenery — only the ' +
+      'arena wall stops it. 7s cooldown; upgrades blink further.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 85,
+    health: 110,
+    cost: 280,
+    upgrade: upgrade(5, 280),
+    unlockCost: 560,
+    reinforcement: 1.1,
+    // The escape hatch nitro is not: no wind-up, no traction needed, and it
+    // ignores the wall of bodies that has the rig pinned. The short cooldown is
+    // what makes it a driving tool rather than a panic button — so the distance
+    // stays modest and upgrades buy reach, never a faster recharge.
+    ability: {
+      kind: 'phase',
+      cooldownSeconds: 7,
+      // Instant: the blink is a teleport, so there is no window to scale.
+      baseDurationSeconds: 0,
+      rangeM: 10,
+    },
+  },
 };
 
 export function getPartDef(id: string): PartDefinition {

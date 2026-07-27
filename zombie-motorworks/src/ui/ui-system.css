@@ -28,6 +28,12 @@
   --ui-danger: #9b4b42;
   --ui-danger-dark: #4f2522;
 
+  /* One colour per arena, so a leaderboard row reads as its biome at a
+     glance: mossy graveyard, cold snowfield, hot desert. */
+  --ui-biome-graveyard: #8fbf6a;
+  --ui-biome-snowfield: #7fc4dd;
+  --ui-biome-desert: #e0a44a;
+
   /* Combat damage numbers sit on the world, not on a panel, so they are much
      brighter than the muted HUD palette above — the chrome tokens vanish
      against dark asphalt at arm's length from the rig. */

@@ -379,6 +379,33 @@ export class RuntimeVehicle {
     return true;
   }
 
+  /**
+   * Phase ability: pick the chassis up and set it down `dx`/`dz` metres away,
+   * with `liftM` of clearance so it settles onto whatever it landed over rather
+   * than starting the step buried in it. Nothing is swept along the way — that
+   * is what makes the blink pass through zombies, wrecks, and scenery — so the
+   * caller owns clipping the trip to the arena wall.
+   *
+   * Momentum is kept: a blink is a reposition, not a stop, and killing the
+   * velocity would turn every escape into a standing start. Suspension contacts
+   * are dropped because they describe ground the rig is no longer over; leaving
+   * them would push the first step's spring force against a stale surface.
+   */
+  phaseShift(dx: number, dz: number, liftM = 0): void {
+    const body = this.assembled.body;
+    const position = body.translation();
+    body.setTranslation(
+      { x: position.x + dx, y: position.y + liftM, z: position.z + dz },
+      true,
+    );
+    for (const wheel of this.assembled.wheels) {
+      wheel.grounded = false;
+      wheel.contactPointW = null;
+      wheel.compression = 0;
+      wheel.loadN = 0;
+    }
+  }
+
   /** True while any weapon on the rig is running a Hellfire overcharge. */
   get isOvercharged(): boolean {
     return this.weapons.some((w) => w.overcharge !== null);

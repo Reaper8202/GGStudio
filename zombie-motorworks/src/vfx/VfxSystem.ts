@@ -2185,6 +2185,54 @@ export class VfxSystem {
     }
   }
 
+  /**
+   * One end of a phase blink: a flat ring of displaced air that reads as the
+   * rig being pulled out of (or shoved back into) the world. `dirX/dirZ` is the
+   * vehicle's normalised heading — particles run along it, so the departure and
+   * the arrival both point the way the blink went.
+   *
+   * Deliberately cold and colourless next to nitro's exhaust: the two abilities
+   * both move the rig forward, and they must never be confused on screen.
+   */
+  phaseBurst(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirZ: number,
+  ): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y + 0.4, z, 1.2, 0.08, VFX_PALETTE.frost);
+    this.flash(x, y + 0.45, z, 2.4, 0.16, VFX_PALETTE.shield);
+
+    const shards = this.count(20, detail);
+    for (let i = 0; i < shards; i++) {
+      // Sideways off the heading: the rig's own volume folding outward as it
+      // leaves, rather than a jet coming off a nozzle.
+      const lateral = this.randSigned(1);
+      const speed = this.rand(4, 11);
+      this.reset0();
+      this.spec.x = x + dirZ * lateral * 0.9 + dirX * this.randSigned(1.2);
+      this.spec.y = y + this.rand(0.05, 0.9);
+      this.spec.z = z - dirX * lateral * 0.9 + dirZ * this.randSigned(1.2);
+      this.spec.vx = dirZ * lateral * speed + dirX * this.rand(0.5, 3);
+      this.spec.vy = this.rand(0.4, 2.2);
+      this.spec.vz = -dirX * lateral * speed + dirZ * this.rand(0.5, 3);
+      this.spec.size = this.rand(0.1, 0.22);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.18, 0.36);
+      this.spec.colorStart = VFX_PALETTE.frost;
+      this.spec.colorEnd = VFX_PALETTE.shield;
+      this.spec.gravity = 0;
+      this.spec.drag = 3.2;
+      this.spec.spin = 7;
+      this.glow.spawn(this.take());
+    }
+  }
+
   // -------------------------------------------------------------- helpers ---
 
   /**

@@ -16,6 +16,7 @@ import {
 } from '../survival/arena/recipes/index.ts';
 import type { SavedRun } from '../core/runSave.ts';
 import { leaderboardRows, type LeaderboardRow } from '../core/leaderboard.ts';
+import { buildLeaderboardTable } from '../ui/leaderboardTable.ts';
 import { BADGES } from '../core/badges.ts';
 import {
   badgeProgress,
@@ -188,50 +189,11 @@ function buildTitleLeaderboard(
   rows: readonly LeaderboardRow[],
   now: number,
 ): HTMLElement {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'leaderboard';
-  if (rows.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'leaderboard__empty';
-    empty.textContent =
-      'No runs yet. Take your rig out and set the first score.';
-    wrapper.appendChild(empty);
-    return wrapper;
-  }
-
-  const table = document.createElement('table');
-  table.setAttribute('aria-label', 'Local leaderboard');
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  for (const label of ['Rank', 'Score', 'Wave', 'Kills', 'When']) {
-    const cell = document.createElement('th');
-    cell.scope = 'col';
-    cell.textContent = label;
-    headRow.appendChild(cell);
-  }
-  head.appendChild(headRow);
-
-  const body = document.createElement('tbody');
-  for (const row of rows) {
-    const tr = document.createElement('tr');
-    const rank = document.createElement('th');
-    rank.scope = 'row';
-    rank.textContent = String(row.rank);
-    tr.appendChild(rank);
-    for (const value of [row.score, row.wave, row.kills]) {
-      const cell = document.createElement('td');
-      cell.textContent = value.toLocaleString();
-      tr.appendChild(cell);
-    }
-    const completed = document.createElement('td');
-    completed.textContent = formatRelativeDate(row.at, now);
-    tr.appendChild(completed);
-    body.appendChild(tr);
-  }
-
-  table.append(head, body);
-  wrapper.appendChild(table);
-  return wrapper;
+  return buildLeaderboardTable(rows, {
+    emptyMessage: 'No runs yet. Take your rig out and set the first score.',
+    ariaLabel: 'Local leaderboard',
+    formatWhen: (at) => formatRelativeDate(at, now),
+  });
 }
 
 function buildBadgeGallery(

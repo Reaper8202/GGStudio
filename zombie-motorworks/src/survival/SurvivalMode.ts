@@ -11,9 +11,11 @@ import {
   effectiveFreeze,
   effectiveHellfire,
   effectiveOverdrive,
+  effectivePhase,
   effectivePulse,
   effectiveShield,
   MAX_ABILITY_SLOTS,
+  phaseDestination,
   resolveAbilityLoadout,
   type AbilityCandidate,
   type AbilitySlotAssignment,
@@ -34,8 +36,8 @@ import {
 import { repairPlan } from '../core/economy.ts';
 import type { RunState } from '../core/economy.ts';
 import {
+  GAME_OVER_LEADERBOARD_ROWS,
   leaderboardRows,
-  type LeaderboardRow,
   type RunOutcome,
 } from '../core/leaderboard.ts';
 import { getPartDef } from '../core/parts.ts';
@@ -45,7 +47,11 @@ import {
   MINE_SWEEPER_MINIMAP_LEVEL,
   mineSweeperRadius,
 } from '../core/turretModules.ts';
-import type { Vec3, VehicleBlueprint } from '../core/types.ts';
+import type {
+  AbilityDefinition,
+  Vec3,
+  VehicleBlueprint,
+} from '../core/types.ts';
 import { buildWaveTimeline, type WaveTimeline } from '../core/waveTimeline.ts';
 import { randomSeed } from '../core/rng.ts';
 import { badgeStore } from '../app/badgeStore.ts';
@@ -63,6 +69,7 @@ import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
 import { AbilityBar, type AbilitySlotView } from '../ui/AbilityBar.ts';
 import { ScopeCursor } from '../ui/ScopeCursor.ts';
+import { buildLeaderboardTable } from '../ui/leaderboardTable.ts';
 import { VfxSystem } from '../vfx/VfxSystem.ts';
 import { WarningHud } from './WarningHud.ts';
 import { DamageNumbersOverlay } from './DamageNumbers.ts';
@@ -76,6 +83,7 @@ import { impactKindForShot, muzzleStyleForShot } from '../vfx/shotVfx.ts';
 import { FuelPickups } from './FuelPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
+import { PhaseGhosts } from './PhaseGhosts.ts';
 import type { Arena } from './arena/Arena.ts';
 import { ArenaBuilder } from './arena/ArenaBuilder.ts';
 import { DEFAULT_BIOME_ID, getBiome } from './arena/recipes/index.ts';
@@ -139,6 +147,21 @@ const SHIELD_BUBBLE_RADIUS_M = 3.4;
 const STUCK_PROMPT_SECONDS = 1.6;
 const RECOVERY_COOLDOWN_SECONDS = 2.25;
 const RECOVERY_SETTLE_SECONDS = 0.42;
+/**
+ * How close to the arena wall a phase blink may land, m. Roughly a long rig's
+ * half-length, so a blink aimed at the fence stops with the whole vehicle
+ * inside rather than with its nose through the boundary.
+ */
+const PHASE_WALL_MARGIN_M = 4;
+/**
+ * Clearance the rig is dropped from at the far end of a blink, m. The trip
+ * ignores everything in its way, so the landing spot may well be a boulder or a
+ * wreck; arriving just above it lets the suspension settle onto the obstacle
+ * instead of starting the next step wedged inside it.
+ */
+const PHASE_LANDING_LIFT_M = 0.45;
+/** A blink shorter than this is not worth a cooldown — the wall ate the trip. */
+const PHASE_MIN_TRAVEL_M = 0.75;
 /** How often the alert stack is re-derived from vehicle state. */
 const WARNING_REFRESH_INTERVAL_SECONDS = 0.25;
 /** Distance at which a blast stops shaking the camera at all, m. */
@@ -220,10 +243,11 @@ export function createWaveClearPayload(
   partHp: Readonly<Record<string, number>>,
   kills: number,
   score: number,
+  elapsedSeconds = 0,
 ): WaveClearPayload {
   return {
-    clearedRun: { wave: clearedWave },
-    nextRun: { wave: clearedWave + 1 },
+    clearedRun: { wave: clearedWave, elapsedSeconds },
+    nextRun: { wave: clearedWave + 1, elapsedSeconds },
     survivingPartIds: [...survivingPartIds],
     partHp: { ...partHp },
     kills,
@@ -429,6 +453,11 @@ export class SurvivalMode {
   /** Scratch heading for ability effects that fire along the rig's forward axis. */
   private readonly abilityForward = new THREE.Vector3();
   private readonly abilityQuaternion = new THREE.Quaternion();
+  /** Endpoints of the blink in flight, handed to the after-image trail. */
+  private readonly phaseFrom = new THREE.Vector3();
+  private readonly phaseTo = new THREE.Vector3();
+  /** Live vehicle visuals the after-image trail clones; rebuilt per blink. */
+  private readonly phaseSources: THREE.Object3D[] = [];
   private readonly ui: HTMLDivElement;
   private readonly minimap: Minimap;
   private readonly scopeCursor: ScopeCursor;
@@ -456,6 +485,8 @@ export class SurvivalMode {
   private lastHudFuel = -1;
   /** Centre-screen bar of special abilities, one box per special. */
   private readonly abilityBar: AbilityBar;
+  /** Onion-skin copies of the rig left along a phase blink. */
+  private readonly phaseGhosts: PhaseGhosts;
   /** Translucent blue bubble shown while the shield special is active. */
   private shieldBubble: THREE.Mesh | null = null;
   private shieldBubbleMaterial: THREE.MeshBasicMaterial | null = null;
@@ -510,6 +541,8 @@ export class SurvivalMode {
   private waveMoneyEarned = 0;
   private waveBadgeBonusEarned = 0;
   private waveElapsedSeconds = 0;
+  /** Arena seconds for the whole run, carried across waves and garage trips. */
+  private runElapsedSeconds = 0;
   private waveStartIntegrityPct = 100;
   private cleanWaveStreak = 0;
   private pendingTransition: PendingTransition | null = null;
@@ -649,6 +682,7 @@ export class SurvivalMode {
       onWaveComplete: (wave, reward) => this.onWaveComplete(wave, reward),
     });
     this.tracerRenderer = new TracerRenderer(this.scene);
+    this.phaseGhosts = new PhaseGhosts(this.scene);
 
     const builtUi = this.buildUI();
     this.ui = builtUi.root;
@@ -719,6 +753,11 @@ export class SurvivalMode {
     this.cleanWaveStreak = 0;
     if (Number.isFinite(run.score) && (run.score ?? 0) >= 0) {
       this.runScore = Math.floor(run.score ?? 0);
+    }
+    // Waves before this one were played in an earlier mode instance, so the
+    // run clock continues from what App committed rather than from zero.
+    if (Number.isFinite(run.elapsedSeconds) && (run.elapsedSeconds ?? 0) > 0) {
+      this.runElapsedSeconds = run.elapsedSeconds ?? 0;
     }
 
     // A resumed run begins from App's committed wave-start damage.
@@ -1296,6 +1335,7 @@ export class SurvivalMode {
       this.vehicle.partHpSnapshot(),
       this.kills,
       this.runScore,
+      this.runElapsedSeconds,
     );
   }
 
@@ -1375,6 +1415,7 @@ export class SurvivalMode {
 
   private stepPhysics(): void {
     this.waveElapsedSeconds += FIXED_DT;
+    this.runElapsedSeconds += FIXED_DT;
     this.updateControls();
     this.updateRecoveryAssist(FIXED_DT);
     this.updateAbility();
@@ -1712,6 +1753,7 @@ export class SurvivalMode {
     // wave's airborne gibs and settled splats.
     this.vfx.reset();
     this.tracerRenderer.reset();
+    this.phaseGhosts.clear();
     // Re-baseline damage tracking: carried-over wave damage is not a new hit.
     this.lastLiveHealth = -1;
     this.warningRefreshSeconds = 0;
@@ -1803,7 +1845,7 @@ export class SurvivalMode {
   }
 
   private currentRunState(): RunState {
-    return { wave: this.currentWave };
+    return { wave: this.currentWave, elapsedSeconds: this.runElapsedSeconds };
   }
 
   private queueCompletedStepTransition(): void {
@@ -1950,7 +1992,14 @@ export class SurvivalMode {
     this.gameOverWaveValue.textContent = outcome.wave.toLocaleString();
     this.gameOverKillsValue.textContent = outcome.kills.toLocaleString();
     this.gameOverBoard.replaceChildren(
-      buildLeaderboardTable(leaderboardRows(outcome.entries, outcome.rank)),
+      buildLeaderboardTable(
+        leaderboardRows(
+          outcome.entries,
+          outcome.rank,
+          GAME_OVER_LEADERBOARD_ROWS,
+        ),
+        { emptyMessage: 'No runs recorded yet.' },
+      ),
     );
     this.gameOverOverlay.style.display = 'block';
   }
@@ -2043,6 +2092,7 @@ export class SurvivalMode {
     this.fuelPickups.updateVisuals(frameDt);
     this.syncShieldBubble(frameDt);
     this.syncOverdriveTrail();
+    this.phaseGhosts.update(frameDt);
     this.tracerRenderer.update(frameDt, this.camera);
     // Camera-relative LOD, so a firefight across the graveyard costs less than
     // the same firefight under the player's nose.
@@ -2167,6 +2217,9 @@ export class SurvivalMode {
       this.vfx.pulseRing(pos.x, pos.y, pos.z, pulse.radiusM);
       return pulse.cooldownSeconds;
     }
+    if (ability.kind === 'phase') {
+      return this.firePhase(ability, level);
+    }
     if (ability.kind === 'hellfire') {
       const hellfire = effectiveHellfire(ability, level);
       // The overcharge rides on the nozzle that fired it, so a rig with two
@@ -2205,6 +2258,74 @@ export class SurvivalMode {
       this.abilityForward.z,
     );
     return overdrive.cooldownSeconds;
+  }
+
+  /**
+   * Phase blink: set the rig down a short way along its own heading, straight
+   * through whatever stood between the two points. Nothing is sweep-tested —
+   * passing through zombies, wrecks, and scenery is the whole ability — so the
+   * arena wall is enforced here instead, by clipping the trip to the last spot
+   * inside the bounds.
+   *
+   * The frames the teleport skipped are drawn as after-images along the path,
+   * because an instant reposition with no trail reads as a glitch rather than
+   * as a move the player made.
+   */
+  private firePhase(ability: AbilityDefinition, level: number): number {
+    const phase = effectivePhase(ability, level);
+    const pos = this.vehicle.body.translation();
+    const rotation = this.vehicle.body.rotation();
+    this.abilityQuaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    this.abilityForward.set(0, 0, 1).applyQuaternion(this.abilityQuaternion);
+    // Flat heading: a rig climbing a wreck or rolled onto its side still blinks
+    // level across the ground rather than into the sky or under it.
+    this.abilityForward.y = 0;
+    // Nose pointing at the sky leaves no heading to blink along; refund the
+    // press rather than teleport in an arbitrary direction.
+    if (this.abilityForward.lengthSq() < 1e-6) return 0;
+    this.abilityForward.normalize();
+
+    const destination = phaseDestination(
+      pos,
+      { x: this.abilityForward.x, z: this.abilityForward.z },
+      phase.distanceM,
+      this.arena.bounds,
+      PHASE_WALL_MARGIN_M,
+    );
+    // Already nosed into the fence: the blink has nowhere to go, so it never
+    // happened and the cooldown does not start.
+    if (destination.distanceM < PHASE_MIN_TRAVEL_M) return 0;
+
+    const landingY = pos.y + PHASE_LANDING_LIFT_M;
+    this.phaseFrom.set(pos.x, pos.y, pos.z);
+    this.phaseTo.set(destination.x, landingY, destination.z);
+    // Cloned before the body moves, while the visuals still stand at the
+    // departure point — the trail is those frames, not the arrival.
+    this.phaseSources.length = 0;
+    this.phaseSources.push(this.vehicleGroup, ...this.wheelMeshes.values());
+    this.phaseGhosts.spawn(this.phaseSources, this.phaseFrom, this.phaseTo);
+    this.phaseSources.length = 0;
+
+    this.vfx.phaseBurst(
+      pos.x,
+      pos.y,
+      pos.z,
+      this.abilityForward.x,
+      this.abilityForward.z,
+    );
+    this.vehicle.phaseShift(
+      destination.x - pos.x,
+      destination.z - pos.z,
+      PHASE_LANDING_LIFT_M,
+    );
+    this.vfx.phaseBurst(
+      destination.x,
+      landingY,
+      destination.z,
+      this.abilityForward.x,
+      this.abilityForward.z,
+    );
+    return phase.cooldownSeconds;
   }
 
   private isAttachedAlivePart(part: RuntimePart): boolean {
@@ -2826,56 +2947,15 @@ export class SurvivalMode {
     this.abilityBar.dispose();
     this.ui.remove();
     this.tracerRenderer.dispose();
+    // Before the scene walk below: the ghosts share the vehicle's geometry, so
+    // they have to be off the graph before it is disposed.
+    this.phaseGhosts.dispose();
     disposeObject(this.scene);
     this.scene.clear();
     this.wheelMeshes.clear();
     this.wheelSpin.clear();
     this.islandGroups.clear();
   }
-}
-
-/** Ranked board as a table; the current run's row is marked for styling. */
-function buildLeaderboardTable(rows: readonly LeaderboardRow[]): HTMLElement {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'leaderboard';
-  if (rows.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'leaderboard__empty';
-    empty.textContent = 'No runs recorded yet.';
-    wrapper.appendChild(empty);
-    return wrapper;
-  }
-
-  const table = document.createElement('table');
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  for (const label of ['#', 'Score', 'Wave', 'Kills']) {
-    const cell = document.createElement('th');
-    cell.scope = 'col';
-    cell.textContent = label;
-    headRow.appendChild(cell);
-  }
-  head.appendChild(headRow);
-
-  const body = document.createElement('tbody');
-  for (const row of rows) {
-    const tr = document.createElement('tr');
-    if (row.isCurrentRun) tr.className = 'is-current-run';
-    const rank = document.createElement('th');
-    rank.scope = 'row';
-    rank.textContent = String(row.rank);
-    tr.appendChild(rank);
-    for (const value of [row.score, row.wave, row.kills]) {
-      const cell = document.createElement('td');
-      cell.textContent = value.toLocaleString();
-      tr.appendChild(cell);
-    }
-    body.appendChild(tr);
-  }
-
-  table.append(head, body);
-  wrapper.appendChild(table);
-  return wrapper;
 }
 
 /**
@@ -2899,6 +2979,9 @@ function abilityDetail(assignment: AbilitySlotAssignment): string {
   if (ability.kind === 'hellfire') {
     const hellfire = effectiveHellfire(ability, level);
     return `×${trimSeconds(hellfire.damageMultiplier)} for ${trimSeconds(hellfire.durationSeconds)}s`;
+  }
+  if (ability.kind === 'phase') {
+    return `${trimSeconds(effectivePhase(ability, level).distanceM)}m blink`;
   }
   const overdrive = effectiveOverdrive(ability, level);
   return `×${trimSeconds(overdrive.torqueMultiplier)} for ${trimSeconds(overdrive.durationSeconds)}s`;

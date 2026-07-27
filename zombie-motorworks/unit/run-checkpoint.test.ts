@@ -77,6 +77,7 @@ describe('run checkpoints', () => {
       seed: 42,
       score: 0,
       bankedEarnings: 73,
+      elapsedSeconds: 120,
     });
 
     expect(checkpoint).toMatchObject({
@@ -103,6 +104,7 @@ describe('run checkpoints', () => {
       seed: 314159,
       score: 0,
       bankedEarnings: 240,
+      elapsedSeconds: 120,
     });
 
     const continued = runStateFromCheckpoint(checkpoint);
@@ -129,6 +131,7 @@ describe('run checkpoints', () => {
       seed: 9001,
       score: 0,
       bankedEarnings: 410,
+      elapsedSeconds: 120,
     });
 
     const recovered = recoverRunFromCheckpoint(failedWaveStart);
@@ -161,6 +164,7 @@ describe('run checkpoints', () => {
       seed: 8675309,
       score: 0,
       bankedEarnings: 165,
+      elapsedSeconds: 120,
     });
     const liveMidWave = {
       wave: 3,
@@ -190,11 +194,12 @@ describe('run checkpoints', () => {
       { core: 175, seat: 44 },
       23,
       940,
+      186,
     );
 
     expect(payload).toEqual({
-      clearedRun: { wave: 2 },
-      nextRun: { wave: 3 },
+      clearedRun: { wave: 2, elapsedSeconds: 186 },
+      nextRun: { wave: 3, elapsedSeconds: 186 },
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 175, seat: 44 },
       kills: 23,
@@ -218,6 +223,7 @@ describe('run checkpoints', () => {
       currentWave: 2,
       kills: 23,
       runScore: 940,
+      runElapsedSeconds: 186,
       vehicle: {
         isDestroyed: () => false,
         survivingPartIds: () => ['core', 'seat'],
@@ -241,7 +247,7 @@ describe('run checkpoints', () => {
     expect(checkpointCalls).toEqual([
       [
         40,
-        { wave: 3 },
+        { wave: 3, elapsedSeconds: 186 },
         ['core', 'seat'],
         { core: 175, seat: 44 },
         23,
