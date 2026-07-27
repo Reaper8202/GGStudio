@@ -107,6 +107,7 @@ const layout: DesertLayout = {
 export const DESERT: BiomeDefinition = {
   id: 'desert',
   name: 'Desert',
+  difficulty: 'brutal',
   blurb: 'Deep sand slows heavy cars while the heat cuts power and burns fuel.',
   layout,
   look: {

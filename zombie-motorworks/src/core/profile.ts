@@ -1,3 +1,4 @@
+import { isBiomeId, type BiomeId } from './biomes.ts';
 import { PART_CATALOG } from './parts.ts';
 
 export interface PlayerProfile {
@@ -12,6 +13,11 @@ export interface PlayerProfile {
    */
   hotbarDefIds?: string[];
   currentBlueprintName?: string;
+  /**
+   * Map the player last chose on the title screen. It seeds the next run only;
+   * a run already in flight keeps the biome recorded on its checkpoint.
+   */
+  preferredBiomeId?: BiomeId;
   /** Highest wave the player has ever fully cleared. */
   highestWaveCleared?: number;
   /** Lifetime Phone Addict kills; gates the EMP module. */
@@ -56,6 +62,7 @@ function hasValidShape(value: unknown): value is {
   inventory?: Record<string, unknown>;
   hotbarDefIds?: unknown;
   currentBlueprintName?: string;
+  preferredBiomeId?: unknown;
   highestWaveCleared?: unknown;
   phoneAddictsKilled?: unknown;
 } {
@@ -120,6 +127,9 @@ export function decodeProfile(json: string | null | undefined): PlayerProfile {
   if (parsed.currentBlueprintName !== undefined) {
     profile.currentBlueprintName = parsed.currentBlueprintName;
   }
+  if (isBiomeId(parsed.preferredBiomeId)) {
+    profile.preferredBiomeId = parsed.preferredBiomeId;
+  }
   if (isNonNegativeSafeInteger(parsed.highestWaveCleared)) {
     profile.highestWaveCleared = parsed.highestWaveCleared;
   }
@@ -142,6 +152,9 @@ export function encodeProfile(profile: PlayerProfile): string {
     ...(profile.currentBlueprintName === undefined
       ? {}
       : { currentBlueprintName: profile.currentBlueprintName }),
+    ...(profile.preferredBiomeId === undefined
+      ? {}
+      : { preferredBiomeId: profile.preferredBiomeId }),
     ...(profile.highestWaveCleared !== undefined &&
     profile.highestWaveCleared > 0
       ? { highestWaveCleared: profile.highestWaveCleared }

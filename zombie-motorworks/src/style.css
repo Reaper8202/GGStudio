@@ -111,6 +111,89 @@ body,
   font: var(--ui-text-12)/1.5 var(--ui-font-body);
 }
 
+.title-map-panel__heading {
+  margin-bottom: 18px;
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+.title-map-panel__heading {
+  margin-bottom: 18px;
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+.title-maps {
+  display: grid;
+  gap: 6px;
+  width: min(420px, 100%);
+  margin: 0 auto 22px;
+}
+
+/* Each row carries its difficulty as one accent colour, easy through brutal. */
+.title-map {
+  --map-accent: var(--ui-signal);
+
+  display: grid;
+  grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-edge);
+  border-left: 4px solid var(--map-accent);
+  background: var(--ui-surface-2);
+  box-shadow: inset 0 -3px 0 var(--ui-black);
+  text-align: left;
+}
+
+.title-map--hard {
+  --map-accent: var(--ui-bone);
+}
+
+.title-map--brutal {
+  --map-accent: var(--ui-danger);
+}
+
+.title-map:hover {
+  background: var(--ui-surface-3);
+}
+
+.title-map--selected {
+  border-color: var(--map-accent);
+  background: var(--ui-surface-3);
+}
+
+.title-map__head {
+  display: grid;
+  gap: 3px;
+}
+
+.title-map__name {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-16)/1 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.title-map__difficulty {
+  color: var(--map-accent);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.title-map__handling {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1.35 var(--ui-font-body);
+}
+
+.title-map--selected .title-map__handling {
+  color: var(--ui-text);
+}
+
 .title-actions {
   display: grid;
   gap: 10px;
@@ -206,6 +289,106 @@ body,
 }
 
 .title-leaderboard__actions button {
+  min-width: 150px;
+}
+
+.title-utility-rail {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 110;
+  display: flex;
+  gap: 6px;
+}
+
+.title-icon-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  min-width: 0;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--ui-edge);
+  background: rgb(12 15 12 / 0.86);
+  box-shadow:
+    3px 4px 0 rgb(0 0 0 / 0.42),
+    inset 0 -3px 0 var(--ui-black);
+  color: #fff;
+}
+
+.title-icon-button:hover {
+  border-color: var(--ui-signal);
+  background: var(--ui-signal-dark);
+  color: #fff;
+}
+
+.title-icon-button__glyph {
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+
+.title-settings-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(4 5 4 / 0.84);
+}
+
+.title-settings-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  background: var(--panel-bg-strong);
+  box-shadow:
+    12px 14px 0 rgb(0 0 0 / 0.52),
+    inset 3px 0 0 var(--ui-signal-dark);
+  text-align: left;
+}
+
+.title-settings-dialog h2 {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.title-settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ui-edge);
+}
+
+.title-settings__label {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1 var(--ui-font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.title-settings__toggle {
+  min-width: 130px;
+}
+
+.title-settings__toggle[aria-pressed='true'] {
+  border-color: var(--ui-signal);
+  background: var(--ui-signal-dark);
+  color: var(--ui-text);
+}
+
+.title-settings__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.title-settings__actions button {
   min-width: 150px;
 }
 
@@ -906,48 +1089,6 @@ button:disabled {
 .btn-hero.btn-hero-fight:hover {
   background: #623828;
   border-color: var(--ui-edge);
-}
-
-.run-launch {
-  display: flex;
-  min-width: 0;
-  align-items: stretch;
-  gap: 4px;
-}
-
-.map-picker {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  border: 1px solid var(--ui-edge);
-  background: var(--ui-surface-2);
-  box-shadow: inset 0 -3px 0 var(--ui-black);
-}
-
-.map-picker__label {
-  padding-left: 8px;
-  color: var(--ui-text-muted);
-  font: var(--ui-text-10)/1 var(--ui-font-body);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.map-picker__select {
-  width: clamp(140px, 18vw, 250px);
-  min-width: 0;
-  height: 100%;
-  overflow: hidden;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--ui-text);
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.map-picker__select:disabled {
-  cursor: not-allowed;
 }
 
 .cat-title {
@@ -2619,18 +2760,6 @@ button:disabled {
     margin-left: 0;
   }
 
-  .run-launch {
-    flex: 0 0 auto;
-  }
-
-  .map-picker {
-    flex: 0 0 auto;
-  }
-
-  .map-picker__select {
-    width: min(58vw, 240px);
-  }
-
   .garage-dock {
     top: 112px;
     bottom: 70px;
@@ -3943,9 +4072,36 @@ button:disabled {
     font-size: var(--ui-text-16);
   }
 
-  .title-leaderboard-overlay {
+  .title-maps {
+    margin-bottom: 14px;
+  }
+
+  .title-map {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+    padding: 8px 10px;
+  }
+
+  .title-utility-rail {
+    /* The panel scrolls on a short screen, so the rail rides with the page
+       instead of pinning over the actions the player is reaching for. */
+    position: static;
+    justify-content: center;
+    margin: 12px auto 0;
+  }
+
+  .title-leaderboard-overlay,
+  .title-settings-overlay {
     position: fixed;
     padding: 8px;
+  }
+
+  .title-settings-dialog {
+    padding: 18px;
+  }
+
+  .title-settings__actions button {
+    width: 100%;
   }
 
   .title-leaderboard-dialog {
@@ -4021,10 +4177,6 @@ button:disabled {
 
   .survival-earned {
     padding-top: 7px;
-  }
-
-  .survival-score {
-    grid-column: 1 / -1;
   }
 
   .survival-gameover {

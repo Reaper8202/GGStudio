@@ -362,7 +362,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Turret',
     category: 'weapon',
     description:
-      'Rotating weapon turret. Point and click: the mount swings to your cursor and fires wherever you aim.',
+      'Rotating weapon turret. It hunts and shoots zombies in range on its ' +
+      'own; click to pull it onto your cursor instead.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -373,9 +374,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     reinforcement: 1,
     weapon: {
       mountType: 'turret',
-      // Player-aimed: the mount tracks the cursor and shoots exactly where it
-      // points, so hitting anything is on the player rather than on a lock-on.
-      aimMode: 'manual',
+      // Self-acquiring, like every gun on the rig: it works the horde without
+      // input, and a click overrides it onto the player's cursor point.
+      aimMode: 'auto',
       arcDeg: 360,
       damageType: 'hitscan',
       damage: 3,
@@ -410,8 +411,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Heavy Cannon',
     category: 'weapon',
     description:
-      'Slow, devastating cannon. Point and click: the shell detonates where it ' +
-      'lands and shreds everything caught in the blast.',
+      'Slow, devastating cannon. It shells zombies in range on its own; click ' +
+      'to aim it where you want the blast instead.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -423,9 +424,10 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     reinforcement: 1.25,
     weapon: {
       mountType: 'turret',
-      // Player-aimed like the Zombie Blaster, but every shell is an explosion:
-      // the direct hit is only part of the damage, and a near miss still kills.
-      aimMode: 'manual',
+      // Self-acquiring like the Zombie Blaster, but every shell is an
+      // explosion: the direct hit is only part of the damage, and a near miss
+      // still kills. Its slow fire rate is what keeps that in check.
+      aimMode: 'auto',
       arcDeg: 360,
       damageType: 'projectile',
       damage: 40,

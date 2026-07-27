@@ -65,6 +65,8 @@ for (let p = -fenceSpan; p <= fenceSpan; p += 2) {
   );
 }
 
+// The gate pillars are scenery only: no collider, so a rig running the road
+// drives through them rather than catching an edge on the way in.
 const gate: readonly FixturePlacement[] = [
   {
     asset: 'SM-8-Pillar',
@@ -72,8 +74,6 @@ const gate: readonly FixturePlacement[] = [
     z: -30.5,
     rotation: Math.PI / 2,
     scale: 1.3,
-    collider: 'box',
-    colliderSize: [0.65, 1.6, 0.65],
   },
   {
     asset: 'SM-8-Pillar',
@@ -81,8 +81,6 @@ const gate: readonly FixturePlacement[] = [
     z: -30.5,
     rotation: -Math.PI / 2,
     scale: 1.3,
-    collider: 'box',
-    colliderSize: [0.65, 1.6, 0.65],
   },
 ];
 
@@ -371,6 +369,7 @@ const layout: GraveyardLayout = {
 export const GRAVEYARD: BiomeDefinition = {
   id: 'graveyard',
   name: 'Graveyard',
+  difficulty: 'easy',
   blurb: 'Build the last ride out of the graveyard.',
   layout,
   look: {

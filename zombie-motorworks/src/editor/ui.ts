@@ -1,10 +1,5 @@
 /** Garage DOM UI: store, inventory, vehicle stats, and selected-part inspector. */
 
-import type {
-  BiomeDefinition,
-  BiomeId,
-  EnvironmentModifiers,
-} from '../core/biomes.ts';
 import {
   HOTBAR_CAPACITY,
   resolveHotbar,
@@ -24,10 +19,6 @@ import {
   TURRET_MODULE_MAX_LEVEL,
   type TurretModule,
 } from '../core/turretModules.ts';
-import {
-  BIOMES,
-  getBiome,
-} from '../survival/arena/recipes/index.ts';
 
 export interface EditorUIHandlers {
   /** Atomic production store action; old harnesses may omit this callback. */
@@ -48,7 +39,6 @@ export interface EditorUIHandlers {
   onLayerChange(layer: number): void;
   onTestDrive(): void;
   onFightZombies(): void;
-  onBiomeSelected(biomeId: BiomeId): void;
   onStartTutorial(): void;
   onConfigChange(partId: string, key: string, value: boolean | string): void;
   /** A box in the garage ability planner was clicked: load the next ability. */
@@ -204,67 +194,6 @@ export interface EditorUI {
   setNotice(text: string): void;
   deny(text: string): void;
   ghostTip: HTMLDivElement;
-}
-
-export interface EditorUIOptions {
-  selectedBiomeId: BiomeId;
-  biomeSelectionLocked?: boolean;
-}
-
-function modifierSummary(
-  value: number,
-  lowerLabel: string,
-  higherLabel: string,
-): string | null {
-  const percent = Math.round(Math.abs(value - 1) * 100);
-  if (percent === 0) return null;
-  return `${percent}% ${value < 1 ? lowerLabel : higherLabel}`;
-}
-
-/** Plain-language handling copy derived directly from recipe multipliers. */
-export function biomeHandlingSummary(
-  biome: Pick<BiomeDefinition, 'drive'>,
-): string {
-  const drive: EnvironmentModifiers = biome.drive;
-  const effects = [
-    modifierSummary(
-      drive.gripLongMul,
-      'less braking grip',
-      'more braking grip',
-    ),
-    modifierSummary(
-      drive.gripLatMul,
-      'less cornering grip',
-      'more cornering grip',
-    ),
-    modifierSummary(
-      drive.rollingResistanceMul,
-      'less rolling resistance',
-      'more rolling resistance',
-    ),
-    modifierSummary(drive.dragMul, 'less drag', 'more drag'),
-    modifierSummary(
-      drive.engineOutputMul,
-      'less engine power',
-      'more engine power',
-    ),
-    modifierSummary(
-      drive.fuelBurnMul,
-      'less fuel burn',
-      'more fuel burn',
-    ),
-    modifierSummary(
-      drive.stabilityAssistMul,
-      'less stability assist',
-      'more stability assist',
-    ),
-    modifierSummary(
-      drive.topSpeedMul,
-      'lower top speed',
-      'higher top speed',
-    ),
-  ].filter((effect): effect is string => effect !== null);
-  return effects.length === 0 ? 'Standard handling' : effects.join(' · ');
 }
 
 interface CollapsiblePanel {
@@ -504,7 +433,6 @@ export function buildEditorUI(
   container: HTMLElement,
   catalog: Record<string, PartDefinition>,
   handlers: EditorUIHandlers,
-  options: EditorUIOptions,
 ): EditorUI {
   const root = document.createElement('div');
   root.className = 'ui-layer garage-ui';
@@ -705,46 +633,11 @@ export function buildEditorUI(
   testBtn.className = 'primary btn-hero btn-hero-first';
   const fightBtn = btn('Fight Zombies', handlers.onFightZombies);
   fightBtn.className = 'primary btn-hero btn-hero-fight';
-  const runLaunch = document.createElement('div');
-  runLaunch.className = 'run-launch';
-  const mapPicker = document.createElement('label');
-  mapPicker.className = 'map-picker';
-  const mapLabel = document.createElement('span');
-  mapLabel.className = 'map-picker__label';
-  mapLabel.textContent = 'Map';
-  const mapSelect = document.createElement('select');
-  mapSelect.className = 'map-picker__select';
-  mapSelect.setAttribute('aria-label', 'Survival map');
-  for (const biome of Object.values(BIOMES)) {
-    const option = document.createElement('option');
-    option.value = biome.id;
-    option.textContent =
-      `${biome.name} — ${biome.blurb} ` +
-      `Handling: ${biomeHandlingSummary(biome)}.`;
-    mapSelect.appendChild(option);
-  }
-  mapSelect.value = options.selectedBiomeId;
-  mapSelect.disabled = options.biomeSelectionLocked === true;
-  const updateMapTitle = (): void => {
-    const biome = getBiome(mapSelect.value as BiomeId);
-    mapPicker.title = options.biomeSelectionLocked
-      ? `${biome.name} is fixed for this run`
-      : `${biome.blurb} Handling: ${biomeHandlingSummary(biome)}.`;
-  };
-  mapSelect.addEventListener('change', () => {
-    const biome = getBiome(mapSelect.value as BiomeId);
-    mapSelect.value = biome.id;
-    updateMapTitle();
-    handlers.onBiomeSelected(biome.id);
-  });
-  updateMapTitle();
-  mapPicker.append(mapLabel, mapSelect);
-  runLaunch.append(mapPicker, fightBtn);
   const moneyReadout = document.createElement('span');
   moneyReadout.className = 'panel money-readout';
   moneyReadout.textContent = '$0';
   moneyReadout.addEventListener('animationend', () => moneyReadout.classList.remove('deny-shake'));
-  top.append(testBtn, runLaunch, moneyReadout);
+  top.append(testBtn, fightBtn, moneyReadout);
 
   const runBanner = document.createElement('div');
   runBanner.className = 'panel run-banner';

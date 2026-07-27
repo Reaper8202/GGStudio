@@ -18,7 +18,12 @@ import {
   type AbilityCandidate,
   type AbilitySlotAssignment,
 } from '../core/abilities.ts';
-import { evaluateWaveBadges, type WaveResultStats } from '../core/badges.ts';
+import {
+  badgeAwards,
+  badgeBonusTotal,
+  evaluateWaveBadges,
+  type WaveResultStats,
+} from '../core/badges.ts';
 import {
   combineEnvironments,
   hazardEnvironment,
@@ -335,7 +340,6 @@ interface SurvivalUi {
   fuelValue: HTMLSpanElement;
   fuelFill: HTMLSpanElement;
   waveTimeline: WaveTimelineHud;
-  scoreValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
   pendingMoneyValue: HTMLSpanElement;
   stuckPrompt: HTMLDivElement;
@@ -411,8 +415,8 @@ export class SurvivalMode {
   private readonly aimRaycaster = new THREE.Raycaster();
   /**
    * Cursor unprojection plane. Sat at zombie centre height rather than on the
-   * ground: manual turrets now shoot at this exact point, and the player aims
-   * at a zombie's body, not at the patch of dirt behind its feet.
+   * ground: an overriding player's guns shoot at this exact point, and the
+   * player aims at a zombie's body, not at the dirt behind its feet.
    */
   private readonly aimPlane = new THREE.Plane(
     new THREE.Vector3(0, 1, 0),
@@ -458,7 +462,6 @@ export class SurvivalMode {
   private shieldBubblePhase = 0;
   private readonly waveTimelineHud: WaveTimelineHud;
   private waveTimeline: WaveTimeline | null = null;
-  private readonly scoreValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
   private readonly pendingMoneyValue: HTMLSpanElement;
   private readonly stuckPrompt: HTMLDivElement;
@@ -505,6 +508,7 @@ export class SurvivalMode {
   private pendingWaveReward = 0;
   private waveStartKills = 0;
   private waveMoneyEarned = 0;
+  private waveBadgeBonusEarned = 0;
   private waveElapsedSeconds = 0;
   private waveStartIntegrityPct = 100;
   private cleanWaveStreak = 0;
@@ -584,6 +588,7 @@ export class SurvivalMode {
     this.keys.clear();
     this.pointerFiring = false;
     this.controls.fire = false;
+    this.controls.manualAim = false;
   };
 
   constructor(
@@ -657,7 +662,6 @@ export class SurvivalMode {
     this.fuelValue = builtUi.fuelValue;
     this.fuelFill = builtUi.fuelFill;
     this.waveTimelineHud = builtUi.waveTimeline;
-    this.scoreValue = builtUi.scoreValue;
     this.moneyValue = builtUi.moneyValue;
     this.pendingMoneyValue = builtUi.pendingMoneyValue;
     this.stuckPrompt = builtUi.stuckPrompt;
@@ -901,13 +905,8 @@ export class SurvivalMode {
     pendingMoneyLabel.textContent = 'Pending';
     const pendingMoneyValue = document.createElement('span');
     pendingMoneyRow.append(pendingMoneyLabel, pendingMoneyValue);
-    const scoreRow = document.createElement('div');
-    scoreRow.className = 'survival-earned survival-score';
-    const scoreLabel = document.createElement('span');
-    scoreLabel.textContent = 'Score';
-    const scoreValue = document.createElement('span');
-    scoreRow.append(scoreLabel, scoreValue);
-    hud.append(speedRow, health, fuel, scoreRow, moneyRow, pendingMoneyRow);
+    // Score lives in the wave strip up top, next to the wave it was earned on.
+    hud.append(speedRow, health, fuel, moneyRow, pendingMoneyRow);
     root.appendChild(hud);
 
     const stuckPrompt = document.createElement('div');
@@ -1129,7 +1128,6 @@ export class SurvivalMode {
       fuelValue,
       fuelFill,
       waveTimeline,
-      scoreValue,
       moneyValue,
       pendingMoneyValue,
       stuckPrompt,
@@ -1161,6 +1159,7 @@ export class SurvivalMode {
     this.keys.clear();
     this.pointerFiring = false;
     this.controls.fire = false;
+    this.controls.manualAim = false;
     this.accumulator = 0;
     this.lastTime = performance.now();
   }
@@ -1315,7 +1314,8 @@ export class SurvivalMode {
       this.aimPoint.x - position.x,
       this.aimPoint.z - position.z,
     );
-    // Manual turrets fire at this point, so the barrel and the shot agree.
+    // Every turret fires at this point while the override is held, so the
+    // barrel and the shot agree with the reticle.
     this.controls.aimPoint = this.aimPoint;
   };
 
@@ -1595,6 +1595,7 @@ export class SurvivalMode {
       this.controls.brake = 1;
       this.controls.steer = 0;
       this.controls.fire = false;
+      this.controls.manualAim = false;
       return;
     }
 
@@ -1615,6 +1616,11 @@ export class SurvivalMode {
       (this.keys.has('a') || this.keys.has('arrowleft') ? -1 : 0) +
       (this.keys.has('d') || this.keys.has('arrowright') ? 1 : 0);
     this.controls.fire = this.keys.has('f') || this.pointerFiring;
+    // Guns hunt on their own; holding fire takes them off their own targets
+    // and puts every one of them on the cursor. It needs a sampled cursor
+    // point to aim at, so before the first pointer move the guns keep hunting.
+    this.controls.manualAim =
+      this.controls.fire && this.controls.aimPoint !== undefined;
   }
 
   private attachNewIslands(
@@ -1699,6 +1705,7 @@ export class SurvivalMode {
   private resetWaveStats(): void {
     this.waveStartKills = this.kills;
     this.waveMoneyEarned = 0;
+    this.waveBadgeBonusEarned = 0;
     this.waveElapsedSeconds = 0;
     this.waveStartIntegrityPct = this.vehicle.integrityPct();
     // A fresh wave starts on clean ground rather than inheriting the last
@@ -1785,6 +1792,16 @@ export class SurvivalMode {
     }
   }
 
+  /** Pays the cleared wave's badge cash on top of the banked payout. */
+  private creditBadgeBonus(bonus: number): void {
+    this.waveBadgeBonusEarned = 0;
+    if (!Number.isSafeInteger(bonus) || bonus <= 0) return;
+    const credited = this.callbacks.onReward(bonus);
+    if (!Number.isSafeInteger(credited) || credited <= 0) return;
+    this.waveBadgeBonusEarned = credited;
+    this.waveMoneyEarned += credited;
+  }
+
   private currentRunState(): RunState {
     return { wave: this.currentWave };
   }
@@ -1850,13 +1867,20 @@ export class SurvivalMode {
       bestSecondsForWave,
       cleanWaveStreak: this.cleanWaveStreak,
     };
+    // Badges are judged on the payout the wave itself produced, so the bonus
+    // below can never feed back into BIG PAYDAY and pay for itself.
     const earned = evaluateWaveBadges(stats);
     const newBadgeIds = this.debugProgressionSuppressed
       ? []
       : badgeStore.record(earned.map((badge) => badge.id)).newlyEarned;
+    // Cut from the banked payout, which is still bonus-free at this point.
+    const awards = badgeAwards(earned, this.waveMoneyEarned);
+    // Credit before quoting repairs so the bonus counts toward affording one.
+    this.creditBadgeBonus(badgeBonusTotal(awards));
     const view: WaveClearCardView = {
       wave: this.currentWave,
       moneyEarned: this.waveMoneyEarned,
+      badgeBonus: this.waveBadgeBonusEarned,
       runMoneyTotal: this.callbacks.runEarnings(),
       kills: killsThisWave,
       elapsedSeconds: this.waveElapsedSeconds,
@@ -1865,7 +1889,7 @@ export class SurvivalMode {
         zombieCompositionForWave(nextWave),
       ),
       warnings,
-      badges: earned,
+      badges: awards,
       newBadgeIds,
       repair: this.repairQuote(),
     };
@@ -1879,6 +1903,7 @@ export class SurvivalMode {
     this.controls.brake = 1;
     this.controls.steer = 0;
     this.controls.fire = false;
+    this.controls.manualAim = false;
     this.pointerFiring = false;
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
@@ -2478,7 +2503,7 @@ export class SurvivalMode {
     this.syncAbilityHud();
     if (this.runScore !== this.lastHudScore) {
       this.lastHudScore = this.runScore;
-      this.scoreValue.textContent = this.runScore.toLocaleString();
+      this.waveTimelineHud.setScore(this.runScore);
     }
     const money = this.callbacks.runEarnings();
     if (money !== this.lastHudMoney) {

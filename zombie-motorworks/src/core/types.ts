@@ -117,7 +117,11 @@ export type DamageType = 'projectile' | 'hitscan' | 'aoe';
 
 export interface WeaponDefinition {
   mountType: WeaponMountType;
-  /** Auto weapons acquire targets; manual weapons follow player aim input. */
+  /**
+   * Auto weapons acquire their own targets in range; manual weapons only ever
+   * follow the player's aim input. Either way a held trigger overrides every
+   * weapon onto the player's cursor point.
+   */
   aimMode: 'auto' | 'manual';
   /** Horizontal firing arc in degrees (centered on part forward; 360 for turrets). */
   arcDeg: number;

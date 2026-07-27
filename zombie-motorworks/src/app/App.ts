@@ -282,7 +282,8 @@ export class App {
   private inBuildPhase = false;
   private runMoneyEarned = 0;
   private runSummary: RunSummary | undefined;
-  private preferredBiomeId: BiomeId = DEFAULT_BIOME_ID;
+  /** Map the next run starts on. Chosen on the title screen, kept in the Profile. */
+  private preferredBiomeId: BiomeId;
   private readonly committedDestroyedPartNames: string[] = [];
   private profileDirty = false;
   private profileFlushTimer: number | undefined;
@@ -295,6 +296,7 @@ export class App {
     // keeps title-screen availability independent of that implementation detail.
     this.saveExistedAtBoot = this.hasStoredSave();
     this.profile = profileStore.load();
+    this.preferredBiomeId = this.profile.preferredBiomeId ?? DEFAULT_BIOME_ID;
     this.history = new CommandHistory((moneyDelta) =>
       this.changeMoney(moneyDelta, true),
     );
@@ -375,7 +377,8 @@ export class App {
       score: savedRun.score,
       bankedEarnings: savedRun.bankedEarnings,
     };
-    this.preferredBiomeId = savedRun.biomeId;
+    // The resumed run keeps the map on its checkpoint; the title-screen pick
+    // stays untouched so it still describes the player's next new run.
     this.activeRun = { wave: savedRun.wave };
     this.inBuildPhase = false;
     this.enterSurvival(this.bp, runStateFromCheckpoint(this.checkpoint));
@@ -393,18 +396,13 @@ export class App {
       this.renderer,
       this.bp,
       (bp) => this.enterChamber(bp),
-      (bp, biomeId) => this.startOrResumeRun(bp, biomeId),
+      (bp) => this.startOrResumeRun(bp),
       {
         history: this.history,
         view: this.savedView,
         profile: this.profile,
         persistProfile: () => this.saveProfileOrThrow(),
         onMenu: () => this.returnToTitle(),
-        selectedBiomeId: this.checkpoint?.biomeId ?? this.preferredBiomeId,
-        biomeSelectionLocked: this.checkpoint !== null,
-        onBiomeSelected: (biomeId) => {
-          if (this.checkpoint === null) this.preferredBiomeId = biomeId;
-        },
         runContext:
           this.activeRun && this.inBuildPhase ? this.activeRun : undefined,
         runRepair:
@@ -434,9 +432,18 @@ export class App {
         onNewGame: () => this.beginNewGame(),
         onContinue: () => this.beginContinueGame(),
         onResumeRun: () => this.resumeSavedRun(),
+        onBiomeSelected: (biomeId) => this.selectPreferredBiome(biomeId),
       },
       runSaveStore.load(),
+      this.preferredBiomeId,
     );
+  }
+
+  /** Remember the title-screen map pick for the next run and future sessions. */
+  private selectPreferredBiome(biomeId: BiomeId): void {
+    this.preferredBiomeId = biomeId;
+    this.profile.preferredBiomeId = biomeId;
+    this.markProfileDirty();
   }
 
   private returnToTitle(): void {
@@ -534,14 +541,11 @@ export class App {
     this.chamber.resize(this.root.clientWidth, this.root.clientHeight);
   }
 
-  private startOrResumeRun(
-    bp: VehicleBlueprint,
-    biomeId: BiomeId = this.preferredBiomeId,
-  ): void {
+  private startOrResumeRun(bp: VehicleBlueprint): void {
     if (this.checkpoint !== null) {
       this.resumeRun(bp);
     } else {
-      this.startRun(bp, biomeId);
+      this.startRun(bp, this.preferredBiomeId);
     }
   }
 
@@ -550,7 +554,6 @@ export class App {
     this.runMoneyEarned = 0;
     this.runSummary = undefined;
     this.committedDestroyedPartNames.length = 0;
-    this.preferredBiomeId = biomeId;
     this.checkpoint = createInitialRunCheckpoint(bp, biomeId);
     this.activeRun = { wave: this.checkpoint.wave };
     this.inBuildPhase = false;
@@ -989,7 +992,8 @@ export class App {
             : this.chamber
               ? 'chamber'
               : 'editor',
-      newGame: () => this.title?.requestNewGame() ?? false,
+      // Skips the map chooser and starts on the remembered map.
+      newGame: () => this.title?.startNewGame() ?? false,
       continueGame: () => this.title?.continueGame() ?? false,
       hasStoredRun: () => this.hasStoredRun(),
       saveAndQuitRun: () => this.saveAndQuitRun(),
@@ -1024,7 +1028,7 @@ export class App {
         if (!bp) return false;
         const v = validateBlueprint(bp, getPartDef);
         if (v.errors.length > 0) return false;
-        this.startOrResumeRun(bp, this.preferredBiomeId);
+        this.startOrResumeRun(bp);
         return true;
       },
       backToEditor: () => {

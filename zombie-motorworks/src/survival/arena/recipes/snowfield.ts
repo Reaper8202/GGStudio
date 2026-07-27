@@ -88,6 +88,7 @@ const layout: SnowfieldLayout = {
 export const SNOWFIELD: BiomeDefinition = {
   id: 'snowfield',
   name: 'Snowfield',
+  difficulty: 'hard',
   blurb: 'Snow and ice make the car drift and reduce its top speed.',
   layout,
   look: {

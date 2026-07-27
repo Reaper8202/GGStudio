@@ -1,6 +1,17 @@
 import type { SurfaceKind } from './surfaces.ts';
 
-export type BiomeId = 'graveyard' | 'snowfield' | 'desert';
+/** Every selectable biome, in the order menus present them. */
+export const BIOME_IDS = ['graveyard', 'snowfield', 'desert'] as const;
+
+export type BiomeId = (typeof BIOME_IDS)[number];
+
+/** How rough a map is on the player, ordered easy -> hard -> brutal. */
+export type BiomeDifficulty = 'easy' | 'hard' | 'brutal';
+
+/** Narrows persisted or user-supplied values before they reach a recipe lookup. */
+export function isBiomeId(value: unknown): value is BiomeId {
+  return (BIOME_IDS as readonly unknown[]).includes(value);
+}
 
 /**
  * Multipliers a biome applies on top of the per-surface tire model. Every field
@@ -148,10 +159,63 @@ export interface BiomeDefinition {
   id: BiomeId;
   name: string;
   blurb: string;
+  difficulty: BiomeDifficulty;
   layout: BiomeLayout;
   look: BiomeLook;
   drive: EnvironmentModifiers;
   hazard: BiomeHazardSpec;
+}
+
+function modifierSummary(
+  value: number,
+  lowerLabel: string,
+  higherLabel: string,
+): string | null {
+  const percent = Math.round(Math.abs(value - 1) * 100);
+  if (percent === 0) return null;
+  return `${percent}% ${value < 1 ? lowerLabel : higherLabel}`;
+}
+
+/** Plain-language handling copy derived directly from recipe multipliers. */
+export function biomeHandlingSummary(
+  biome: Pick<BiomeDefinition, 'drive'>,
+): string {
+  const drive: EnvironmentModifiers = biome.drive;
+  const effects = [
+    modifierSummary(
+      drive.gripLongMul,
+      'less braking grip',
+      'more braking grip',
+    ),
+    modifierSummary(
+      drive.gripLatMul,
+      'less cornering grip',
+      'more cornering grip',
+    ),
+    modifierSummary(
+      drive.rollingResistanceMul,
+      'less rolling resistance',
+      'more rolling resistance',
+    ),
+    modifierSummary(drive.dragMul, 'less drag', 'more drag'),
+    modifierSummary(
+      drive.engineOutputMul,
+      'less engine power',
+      'more engine power',
+    ),
+    modifierSummary(drive.fuelBurnMul, 'less fuel burn', 'more fuel burn'),
+    modifierSummary(
+      drive.stabilityAssistMul,
+      'less stability assist',
+      'more stability assist',
+    ),
+    modifierSummary(
+      drive.topSpeedMul,
+      'lower top speed',
+      'higher top speed',
+    ),
+  ].filter((effect): effect is string => effect !== null);
+  return effects.length === 0 ? 'Standard handling' : effects.join(' · ');
 }
 
 /** 0 at and below startWave, 1 at and above fullWave, smooth in between. */

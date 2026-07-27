@@ -1,4 +1,4 @@
-import type { BiomeId } from './biomes.ts';
+import { isBiomeId, type BiomeId } from './biomes.ts';
 import { randomSeed } from './rng.ts';
 import { deserializeBlueprint } from './serialize.ts';
 import type { VehicleBlueprint } from './types.ts';
@@ -74,11 +74,7 @@ function normalizeShape(value: unknown): RawSavedRun | null {
 const DEFAULT_BIOME_ID: BiomeId = 'graveyard';
 
 function normalizeBiomeId(value: unknown): BiomeId {
-  return value === 'graveyard' ||
-    value === 'snowfield' ||
-    value === 'desert'
-    ? value
-    : DEFAULT_BIOME_ID;
+  return isBiomeId(value) ? value : DEFAULT_BIOME_ID;
 }
 
 /** Returns null rather than allowing malformed persisted data to escape. */

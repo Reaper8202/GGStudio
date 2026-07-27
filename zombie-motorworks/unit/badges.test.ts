@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   BADGES,
+  BADGE_TIER_BONUS_PCT,
+  badgeAwards,
+  badgeBonus,
+  badgeBonusTotal,
   evaluateWaveBadges,
   getBadge,
+  type BadgeDefinition,
   type WaveResultStats,
 } from '../src/core/badges.ts';
 
@@ -164,5 +169,51 @@ describe('badge definitions', () => {
       expect.objectContaining({ name: 'FASTEST CLEAR', icon: '⚡' }),
     );
     expect(getBadge('unknown')).toBeUndefined();
+  });
+});
+
+describe('badge payouts', () => {
+  function badge(id: string): BadgeDefinition {
+    const found = getBadge(id);
+    if (found === undefined) throw new Error(`missing badge ${id}`);
+    return found;
+  }
+
+  it('pays each tier its share of the wave payout', () => {
+    expect(badgeBonus(badge('overkill'), 400)).toBe(40);
+    expect(badgeBonus(badge('deep-run'), 400)).toBe(100);
+    expect(badgeBonus(badge('untouched'), 400)).toBe(132);
+  });
+
+  it('rises with the payout it is cut from', () => {
+    expect(BADGE_TIER_BONUS_PCT.common).toBeLessThan(BADGE_TIER_BONUS_PCT.rare);
+    expect(BADGE_TIER_BONUS_PCT.rare).toBeLessThan(BADGE_TIER_BONUS_PCT.epic);
+    expect(badgeBonus(badge('untouched'), 1000)).toBeGreaterThan(
+      badgeBonus(badge('untouched'), 400),
+    );
+  });
+
+  it('pays whole dollars, and nothing on a payout it cannot cut', () => {
+    for (const payout of [Number.NaN, Number.POSITIVE_INFINITY, 0, -500, 2]) {
+      for (const definition of BADGES) {
+        const bonus = badgeBonus(definition, payout);
+        expect(Number.isSafeInteger(bonus)).toBe(true);
+        expect(bonus).toBeGreaterThanOrEqual(0);
+      }
+    }
+    expect(badgeBonus(badge('overkill'), 0)).toBe(0);
+    expect(badgeBonus(badge('overkill'), Number.NaN)).toBe(0);
+  });
+
+  it('totals the awards it pairs with the earned badges', () => {
+    const earned = [badge('overkill'), badge('deep-run')];
+    const awards = badgeAwards(earned, 300);
+
+    expect(awards.map((award) => award.badge.id)).toEqual([
+      'overkill',
+      'deep-run',
+    ]);
+    expect(badgeBonusTotal(awards)).toBe(awards[0].bonus + awards[1].bonus);
+    expect(badgeBonusTotal([])).toBe(0);
   });
 });

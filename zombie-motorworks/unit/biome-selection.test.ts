@@ -5,11 +5,19 @@ import {
   savedRunFromCheckpoint,
 } from '../src/app/App.ts';
 import { createEmptyBlueprint } from '../src/core/blueprint.ts';
-import type { BiomeId } from '../src/core/biomes.ts';
 import {
-  decodeSavedRun,
-  encodeSavedRun,
-} from '../src/core/runSave.ts';
+  BIOME_IDS,
+  biomeHandlingSummary,
+  isBiomeId,
+  NEUTRAL_ENVIRONMENT,
+  type BiomeId,
+} from '../src/core/biomes.ts';
+import {
+  decodeProfile,
+  defaultProfile,
+  encodeProfile,
+} from '../src/core/profile.ts';
+import { decodeSavedRun, encodeSavedRun } from '../src/core/runSave.ts';
 import {
   BIOMES,
   DEFAULT_BIOME_ID,
@@ -28,9 +36,7 @@ describe('biome selection', () => {
         checkpoint = createClearedWaveCheckpoint({
           blueprint: checkpoint.blueprint,
           nextWave,
-          survivingPartIds: checkpoint.blueprint.parts.map(
-            (part) => part.id,
-          ),
+          survivingPartIds: checkpoint.blueprint.parts.map((part) => part.id),
           partHp: checkpoint.partHp,
           kills: nextWave * 3,
           biomeId: checkpoint.biomeId,
@@ -102,8 +108,7 @@ describe('biome selection', () => {
       decodeSavedRun(JSON.stringify({ ...saved, biomeId: 'bogus' })),
     ).not.toThrow();
     expect(
-      decodeSavedRun(JSON.stringify({ ...saved, biomeId: 'bogus' }))
-        ?.biomeId,
+      decodeSavedRun(JSON.stringify({ ...saved, biomeId: 'bogus' }))?.biomeId,
     ).toBe(DEFAULT_BIOME_ID);
   });
 
@@ -121,5 +126,61 @@ describe('biome selection', () => {
     const decoded = decodeSavedRun(JSON.stringify({ ...saved, seed }));
 
     expect(Number.isFinite(decoded?.seed)).toBe(true);
+  });
+});
+
+describe('title-screen map preference', () => {
+  it('keeps the picked map across a profile save and load', () => {
+    const profile = {
+      ...defaultProfile(),
+      preferredBiomeId: 'desert' as const,
+    };
+
+    expect(decodeProfile(encodeProfile(profile)).preferredBiomeId).toBe(
+      'desert',
+    );
+  });
+
+  it('drops a corrupt map instead of carrying it into a run', () => {
+    const stored = JSON.stringify({
+      ...JSON.parse(encodeProfile(defaultProfile())),
+      preferredBiomeId: 'atlantis',
+    });
+
+    expect(decodeProfile(stored).preferredBiomeId).toBeUndefined();
+  });
+
+  it('leaves a profile that never picked a map without one', () => {
+    expect(
+      decodeProfile(encodeProfile(defaultProfile())).preferredBiomeId,
+    ).toBeUndefined();
+  });
+
+  it('offers exactly the biomes the recipes define', () => {
+    expect([...BIOME_IDS].sort()).toEqual(Object.keys(BIOMES).sort());
+    expect(BIOME_IDS.every(isBiomeId)).toBe(true);
+    expect(isBiomeId('atlantis')).toBe(false);
+  });
+});
+
+describe('map card handling copy', () => {
+  it('calls an unmodified biome standard rather than listing nothing', () => {
+    expect(biomeHandlingSummary({ drive: NEUTRAL_ENVIRONMENT })).toBe(
+      'Standard handling',
+    );
+  });
+
+  it('names every multiplier a biome changes, and no others', () => {
+    const summary = biomeHandlingSummary(BIOMES.snowfield);
+
+    expect(summary).toContain('55% less stability assist');
+    expect(summary).toContain('5% lower top speed');
+    expect(summary).not.toContain('fuel burn');
+  });
+
+  it('describes each shipped biome without leaving a card blank', () => {
+    for (const id of BIOME_IDS) {
+      expect(biomeHandlingSummary(BIOMES[id]).length).toBeGreaterThan(0);
+    }
   });
 });

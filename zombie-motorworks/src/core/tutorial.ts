@@ -75,12 +75,12 @@ export const KID_LABELS: Record<string, PartLabel> = {
   },
   turret: {
     name: 'Zombie Blaster',
-    blurb: 'Aim with your mouse and click to blast zombies!',
+    blurb: 'Blasts zombies all by itself — click to aim it where you want!',
   },
   'armour-plate': { name: 'Armour Plate', blurb: 'Adds a tough layer of protection!' },
   'cannon-heavy': {
     name: 'Heavy Cannon',
-    blurb: 'Click to lob a shell — it explodes and wipes out the whole crowd!',
+    blurb: 'Lobs shells that explode and wipe out the whole crowd — click to pick the spot!',
   },
   'ice-cannon': {
     name: 'Ice Cannon',

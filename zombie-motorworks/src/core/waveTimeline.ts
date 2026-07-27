@@ -37,21 +37,22 @@ export const THREAT_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'phone-addict': 'Phone Addicts (shielded)',
 });
 
-export type WaveMarkerKind =
-  'cleared' | 'current' | 'wave' | 'milestone' | 'boss';
+export type WaveIconKind = 'zombie' | 'threat' | 'boss';
 
 /**
- * Which marker a wave tile draws. Pure — no DOM, no emoji.
+ * Which icon a wave shows. Pure — no DOM, no emoji.
+ *
+ * This is identity only: whether a wave is cleared, running, or ahead is
+ * carried by `node.state`, so a boss wave keeps its skull once it is behind
+ * the player instead of collapsing into a generic "cleared" marker.
  *
  * Phone Addicts are the heaviest known specialist, so their introduction is
- * shown as the boss marker ahead of ordinary specialist milestones.
+ * the boss icon, ranked ahead of ordinary specialist introductions.
  */
-export function waveMarker(node: TimelineNode): WaveMarkerKind {
-  if (node.state === 'past') return 'cleared';
-  if (node.state === 'current') return 'current';
+export function waveIcon(node: TimelineNode): WaveIconKind {
   if (node.threats.includes('phone-addict')) return 'boss';
-  if (node.isMilestone) return 'milestone';
-  return 'wave';
+  if (node.isMilestone) return 'threat';
+  return 'zombie';
 }
 
 function normalizeWave(value: number): number {

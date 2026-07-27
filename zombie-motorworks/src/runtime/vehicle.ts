@@ -23,7 +23,7 @@ import type { AckermannGeometry, WheelTelemetry } from './wheels.ts';
 import { MIRROR_PLANE_X_M, computeAckermann, stepWheels } from './wheels.ts';
 import type { EngineOutput, GearboxState } from './drivetrain.ts';
 import { distributeTorque, engineStep, updateGearbox } from './drivetrain.ts';
-import type { RuntimeWeapon, TracerShot } from './weapons.ts';
+import type { RuntimeWeapon, TracerShot, WeaponAimInput } from './weapons.ts';
 import { createWeapon, overchargeWeapon, stepWeapons } from './weapons.ts';
 import {
   applyDirectDamage as damagePart,
@@ -46,12 +46,17 @@ export interface VehicleControls {
   fire: boolean;
   aimYawWorld: number; // rad
   /**
-   * World point the player is aiming at. Manual turrets pitch onto it so they
-   * shoot exactly where the cursor is, rather than firing flat along the yaw.
+   * World point the player is aiming at. Turrets pitch onto it so they shoot
+   * exactly where the cursor is, rather than firing flat along the yaw.
    */
   aimPoint?: Vec3;
+  /**
+   * True while the player is aiming at the world themselves. Every weapon then
+   * abandons the target auto-aim found for it and converges on `aimPoint`.
+   */
+  manualAim?: boolean;
   /** Per-placed-weapon overrides; absent entries retain the global aim/fire. */
-  weaponAim?: ReadonlyMap<string, { aimYawWorld: number; fire: boolean }>;
+  weaponAim?: ReadonlyMap<string, WeaponAimInput>;
 }
 
 export const AUTO_HOLD_SPEED = 1.5; // m/s
@@ -601,7 +606,11 @@ export class RuntimeVehicle {
       {
         fire: controls.fire,
         aimYawWorld: controls.aimYawWorld,
+        // Carried through so an overriding player aims in three dimensions:
+        // turrets pitch onto the cursor point instead of firing flat.
+        aimPoint: controls.aimPoint,
         weaponAim: controls.weaponAim,
+        manualOverride: controls.manualAim,
       },
       dt,
     );

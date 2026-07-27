@@ -114,6 +114,10 @@ helpers. `core` stays engine- and browser-independent.
 
 ### Run Start and Wave Clear
 
+- The map a run uses is chosen on the Title screen's New Game map screen, not in
+  the Garage. `App` holds that pick in the Profile and stamps it onto the wave-1
+  checkpoint; from there the checkpoint is the only authority, so an in-flight
+  run cannot change map.
 - `App.startRun` creates the wave-1 checkpoint with full effective HP.
 - `SurvivalMode` receives only the Blueprint plus checkpoint-derived Run State.
 - Zombie kills increment cumulative kills and pending wave reward. They do not
@@ -142,7 +146,7 @@ helpers. `core` stays engine- and browser-independent.
 
 | Storage key                                   | Codec/Adapter                                             | Current payload                                                                                               |
 | --------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `scraprig.profile.v1`                         | `src/core/profile.ts` / `src/app/profileStore.ts`         | Profile schema 1: money, unlocks, inventory, current blueprint name, highest cleared wave, Phone Addict kills |
+| `scraprig.profile.v1`                         | `src/core/profile.ts` / `src/app/profileStore.ts`         | Profile schema 1: money, unlocks, inventory, current blueprint name, preferred biome, highest cleared wave, Phone Addict kills |
 | `scraprig.blueprints.v1`                      | `src/core/serialize.ts` / `src/editor/EditorMode.ts`      | Named Blueprint slots; Blueprint schema 4 with migrations from schemas 1-3                                    |
 | `scraprig.run.v1`                             | `src/core/runSave.ts` / `src/app/runSaveStore.ts`         | Saved Run schema 2; decoder migrates valid schema-1 saves                                                     |
 | `scraprig.leaderboard.v1`                     | `src/core/leaderboard.ts` / `src/app/leaderboardStore.ts` | Top 10 completed runs ranked by score, wave, kills, then completion time                                      |

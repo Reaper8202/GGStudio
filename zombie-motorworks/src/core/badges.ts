@@ -88,6 +88,48 @@ export function getBadge(id: string): BadgeDefinition | undefined {
   return BADGES.find((badge) => badge.id === id);
 }
 
+/**
+ * Share of the wave's own payout paid for one badge, by tier. Cutting the
+ * bonus from the payout keeps it in step with the wave's difficulty without
+ * a second scaling curve to tune.
+ */
+export const BADGE_TIER_BONUS_PCT: Record<BadgeTier, number> = {
+  common: 0.1,
+  rare: 0.25,
+  epic: 0.33,
+};
+
+/** A badge plus the cash it pays on the wave that earned it. */
+export interface BadgeAward {
+  badge: BadgeDefinition;
+  /** Dollars added to the wave payout. Always a non-negative safe integer. */
+  bonus: number;
+}
+
+/** Bonus for one badge, as a cut of the wave's base payout. */
+export function badgeBonus(badge: BadgeDefinition, basePayout: number): number {
+  if (!Number.isFinite(basePayout) || basePayout <= 0) return 0;
+  const bonus = Math.round(basePayout * BADGE_TIER_BONUS_PCT[badge.tier]);
+  return Number.isSafeInteger(bonus) && bonus > 0 ? bonus : 0;
+}
+
+/** Pairs each badge with its cut of `basePayout`, in the given order. */
+export function badgeAwards(
+  badges: readonly BadgeDefinition[],
+  basePayout: number,
+): BadgeAward[] {
+  return badges.map((badge) => ({
+    badge,
+    bonus: badgeBonus(badge, basePayout),
+  }));
+}
+
+/** Total cash earned by a wave's badges. */
+export function badgeBonusTotal(awards: readonly BadgeAward[]): number {
+  const total = awards.reduce((sum, award) => sum + award.bonus, 0);
+  return Number.isSafeInteger(total) && total > 0 ? total : 0;
+}
+
 /** Everything the badge rules need to judge one cleared wave. */
 export interface WaveResultStats {
   wave: number;

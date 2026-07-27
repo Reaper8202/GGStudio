@@ -47,7 +47,7 @@ function explode(
 describe('Heavy Cannon shell', () => {
   it('carries a blast payload in the catalog', () => {
     const weapon = getPartDef('cannon-heavy').weapon!;
-    expect(weapon.aimMode).toBe('manual');
+    expect(weapon.aimMode).toBe('auto');
     expect(weapon.splashRadiusM).toBeGreaterThan(0);
     expect(weapon.splashDamage).toBeGreaterThan(0);
   });

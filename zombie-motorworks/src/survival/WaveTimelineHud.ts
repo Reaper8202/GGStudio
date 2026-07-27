@@ -1,423 +1,262 @@
 import './WaveTimelineHud.css';
 import {
   THREAT_LABELS,
-  waveMarker,
+  waveIcon,
   type TimelineNode,
   type TimelineNodeState,
-  type WaveMarkerKind,
+  type WaveIconKind,
   type WaveTimeline,
 } from '../core/waveTimeline.ts';
 
-const MAX_SEGMENT_COUNT = 40;
-const HUD_MAX_WIDTH = 470;
-const HUD_VIEWPORT_INSET = 16;
-const HUD_WIDE_HORIZONTAL_PADDING = 36;
-const HUD_NARROW_HORIZONTAL_PADDING = 28;
-const HUD_NARROW_BREAKPOINT = 420;
-const HUD_RAIL_INSET = 4;
-const MAX_TILE_SIZE = 62;
-const CURRENT_TILE_BOUNDING_SCALE = 1.17;
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
-const WAVE_MARKER_KINDS = [
-  'cleared',
-  'current',
-  'wave',
-  'milestone',
-  'boss',
-] as const;
-const WAVE_MARKER_CLASSES: Readonly<Record<WaveMarkerKind, string>> = {
-  cleared: 'wave-timeline__node--marker-cleared',
-  current: 'wave-timeline__node--marker-current',
-  wave: 'wave-timeline__node--marker-wave',
-  milestone: 'wave-timeline__node--marker-milestone',
-  boss: 'wave-timeline__node--marker-boss',
+
+/**
+ * One icon per wave: a zombie head for an ordinary wave, a hazard sign for the
+ * wave that introduces a new zombie type, a skull for a boss wave. Numbers are
+ * deliberately absent — the head reads "WAVE 7", and the rail only has to say
+ * what is coming, which a driver can take in without reading.
+ *
+ * All three are 9x9 pixel grids rather than curves so they match the blocky UI,
+ * and they are drawn as SVG — never emoji, which render per-platform.
+ */
+const WAVE_ART: Readonly<Record<WaveIconKind, readonly string[]>> = {
+  zombie: [
+    '.#######.',
+    '#########',
+    '#.#####.#',
+    '#.#####.#',
+    '#########',
+    '#.#.#.#.#',
+    '#########',
+    '.#######.',
+    '...###...',
+  ],
+  boss: [
+    '..#####..',
+    '.#######.',
+    '#########',
+    '#..###..#',
+    '#..###..#',
+    '#########',
+    '.###.###.',
+    '..#####..',
+    '..#.#.#..',
+  ],
+  threat: [
+    '....#....',
+    '...#.#...',
+    '...#.#...',
+    '..##.##..',
+    '..##.##..',
+    '.###.###.',
+    '.#######.',
+    '####.####',
+    '#########',
+  ],
 };
 
-type KillSegmentState = 'cleared' | 'next' | 'remaining';
+const ICON_CLASSES: Readonly<Record<WaveIconKind, string>> = {
+  zombie: 'wave-timeline__slot--zombie',
+  threat: 'wave-timeline__slot--threat',
+  boss: 'wave-timeline__slot--boss',
+};
 
-interface TimelineNodeElements {
+const STATE_CLASSES: Readonly<Record<TimelineNodeState, string>> = {
+  past: 'wave-timeline__slot--past',
+  current: 'wave-timeline__slot--current',
+  future: 'wave-timeline__slot--future',
+};
+
+interface WaveSlot {
   readonly root: HTMLDivElement;
-  readonly number: HTMLSpanElement;
-  readonly check: SVGSVGElement;
-  readonly star: SVGSVGElement;
-  readonly burst: SVGSVGElement;
+  readonly mark: HTMLSpanElement;
+  icon: WaveIconKind | null;
   state: TimelineNodeState | null;
-  marker: WaveMarkerKind | null;
 }
 
+/**
+ * Top-centre wave strip: which wave is running, how much of it is left, the run
+ * score, and what is coming. The rail is an even CSS grid with its connector
+ * drawn from each slot — no measuring, no resize bookkeeping — so the whole
+ * component is layout-free.
+ */
 export class WaveTimelineHud {
   readonly root: HTMLElement;
 
-  private readonly killBar: HTMLDivElement;
-  private readonly track: HTMLDivElement;
-  private readonly waveLabel: HTMLDivElement;
-  private readonly clearedLabel: HTMLDivElement;
-  private readonly nodeElements: TimelineNodeElements[] = [];
-  private readonly killSegments: HTMLSpanElement[] = [];
-  private readonly killSegmentStates: (KillSegmentState | null)[] = [];
-  private waveNumbers: number[] = [];
-  private killFill: HTMLSpanElement | null = null;
-  private viewportWidth = viewportWidth();
-  private nodeRevision = 0;
-  private lastAlignedTotal = Number.NaN;
-  private lastAlignedNodeRevision = -1;
-  private lastAlignedViewportWidth = Number.NaN;
-  private killBarTotal = Number.NaN;
-  private killBarUsesContinuousFill = false;
-  private lastKillProgress = Number.NaN;
+  private readonly waveLabel: HTMLSpanElement;
+  private readonly clearedLabel: HTMLSpanElement;
+  private readonly scoreValue: HTMLSpanElement;
+  private readonly bar: HTMLDivElement;
+  private readonly fill: HTMLSpanElement;
+  private readonly rail: HTMLDivElement;
+  private readonly slots: WaveSlot[] = [];
+  private waves: number[] = [];
+  private lastWave = Number.NaN;
   private lastKilled = Number.NaN;
   private lastTotal = Number.NaN;
-  private lastWave = Number.NaN;
-  private lastSummaryKilled = Number.NaN;
-  private lastSummaryTotal = Number.NaN;
-  private disposed = false;
-  private readonly onResize = (): void => {
-    const nextViewportWidth = viewportWidth();
-    if (nextViewportWidth === this.viewportWidth) return;
-
-    this.viewportWidth = nextViewportWidth;
-    this.syncTrackGeometry(this.killBarTotal);
-  };
+  private lastScore = Number.NaN;
 
   constructor() {
     this.root = element('section', 'wave-timeline');
     this.root.setAttribute('role', 'group');
     this.root.setAttribute('aria-label', 'Wave progress');
 
-    this.waveLabel = element('div', 'wave-timeline__wave-label');
-    this.clearedLabel = element('div', 'wave-timeline__cleared');
-    const summary = element('div', 'wave-timeline__summary');
-    summary.append(this.waveLabel, this.clearedLabel);
+    this.waveLabel = element('span', 'wave-timeline__wave');
+    this.clearedLabel = element('span', 'wave-timeline__cleared');
+    const waveGroup = element('div', 'wave-timeline__group');
+    waveGroup.append(this.waveLabel, this.clearedLabel);
 
-    this.killBar = element('div', 'wave-timeline__kill-bar');
-    this.killBar.setAttribute('role', 'progressbar');
-    this.killBar.setAttribute('aria-label', 'Wave kills cleared');
-    this.killBar.setAttribute('aria-valuemin', '0');
+    this.scoreValue = element('span', 'wave-timeline__score');
+    this.scoreValue.textContent = '0';
+    const scoreCaption = element('span', 'wave-timeline__caption');
+    scoreCaption.textContent = 'Score';
+    const scoreGroup = element(
+      'div',
+      'wave-timeline__group wave-timeline__group--end',
+    );
+    scoreGroup.append(this.scoreValue, scoreCaption);
 
-    this.track = element('div', 'wave-timeline__track');
-    const progress = element('div', 'wave-timeline__progress');
-    progress.append(this.killBar, this.track);
-    this.root.append(summary, progress);
-    window.addEventListener('resize', this.onResize, { passive: true });
+    const head = element('div', 'wave-timeline__head');
+    head.append(waveGroup, scoreGroup);
+
+    this.fill = element('span', 'wave-timeline__fill');
+    this.fill.setAttribute('aria-hidden', 'true');
+    this.bar = element('div', 'wave-timeline__bar');
+    this.bar.setAttribute('role', 'progressbar');
+    this.bar.setAttribute('aria-label', 'Wave kills cleared');
+    this.bar.setAttribute('aria-valuemin', '0');
+    this.bar.appendChild(this.fill);
+
+    this.rail = element('div', 'wave-timeline__rail');
+    this.root.append(head, this.bar, this.rail);
   }
 
-  /** The node scaffold is stable across frames; volatile values are diffed. */
+  /** The rail is rebuilt only when its wave numbers move; the rest is diffed. */
   update(timeline: WaveTimeline): void {
-    if (this.disposed) return;
-
-    if (waveNumbersChanged(this.waveNumbers, timeline.nodes)) {
-      this.rebuildNodes(timeline.nodes);
+    if (wavesChanged(this.waves, timeline.nodes)) {
+      this.rebuildRail(timeline.nodes);
     }
-
     for (let index = 0; index < timeline.nodes.length; index += 1) {
-      this.updateNode(this.nodeElements[index], timeline.nodes[index]);
+      this.updateSlot(this.slots[index], timeline.nodes[index]);
     }
 
-    const total = nonNegativeInteger(timeline.totalThisWave);
-    const killed = clamp(nonNegativeInteger(timeline.killedThisWave), 0, total);
-    this.syncTrackGeometry(total);
-    this.updateKillBar(killed, total);
-    this.updateSummary(timeline.currentWave, killed, total);
+    const total = wholeNumber(timeline.totalThisWave);
+    const killed = Math.min(wholeNumber(timeline.killedThisWave), total);
+    this.updateHead(timeline.currentWave, killed, total);
+  }
+
+  setScore(score: number): void {
+    const value = wholeNumber(score);
+    if (Object.is(value, this.lastScore)) return;
+    this.lastScore = value;
+    this.scoreValue.textContent = value.toLocaleString();
   }
 
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    window.removeEventListener('resize', this.onResize);
     this.root.remove();
     this.root.replaceChildren();
-    this.nodeElements.length = 0;
-    this.waveNumbers.length = 0;
-    this.killSegments.length = 0;
-    this.killSegmentStates.length = 0;
-    this.killFill = null;
+    this.slots.length = 0;
+    this.waves.length = 0;
   }
 
-  private rebuildNodes(nodes: readonly TimelineNode[]): void {
-    this.track.replaceChildren();
-    this.nodeElements.length = 0;
-    this.waveNumbers = nodes.map((node) => node.wave);
-    this.nodeRevision += 1;
+  private rebuildRail(nodes: readonly TimelineNode[]): void {
+    this.rail.replaceChildren();
+    this.slots.length = 0;
+    this.waves = nodes.map((node) => node.wave);
 
-    for (const node of nodes) {
-      const root = element('div', 'wave-timeline__node');
+    // Slots are identical scaffolding; `updateSlot` paints the wave onto them.
+    for (let index = 0; index < nodes.length; index += 1) {
+      const root = element('div', 'wave-timeline__slot');
       root.setAttribute('role', 'img');
-
-      const tile = element('span', 'wave-timeline__tile');
-      tile.setAttribute('aria-hidden', 'true');
-      const content = element('span', 'wave-timeline__tile-content');
-      const check = markerSvg(
-        'wave-timeline__glyph wave-timeline__glyph--check',
-        'M9.2 18.2 4.4 13.4 6.5 11.3 9.2 14 17.5 5.7 19.6 7.8Z',
-      );
-      const star = markerSvg(
-        'wave-timeline__glyph wave-timeline__glyph--star',
-        'M12 2.2 14.9 8.1 21.4 9 16.7 13.6 17.8 20.1 12 17.1 6.2 20.1 7.3 13.6 2.6 9 9.1 8.1Z',
-      );
-      const burst = markerSvg(
-        'wave-timeline__glyph wave-timeline__glyph--burst',
-        'M12 1.5 14.6 9.4 22.5 12 14.6 14.6 12 22.5 9.4 14.6 1.5 12 9.4 9.4Z',
-      );
-      const number = element('span', 'wave-timeline__number');
-      number.textContent = String(node.wave);
-      content.append(check, star, burst, number);
-      tile.appendChild(content);
-      root.appendChild(tile);
-      this.track.appendChild(root);
-      this.nodeElements.push({
-        root,
-        number,
-        check,
-        star,
-        burst,
-        state: null,
-        marker: null,
-      });
+      const mark = element('span', 'wave-timeline__mark');
+      root.appendChild(mark);
+      this.rail.appendChild(root);
+      this.slots.push({ root, mark, icon: null, state: null });
     }
   }
 
-  /**
-   * The bar owns the progress geometry, so tiles follow its interior gaps
-   * instead of trying to imitate flex distribution with decorative spacing.
-   */
-  private syncTrackGeometry(total: number): void {
-    if (this.nodeElements.length === 0 || !Number.isFinite(total)) return;
-    if (
-      Object.is(total, this.lastAlignedTotal) &&
-      this.nodeRevision === this.lastAlignedNodeRevision &&
-      this.viewportWidth === this.lastAlignedViewportWidth
-    ) {
-      return;
-    }
+  private updateSlot(slot: WaveSlot, node: TimelineNode): void {
+    const icon = waveIcon(node);
+    if (slot.icon === icon && slot.state === node.state) return;
 
-    const tileCount = this.nodeElements.length;
-    const railWidth = this.railWidth();
-    const useEvenTileSpacing = total <= 1 || total > MAX_SEGMENT_COUNT;
-    let previousPosition = 0;
-    let smallestSpan = Number.POSITIVE_INFINITY;
-
-    for (let index = 0; index < tileCount; index += 1) {
-      const position = useEvenTileSpacing
-        ? (index + 0.5) / tileCount
-        : clamp(
-            Math.round(((index + 0.5) * total) / tileCount),
-            1,
-            total - 1,
-          ) / total;
-      const centre = position * railWidth;
-
-      if (index === 0) {
-        smallestSpan = centre * 2;
-      } else {
-        smallestSpan = Math.min(smallestSpan, centre - previousPosition);
+    if (slot.icon !== icon) {
+      for (const kind of Object.keys(ICON_CLASSES) as WaveIconKind[]) {
+        slot.root.classList.toggle(ICON_CLASSES[kind], kind === icon);
       }
-      if (index === tileCount - 1) {
-        smallestSpan = Math.min(smallestSpan, (railWidth - centre) * 2);
-      }
-
-      this.nodeElements[index].root.style.left = `${position * 100}%`;
-      previousPosition = centre;
+      slot.mark.replaceChildren(pixelIcon(WAVE_ART[icon]));
+      slot.icon = icon;
     }
+    for (const state of Object.keys(STATE_CLASSES) as TimelineNodeState[]) {
+      slot.root.classList.toggle(STATE_CLASSES[state], state === node.state);
+    }
+    if (node.state === 'current') {
+      slot.root.setAttribute('aria-current', 'step');
+    } else {
+      slot.root.removeAttribute('aria-current');
+    }
+    slot.state = node.state;
 
-    // A rotated current tile is wider than its square slot, so reserve its
-    // footprint for every position as the current wave shifts through the row.
-    const tileSize = Math.max(
-      0,
-      Math.min(MAX_TILE_SIZE, smallestSpan / CURRENT_TILE_BOUNDING_SCALE),
-    );
-    this.track.style.setProperty('--wave-timeline-node-size', `${tileSize}px`);
-    this.track.style.setProperty(
-      '--wave-timeline-node-footprint',
-      `${tileSize * CURRENT_TILE_BOUNDING_SCALE}px`,
-    );
-    this.track.style.setProperty(
-      '--wave-timeline-number-size',
-      `${Math.min(22, Math.max(0, tileSize * 0.38))}px`,
-    );
-    this.lastAlignedTotal = total;
-    this.lastAlignedNodeRevision = this.nodeRevision;
-    this.lastAlignedViewportWidth = this.viewportWidth;
+    // The rail carries no digits, so the wave number lives on the label.
+    const label = slotLabel(node, icon);
+    slot.root.setAttribute('aria-label', label);
+    slot.root.title = label;
   }
 
-  private railWidth(): number {
-    const panelWidth = Math.min(
-      HUD_MAX_WIDTH,
-      Math.max(0, this.viewportWidth - HUD_VIEWPORT_INSET),
-    );
-    const horizontalPadding =
-      this.viewportWidth <= HUD_NARROW_BREAKPOINT
-        ? HUD_NARROW_HORIZONTAL_PADDING
-        : HUD_WIDE_HORIZONTAL_PADDING;
-    return Math.max(0, panelWidth - horizontalPadding - HUD_RAIL_INSET);
-  }
-
-  private updateNode(elements: TimelineNodeElements, node: TimelineNode): void {
-    let changed = false;
-    if (elements.state !== node.state) {
-      elements.root.classList.toggle(
-        'wave-timeline__node--past',
-        node.state === 'past',
-      );
-      elements.root.classList.toggle(
-        'wave-timeline__node--current',
-        node.state === 'current',
-      );
-      elements.root.classList.toggle(
-        'wave-timeline__node--future',
-        node.state === 'future',
-      );
-      if (node.state === 'current') {
-        elements.root.setAttribute('aria-current', 'step');
-      } else {
-        elements.root.removeAttribute('aria-current');
-      }
-      elements.state = node.state;
-      changed = true;
-    }
-
-    const marker = waveMarker(node);
-    if (elements.marker !== marker) {
-      for (const kind of WAVE_MARKER_KINDS) {
-        elements.root.classList.toggle(
-          WAVE_MARKER_CLASSES[kind],
-          marker === kind,
-        );
-      }
-      elements.marker = marker;
-      changed = true;
-    }
-
-    if (changed) {
-      const label = markerLabel(node, marker);
-      elements.root.setAttribute('aria-label', label);
-      elements.root.title = label;
-    }
-  }
-
-  private updateKillBar(killed: number, total: number): void {
-    this.ensureKillBar(total);
-
-    if (!Object.is(total, this.lastTotal)) {
-      this.killBar.setAttribute('aria-valuemax', String(total));
-      this.lastTotal = total;
-    }
-    if (!Object.is(killed, this.lastKilled)) {
-      this.killBar.setAttribute('aria-valuenow', String(killed));
-      this.lastKilled = killed;
-    }
-
-    if (this.killBarUsesContinuousFill) {
-      const progress = total > 0 ? killed / total : 0;
-      if (!Object.is(progress, this.lastKillProgress)) {
-        this.killFill?.style.setProperty(
-          '--wave-timeline-kill-progress',
-          `${progress * 100}%`,
-        );
-        this.lastKillProgress = progress;
-      }
-      return;
-    }
-
-    for (let index = 0; index < this.killSegments.length; index += 1) {
-      const state: KillSegmentState =
-        index < killed ? 'cleared' : index === killed ? 'next' : 'remaining';
-      if (this.killSegmentStates[index] === state) continue;
-      const segment = this.killSegments[index];
-      segment.classList.toggle(
-        'wave-timeline__kill-segment--cleared',
-        state === 'cleared',
-      );
-      segment.classList.toggle(
-        'wave-timeline__kill-segment--next',
-        state === 'next',
-      );
-      segment.classList.toggle(
-        'wave-timeline__kill-segment--remaining',
-        state === 'remaining',
-      );
-      this.killSegmentStates[index] = state;
-    }
-  }
-
-  private ensureKillBar(total: number): void {
-    const useContinuousFill = total > MAX_SEGMENT_COUNT;
-    if (
-      Object.is(this.killBarTotal, total) &&
-      this.killBarUsesContinuousFill === useContinuousFill
-    ) {
-      return;
-    }
-
-    this.killBar.replaceChildren();
-    this.killSegments.length = 0;
-    this.killSegmentStates.length = 0;
-    this.killFill = null;
-    this.killBarTotal = total;
-    this.killBarUsesContinuousFill = useContinuousFill;
-    this.lastKillProgress = Number.NaN;
-    this.lastKilled = Number.NaN;
-    this.lastTotal = Number.NaN;
-    this.killBar.classList.toggle(
-      'wave-timeline__kill-bar--continuous',
-      useContinuousFill,
-    );
-
-    if (useContinuousFill) {
-      const fill = element('span', 'wave-timeline__kill-fill');
-      fill.setAttribute('aria-hidden', 'true');
-      this.killBar.appendChild(fill);
-      this.killFill = fill;
-      return;
-    }
-
-    for (let index = 0; index < total; index += 1) {
-      const segment = element('span', 'wave-timeline__kill-segment');
-      segment.setAttribute('aria-hidden', 'true');
-      this.killBar.appendChild(segment);
-      this.killSegments.push(segment);
-      this.killSegmentStates.push(null);
-    }
-  }
-
-  private updateSummary(wave: number, killed: number, total: number): void {
+  private updateHead(wave: number, killed: number, total: number): void {
     if (!Object.is(wave, this.lastWave)) {
-      this.waveLabel.textContent = `WAVE ${wave}`;
       this.lastWave = wave;
+      this.waveLabel.textContent = `Wave ${wave}`;
     }
     if (
-      !Object.is(killed, this.lastSummaryKilled) ||
-      !Object.is(total, this.lastSummaryTotal)
+      Object.is(killed, this.lastKilled) &&
+      Object.is(total, this.lastTotal)
     ) {
-      this.clearedLabel.textContent = `${killed}/${total} CLEARED`;
-      this.lastSummaryKilled = killed;
-      this.lastSummaryTotal = total;
+      return;
     }
+
+    this.lastKilled = killed;
+    this.lastTotal = total;
+    this.clearedLabel.textContent = `${killed} / ${total} cleared`;
+    this.bar.setAttribute('aria-valuemax', String(total));
+    this.bar.setAttribute('aria-valuenow', String(killed));
+    const progress = total > 0 ? killed / total : 0;
+    this.fill.style.width = `${progress * 100}%`;
   }
 }
 
-function waveNumbersChanged(
+function wavesChanged(
   previous: readonly number[],
   nodes: readonly TimelineNode[],
 ): boolean {
-  if (previous.length !== nodes.length) return true;
-  for (let index = 0; index < nodes.length; index += 1) {
-    if (nodes[index].wave !== previous[index]) return true;
-  }
-  return false;
+  return (
+    previous.length !== nodes.length ||
+    nodes.some((node, index) => node.wave !== previous[index])
+  );
 }
 
-function markerLabel(node: TimelineNode, marker: WaveMarkerKind): string {
-  switch (marker) {
-    case 'cleared':
-      return `Wave ${node.wave} — cleared`;
-    case 'current':
-      return `Wave ${node.wave} — current wave`;
-    case 'milestone':
-      return `Wave ${node.wave} — milestone: ${threatLabels(node.threats)}`;
+function slotLabel(node: TimelineNode, icon: WaveIconKind): string {
+  return `Wave ${node.wave} — ${iconLabel(node, icon)}, ${stateLabel(node.state)}`;
+}
+
+function iconLabel(node: TimelineNode, icon: WaveIconKind): string {
+  switch (icon) {
     case 'boss':
-      return `Wave ${node.wave} — boss: ${threatLabels(node.threats)}`;
-    case 'wave':
-      return `Wave ${node.wave} — upcoming wave`;
+      return `boss: ${threatLabels(node.threats)}`;
+    case 'threat':
+      return `new threat: ${threatLabels(node.threats)}`;
+    case 'zombie':
+      return 'zombie wave';
+  }
+}
+
+function stateLabel(state: TimelineNodeState): string {
+  switch (state) {
+    case 'past':
+      return 'cleared';
+    case 'current':
+      return 'in progress';
+    case 'future':
+      return 'upcoming';
   }
 }
 
@@ -427,28 +266,33 @@ function threatLabels(threats: readonly string[]): string {
     .join(', ');
 }
 
-function nonNegativeInteger(value: number): number {
+function wholeNumber(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function viewportWidth(): number {
-  return Math.max(0, window.innerWidth);
-}
-
-function markerSvg(className: string, pathData: string): SVGSVGElement {
+/** Draws a pixel grid as merged horizontal runs, one rect per run. */
+function pixelIcon(rows: readonly string[]): SVGSVGElement {
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
-  svg.classList.add(...className.split(' '));
-  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('viewBox', `0 0 ${rows[0].length} ${rows.length}`);
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
-  const path = document.createElementNS(SVG_NAMESPACE, 'path');
-  path.setAttribute('d', pathData);
-  path.setAttribute('fill', 'currentColor');
-  svg.appendChild(path);
+
+  for (let y = 0; y < rows.length; y += 1) {
+    const row = rows[y];
+    for (let x = 0; x < row.length; x += 1) {
+      if (row[x] !== '#') continue;
+      let run = 1;
+      while (row[x + run] === '#') run += 1;
+      const rect = document.createElementNS(SVG_NAMESPACE, 'rect');
+      rect.setAttribute('x', String(x));
+      rect.setAttribute('y', String(y));
+      rect.setAttribute('width', String(run));
+      rect.setAttribute('height', '1');
+      rect.setAttribute('fill', 'currentColor');
+      svg.appendChild(rect);
+      x += run - 1;
+    }
+  }
   return svg;
 }
 

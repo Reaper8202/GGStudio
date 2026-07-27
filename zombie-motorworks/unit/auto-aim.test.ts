@@ -5,8 +5,8 @@ import type { RuntimeWeapon } from '../src/runtime/weapons.ts';
 import { AutoAim } from '../src/survival/AutoAim.ts';
 import type { ZombieSystem } from '../src/survival/zombies/ZombieSystem.ts';
 
-// The Ice Cannon stands in for a generic 360-degree auto turret throughout:
-// the Zombie Blaster and Heavy Cannon are player-aimed and never appear here.
+// The Ice Cannon stands in for a generic 360-degree auto turret throughout;
+// the flamethrower is the one weapon that never acquires a target of its own.
 describe('AutoAim', () => {
   it('targets the nearest body translation and reuses override storage', () => {
     const autoPart = { alive: true, detached: false, health: 100 };

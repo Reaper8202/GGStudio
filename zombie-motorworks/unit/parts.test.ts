@@ -124,11 +124,12 @@ describe('part catalog integrity', () => {
 
     expect(PART_CATALOG['fuel-tank'].health).toBe(80);
     expect(PART_CATALOG.turret.clearanceCells).toEqual([{ x: 0, y: 1, z: 0 }]);
-    // Both player-facing guns are point-and-click: they follow the cursor and
-    // fire on the trigger, with no lock-on of their own.
-    expect(PART_CATALOG.turret.weapon?.aimMode).toBe('manual');
+    // Both player-facing guns acquire their own targets in range; the player's
+    // click overrides them onto the cursor rather than being the only way to
+    // make them shoot.
+    expect(PART_CATALOG.turret.weapon?.aimMode).toBe('auto');
     expect(PART_CATALOG['armour-plate'].armour?.protection).toBeGreaterThan(0);
-    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('manual');
+    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('auto');
     // The Heavy Cannon is the one explosive weapon: its shell has an area of
     // effect on top of the direct hit.
     expect(PART_CATALOG['cannon-heavy'].weapon?.splashRadiusM).toBeGreaterThan(0);

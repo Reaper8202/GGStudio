@@ -6,9 +6,14 @@ import { deserializeBlueprint } from '../core/serialize.ts';
 import { getPartDef } from '../core/parts.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { BLUEPRINT_STORAGE_KEY } from '../editor/EditorMode.ts';
+import { biomeHandlingSummary, type BiomeId } from '../core/biomes.ts';
 import type { Arena } from '../survival/arena/Arena.ts';
 import { ArenaBuilder } from '../survival/arena/ArenaBuilder.ts';
-import { GRAVEYARD } from '../survival/arena/recipes/graveyard.ts';
+import {
+  BIOMES,
+  DEFAULT_BIOME_ID,
+  getBiome,
+} from '../survival/arena/recipes/index.ts';
 import type { SavedRun } from '../core/runSave.ts';
 import { leaderboardRows, type LeaderboardRow } from '../core/leaderboard.ts';
 import { BADGES } from '../core/badges.ts';
@@ -19,6 +24,7 @@ import {
 } from './badgeStore.ts';
 import { leaderboardStore } from './leaderboardStore.ts';
 import { profileStore } from './profileStore.ts';
+import { isSfxMuted, playSfx, setSfxMuted, unlockAudio } from './sfx.ts';
 // buildStarterBlueprint is a plain function export; the cross-import back
 // into App.ts is safe because it is only invoked at call time, well after
 // both modules have finished linking.
@@ -28,11 +34,39 @@ export interface TitleScreenHandlers {
   onNewGame(): void;
   onContinue(): void;
   onResumeRun(): void;
+  /** The player picked the map their next run starts on. */
+  onBiomeSelected(biomeId: BiomeId): void;
 }
 
 const ORBIT_RADIUS_M = 12;
 const ORBIT_HEIGHT_M = 5;
 const ORBIT_PERIOD_S = 25;
+
+/**
+ * Chunky white marks for the corner rail, drawn on the same 24-grid and
+ * `currentColor` convention as the garage's icon buttons. Inline rather than a
+ * data URI so each glyph follows the button through its hover colour.
+ */
+const TROPHY_ICON_SVG =
+  `<svg class="title-icon-button__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M6 2h12v6l-2 4H8L6 8z" fill="currentColor"/>` +
+  `<path d="M11 12h2v4h-2zM8 16h8v2H8zM6 18h12v3H6z" fill="currentColor"/>` +
+  `<path d="M6 4H3v3l3 2M18 4h3v3l-3 2" fill="none" stroke="currentColor" stroke-width="2"/>` +
+  `</svg>`;
+const MEDAL_ICON_SVG =
+  `<svg class="title-icon-button__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M6 2h4l2 5-3 2zM18 2h-4l-2 5 3 2z" fill="currentColor"/>` +
+  `<circle cx="12" cy="15" r="6" fill="none" stroke="currentColor" stroke-width="2"/>` +
+  `<circle cx="12" cy="15" r="2.5" fill="currentColor"/>` +
+  `</svg>`;
+const SLIDERS_ICON_SVG =
+  `<svg class="title-icon-button__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M2 5h20v2H2zM2 11h20v2H2zM2 17h20v2H2z" fill="currentColor"/>` +
+  `<path d="M6 3h3v6H6zM14 9h3v6h-3zM9 15h3v6H9z" fill="currentColor"/>` +
+  `</svg>`;
+
+/** Fixed so the backdrop of a given map looks the same on every boot. */
+const BACKDROP_SEED = 0x47524156;
 
 const PORTRAIT_ROOT = `${import.meta.env.BASE_URL}assets/zombies/portraits`;
 
@@ -92,6 +126,23 @@ function loadBackdropBlueprint(): VehicleBlueprint {
     // Fall through to the starter rig — the title backdrop is cosmetic only.
   }
   return buildStarterBlueprint();
+}
+
+/** The pair of zombies leaning in from the panel edges. Decorative only. */
+function buildZombies(): HTMLImageElement[] {
+  return (
+    [
+      ['left', 'zed-2'],
+      ['right', 'zed-5'],
+    ] as const
+  ).map(([side, portrait]) => {
+    const zombie = document.createElement('img');
+    zombie.className = `title-zombie title-zombie-${side}`;
+    zombie.src = `${PORTRAIT_ROOT}/${portrait}.png`;
+    zombie.alt = '';
+    zombie.setAttribute('aria-hidden', 'true');
+    return zombie;
+  });
 }
 
 function buildVehicleGroup(bp: VehicleBlueprint): THREE.Group {
@@ -261,9 +312,12 @@ function buildBadgeGallery(
 export class TitleScreen {
   readonly root = document.createElement('section');
 
-  private readonly resumeRunButton = document.createElement('button');
+  private readonly panel = document.createElement('div');
+  private readonly mapPanel = document.createElement('div');
+  private readonly resumeButton = document.createElement('button');
   private readonly newGameButton = document.createElement('button');
-  private readonly continueButton = document.createElement('button');
+  private readonly startRunButton = document.createElement('button');
+  private readonly backButton = document.createElement('button');
   private readonly leaderboardButton = document.createElement('button');
   private readonly leaderboardOverlay = document.createElement('div');
   private readonly leaderboardContent = document.createElement('div');
@@ -273,9 +327,17 @@ export class TitleScreen {
   private readonly badgesProgress = document.createElement('p');
   private readonly badgesContent = document.createElement('div');
   private readonly badgesCloseButton = document.createElement('button');
+  private readonly settingsButton = document.createElement('button');
+  private readonly settingsOverlay = document.createElement('div');
+  private readonly settingsCloseButton = document.createElement('button');
+  private readonly soundButton = document.createElement('button');
   private readonly confirmation = document.createElement('div');
   private readonly confirmButton = document.createElement('button');
   private readonly cancelButton = document.createElement('button');
+  /** One row per selectable map, keyed so selection can restyle them. */
+  private readonly mapRows = new Map<BiomeId, HTMLButtonElement>();
+  private readonly listenerRemovers: (() => void)[] = [];
+  private audioUnlocked = false;
   private disposed = false;
 
   // ---- 3D backdrop ----
@@ -283,7 +345,8 @@ export class TitleScreen {
   private readonly camera: THREE.PerspectiveCamera;
   private readonly clock = new THREE.Clock();
   private readonly backdropWorld: RAPIER.World;
-  private readonly arena: Arena;
+  /** Rebuilt in place whenever the player picks a different map. */
+  private arena: Arena;
   private readonly vehicleGroup: THREE.Group;
   private readonly orbitCenter: THREE.Vector3;
 
@@ -291,12 +354,16 @@ export class TitleScreen {
     this.requestNewGame();
   };
 
-  private readonly onResumeRunClick = (): void => {
-    this.resumeRun();
+  private readonly onResumeClick = (): void => {
+    this.resume();
   };
 
-  private readonly onContinueClick = (): void => {
-    this.continueGame();
+  private readonly onStartRunClick = (): void => {
+    this.startNewGame();
+  };
+
+  private readonly onBackClick = (): void => {
+    this.showMainScreen();
   };
 
   private readonly onLeaderboardClick = (): void => {
@@ -355,17 +422,63 @@ export class TitleScreen {
     event.preventDefault();
   };
 
+  private readonly onSettingsClick = (): void => {
+    if (this.disposed) return;
+    this.closeLeaderboard();
+    this.closeBadges();
+    this.settingsOverlay.hidden = false;
+    this.settingsCloseButton.focus();
+  };
+
+  private readonly onSettingsCloseClick = (): void => {
+    this.closeSettings();
+  };
+
+  private readonly onSettingsOverlayPointerDown = (
+    event: PointerEvent,
+  ): void => {
+    if (event.target === this.settingsOverlay) this.closeSettings();
+  };
+
+  private readonly onSettingsKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape') return;
+    this.closeSettings();
+    event.preventDefault();
+  };
+
+  private readonly onSoundToggle = (): void => {
+    if (this.disposed) return;
+    this.unlockAudioFromInput();
+    const soundOn = isSfxMuted();
+    setSfxMuted(!soundOn);
+    this.syncSoundButton();
+    if (soundOn) playSfx('uiClick');
+  };
+
+  /** Arrows move between rows, as a radiogroup is expected to. */
+  private readonly onMapKeyDown = (event: KeyboardEvent): void => {
+    const step =
+      event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+        ? -1
+        : event.key === 'ArrowRight' || event.key === 'ArrowDown'
+          ? 1
+          : 0;
+    if (step === 0 || this.disposed) return;
+
+    const ids = [...this.mapRows.keys()];
+    const current = ids.indexOf(this.selectedBiomeId);
+    const next = ids[(current + step + ids.length) % ids.length];
+    if (next !== undefined) this.selectBiome(next);
+    event.preventDefault();
+  };
+
   private readonly onConfirmClick = (): void => {
     if (this.disposed) return;
-    this.handlers.onNewGame();
+    this.showMapScreen();
   };
 
   private readonly onCancelClick = (): void => {
-    if (this.disposed) return;
-    this.confirmation.hidden = true;
-    this.resumeRunButton.disabled = this.savedRun === null;
-    this.newGameButton.disabled = false;
-    this.continueButton.disabled = !this.hasSave;
+    this.showMainScreen();
   };
 
   constructor(
@@ -374,12 +487,12 @@ export class TitleScreen {
     private readonly hasSave: boolean,
     private readonly handlers: TitleScreenHandlers,
     private readonly savedRun: SavedRun | null = null,
+    private selectedBiomeId: BiomeId = DEFAULT_BIOME_ID,
   ) {
     this.root.className = 'title-screen';
     this.root.setAttribute('aria-labelledby', 'game-title');
 
-    const panel = document.createElement('div');
-    panel.className = 'panel title-panel';
+    this.panel.className = 'panel title-panel';
 
     const kicker = document.createElement('div');
     kicker.className = 'title-kicker';
@@ -396,41 +509,40 @@ export class TitleScreen {
     const actions = document.createElement('div');
     actions.className = 'title-actions';
 
-    this.resumeRunButton.type = 'button';
-    this.resumeRunButton.className = 'primary title-action';
-    this.resumeRunButton.textContent =
-      savedRun === null ? 'Resume Run' : `Resume Run — Wave ${savedRun.wave}`;
-    this.resumeRunButton.hidden = savedRun === null;
-    this.resumeRunButton.disabled = savedRun === null;
+    // One resume button covers both saves: a run in flight resumes at its
+    // wave, and a garage-only save resumes at wave 1.
+    const canResume = savedRun !== null || hasSave;
+    this.resumeButton.type = 'button';
+    this.resumeButton.className = 'primary title-action';
+    this.resumeButton.textContent = `Resume Run — Wave ${savedRun?.wave ?? 1}`;
+    this.resumeButton.hidden = !canResume;
+    this.resumeButton.disabled = !canResume;
 
     this.newGameButton.type = 'button';
-    this.newGameButton.className =
-      savedRun === null ? 'primary title-action' : 'title-action';
+    this.newGameButton.className = canResume
+      ? 'title-action'
+      : 'primary title-action';
     this.newGameButton.textContent = 'New Game';
 
-    this.continueButton.type = 'button';
-    this.continueButton.className = 'title-action';
-    this.continueButton.textContent = 'Continue';
-    this.continueButton.hidden = !hasSave;
-    this.continueButton.disabled = !hasSave;
+    actions.append(this.resumeButton, this.newGameButton);
 
-    this.leaderboardButton.type = 'button';
-    this.leaderboardButton.className = 'title-action';
-    this.leaderboardButton.textContent = 'Leaderboard';
-    this.leaderboardButton.setAttribute('aria-haspopup', 'dialog');
-
-    this.badgesButton.type = 'button';
-    this.badgesButton.className = 'title-action';
-    this.badgesButton.textContent = 'Badges';
-    this.badgesButton.setAttribute('aria-haspopup', 'dialog');
-
-    actions.append(
-      this.resumeRunButton,
-      this.newGameButton,
-      this.continueButton,
-      this.leaderboardButton,
-      this.badgesButton,
-    );
+    // Leaderboard, badges and settings are secondary: they live as icons in
+    // the corner rail so the panel keeps a single column of run actions.
+    const utilityRail = document.createElement('div');
+    utilityRail.className = 'title-utility-rail';
+    for (const [button, icon, label] of [
+      [this.leaderboardButton, TROPHY_ICON_SVG, 'Leaderboard'],
+      [this.badgesButton, MEDAL_ICON_SVG, 'Badges'],
+      [this.settingsButton, SLIDERS_ICON_SVG, 'Settings'],
+    ] as const) {
+      button.type = 'button';
+      button.className = 'title-icon-button';
+      button.setAttribute('aria-haspopup', 'dialog');
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      button.innerHTML = icon;
+      utilityRail.appendChild(button);
+    }
 
     this.confirmation.className = 'title-confirm';
     this.confirmation.hidden = true;
@@ -448,18 +560,6 @@ export class TitleScreen {
     this.cancelButton.textContent = 'Cancel';
     confirmActions.append(this.confirmButton, this.cancelButton);
     this.confirmation.append(warning, confirmActions);
-
-    const zombieLeft = document.createElement('img');
-    zombieLeft.className = 'title-zombie title-zombie-left';
-    zombieLeft.src = `${PORTRAIT_ROOT}/zed-2.png`;
-    zombieLeft.alt = '';
-    zombieLeft.setAttribute('aria-hidden', 'true');
-
-    const zombieRight = document.createElement('img');
-    zombieRight.className = 'title-zombie title-zombie-right';
-    zombieRight.src = `${PORTRAIT_ROOT}/zed-5.png`;
-    zombieRight.alt = '';
-    zombieRight.setAttribute('aria-hidden', 'true');
 
     this.leaderboardOverlay.className = 'title-leaderboard-overlay';
     this.leaderboardOverlay.hidden = true;
@@ -527,57 +627,96 @@ export class TitleScreen {
     );
     this.badgesOverlay.appendChild(badgesDialog);
 
-    panel.append(
+    this.settingsOverlay.className = 'title-settings-overlay';
+    this.settingsOverlay.hidden = true;
+    this.settingsOverlay.setAttribute('role', 'dialog');
+    this.settingsOverlay.setAttribute('aria-modal', 'true');
+    this.settingsOverlay.setAttribute('aria-labelledby', 'title-settings-title');
+    const settingsDialog = document.createElement('section');
+    settingsDialog.className = 'panel title-settings-dialog';
+    const settingsTitle = document.createElement('h2');
+    settingsTitle.id = 'title-settings-title';
+    settingsTitle.textContent = 'SETTINGS';
+    const settingsRow = document.createElement('div');
+    settingsRow.className = 'title-settings__row';
+    const soundLabel = document.createElement('span');
+    soundLabel.className = 'title-settings__label';
+    soundLabel.textContent = 'Audio';
+    this.soundButton.type = 'button';
+    this.soundButton.className = 'title-settings__toggle';
+    settingsRow.append(soundLabel, this.soundButton);
+    this.syncSoundButton();
+    const settingsActions = document.createElement('div');
+    settingsActions.className = 'title-settings__actions';
+    this.settingsCloseButton.type = 'button';
+    this.settingsCloseButton.className = 'primary';
+    this.settingsCloseButton.textContent = 'Back to Title';
+    settingsActions.appendChild(this.settingsCloseButton);
+    settingsDialog.append(settingsTitle, settingsRow, settingsActions);
+    this.settingsOverlay.appendChild(settingsDialog);
+
+    this.panel.append(
       kicker,
       title,
       subtitle,
       actions,
       this.confirmation,
-      zombieLeft,
-      zombieRight,
+      ...buildZombies(),
     );
-    this.root.append(panel, this.leaderboardOverlay, this.badgesOverlay);
+    this.buildMapScreen();
+    this.root.append(
+      this.panel,
+      this.mapPanel,
+      utilityRail,
+      this.leaderboardOverlay,
+      this.badgesOverlay,
+      this.settingsOverlay,
+    );
     container.appendChild(this.root);
 
-    this.resumeRunButton.addEventListener('click', this.onResumeRunClick);
-    this.newGameButton.addEventListener('click', this.onNewGameClick);
-    this.continueButton.addEventListener('click', this.onContinueClick);
-    this.leaderboardButton.addEventListener('click', this.onLeaderboardClick);
-    this.leaderboardCloseButton.addEventListener(
+    this.listen(this.resumeButton, 'click', this.onResumeClick);
+    this.listen(this.newGameButton, 'click', this.onNewGameClick);
+    this.listen(this.startRunButton, 'click', this.onStartRunClick);
+    this.listen(this.backButton, 'click', this.onBackClick);
+    this.listen(this.leaderboardButton, 'click', this.onLeaderboardClick);
+    this.listen(
+      this.leaderboardCloseButton,
       'click',
       this.onLeaderboardCloseClick,
     );
-    this.leaderboardOverlay.addEventListener(
+    this.listen(
+      this.leaderboardOverlay,
       'pointerdown',
       this.onLeaderboardOverlayPointerDown,
     );
-    this.leaderboardOverlay.addEventListener(
-      'keydown',
-      this.onLeaderboardKeyDown,
-    );
-    this.badgesButton.addEventListener('click', this.onBadgesClick);
-    this.badgesCloseButton.addEventListener('click', this.onBadgesCloseClick);
-    this.badgesOverlay.addEventListener(
+    this.listen(this.leaderboardOverlay, 'keydown', this.onLeaderboardKeyDown);
+    this.listen(this.badgesButton, 'click', this.onBadgesClick);
+    this.listen(this.badgesCloseButton, 'click', this.onBadgesCloseClick);
+    this.listen(
+      this.badgesOverlay,
       'pointerdown',
       this.onBadgesOverlayPointerDown,
     );
-    this.badgesOverlay.addEventListener('keydown', this.onBadgesKeyDown);
-    this.confirmButton.addEventListener('click', this.onConfirmClick);
-    this.cancelButton.addEventListener('click', this.onCancelClick);
+    this.listen(this.badgesOverlay, 'keydown', this.onBadgesKeyDown);
+    this.listen(this.settingsButton, 'click', this.onSettingsClick);
+    this.listen(this.settingsCloseButton, 'click', this.onSettingsCloseClick);
+    this.listen(
+      this.settingsOverlay,
+      'pointerdown',
+      this.onSettingsOverlayPointerDown,
+    );
+    this.listen(this.settingsOverlay, 'keydown', this.onSettingsKeyDown);
+    this.listen(this.soundButton, 'click', this.onSoundToggle);
+    this.listen(this.confirmButton, 'click', this.onConfirmClick);
+    this.listen(this.cancelButton, 'click', this.onCancelClick);
 
-    // ---- 3D backdrop: graveyard (visuals only) + parked vehicle + orbit cam ----
+    // ---- 3D backdrop: selected map (visuals only) + parked vehicle + orbit cam ----
     const aspect =
       Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1);
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 200);
 
     this.backdropWorld = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-    this.arena = new ArenaBuilder(
-      this.scene,
-      this.backdropWorld,
-      GRAVEYARD,
-      0x47524156,
-      { collidersEnabled: false },
-    );
+    this.arena = this.buildBackdropArena();
 
     const parkPosition = new THREE.Vector3(2, 0, 2);
     this.vehicleGroup = buildVehicleGroup(loadBackdropBlueprint());
@@ -587,6 +726,150 @@ export class TitleScreen {
 
     this.orbitCenter = parkPosition.clone().add(new THREE.Vector3(0, 0.8, 0));
     this.updateCamera(0);
+  }
+
+  /** Registers a listener whose removal `dispose` takes care of. */
+  private listen<K extends keyof HTMLElementEventMap>(
+    target: HTMLElement,
+    type: K,
+    handler: (event: HTMLElementEventMap[K]) => void,
+  ): void {
+    target.addEventListener(type, handler);
+    this.listenerRemovers.push(() =>
+      target.removeEventListener(type, handler),
+    );
+  }
+
+  /** Second screen, shown after New Game: one row per map, top to bottom. */
+  private buildMapScreen(): void {
+    this.mapPanel.className = 'panel title-panel title-map-panel';
+    this.mapPanel.hidden = true;
+
+    const kicker = document.createElement('div');
+    kicker.className = 'title-kicker';
+    kicker.textContent = 'NEW GAME';
+
+    const heading = document.createElement('h2');
+    heading.className = 'title-map-panel__heading';
+    heading.id = 'title-maps-label';
+    heading.textContent = 'CHOOSE YOUR MAP';
+
+    const list = document.createElement('div');
+    list.className = 'title-maps';
+    list.setAttribute('role', 'radiogroup');
+    list.setAttribute('aria-labelledby', 'title-maps-label');
+
+    for (const biome of Object.values(BIOMES)) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = `title-map title-map--${biome.difficulty}`;
+      row.setAttribute('role', 'radio');
+      row.title = biome.blurb;
+
+      const head = document.createElement('span');
+      head.className = 'title-map__head';
+
+      const name = document.createElement('span');
+      name.className = 'title-map__name';
+      name.textContent = biome.name;
+
+      // The row's accent colour carries the same message; the word keeps it
+      // readable for anyone who cannot pick the colours apart.
+      const difficulty = document.createElement('span');
+      difficulty.className = 'title-map__difficulty';
+      difficulty.textContent = biome.difficulty;
+      head.append(name, difficulty);
+
+      const handling = document.createElement('span');
+      handling.className = 'title-map__handling';
+      handling.textContent = biomeHandlingSummary(biome);
+
+      row.append(head, handling);
+      this.listen(row, 'click', () => this.selectBiome(biome.id));
+      this.mapRows.set(biome.id, row);
+      list.appendChild(row);
+    }
+    this.listen(list, 'keydown', this.onMapKeyDown);
+    this.syncMapCards();
+
+    const actions = document.createElement('div');
+    actions.className = 'title-actions';
+    this.startRunButton.type = 'button';
+    this.startRunButton.className = 'primary title-action';
+    this.startRunButton.textContent = 'Start Run';
+    this.backButton.type = 'button';
+    this.backButton.className = 'title-action';
+    this.backButton.textContent = 'Back';
+    actions.append(this.startRunButton, this.backButton);
+
+    this.mapPanel.append(kicker, heading, list, actions, ...buildZombies());
+  }
+
+  private showMapScreen(): void {
+    this.panel.hidden = true;
+    this.mapPanel.hidden = false;
+    this.mapRows.get(this.selectedBiomeId)?.focus();
+  }
+
+  private showMainScreen(): void {
+    if (this.disposed) return;
+    this.mapPanel.hidden = true;
+    this.panel.hidden = false;
+    this.confirmation.hidden = true;
+    this.resumeButton.disabled = this.savedRun === null && !this.hasSave;
+    this.newGameButton.disabled = false;
+    this.newGameButton.focus();
+  }
+
+  private selectBiome(biomeId: BiomeId): void {
+    if (this.disposed || biomeId === this.selectedBiomeId) return;
+    this.selectedBiomeId = biomeId;
+    this.syncMapCards();
+    this.mapRows.get(biomeId)?.focus();
+    this.rebuildBackdrop();
+    this.handlers.onBiomeSelected(biomeId);
+    this.unlockAudioFromInput();
+    playSfx('uiClick');
+  }
+
+  private syncMapCards(): void {
+    for (const [biomeId, card] of this.mapRows) {
+      const selected = biomeId === this.selectedBiomeId;
+      card.classList.toggle('title-map--selected', selected);
+      card.setAttribute('aria-checked', String(selected));
+      // Roving tabindex: one stop for the whole group, arrows move within it.
+      card.tabIndex = selected ? 0 : -1;
+    }
+  }
+
+  private buildBackdropArena(): Arena {
+    return new ArenaBuilder(
+      this.scene,
+      this.backdropWorld,
+      getBiome(this.selectedBiomeId),
+      BACKDROP_SEED,
+      { collidersEnabled: false },
+    );
+  }
+
+  /** Swaps the backdrop to the picked map so it previews where the run starts. */
+  private rebuildBackdrop(): void {
+    // Disposing first restores the scene background and fog the old arena
+    // captured, so the new one inherits a clean scene rather than its colours.
+    this.arena.dispose();
+    this.arena = this.buildBackdropArena();
+  }
+
+  private syncSoundButton(): void {
+    const soundOn = !isSfxMuted();
+    this.soundButton.textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
+    this.soundButton.setAttribute('aria-pressed', String(soundOn));
+  }
+
+  private unlockAudioFromInput(): void {
+    if (this.audioUnlocked) return;
+    this.audioUnlocked = true;
+    unlockAudio();
   }
 
   /** Advances the orbiting camera and renders the backdrop with the shared renderer. */
@@ -613,22 +896,30 @@ export class TitleScreen {
     this.camera.lookAt(this.orbitCenter);
   }
 
-  /** Starts immediately for a fresh profile, or asks before replacing a save. */
+  /** Opens the map screen, asking first when a save would be erased. */
   requestNewGame(): boolean {
     if (this.disposed) return false;
     if (this.hasSave || this.savedRun !== null) {
       this.confirmation.hidden = false;
-      this.resumeRunButton.disabled = true;
+      this.resumeButton.disabled = true;
       this.newGameButton.disabled = true;
-      this.continueButton.disabled = true;
       return false;
     }
+    this.showMapScreen();
+    return true;
+  }
+
+  /** Erases the old save and starts on the selected map. */
+  startNewGame(): boolean {
+    if (this.disposed) return false;
     this.handlers.onNewGame();
     return true;
   }
 
-  resumeRun(): boolean {
-    if (this.disposed || this.savedRun === null) return false;
+  /** One button, two saves: the run in flight if there is one, else the garage. */
+  resume(): boolean {
+    if (this.disposed) return false;
+    if (this.savedRun === null) return this.continueGame();
     this.handlers.onResumeRun();
     return true;
   }
@@ -651,40 +942,17 @@ export class TitleScreen {
     this.badgesButton.focus();
   }
 
+  private closeSettings(): void {
+    if (this.disposed || this.settingsOverlay.hidden) return;
+    this.settingsOverlay.hidden = true;
+    this.settingsButton.focus();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.resumeRunButton.removeEventListener('click', this.onResumeRunClick);
-    this.newGameButton.removeEventListener('click', this.onNewGameClick);
-    this.continueButton.removeEventListener('click', this.onContinueClick);
-    this.leaderboardButton.removeEventListener(
-      'click',
-      this.onLeaderboardClick,
-    );
-    this.leaderboardCloseButton.removeEventListener(
-      'click',
-      this.onLeaderboardCloseClick,
-    );
-    this.leaderboardOverlay.removeEventListener(
-      'pointerdown',
-      this.onLeaderboardOverlayPointerDown,
-    );
-    this.leaderboardOverlay.removeEventListener(
-      'keydown',
-      this.onLeaderboardKeyDown,
-    );
-    this.badgesButton.removeEventListener('click', this.onBadgesClick);
-    this.badgesCloseButton.removeEventListener(
-      'click',
-      this.onBadgesCloseClick,
-    );
-    this.badgesOverlay.removeEventListener(
-      'pointerdown',
-      this.onBadgesOverlayPointerDown,
-    );
-    this.badgesOverlay.removeEventListener('keydown', this.onBadgesKeyDown);
-    this.confirmButton.removeEventListener('click', this.onConfirmClick);
-    this.cancelButton.removeEventListener('click', this.onCancelClick);
+    for (const remove of this.listenerRemovers) remove();
+    this.listenerRemovers.length = 0;
     this.root.remove();
 
     this.arena.dispose();

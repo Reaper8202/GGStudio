@@ -84,7 +84,16 @@ export class ChamberMode {
     snow: 'snowfield',
     sand: 'desert',
   };
-  private controls: VehicleControls = { throttle: 0, brake: 0, steer: 0, fire: false, aimYawWorld: 0 };
+  // The test chamber has no zombies and so no auto-aim: the player's own aim
+  // is the only aim there is, and the guns follow it at full slew rate.
+  private controls: VehicleControls = {
+    throttle: 0,
+    brake: 0,
+    steer: 0,
+    fire: false,
+    aimYawWorld: 0,
+    manualAim: true,
+  };
   private keys = new Set<string>();
   private accumulator = 0;
   private lastTime = performance.now();

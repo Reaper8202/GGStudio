@@ -1,5 +1,5 @@
 import './WaveClearCard.css';
-import type { BadgeDefinition } from '../core/badges.ts';
+import type { BadgeAward } from '../core/badges.ts';
 import { playSfx } from '../app/sfx.ts';
 
 export interface WaveClearRepairOffer {
@@ -11,14 +11,17 @@ export interface WaveClearRepairOffer {
 
 export interface WaveClearCardView {
   wave: number;
+  /** Total banked this wave, badge bonus included. */
   moneyEarned: number;
+  /** Share of `moneyEarned` paid by badges. 0 when none were earned. */
+  badgeBonus: number;
   runMoneyTotal: number;
   kills: number;
   elapsedSeconds: number;
   integrityPct: number;
   nextWaveComposition: string;
   warnings: readonly string[];
-  badges: readonly BadgeDefinition[];
+  badges: readonly BadgeAward[];
   newBadgeIds: readonly string[];
   /** null when the rig is undamaged, so there is nothing to offer. */
   repair: WaveClearRepairOffer | null;
@@ -50,9 +53,11 @@ export class WaveClearCard {
   private readonly moneyRow: HTMLDivElement;
   private readonly moneyCounter: HTMLDivElement;
   private readonly moneyValue: HTMLSpanElement;
+  private readonly moneyNote: HTMLDivElement;
   private readonly coinLayer: HTMLDivElement;
   private readonly statRows: StatRow[] = [];
   private readonly badgesBlock: HTMLElement;
+  private readonly badgesBonus: HTMLSpanElement;
   private readonly badgesGrid: HTMLDivElement;
   private readonly badgeElements: BadgeElement[] = [];
   private readonly previewBlock: HTMLElement;
@@ -102,7 +107,11 @@ export class WaveClearCard {
     this.moneyCounter.append(moneyPrefix, this.moneyValue);
     this.coinLayer = element('div', 'wave-clear__coins');
     this.coinLayer.setAttribute('aria-hidden', 'true');
-    this.moneyRow.append(moneyLabel, this.moneyCounter, this.coinLayer);
+    this.moneyNote = element('div', 'wave-clear__money-note');
+    this.moneyNote.hidden = true;
+    const moneyLabelStack = element('div', 'wave-clear__money-labels');
+    moneyLabelStack.append(moneyLabel, this.moneyNote);
+    this.moneyRow.append(moneyLabelStack, this.moneyCounter, this.coinLayer);
 
     const stats = element('section', 'wave-clear__stats');
     stats.setAttribute('aria-label', 'Wave statistics');
@@ -114,10 +123,14 @@ export class WaveClearCard {
     );
 
     this.badgesBlock = element('section', 'wave-clear__badges');
+    const badgesHeader = element('div', 'wave-clear__badges-header');
     const badgesTitle = element('h3', 'wave-clear__section-title');
     setTextIfChanged(badgesTitle, 'BADGES EARNED');
+    this.badgesBonus = element('span', 'wave-clear__badges-bonus');
+    this.badgesBonus.hidden = true;
+    badgesHeader.append(badgesTitle, this.badgesBonus);
     this.badgesGrid = element('div', 'wave-clear__badge-grid');
-    this.badgesBlock.append(badgesTitle, this.badgesGrid);
+    this.badgesBlock.append(badgesHeader, this.badgesGrid);
 
     this.previewBlock = element('section', 'wave-clear__preview');
     const previewTitle = element('h3', 'wave-clear__section-title');
@@ -324,11 +337,23 @@ export class WaveClearCard {
       repair === null ? '' : formatMoney(repair.cost),
     );
 
+    const badgeBonus = Math.max(0, Math.round(view.badgeBonus));
+    this.moneyNote.hidden = badgeBonus <= 0;
+    setTextIfChanged(
+      this.moneyNote,
+      badgeBonus > 0 ? `INCLUDES ${formatMoney(badgeBonus)} BADGE BONUS` : '',
+    );
+    this.badgesBonus.hidden = badgeBonus <= 0;
+    setTextIfChanged(
+      this.badgesBonus,
+      badgeBonus > 0 ? `+${formatMoney(badgeBonus)}` : '',
+    );
+
     this.badgesGrid.replaceChildren();
     this.badgeElements.length = 0;
     this.badgesBlock.hidden = view.badges.length === 0;
     const newBadgeIds = new Set(view.newBadgeIds);
-    for (const badge of view.badges) {
+    for (const { badge, bonus } of view.badges) {
       const root = element(
         'div',
         `wave-clear__badge wave-clear__badge--${badge.tier}`,
@@ -346,6 +371,12 @@ export class WaveClearCard {
       setTextIfChanged(description, badge.description);
       copy.append(name, description);
       root.append(icon, copy);
+
+      if (bonus > 0) {
+        const payout = element('span', 'wave-clear__badge-payout');
+        setTextIfChanged(payout, `+${formatMoney(bonus)}`);
+        root.appendChild(payout);
+      }
 
       if (isNew) {
         const flag = element('span', 'wave-clear__badge-new');

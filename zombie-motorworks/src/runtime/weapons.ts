@@ -182,10 +182,10 @@ export function overchargeWeapon(
 
 const TURRET_YAW_RATE = 3.2; // rad/s
 /**
- * Player-aimed turrets slew far faster than auto-aim ones. An auto turret's
- * slow sweep is part of its cost — it takes time to come onto a new target.
- * A manual turret is already limited by how fast the player can move the
- * cursor, so a slow slew only reads as unresponsive input.
+ * A turret following the player's cursor slews far faster than one hunting on
+ * its own. An auto turret's slow sweep is part of its cost — it takes time to
+ * come onto a new target. Player aim is already limited by how fast the cursor
+ * moves, so a slow slew only reads as unresponsive input.
  */
 const MANUAL_TURRET_YAW_RATE = 14; // rad/s
 // Move beyond the first surface while keeping the complete projectile path
@@ -201,12 +201,18 @@ export interface WeaponStepResult {
 export interface WeaponAimInput {
   aimYawWorld: number;
   fire: boolean;
-  /** World-space target centre for automatic weapons. Manual aim remains yaw-only. */
+  /** World-space target centre. Turrets pitch onto it; fixed mounts ignore it. */
   aimPoint?: Vec3;
 }
 
 export interface WeaponStepInput extends WeaponAimInput {
   weaponAim?: ReadonlyMap<string, WeaponAimInput>;
+  /**
+   * Player override: every weapon drops the target `weaponAim` acquired for it
+   * and converges on this input's own aim point and trigger instead. Set while
+   * the player is aiming at the world with the cursor.
+   */
+  manualOverride?: boolean;
 }
 
 export function stepWeapons(
@@ -228,7 +234,14 @@ export function stepWeapons(
     if (!attachedAliveIds.has(wpn.partId)) continue;
     // Weapons have unlimited ammo — firing is limited only by the per-weapon
     // fire-rate cooldown below. Fuel is the resource the player manages now.
-    const weaponInput = input.weaponAim?.get(wpn.partId) ?? input;
+    //
+    // The player's cursor outranks auto-acquisition: while the override is on,
+    // every weapon takes the shared aim input rather than the target AutoAim
+    // picked for it, so a click concentrates the whole rig on one point.
+    const manualOverride = input.manualOverride === true;
+    const weaponInput = manualOverride
+      ? input
+      : (input.weaponAim?.get(wpn.partId) ?? input);
 
     const up = norm(rotateByQuat(rot, v3(0, 1, 0)));
     const mountedFwdW = norm(rotateByQuat(rot, wpn.forwardLocal));
@@ -240,11 +253,20 @@ export function stepWeapons(
     if (wpn.def.mountType === 'turret') {
       // Desired world yaw -> yaw relative to mounted forward, arc-clamped.
       const fwdYawW = Math.atan2(mountedFwdW.x, mountedFwdW.z);
+      // Under the override the yaw is resolved from this mount rather than
+      // from the hull centre, so guns spread across a wide rig cross on the
+      // cursor instead of firing parallel past it. (AutoAim already works per
+      // mount, so its yaw needs no such correction.)
+      const overridePoint = manualOverride ? weaponInput.aimPoint : undefined;
+      const aimYawWorld =
+        overridePoint === undefined
+          ? weaponInput.aimYawWorld
+          : Math.atan2(overridePoint.x - mountW.x, overridePoint.z - mountW.z);
       let desired =
         wpn.def.arcDeg >= 360
-          ? normalizeAngle(weaponInput.aimYawWorld - fwdYawW)
+          ? normalizeAngle(aimYawWorld - fwdYawW)
           : clamp(
-              normalizeAngle(weaponInput.aimYawWorld - fwdYawW),
+              normalizeAngle(aimYawWorld - fwdYawW),
               -halfArc(wpn.def),
               halfArc(wpn.def),
             );
@@ -253,7 +275,9 @@ export function stepWeapons(
         desired = normalizeAngle(desired);
       }
       const yawRate =
-        wpn.def.aimMode === 'manual' ? MANUAL_TURRET_YAW_RATE : TURRET_YAW_RATE;
+        manualOverride || wpn.def.aimMode === 'manual'
+          ? MANUAL_TURRET_YAW_RATE
+          : TURRET_YAW_RATE;
       const dYaw = clamp(
         normalizeAngle(desired - wpn.yaw),
         -yawRate * dt,
@@ -303,9 +327,9 @@ export function stepWeapons(
       wpn.yaw !== 0
         ? norm(rotateAroundAxis(mountedFwdW, up, wpn.yaw))
         : mountedFwdW;
-    // Any turret with a target point pitches onto it: auto turrets get theirs
-    // from AutoAim, manual turrets from the player's cursor. Fixed mounts (the
-    // flamethrower nozzle) keep firing along the hull and ignore it.
+    // Any turret with a target point pitches onto it: normally the one AutoAim
+    // acquired, or the player's cursor point while the override runs. Fixed
+    // mounts (the flamethrower nozzle) keep firing along the hull and ignore it.
     const fireDir =
       wpn.pitch !== 0 ? pitchedDirection(yawDir, up, wpn.pitch) : yawDir;
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildWaveTimeline,
-  waveMarker,
+  waveIcon,
   type TimelineNode,
   type WaveTimelineInput,
 } from '../src/core/waveTimeline.ts';
@@ -136,7 +136,7 @@ describe('wave timeline progress', () => {
   });
 });
 
-describe('wave marker', () => {
+describe('wave icon', () => {
   function node(overrides: Partial<TimelineNode> = {}): TimelineNode {
     return {
       wave: 6,
@@ -147,18 +147,9 @@ describe('wave marker', () => {
     };
   }
 
-  it('shows past and current waves before considering their composition', () => {
-    expect(waveMarker(node({ state: 'past', threats: ['phone-addict'] }))).toBe(
-      'cleared',
-    );
+  it('uses the boss icon for the Phone Addict introduction', () => {
     expect(
-      waveMarker(node({ state: 'current', threats: ['phone-addict'] })),
-    ).toBe('current');
-  });
-
-  it('uses the boss marker for the Phone Addict introduction', () => {
-    expect(
-      waveMarker(
+      waveIcon(
         node({
           wave: 10,
           threats: ['phone-addict'],
@@ -168,13 +159,21 @@ describe('wave marker', () => {
     ).toBe('boss');
   });
 
-  it('keeps other specialist introductions as milestones', () => {
-    expect(waveMarker(node({ threats: ['worker'], isMilestone: true }))).toBe(
-      'milestone',
+  it('keeps other specialist introductions as new threats', () => {
+    expect(waveIcon(node({ threats: ['worker'], isMilestone: true }))).toBe(
+      'threat',
     );
   });
 
-  it('uses the ordinary marker for a future non-milestone wave', () => {
-    expect(waveMarker(node())).toBe('wave');
+  it('uses the zombie icon for an ordinary wave', () => {
+    expect(waveIcon(node())).toBe('zombie');
   });
+
+  it.each(['past', 'current', 'future'] as const)(
+    'keeps a wave identity once it is %s',
+    (state) => {
+      expect(waveIcon(node({ state, threats: ['phone-addict'] }))).toBe('boss');
+      expect(waveIcon(node({ state }))).toBe('zombie');
+    },
+  );
 });
