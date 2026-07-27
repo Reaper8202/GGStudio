@@ -27,7 +27,7 @@ import {
 } from '../core/turretModules.ts';
 import type { Vec3, VehicleBlueprint } from '../core/types.ts';
 import type { RuntimePart } from '../runtime/assembler.ts';
-import { buildPartMesh } from '../editor/meshes.ts';
+import { applyWeaponAim, buildPartMesh } from '../editor/meshes.ts';
 import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
 import {
@@ -1721,6 +1721,13 @@ export class SurvivalMode {
       if (mesh) mesh.visible = false;
       const wheelMesh = this.wheelMeshes.get(id);
       if (wheelMesh) wheelMesh.visible = false;
+    }
+
+    // Turn each gun to where it is actually shooting.
+    for (const weapon of this.vehicle.weaponStates()) {
+      const mesh = this.vehicleGroup.getObjectByName(`part:${weapon.partId}`);
+      if (mesh)
+        applyWeaponAim(mesh, weapon.forwardLocal, weapon.yaw, weapon.pitch);
     }
 
     for (const wheel of this.vehicle.wheels()) {

@@ -56,6 +56,12 @@ export interface RuntimeWeapon {
   mountLocal: Vec3;
   forwardLocal: Vec3;
   yaw: number; // turret yaw relative to mounted forward, rad
+  /**
+   * Turret elevation onto its aim point, rad (positive = muzzle up). Tracked
+   * every step, not just on the shot, so the mesh can follow the aim between
+   * rounds.
+   */
+  pitch: number;
   cooldown: number; // s
   /** Elapsed time in the current burst cycle for periodic burst weapons, s. */
   cycleTime: number;
@@ -121,6 +127,7 @@ export function createWeapon(
     mountLocal: cellCentreM(placed.pos),
     forwardLocal: rotateVec(placed.orient, { x: 0, y: 0, z: 1 }),
     yaw: 0,
+    pitch: 0,
     cooldown: 0,
     cycleTime: 0,
     shotsFired: 0,
@@ -217,6 +224,10 @@ export function stepWeapons(
 
     const up = norm(rotateByQuat(rot, v3(0, 1, 0)));
     const mountedFwdW = norm(rotateByQuat(rot, wpn.forwardLocal));
+    const mountW = add(
+      v3(pos.x, pos.y, pos.z),
+      rotateByQuat(rot, wpn.mountLocal),
+    );
 
     if (wpn.def.mountType === 'turret') {
       // Desired world yaw -> yaw relative to mounted forward, arc-clamped.
@@ -241,8 +252,15 @@ export function stepWeapons(
         yawRate * dt,
       );
       wpn.yaw += dYaw;
+      // Elevation tracks continuously as well, so a turret is already looking
+      // at its target when the cooldown clears rather than snapping on the
+      // frame it fires.
+      wpn.pitch = weaponInput.aimPoint
+        ? pitchAngleToward(up, mountW, weaponInput.aimPoint)
+        : 0;
     } else {
       wpn.yaw = 0;
+      wpn.pitch = 0;
     }
 
     let wantsFire: boolean;
@@ -277,17 +295,11 @@ export function stepWeapons(
       wpn.yaw !== 0
         ? norm(rotateAroundAxis(mountedFwdW, up, wpn.yaw))
         : mountedFwdW;
-    const mountW = add(
-      v3(pos.x, pos.y, pos.z),
-      rotateByQuat(rot, wpn.mountLocal),
-    );
     // Any turret with a target point pitches onto it: auto turrets get theirs
     // from AutoAim, manual turrets from the player's cursor. Fixed mounts (the
     // flamethrower nozzle) keep firing along the hull and ignore it.
     const fireDir =
-      wpn.def.mountType === 'turret' && weaponInput.aimPoint
-        ? pitchedDirection(yawDir, up, mountW, weaponInput.aimPoint)
-        : yawDir;
+      wpn.pitch !== 0 ? pitchedDirection(yawDir, up, wpn.pitch) : yawDir;
 
     // A Hellfire overcharge scales what the shot is worth without touching the
     // catalog definition, so the weapon reverts the moment the buff lapses.
@@ -415,16 +427,11 @@ function tickOvercharge(
 const MAX_AUTO_PITCH = (35 * Math.PI) / 180;
 
 /**
- * Preserve the yaw slew result while aiming vertically at an automatic
- * weapon's target. The pitch limit prevents elevated turrets from firing
- * back through their own vehicle deck.
+ * Elevation from a mount onto a target, positive with the muzzle up. The pitch
+ * limit prevents elevated turrets from firing back through their own vehicle
+ * deck.
  */
-function pitchedDirection(
-  yawDir: Vec3,
-  up: Vec3,
-  mount: Vec3,
-  target: Vec3,
-): Vec3 {
+function pitchAngleToward(up: Vec3, mount: Vec3, target: Vec3): number {
   const targetOffset = {
     x: target.x - mount.x,
     y: target.y - mount.y,
@@ -432,6 +439,20 @@ function pitchedDirection(
   };
   const vertical =
     targetOffset.x * up.x + targetOffset.y * up.y + targetOffset.z * up.z;
+  const targetHorizontal = Math.hypot(
+    targetOffset.x - up.x * vertical,
+    targetOffset.y - up.y * vertical,
+    targetOffset.z - up.z * vertical,
+  );
+  return clamp(
+    Math.atan2(vertical, targetHorizontal),
+    -MAX_AUTO_PITCH,
+    MAX_AUTO_PITCH,
+  );
+}
+
+/** Preserve the yaw slew result while elevating the shot by `pitch`. */
+function pitchedDirection(yawDir: Vec3, up: Vec3, pitch: number): Vec3 {
   const horizontal = {
     x: yawDir.x - up.x * (yawDir.x * up.x + yawDir.y * up.y + yawDir.z * up.z),
     y: yawDir.y - up.y * (yawDir.x * up.x + yawDir.y * up.y + yawDir.z * up.z),
@@ -440,16 +461,6 @@ function pitchedDirection(
   const horizontalLength = Math.hypot(horizontal.x, horizontal.y, horizontal.z);
   if (horizontalLength < 1e-6) return yawDir;
   const horizontalDir = scale(horizontal, 1 / horizontalLength);
-  const targetHorizontal = Math.hypot(
-    targetOffset.x - up.x * vertical,
-    targetOffset.y - up.y * vertical,
-    targetOffset.z - up.z * vertical,
-  );
-  const pitch = clamp(
-    Math.atan2(vertical, targetHorizontal),
-    -MAX_AUTO_PITCH,
-    MAX_AUTO_PITCH,
-  );
   return norm(add(scale(horizontalDir, Math.cos(pitch)), scale(up, Math.sin(pitch))));
 }
 

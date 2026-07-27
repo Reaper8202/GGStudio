@@ -11,6 +11,11 @@
  * orientation, so a barrel always points where the part is aimed. Receivers
  * carry `placementSurface` — weapons only socket downwards, but the editor
  * still needs something to hit to select one.
+ *
+ * The traverse ring stays with the mount; everything above it hangs off a
+ * swivel group the runtime turns to the weapon's live aim (see
+ * `applyWeaponAim`). In the editor the swivel is identity, so a parked gun
+ * looks exactly as it is built.
  */
 
 import * as THREE from 'three';
@@ -31,6 +36,9 @@ const GUNMETAL = 0x22262c;
 const FROST = 0x8fe3ff;
 const PILOT_FLAME = 0xffa03a;
 
+/** Group the runtime rotates to the weapon's live aim. */
+export const WEAPON_SWIVEL_NAME = 'weapon-swivel';
+
 export function buildWeaponMesh(
   def: PartDefinition,
   placed: PlacedPart,
@@ -41,7 +49,13 @@ export function buildWeaponMesh(
   const group = new THREE.Group();
   const centre = cellCentreM(placed.pos);
   group.position.set(centre.x, centre.y, centre.z);
-  group.quaternion.copy(orientationQuaternion(placed.orient));
+  const orientQuaternion = orientationQuaternion(placed.orient);
+
+  // The mount does not move with the gun: ring and bolts stay bolted to the
+  // block below, in the part's placed orientation.
+  const mount = new THREE.Group();
+  mount.quaternion.copy(orientQuaternion);
+  group.add(mount);
 
   // Bolted traverse ring: what the whole weapon sits and swings on.
   const ring = new THREE.Mesh(
@@ -50,8 +64,8 @@ export function buildWeaponMesh(
   );
   ring.position.y = -s * 0.4;
   ring.userData.placementSurface = true;
-  group.add(ring);
-  group.add(
+  mount.add(ring);
+  mount.add(
     boltRing({
       count: 8,
       radius: s * 0.32,
@@ -64,24 +78,69 @@ export function buildWeaponMesh(
     }),
   );
 
+  // Swivel sits in the vehicle frame (no orientation of its own) so the
+  // runtime can turn it about vehicle up by the weapon's yaw, exactly the axis
+  // the shot itself is yawed around. The hardware inside it carries the
+  // placed orientation.
+  const swivel = new THREE.Group();
+  swivel.name = WEAPON_SWIVEL_NAME;
+  const hardware = new THREE.Group();
+  hardware.quaternion.copy(orientQuaternion);
+  swivel.add(hardware);
+  group.add(swivel);
+
   switch (def.id) {
     case 'cannon-heavy':
-      buildHeavyCannon(group, color, opacity);
+      buildHeavyCannon(hardware, color, opacity);
       break;
     case 'sniper-light':
-      buildSniper(group, color, opacity);
+      buildSniper(hardware, color, opacity);
       break;
     case 'ice-cannon':
-      buildIceCannon(group, color, opacity);
+      buildIceCannon(hardware, color, opacity);
       break;
     case 'flamethrower':
-      buildFlamethrower(group, color, opacity);
+      buildFlamethrower(hardware, color, opacity);
       break;
     default:
-      buildAutocannon(group, color, opacity);
+      buildAutocannon(hardware, color, opacity);
       break;
   }
   return group;
+}
+
+const VEHICLE_UP = new THREE.Vector3(0, 1, 0);
+const aimYaw = new THREE.Quaternion();
+const aimPitch = new THREE.Quaternion();
+const aimPitchAxis = new THREE.Vector3();
+
+/**
+ * Point a placed weapon's hardware where the runtime is actually shooting.
+ *
+ * `yaw` and `pitch` come straight off `RuntimeWeapon`, and the axes match how
+ * the shot direction is built: yaw about vehicle up, pitch about the mount's
+ * right-hand axis. A gun rolled onto the side of the hull therefore still
+ * traverses level, because both the mesh and the ray use the same up.
+ */
+export function applyWeaponAim(
+  partMesh: THREE.Object3D,
+  forwardLocal: { x: number; y: number; z: number },
+  yaw: number,
+  pitch: number,
+): void {
+  const swivel = partMesh.getObjectByName(WEAPON_SWIVEL_NAME);
+  if (!swivel) return;
+  aimYaw.setFromAxisAngle(VEHICLE_UP, yaw);
+  aimPitchAxis
+    .set(forwardLocal.x, forwardLocal.y, forwardLocal.z)
+    .cross(VEHICLE_UP);
+  if (aimPitchAxis.lengthSq() < 1e-6) {
+    // Mounted looking straight up or down: there is no pitch axis to use.
+    swivel.quaternion.copy(aimYaw);
+    return;
+  }
+  aimPitch.setFromAxisAngle(aimPitchAxis.normalize(), pitch);
+  swivel.quaternion.copy(aimYaw).multiply(aimPitch);
 }
 
 /** Cylinder running down the part's forward axis. */

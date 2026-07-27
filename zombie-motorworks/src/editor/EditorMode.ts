@@ -1088,14 +1088,28 @@ export class EditorMode {
     return true;
   }
 
+  /**
+   * One 90° step for the R (turn) and F (flip) keys.
+   *
+   * Guns flip about Z — a roll — because that is the turn that swings their
+   * hardpoint onto the side of a block, which is how a gun gets side-mounted.
+   * Rolling about X would only tip it nose-up or nose-down.
+   */
+  private rotationStep(def: PartDefinition, axis: 'y' | 'x'): number {
+    if (axis === 'y') return orientationFromSteps(0, 1, 0);
+    return def.weapon
+      ? orientationFromSteps(0, 0, 1)
+      : orientationFromSteps(1, 0, 0);
+  }
+
   private rotateSelected(axis: 'y' | 'x'): void {
     const first = [...this.selected][0];
     if (!first) return;
     const part = getPart(this.bp, first);
     if (!part) return;
-    const step = axis === 'y' ? orientationFromSteps(0, 1, 0) : orientationFromSteps(1, 0, 0);
-    let next = composeOrientations(step, part.orient);
     const def = getPartDef(part.defId);
+    const step = this.rotationStep(def, axis);
+    let next = composeOrientations(step, part.orient);
     for (let i = 0; i < 4; i++) {
       if (!def.allowedOrientations || def.allowedOrientations.includes(next)) break;
       next = composeOrientations(step, next);

@@ -12,14 +12,16 @@ import { PAINT_COLORS, type PartDefinition, type PlacedPart } from '../core/type
 import { CELL_SIZE } from '../core/types.ts';
 import { rotateVec } from '../core/grid.ts';
 import { cellCentreM } from '../core/mass.ts';
-import { boxWithEdges, lambert, partColor } from './parts/shared.ts';
+import { boxWithEdges, partColor } from './parts/shared.ts';
 import { buildArmourPlateMesh, buildFaceArmourMesh } from './parts/armourPlate.ts';
 import { buildEngineMesh } from './parts/engine.ts';
 import { buildFuelTankMesh } from './parts/fuelTank.ts';
+import { buildMeleeMesh } from './parts/melee.ts';
 import { buildWeaponMesh } from './parts/weapons.ts';
 import { buildTreadMesh, buildWheelMesh } from './parts/wheels.ts';
 
 export { partColor };
+export { applyWeaponAim } from './parts/weapons.ts';
 
 /**
  * Build a vehicle-local mesh for a placed part. Children sit at cell centres
@@ -45,100 +47,11 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
   group.name = `part:${placed.id}`;
 
   if (def.melee) {
-    const visual = def.melee.visual ?? 'drum';
-    const centre = cellCentreM(placed.pos);
-    // Shared basis: local +Y (the drum/spike/blade spin axis) follows the
-    // part's local X once rotated into world space by its placed orientation.
-    const axle = rotateVec(placed.orient, { x: 1, y: 0, z: 0 });
-    const orientQuat = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(axle.x, axle.y, axle.z),
-    );
-
-    if (visual === 'spikes') {
-      // Long Spikes: a small hub (the "small area" hitbox) with a single
-      // long pike jutting straight out along the axle, for reach despite a
-      // tight contact area.
-      const hubRadius = s * 0.22;
-      const pikeLength = s * 1.7;
-      const material = lambert(color, opacity);
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(hubRadius, hubRadius, s * 0.4, 10), material);
-      hub.userData.placementSurface = true;
-      const spikeGroup = new THREE.Group();
-      spikeGroup.add(hub);
-      const pike = new THREE.Mesh(
-        new THREE.ConeGeometry(s * 0.17, pikeLength, 8),
-        lambert(0xb7bcc2, opacity),
-      );
-      pike.position.set(0, hubRadius + pikeLength / 2, 0);
-      spikeGroup.add(pike);
-      spikeGroup.quaternion.copy(orientQuat);
-      spikeGroup.position.set(centre.x, centre.y, centre.z);
-      spikeGroup.name = 'melee-spikes';
-      group.add(spikeGroup);
-      return group;
-    }
-
-    if (visual === 'blade') {
-      // Sawblade: a big disc lying flat and horizontal (spinning around the
-      // vertical axis regardless of mount rotation), sweeping a wide area
-      // around the vehicle at ground level, with teeth around the rim.
-      const radius = s * 1.05;
-      const thickness = s * 0.18;
-      const disc = new THREE.Mesh(
-        new THREE.CylinderGeometry(radius, radius, thickness, 28),
-        lambert(color, opacity),
-      );
-      disc.userData.placementSurface = true;
-      const bladeGroup = new THREE.Group();
-      bladeGroup.add(disc);
-      const toothMaterial = lambert(0x2b2e33, opacity);
-      const toothCount = 18;
-      for (let i = 0; i < toothCount; i++) {
-        const angle = (i / toothCount) * Math.PI * 2;
-        const tooth = new THREE.Mesh(new THREE.ConeGeometry(s * 0.11, s * 0.22, 4), toothMaterial);
-        tooth.quaternion.setFromUnitVectors(
-          new THREE.Vector3(0, 1, 0),
-          new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)),
-        );
-        tooth.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-        bladeGroup.add(tooth);
-      }
-      // Always flat and horizontal: skip the shared axle orientation so the
-      // blade keeps its natural Y-up disc shape no matter how it's mounted.
-      bladeGroup.position.set(centre.x, centre.y, centre.z);
-      bladeGroup.name = 'melee-blade';
-      group.add(bladeGroup);
-      return group;
-    }
-
-    // Grinder drum (default): one cylinder spanning the part's cells along
-    // local X, studded with teeth. Local +Y of the drum group is the spin axis.
-    const radius = s * 0.48;
-    const length = def.cells.length * s * 0.96;
-    const drum = new THREE.Mesh(
-      new THREE.CylinderGeometry(radius, radius, length, 14),
-      lambert(color, opacity),
-    );
-    drum.userData.placementSurface = true;
-    const drumGroup = new THREE.Group();
-    drumGroup.add(drum);
-    const toothMaterial = lambert(0x2b2e33, opacity);
-    const toothGeometry = new THREE.BoxGeometry(s * 0.14, s * 0.1, s * 0.14);
-    const rings = def.cells.length * 2;
-    for (let ring = 0; ring < rings; ring++) {
-      const y = -length / 2 + ((ring + 0.5) / rings) * length;
-      for (let toothIndex = 0; toothIndex < 5; toothIndex++) {
-        const angle = (toothIndex / 5) * Math.PI * 2 + ring * 0.55;
-        const tooth = new THREE.Mesh(toothGeometry, toothMaterial);
-        tooth.position.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
-        drumGroup.add(tooth);
-      }
-    }
-    drumGroup.quaternion.copy(orientQuat);
-    drumGroup.position.set(centre.x, centre.y, centre.z);
-    drumGroup.name = 'melee-drum';
-    group.add(drumGroup);
+    // Terminal part: the editor's build raycast skips these surfaces, so a
+    // spinning drum or blade can never become the face a neighbour is dropped
+    // onto. Selection still hits them.
+    group.userData.blocksAttachments = true;
+    group.add(buildMeleeMesh(def, placed, color, opacity));
     return group;
   }
 
