@@ -1,0 +1,242 @@
+.title-badges-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 131;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 0.84);
+}
+
+.title-badges-dialog {
+  display: grid;
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  padding: 24px;
+  border: 1px solid var(--ui-edge);
+  border-radius: 0;
+  background: var(--ui-surface-1);
+  box-shadow:
+    6px 7px 0 rgb(0 0 0 / 0.32),
+    inset 3px 0 0 var(--ui-signal-dark);
+  text-align: left;
+}
+
+.title-badges-dialog h2 {
+  margin: 0;
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28) / 1 var(--ui-font-display);
+  letter-spacing: 0.08em;
+}
+
+.title-badges__progress {
+  margin: 8px 0 0;
+  color: var(--ui-bone);
+  font: 400 var(--ui-text-20) / 1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.title-badges__gallery {
+  min-width: 0;
+  min-height: 0;
+  margin-top: 18px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.badge-gallery {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  padding: 1px 7px 8px 1px;
+}
+
+.badge-gallery__tile {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 50px minmax(0, 1fr);
+  grid-template-rows: auto minmax(42px, 1fr) auto;
+  column-gap: 12px;
+  row-gap: 8px;
+  overflow: hidden;
+  padding: 14px;
+  border: 1px solid var(--ui-signal-dark);
+  border-radius: 0;
+  background: var(--ui-surface-2);
+  box-shadow: 6px 7px 0 rgb(0 0 0 / 0.32);
+}
+
+.badge-gallery__tile--common {
+  border-color: var(--ui-signal-dark);
+}
+
+.badge-gallery__tile--rare {
+  border-color: var(--ui-rust);
+}
+
+.badge-gallery__tile--epic {
+  border-color: var(--ui-bone);
+}
+
+.badge-gallery__tile--earned {
+  box-shadow:
+    6px 7px 0 rgb(0 0 0 / 0.32),
+    inset 3px 0 0 var(--ui-signal);
+}
+
+.badge-gallery__tile--locked {
+  color: var(--ui-text-muted);
+  opacity: 0.46;
+}
+
+.badge-gallery__icon {
+  display: grid;
+  grid-row: 1 / span 3;
+  width: 50px;
+  height: 50px;
+  place-items: center;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-recess);
+  color: var(--ui-signal-strong);
+  font-size: var(--ui-text-40);
+  line-height: 1;
+  text-shadow: 2px 2px 0 var(--ui-black);
+}
+
+.badge-gallery__tile--locked .badge-gallery__icon {
+  color: var(--ui-text-muted);
+  filter: grayscale(1);
+}
+
+.badge-gallery__heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.badge-gallery__name {
+  min-width: 0;
+  margin: 0;
+  color: var(--ui-signal-strong);
+  font: 400 var(--ui-text-16) / 1 var(--ui-font-display);
+  letter-spacing: 0.05em;
+}
+
+.badge-gallery__tile--locked .badge-gallery__name {
+  color: var(--ui-text-muted);
+}
+
+.badge-gallery__tier {
+  flex: 0 0 auto;
+  color: var(--ui-signal-dark);
+  font: 400 var(--ui-text-10) / 1 var(--ui-font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.badge-gallery__tile--rare .badge-gallery__tier {
+  color: var(--ui-rust);
+}
+
+.badge-gallery__tile--epic .badge-gallery__tier {
+  color: var(--ui-bone);
+}
+
+.badge-gallery__description {
+  margin: 0;
+  color: var(--ui-text);
+  font: var(--ui-text-11) / 1.4 var(--ui-font-body);
+}
+
+.badge-gallery__tile--locked .badge-gallery__description {
+  color: var(--ui-text-muted);
+}
+
+.badge-gallery__details {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ui-signal);
+  font: 400 var(--ui-text-11) / 1.2 var(--ui-font-display);
+}
+
+.badge-gallery__count {
+  flex: 0 0 auto;
+  color: var(--ui-bone);
+  font-size: var(--ui-text-14);
+}
+
+.badge-gallery__tile--epic.badge-gallery__tile--earned::after {
+  position: absolute;
+  inset-block: 0;
+  left: -45%;
+  width: 28%;
+  content: '';
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--ui-bone), transparent);
+  opacity: 0.1;
+  transform: skewX(-16deg);
+  animation: badge-gallery-shimmer 4.5s ease-in-out infinite;
+}
+
+.title-badges__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.title-badges__actions button {
+  min-width: 150px;
+}
+
+@keyframes badge-gallery-shimmer {
+  0%,
+  62% {
+    transform: translateX(0) skewX(-16deg);
+  }
+
+  100% {
+    transform: translateX(520%) skewX(-16deg);
+  }
+}
+
+@media (max-width: 560px) {
+  .title-badges-overlay {
+    position: fixed;
+    padding: 8px;
+  }
+
+  .title-badges-dialog {
+    padding: 18px;
+  }
+
+  .title-badges__actions {
+    margin-top: 12px;
+  }
+
+  .title-badges__actions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .badge-gallery {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge-gallery__tile--epic.badge-gallery__tile--earned::after {
+    animation: none;
+  }
+}

@@ -1,3 +1,4 @@
+import './badgeGallery.css';
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { VehicleBlueprint } from '../core/types.ts';
@@ -10,6 +11,12 @@ import { ArenaBuilder } from '../survival/arena/ArenaBuilder.ts';
 import { GRAVEYARD } from '../survival/arena/recipes/graveyard.ts';
 import type { SavedRun } from '../core/runSave.ts';
 import { leaderboardRows, type LeaderboardRow } from '../core/leaderboard.ts';
+import { BADGES } from '../core/badges.ts';
+import {
+  badgeProgress,
+  badgeStore,
+  type BadgeCollection,
+} from './badgeStore.ts';
 import { leaderboardStore } from './leaderboardStore.ts';
 import { profileStore } from './profileStore.ts';
 // buildStarterBlueprint is a plain function export; the cross-import back
@@ -113,7 +120,8 @@ function disposeObjectResources(root: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line)) return;
+    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line))
+      return;
     const renderable = object as THREE.Mesh | THREE.Line;
     geometries.add(renderable.geometry);
     const renderableMaterials = Array.isArray(renderable.material)
@@ -175,6 +183,76 @@ function buildTitleLeaderboard(
   return wrapper;
 }
 
+function buildBadgeGallery(
+  collection: BadgeCollection,
+  now: number,
+): HTMLElement {
+  const gallery = document.createElement('div');
+  gallery.className = 'badge-gallery';
+  gallery.setAttribute('role', 'list');
+
+  for (const badge of BADGES) {
+    const record = collection[badge.id];
+    const isEarned = record !== undefined;
+    const tile = document.createElement('article');
+    tile.className = [
+      'badge-gallery__tile',
+      `badge-gallery__tile--${badge.tier}`,
+      isEarned ? 'badge-gallery__tile--earned' : 'badge-gallery__tile--locked',
+    ].join(' ');
+    tile.setAttribute('role', 'listitem');
+    if (!isEarned) {
+      tile.setAttribute(
+        'aria-label',
+        `${badge.name}: ${badge.description} — locked`,
+      );
+    }
+
+    const icon = document.createElement('span');
+    icon.className = 'badge-gallery__icon';
+    icon.textContent = isEarned ? badge.icon : '🔒';
+    icon.setAttribute('aria-hidden', 'true');
+
+    const heading = document.createElement('div');
+    heading.className = 'badge-gallery__heading';
+    const name = document.createElement('h3');
+    name.className = 'badge-gallery__name';
+    name.textContent = badge.name;
+    const tier = document.createElement('span');
+    tier.className = 'badge-gallery__tier';
+    tier.textContent = badge.tier;
+    heading.append(name, tier);
+
+    const description = document.createElement('p');
+    description.className = 'badge-gallery__description';
+    description.textContent = badge.description;
+
+    tile.append(icon, heading, description);
+
+    if (record !== undefined) {
+      const details = document.createElement('div');
+      details.className = 'badge-gallery__details';
+      const earnedAt = document.createElement('span');
+      earnedAt.textContent = `Earned ${formatRelativeDate(
+        record.firstEarnedAt,
+        now,
+      )}`;
+      details.appendChild(earnedAt);
+      if (record.count > 1) {
+        const count = document.createElement('span');
+        count.className = 'badge-gallery__count';
+        count.textContent = `×${record.count.toLocaleString()}`;
+        details.appendChild(count);
+      }
+      tile.appendChild(details);
+    }
+
+    gallery.appendChild(tile);
+  }
+
+  return gallery;
+}
+
 /**
  * Boot screen: DOM title card on top of a live 3D graveyard backdrop with the
  * player's parked vehicle and a slow orbiting camera. It owns and removes
@@ -190,6 +268,11 @@ export class TitleScreen {
   private readonly leaderboardOverlay = document.createElement('div');
   private readonly leaderboardContent = document.createElement('div');
   private readonly leaderboardCloseButton = document.createElement('button');
+  private readonly badgesButton = document.createElement('button');
+  private readonly badgesOverlay = document.createElement('div');
+  private readonly badgesProgress = document.createElement('p');
+  private readonly badgesContent = document.createElement('div');
+  private readonly badgesCloseButton = document.createElement('button');
   private readonly confirmation = document.createElement('div');
   private readonly confirmButton = document.createElement('button');
   private readonly cancelButton = document.createElement('button');
@@ -218,6 +301,7 @@ export class TitleScreen {
 
   private readonly onLeaderboardClick = (): void => {
     if (this.disposed) return;
+    this.closeBadges();
     this.leaderboardContent.replaceChildren(
       buildTitleLeaderboard(
         leaderboardRows(leaderboardStore.load()),
@@ -241,6 +325,33 @@ export class TitleScreen {
   private readonly onLeaderboardKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape') return;
     this.closeLeaderboard();
+    event.preventDefault();
+  };
+
+  private readonly onBadgesClick = (): void => {
+    if (this.disposed) return;
+    this.closeLeaderboard();
+    const collection = badgeStore.load();
+    const progress = badgeProgress(collection);
+    this.badgesProgress.textContent = `${progress.earned} / ${progress.total} earned`;
+    this.badgesContent.replaceChildren(
+      buildBadgeGallery(collection, Date.now()),
+    );
+    this.badgesOverlay.hidden = false;
+    this.badgesCloseButton.focus();
+  };
+
+  private readonly onBadgesCloseClick = (): void => {
+    this.closeBadges();
+  };
+
+  private readonly onBadgesOverlayPointerDown = (event: PointerEvent): void => {
+    if (event.target === this.badgesOverlay) this.closeBadges();
+  };
+
+  private readonly onBadgesKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape') return;
+    this.closeBadges();
     event.preventDefault();
   };
 
@@ -308,11 +419,17 @@ export class TitleScreen {
     this.leaderboardButton.textContent = 'Leaderboard';
     this.leaderboardButton.setAttribute('aria-haspopup', 'dialog');
 
+    this.badgesButton.type = 'button';
+    this.badgesButton.className = 'title-action';
+    this.badgesButton.textContent = 'Badges';
+    this.badgesButton.setAttribute('aria-haspopup', 'dialog');
+
     actions.append(
       this.resumeRunButton,
       this.newGameButton,
       this.continueButton,
       this.leaderboardButton,
+      this.badgesButton,
     );
 
     this.confirmation.className = 'title-confirm';
@@ -379,6 +496,37 @@ export class TitleScreen {
     );
     this.leaderboardOverlay.appendChild(leaderboardDialog);
 
+    this.badgesOverlay.className = 'title-badges-overlay';
+    this.badgesOverlay.hidden = true;
+    this.badgesOverlay.setAttribute('role', 'dialog');
+    this.badgesOverlay.setAttribute('aria-modal', 'true');
+    this.badgesOverlay.setAttribute('aria-labelledby', 'title-badges-title');
+    this.badgesOverlay.setAttribute(
+      'aria-describedby',
+      'title-badges-progress',
+    );
+    const badgesDialog = document.createElement('section');
+    badgesDialog.className = 'panel title-badges-dialog';
+    const badgesTitle = document.createElement('h2');
+    badgesTitle.id = 'title-badges-title';
+    badgesTitle.textContent = 'BADGES';
+    this.badgesProgress.id = 'title-badges-progress';
+    this.badgesProgress.className = 'title-badges__progress';
+    this.badgesContent.className = 'title-badges__gallery';
+    const badgesActions = document.createElement('div');
+    badgesActions.className = 'title-badges__actions';
+    this.badgesCloseButton.type = 'button';
+    this.badgesCloseButton.className = 'primary';
+    this.badgesCloseButton.textContent = 'Back to Title';
+    badgesActions.appendChild(this.badgesCloseButton);
+    badgesDialog.append(
+      badgesTitle,
+      this.badgesProgress,
+      this.badgesContent,
+      badgesActions,
+    );
+    this.badgesOverlay.appendChild(badgesDialog);
+
     panel.append(
       kicker,
       title,
@@ -388,7 +536,7 @@ export class TitleScreen {
       zombieLeft,
       zombieRight,
     );
-    this.root.append(panel, this.leaderboardOverlay);
+    this.root.append(panel, this.leaderboardOverlay, this.badgesOverlay);
     container.appendChild(this.root);
 
     this.resumeRunButton.addEventListener('click', this.onResumeRunClick);
@@ -407,11 +555,19 @@ export class TitleScreen {
       'keydown',
       this.onLeaderboardKeyDown,
     );
+    this.badgesButton.addEventListener('click', this.onBadgesClick);
+    this.badgesCloseButton.addEventListener('click', this.onBadgesCloseClick);
+    this.badgesOverlay.addEventListener(
+      'pointerdown',
+      this.onBadgesOverlayPointerDown,
+    );
+    this.badgesOverlay.addEventListener('keydown', this.onBadgesKeyDown);
     this.confirmButton.addEventListener('click', this.onConfirmClick);
     this.cancelButton.addEventListener('click', this.onCancelClick);
 
     // ---- 3D backdrop: graveyard (visuals only) + parked vehicle + orbit cam ----
-    const aspect = Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1);
+    const aspect =
+      Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1);
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 200);
 
     this.backdropWorld = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
@@ -489,6 +645,12 @@ export class TitleScreen {
     this.leaderboardButton.focus();
   }
 
+  private closeBadges(): void {
+    if (this.disposed || this.badgesOverlay.hidden) return;
+    this.badgesOverlay.hidden = true;
+    this.badgesButton.focus();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -511,6 +673,16 @@ export class TitleScreen {
       'keydown',
       this.onLeaderboardKeyDown,
     );
+    this.badgesButton.removeEventListener('click', this.onBadgesClick);
+    this.badgesCloseButton.removeEventListener(
+      'click',
+      this.onBadgesCloseClick,
+    );
+    this.badgesOverlay.removeEventListener(
+      'pointerdown',
+      this.onBadgesOverlayPointerDown,
+    );
+    this.badgesOverlay.removeEventListener('keydown', this.onBadgesKeyDown);
     this.confirmButton.removeEventListener('click', this.onConfirmClick);
     this.cancelButton.removeEventListener('click', this.onCancelClick);
     this.root.remove();
