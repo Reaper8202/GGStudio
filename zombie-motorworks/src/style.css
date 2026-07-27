@@ -305,6 +305,178 @@ canvas.viewport {
   background: var(--accent-orange-light);
 }
 
+.scope-cursor__hit-marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.scope-cursor__hit-chevron {
+  position: absolute;
+  box-sizing: border-box;
+  width: var(--scope-hit-size, 8px);
+  height: var(--scope-hit-size, 8px);
+  opacity: 0;
+  border-color: var(--scope-hit-color, var(--ui-signal-strong));
+  border-style: solid;
+  border-width: 2px;
+}
+
+.scope-cursor__hit-chevron--nw {
+  border-right: 0;
+  border-bottom: 0;
+  transform: translate(
+    calc(0px - var(--scope-hit-start, 9px)),
+    calc(0px - var(--scope-hit-start, 9px))
+  );
+}
+
+.scope-cursor__hit-chevron--ne {
+  border-bottom: 0;
+  border-left: 0;
+  transform: translate(
+    var(--scope-hit-start, 9px),
+    calc(0px - var(--scope-hit-start, 9px))
+  );
+}
+
+.scope-cursor__hit-chevron--se {
+  border-top: 0;
+  border-left: 0;
+  transform: translate(
+    var(--scope-hit-start, 9px),
+    var(--scope-hit-start, 9px)
+  );
+}
+
+.scope-cursor__hit-chevron--sw {
+  border-top: 0;
+  border-right: 0;
+  transform: translate(
+    calc(0px - var(--scope-hit-start, 9px)),
+    var(--scope-hit-start, 9px)
+  );
+}
+
+.scope-cursor--hit {
+  --scope-hit-color: var(--ui-signal-strong);
+  --scope-hit-duration: 180ms;
+  --scope-hit-size: 8px;
+  --scope-hit-start: 9px;
+  --scope-hit-end: 16px;
+}
+
+.scope-cursor--kill {
+  --scope-hit-color: var(--ui-danger);
+  --scope-hit-duration: 260ms;
+  --scope-hit-size: 11px;
+  --scope-hit-start: 11px;
+  --scope-hit-end: 23px;
+}
+
+.scope-cursor--hit .scope-cursor__hit-chevron--nw,
+.scope-cursor--kill .scope-cursor__hit-chevron--nw {
+  animation: scope-cursor-hit-nw var(--scope-hit-duration) ease-out both;
+}
+
+.scope-cursor--hit .scope-cursor__hit-chevron--ne,
+.scope-cursor--kill .scope-cursor__hit-chevron--ne {
+  animation: scope-cursor-hit-ne var(--scope-hit-duration) ease-out both;
+}
+
+.scope-cursor--hit .scope-cursor__hit-chevron--se,
+.scope-cursor--kill .scope-cursor__hit-chevron--se {
+  animation: scope-cursor-hit-se var(--scope-hit-duration) ease-out both;
+}
+
+.scope-cursor--hit .scope-cursor__hit-chevron--sw,
+.scope-cursor--kill .scope-cursor__hit-chevron--sw {
+  animation: scope-cursor-hit-sw var(--scope-hit-duration) ease-out both;
+}
+
+@keyframes scope-cursor-hit-nw {
+  from {
+    opacity: 1;
+    transform: translate(
+      calc(0px - var(--scope-hit-start)),
+      calc(0px - var(--scope-hit-start))
+    );
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(
+      calc(0px - var(--scope-hit-end)),
+      calc(0px - var(--scope-hit-end))
+    );
+  }
+}
+
+@keyframes scope-cursor-hit-ne {
+  from {
+    opacity: 1;
+    transform: translate(
+      var(--scope-hit-start),
+      calc(0px - var(--scope-hit-start))
+    );
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(
+      var(--scope-hit-end),
+      calc(0px - var(--scope-hit-end))
+    );
+  }
+}
+
+@keyframes scope-cursor-hit-se {
+  from {
+    opacity: 1;
+    transform: translate(var(--scope-hit-start), var(--scope-hit-start));
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(var(--scope-hit-end), var(--scope-hit-end));
+  }
+}
+
+@keyframes scope-cursor-hit-sw {
+  from {
+    opacity: 1;
+    transform: translate(
+      calc(0px - var(--scope-hit-start)),
+      var(--scope-hit-start)
+    );
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(
+      calc(0px - var(--scope-hit-end)),
+      var(--scope-hit-end)
+    );
+  }
+}
+
+@keyframes scope-cursor-hit-opacity {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scope-cursor.scope-cursor--hit .scope-cursor__hit-chevron,
+  .scope-cursor.scope-cursor--kill .scope-cursor__hit-chevron {
+    animation: scope-cursor-hit-opacity var(--scope-hit-duration) linear both;
+  }
+}
+
 .topbar {
   position: absolute;
   top: 8px;
@@ -1002,8 +1174,7 @@ button:disabled {
   min-width: 0;
   border: 1px solid var(--ui-edge);
   background:
-    linear-gradient(rgb(255 255 255 / 0.018), transparent),
-    var(--ui-recess);
+    linear-gradient(rgb(255 255 255 / 0.018), transparent), var(--ui-recess);
   box-shadow:
     inset 2px 2px 0 var(--ui-black),
     inset -1px -1px 0 rgb(255 255 255 / 0.035);
@@ -1923,7 +2094,13 @@ button:disabled {
     display: none;
   }
 
-  .part-btn small:not(.part-price, .part-price-breakdown, .part-unlock-milestone, .inventory-count) {
+  .part-btn
+    small:not(
+      .part-price,
+      .part-price-breakdown,
+      .part-unlock-milestone,
+      .inventory-count
+    ) {
     display: none;
   }
 

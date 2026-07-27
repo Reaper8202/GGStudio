@@ -1,5 +1,11 @@
 export type SfxName =
-  'coinTick' | 'badgeStamp' | 'waveClear' | 'cardIn' | 'uiClick';
+  | 'coinTick'
+  | 'badgeStamp'
+  | 'waveClear'
+  | 'cardIn'
+  | 'uiClick'
+  | 'hitTick'
+  | 'killThud';
 
 export const SFX_MUTED_STORAGE_KEY = 'scraprig.sfx.muted';
 
@@ -238,6 +244,35 @@ function buildCue(
         frequency: 1_200 * pitch,
         endFrequency: 900 * pitch,
         peak: 0.04,
+      });
+      break;
+    case 'hitTick':
+      oscillator(context, voice, {
+        type: 'square',
+        start: now,
+        duration: 0.025,
+        frequency: 2_400 * pitch,
+        endFrequency: 1_700 * pitch,
+        peak: 0.05,
+        attack: 0.001,
+      });
+      break;
+    case 'killThud':
+      oscillator(context, voice, {
+        type: 'triangle',
+        start: now,
+        duration: 0.14,
+        frequency: 155 * pitch,
+        endFrequency: 78 * pitch,
+        peak: 0.16,
+        attack: 0.004,
+      });
+      noise(context, voice, {
+        start: now,
+        duration: 0.09,
+        peak: 0.04,
+        filterFrequency: 260 * pitch,
+        endFilterFrequency: 150 * pitch,
       });
       break;
   }
