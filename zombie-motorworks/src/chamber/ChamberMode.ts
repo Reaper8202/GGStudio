@@ -21,7 +21,12 @@ import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { ScopeCursor } from '../ui/ScopeCursor.ts';
 import type { TracerShot } from '../runtime/weapons.ts';
 import { VfxSystem } from '../vfx/VfxSystem.ts';
-import { impactKindForShot, muzzleStyleForShot } from '../vfx/shotVfx.ts';
+import {
+  impactKindForShot,
+  muzzleStyleForShot,
+  tracerStyleForShot,
+} from '../vfx/shotVfx.ts';
+import { VFX_PALETTE } from '../vfx/vfxConfig.ts';
 
 export type ScenarioName =
   | 'flat'
@@ -427,7 +432,9 @@ export class ChamberMode {
    */
   private emitShotVfx(shot: TracerShot): void {
     this.vfx.muzzleFlash(shot.from, shot.to, muzzleStyleForShot(shot));
-    if (shot.damageType === 'aoe') this.vfx.flameJet(shot.from, shot.to);
+    if (shot.damageType === 'aoe') {
+      this.vfx.flameJet(shot.from, shot.to, shot.overcharged);
+    }
     // Explosive shells detonate here too. The chamber has no splash damage
     // model, but the blast has to look identical to the graveyard or the test
     // drive misrepresents the weapon.
@@ -535,7 +542,10 @@ export class ChamberMode {
         new THREE.Vector3(shot.from.x, shot.from.y, shot.from.z),
         new THREE.Vector3(shot.to.x, shot.to.y, shot.to.z),
       ]);
-      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffd76e }));
+      // Cryo fire draws turquoise, matching survival's Ice Cannon ray.
+      const color =
+        tracerStyleForShot(shot) === 'ice' ? VFX_PALETTE.ice : 0xffd76e;
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color }));
       this.scene.add(line);
       this.tracers.push({ line, ttl: 0.08 });
     }

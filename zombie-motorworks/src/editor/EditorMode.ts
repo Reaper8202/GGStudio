@@ -45,6 +45,8 @@ import { buildPartMesh } from './meshes.ts';
 import { Overlays, defaultToggles, type OverlayToggles } from './overlays.ts';
 import {
   buildEditorUI,
+  type AbilityLoadoutSlotView,
+  type AbilitySlotStatus,
   type EditorUI,
   type NewGarageDisposalSummary,
   type RunSummary,
@@ -53,6 +55,14 @@ import {
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
+import {
+  ABILITY_KIND_META,
+  ABILITY_SLOT_KEYS,
+  BENCHED_ABILITY_SLOT,
+  MAX_ABILITY_SLOTS,
+  resolveAbilityLoadout,
+  type AbilityCandidate,
+} from '../core/abilities.ts';
 import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
 import {
   canAfford,
@@ -67,6 +77,7 @@ import {
   type RunState,
 } from '../core/economy.ts';
 import type { PlayerProfile } from '../core/profile.ts';
+import { resolveHotbar, withHotbarSlot } from '../core/hotbar.ts';
 import {
   isEmpUnlocked,
   isPiercingUnlocked,
@@ -364,6 +375,7 @@ export class EditorMode {
       onPurchasePart: (defId) => this.buyAndArmPart(defId),
       onBuyPart: (defId) => this.buyInventoryPart(defId),
       onArmPart: (defId) => this.armGhost(defId),
+      onHotbarChange: (defIds) => this.setHotbar(defIds),
       newGarageDisposalSummary: () =>
         newGarageDisposalSummary(this.bp.parts, getPartDef),
       onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
@@ -407,6 +419,7 @@ export class EditorMode {
       },
       onStartTutorial: () => this.startTutorial(),
       onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
+      onAbilitySlotClick: (slot) => this.cycleAbilitySlot(slot),
       onUpgradePart: (partId) => this.buyUpgrade(partId),
       onRepairPart: (partId) => this.repairPart(partId),
       onRepairAll: () => this.repairAll(),
@@ -670,6 +683,30 @@ export class EditorMode {
     return this.profile.inventory;
   }
 
+  /**
+   * Block types on the build bar. A profile that has never had one is seeded
+   * from what the player owns and the seed is kept, so the bar stops moving
+   * under them as soon as they see it.
+   */
+  private hotbar(): string[] {
+    const resolved = resolveHotbar(this.profile.hotbarDefIds, this.inventory());
+    this.profile.hotbarDefIds = resolved;
+    return resolved;
+  }
+
+  /** Persists a bar the player just re-curated, rolling back a failed save. */
+  private setHotbar(defIds: readonly string[]): void {
+    const previous = this.profile.hotbarDefIds;
+    this.profile.hotbarDefIds = [...defIds];
+    try {
+      this.persistProfile();
+    } catch (err) {
+      this.profile.hotbarDefIds = previous;
+      this.deny(`Build bar could not be saved: ${this.errorMessage(err)}`);
+    }
+    this.refreshProfile();
+  }
+
   private isInventoryPlacementLabel(label: string): boolean {
     return label.startsWith('Place ') || label === 'symmetric place';
   }
@@ -714,27 +751,132 @@ export class EditorMode {
     this.selectOnly(partId);
   }
 
+  /** Every ability part on the rig, in build order, as loadout candidates. */
+  private abilityCandidates(): AbilityCandidate[] {
+    const candidates: AbilityCandidate[] = [];
+    for (const placed of this.bp.parts) {
+      const def = getPartDef(placed.defId);
+      if (def.ability === undefined) continue;
+      candidates.push({
+        partId: placed.id,
+        partName: def.name,
+        ability: def.ability,
+        level: placed.config.level ?? 1,
+        preferred: placed.config.activeAbility === true,
+        slot: placed.config.abilitySlot,
+      });
+    }
+    return candidates;
+  }
+
   /**
-   * Bind the single Q ability to one placed part. Only one ability part may be
-   * active at a time, so activating one clears the flag on every other ability
-   * part in the same edit.
+   * Write a whole ability loadout back to the blueprint: every ability part
+   * ends up with an explicit box or benched. Making the implicit auto-fill
+   * explicit on the first edit is what keeps the other two boxes still when
+   * the player changes one of them.
    */
-  private setActiveAbility(partId: string, active: boolean): void {
+  private commitAbilityLoadout(
+    slotByPartId: ReadonlyMap<string, number>,
+    label: string,
+  ): boolean {
     const updates: ReturnType<typeof updateConfigCommand>[] = [];
-    for (const p of this.bp.parts) {
-      if (!getPartDef(p.defId).ability) continue;
-      const shouldBeActive = active && p.id === partId;
-      if ((p.config.activeAbility === true) === shouldBeActive) continue;
+    for (const placed of this.bp.parts) {
+      if (getPartDef(placed.defId).ability === undefined) continue;
+      const slot = slotByPartId.get(placed.id) ?? BENCHED_ABILITY_SLOT;
+      if (placed.config.abilitySlot === slot) continue;
       updates.push(
-        updateConfigCommand(p.id, {
-          ...p.config,
-          activeAbility: shouldBeActive,
+        updateConfigCommand(placed.id, {
+          ...placed.config,
+          abilitySlot: slot,
+          // The old tick is what this replaces; drop it so the two can never
+          // disagree about the same part.
+          activeAbility: undefined,
         }),
       );
     }
-    if (updates.length === 1) this.exec(updates[0]);
-    else if (updates.length > 1)
-      this.exec(batchCommand('set active ability', updates));
+    if (updates.length === 0) return false;
+    return this.exec(
+      updates.length === 1 ? updates[0] : batchCommand(label, updates),
+    );
+  }
+
+  /** Slot index per part id for the loadout as it stands right now. */
+  private currentAbilitySlots(
+    candidates: readonly AbilityCandidate[],
+  ): Map<string, number> {
+    const slots = new Map<string, number>();
+    for (const assignment of resolveAbilityLoadout(candidates)) {
+      slots.set(assignment.partId, assignment.slot);
+    }
+    return slots;
+  }
+
+  /**
+   * A box in the garage ability planner was clicked: load the next ability the
+   * rig carries into it, cycling through the ones no other box has claimed and
+   * passing through empty on the way round.
+   */
+  private cycleAbilitySlot(slot: number): void {
+    const candidates = this.abilityCandidates();
+    if (candidates.length === 0) {
+      this.ui.setStatus('Fit an ability part to fill this box');
+      return;
+    }
+    const slots = this.currentAbilitySlots(candidates);
+    const occupantId = [...slots].find(([, at]) => at === slot)?.[0] ?? null;
+    // Abilities another box is showing stay put; the rest are this box's ring.
+    const ring = candidates.filter(
+      (candidate) =>
+        candidate.partId === occupantId || !slots.has(candidate.partId),
+    );
+    const currentIndex = ring.findIndex(
+      (candidate) => candidate.partId === occupantId,
+    );
+    const next = ring[currentIndex + 1] ?? null;
+
+    const nextSlots = new Map<string, number>();
+    for (const [partId, at] of slots) {
+      if (at !== slot) nextSlots.set(partId, at);
+    }
+    if (next !== null) nextSlots.set(next.partId, slot);
+    if (!this.commitAbilityLoadout(nextSlots, 'set ability slot')) return;
+    this.ui.setStatus(
+      next === null
+        ? `${ABILITY_SLOT_KEYS[slot].toUpperCase()} slot cleared`
+        : `${ABILITY_SLOT_KEYS[slot].toUpperCase()}: ${ABILITY_KIND_META[next.ability.kind].label}`,
+    );
+  }
+
+  /**
+   * The selected part's "equip" tick: drop it into the first free box, or take
+   * it out of the bar. Equipping with every box full is refused rather than
+   * silently bumping something the player already chose — the planner's boxes
+   * are where a deliberate swap is made.
+   */
+  private setActiveAbility(partId: string, active: boolean): void {
+    const part = getPart(this.bp, partId);
+    if (!part || !getPartDef(part.defId).ability) return;
+    const candidates = this.abilityCandidates();
+    const slots = this.currentAbilitySlots(candidates);
+    const equipped = slots.has(partId);
+    if (equipped === active) return;
+
+    const nextSlots = new Map(slots);
+    if (active) {
+      const taken = new Set(slots.values());
+      const free = ABILITY_SLOT_KEYS.findIndex((_, slot) => !taken.has(slot));
+      if (free === -1) {
+        this.deny(
+          `Only ${MAX_ABILITY_SLOTS} abilities fit the bar — clear a box first`,
+        );
+        this.selectOnly(partId);
+        return;
+      }
+      nextSlots.set(partId, free);
+    } else {
+      nextSlots.delete(partId);
+    }
+    this.commitAbilityLoadout(nextSlots, 'set ability slot');
     this.selectOnly(partId);
   }
 
@@ -1020,12 +1162,16 @@ export class EditorMode {
     const previousMoney = this.profile.money;
     const stock = this.inventory();
     const previousCount = stock[defId] ?? 0;
+    const previousHotbar = this.profile.hotbarDefIds;
     this.profile.money -= def.cost;
     stock[defId] = previousCount + 1;
+    // A part you just paid for should be one click from placement.
+    this.profile.hotbarDefIds = withHotbarSlot(this.hotbar(), defId);
     try {
       this.persistProfile();
     } catch (err) {
       this.profile.money = previousMoney;
+      this.profile.hotbarDefIds = previousHotbar;
       const restoredStock = this.inventory();
       if (previousCount === 0) delete restoredStock[defId];
       else restoredStock[defId] = previousCount;
@@ -1075,14 +1221,18 @@ export class EditorMode {
 
     const previousMoney = this.profile.money;
     const previousUnlocks = [...this.profile.unlockedDefIds];
+    const previousHotbar = this.profile.hotbarDefIds;
     this.profile.money -= total;
     if (!wasUnlocked) this.profile.unlockedDefIds.push(defId);
     stock[defId] = previousCount + 1;
+    // A part you just paid for should be one click from placement.
+    this.profile.hotbarDefIds = withHotbarSlot(this.hotbar(), defId);
 
     try {
       this.persistProfile();
     } catch (err) {
       this.profile.money = previousMoney;
+      this.profile.hotbarDefIds = previousHotbar;
       this.profile.unlockedDefIds.splice(
         0,
         this.profile.unlockedDefIds.length,
@@ -1372,6 +1522,44 @@ export class EditorMode {
     this.rebuildMeshes();
   }
 
+  /**
+   * Which survival ability-bar slot a placed part currently claims, resolved
+   * exactly the way the fight resolves it — so the garage and the HUD can
+   * never disagree about what is equipped.
+   */
+  private abilitySlotStatus(partId: string): AbilitySlotStatus {
+    const candidates = this.abilityCandidates();
+    const assignment = resolveAbilityLoadout(candidates).find(
+      (slot) => slot.partId === partId,
+    );
+    return {
+      key: assignment?.key ?? null,
+      candidates: candidates.length,
+      capacity: MAX_ABILITY_SLOTS,
+    };
+  }
+
+  /**
+   * Redraw the garage ability planner from the blueprint. The boxes show
+   * exactly what the fight will show, resolved by the same function.
+   */
+  private refreshAbilityLoadout(): void {
+    const assignments = resolveAbilityLoadout(this.abilityCandidates());
+    const boxes: (AbilityLoadoutSlotView | null)[] = ABILITY_SLOT_KEYS.map(
+      () => null,
+    );
+    for (const assignment of assignments) {
+      const meta = ABILITY_KIND_META[assignment.ability.kind];
+      boxes[assignment.slot] = {
+        name: meta.label,
+        glyph: meta.glyph,
+        partName: assignment.partName,
+        blurb: meta.blurb,
+      };
+    }
+    this.ui.setAbilityLoadout(boxes);
+  }
+
   private refreshSelectionUI(): void {
     const first = [...this.selected][0];
     if (!first) {
@@ -1409,7 +1597,8 @@ export class EditorMode {
       upgradePreview: previewUpgradeMetrics(this.bp, part.id) ?? undefined,
     }, part.config, def.wheel
       ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
-      : undefined);
+      : undefined,
+      def.ability ? this.abilitySlotStatus(part.id) : undefined);
     this.refreshOverlays();
   }
 
@@ -1579,9 +1768,11 @@ export class EditorMode {
       this.profile.unlockedDefIds,
       this.inventory(),
       this.bp.parts.map((part) => part.defId),
+      this.hotbar(),
     );
     this.refreshRunContext();
     this.refreshSelectionUI();
+    this.refreshAbilityLoadout();
     if (this.tutorialActive) this.tutorialOverlay?.update(this.bp, getPartDef);
   }
 
@@ -1592,6 +1783,7 @@ export class EditorMode {
       this.profile.unlockedDefIds,
       this.inventory(),
       this.bp.parts.map((part) => part.defId),
+      this.hotbar(),
     );
     this.refreshRunContext();
     this.refreshSelectionUI();

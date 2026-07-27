@@ -36,6 +36,18 @@ import {
   v3,
 } from './vec.ts';
 
+/**
+ * Temporary buff riding on one weapon (the Hellfire ability). While it runs the
+ * weapon's damage, reach, and spray cone are scaled, and a periodic weapon
+ * stops waiting out its burst interval — the nozzle simply stays open.
+ */
+export interface WeaponOvercharge {
+  secondsRemaining: number;
+  damageMultiplier: number;
+  rangeMultiplier: number;
+  coneMultiplier: number;
+}
+
 export interface RuntimeWeapon {
   partId: string;
   def: WeaponDefinition;
@@ -52,6 +64,8 @@ export interface RuntimeWeapon {
   empLevel: number;
   /** Turret piercing module level (0 for every non-turret weapon). */
   piercingLevel: number;
+  /** Active Hellfire overcharge, or null while the weapon runs stock. */
+  overcharge: WeaponOvercharge | null;
 }
 
 export interface TracerShot {
@@ -83,6 +97,11 @@ export interface TracerShot {
   splashRadiusM: number;
   /** Blast damage at the centre, falling off to 0 at the rim; 0 = none. */
   splashDamage: number;
+  /**
+   * Fired by a weapon running a Hellfire overcharge. Presentation only — the
+   * multipliers are already baked into `damage` and the ray's reach.
+   */
+  overcharged: boolean;
 }
 
 export function createWeapon(
@@ -109,6 +128,40 @@ export function createWeapon(
     piercingLevel: isTurret
       ? turretModuleLevel(placed.config, 'piercing')
       : 0,
+    overcharge: null,
+  };
+}
+
+/**
+ * Start (or refresh) a Hellfire overcharge on one weapon. Re-activation takes
+ * the longer time and the stronger multipliers rather than stacking, so
+ * spamming it can never run away with the nozzle.
+ */
+export function overchargeWeapon(
+  wpn: RuntimeWeapon,
+  seconds: number,
+  multipliers: {
+    damageMultiplier: number;
+    rangeMultiplier: number;
+    coneMultiplier: number;
+  },
+): void {
+  if (seconds <= 0) return;
+  const current = wpn.overcharge;
+  wpn.overcharge = {
+    secondsRemaining: Math.max(current?.secondsRemaining ?? 0, seconds),
+    damageMultiplier: Math.max(
+      current?.damageMultiplier ?? 1,
+      multipliers.damageMultiplier,
+    ),
+    rangeMultiplier: Math.max(
+      current?.rangeMultiplier ?? 1,
+      multipliers.rangeMultiplier,
+    ),
+    coneMultiplier: Math.max(
+      current?.coneMultiplier ?? 1,
+      multipliers.coneMultiplier,
+    ),
   };
 }
 
@@ -156,6 +209,7 @@ export function stepWeapons(
 
   for (const wpn of weapons) {
     wpn.cooldown = Math.max(0, wpn.cooldown - dt);
+    const overcharge = tickOvercharge(wpn, dt);
     if (!attachedAliveIds.has(wpn.partId)) continue;
     // Weapons have unlimited ammo — firing is limited only by the per-weapon
     // fire-rate cooldown below. Fuel is the resource the player manages now.
@@ -194,7 +248,15 @@ export function stepWeapons(
     let wantsFire: boolean;
     if (wpn.def.fireMode === 'periodic') {
       const { burstSeconds, burstIntervalSeconds } = wpn.def;
-      if (burstSeconds !== undefined && burstIntervalSeconds !== undefined) {
+      if (overcharge !== null) {
+        // Hellfire holds the trigger open: no gap between bursts for as long as
+        // the overcharge runs, and a fresh burst starts the moment it ends.
+        wantsFire = true;
+        wpn.cycleTime = 0;
+      } else if (
+        burstSeconds !== undefined &&
+        burstIntervalSeconds !== undefined
+      ) {
         // Spray while inside the burst window, then wait out the cycle.
         wantsFire = wpn.cycleTime < burstSeconds;
         wpn.cycleTime = (wpn.cycleTime + dt) % burstIntervalSeconds;
@@ -227,12 +289,19 @@ export function stepWeapons(
         ? pitchedDirection(yawDir, up, mountW, weaponInput.aimPoint)
         : yawDir;
 
+    // A Hellfire overcharge scales what the shot is worth without touching the
+    // catalog definition, so the weapon reverts the moment the buff lapses.
+    const damage = wpn.def.damage * (overcharge?.damageMultiplier ?? 1);
+    const rangeM = wpn.def.rangeM * (overcharge?.rangeMultiplier ?? 1);
+
     // Cone weapons fan raysPerShot rays across coneDeg around the fire
     // direction; conventional weapons are the single-ray special case.
     const rays = wpn.def.coneDeg !== undefined
       ? Math.max(1, wpn.def.raysPerShot ?? 1)
       : 1;
-    const halfCone = ((wpn.def.coneDeg ?? 0) / 2) * (Math.PI / 180);
+    const coneDeg =
+      (wpn.def.coneDeg ?? 0) * (overcharge?.coneMultiplier ?? 1);
+    const halfCone = (coneDeg / 2) * (Math.PI / 180);
     for (let i = 0; i < rays; i++) {
       const offset =
         rays === 1 ? 0 : -halfCone + (2 * halfCone * i) / (rays - 1);
@@ -243,7 +312,7 @@ export function stepWeapons(
       const ray = new RAPIER.Ray(muzzle, rayDir);
       const hit = world.castRay(
         ray,
-        wpn.def.rangeM,
+        rangeM,
         true,
         undefined,
         WEAPON_RAY_GROUPS,
@@ -252,7 +321,7 @@ export function stepWeapons(
       );
       const end = hit
         ? add(muzzle, scale(rayDir, hit.timeOfImpact))
-        : add(muzzle, scale(rayDir, wpn.def.rangeM));
+        : add(muzzle, scale(rayDir, rangeM));
       let zombieHandle: number | null = null;
       if (hit) {
         const groups = hit.collider.collisionGroups() >>> 16;
@@ -264,8 +333,7 @@ export function stepWeapons(
       const pierceFraction =
         rays === 1 ? piercingDamageFraction(wpn.piercingLevel) : 0;
       if (hit && zombieHandle !== null && pierceFraction > 0) {
-        const remainingRange =
-          wpn.def.rangeM - hit.timeOfImpact - PIERCE_RAY_EPSILON_M;
+        const remainingRange = rangeM - hit.timeOfImpact - PIERCE_RAY_EPSILON_M;
         if (remainingRange > 0) {
           const pierceFrom = add(
             muzzle,
@@ -288,7 +356,7 @@ export function stepWeapons(
             const groups = pierceHit.collider.collisionGroups() >>> 16;
             if ((groups & GROUP_ZOMBIE) !== 0) {
               pierceZombieHandle = pierceHit.collider.handle;
-              pierceDamage = wpn.def.damage * pierceFraction;
+              pierceDamage = damage * pierceFraction;
             }
           }
         }
@@ -298,7 +366,7 @@ export function stepWeapons(
         to: end,
         hitZombieHandle: zombieHandle,
         hitSurface: hit !== null && zombieHandle === null,
-        damage: wpn.def.damage,
+        damage,
         damageType: wpn.def.damageType,
         empLevel: wpn.empLevel,
         pierceZombieHandle,
@@ -308,6 +376,7 @@ export function stepWeapons(
         slowDurationSeconds: wpn.def.slowDurationSeconds ?? 0,
         splashRadiusM: wpn.def.splashRadiusM ?? 0,
         splashDamage: wpn.def.splashDamage ?? 0,
+        overcharged: overcharge !== null,
       });
     }
 
@@ -322,6 +391,25 @@ export function stepWeapons(
     wpn.shotsFired++;
   }
   return { shots };
+}
+
+/**
+ * Burn a step off a weapon's overcharge and return it while it is still live.
+ * Ticks even for a detached or dead weapon, so a nozzle torn off mid-Hellfire
+ * doesn't come back overcharged when it is repaired.
+ */
+function tickOvercharge(
+  wpn: RuntimeWeapon,
+  dt: number,
+): WeaponOvercharge | null {
+  const overcharge = wpn.overcharge;
+  if (overcharge === null) return null;
+  overcharge.secondsRemaining -= dt;
+  if (overcharge.secondsRemaining <= 0) {
+    wpn.overcharge = null;
+    return null;
+  }
+  return overcharge;
 }
 
 const MAX_AUTO_PITCH = (35 * Math.PI) / 180;

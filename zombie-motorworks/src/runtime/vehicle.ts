@@ -19,7 +19,7 @@ import { MIRROR_PLANE_X_M, computeAckermann, stepWheels } from './wheels.ts';
 import type { EngineOutput, GearboxState } from './drivetrain.ts';
 import { distributeTorque, engineStep, updateGearbox } from './drivetrain.ts';
 import type { RuntimeWeapon, TracerShot } from './weapons.ts';
-import { createWeapon, stepWeapons } from './weapons.ts';
+import { createWeapon, overchargeWeapon, stepWeapons } from './weapons.ts';
 import {
   applyDirectDamage as damagePart,
   applyImpactDamage,
@@ -205,8 +205,12 @@ export class RuntimeVehicle {
   private geom: AckermannGeometry;
   private fuel = 0;
   private fuelCapacity = 0;
-  /** Seconds of remaining Shield Generator invulnerability; >0 blocks all damage. */
+  /** Seconds of remaining shield invulnerability; >0 blocks all damage. */
   private invulnTimer = 0;
+  /** Seconds of remaining overdrive torque surge; 0 when not boosting. */
+  private overdriveTimer = 0;
+  /** Drive-torque multiplier applied while `overdriveTimer` runs. */
+  private overdriveMultiplier = 1;
   private topSpeedCap = BASE_TOP_SPEED_MPS;
   private lastWheelTelemetry: WheelTelemetry = {
     groundedCount: 0,
@@ -267,17 +271,59 @@ export class RuntimeVehicle {
   }
 
   /**
-   * Shield Generator ability: make the whole vehicle immune to damage for
-   * `seconds`. Re-activation extends to the longer remaining time.
+   * Shield ability: make the whole vehicle immune to damage for `seconds`.
+   * Re-activation extends to the longer remaining time.
    */
   grantInvulnerability(seconds: number): void {
     if (seconds <= 0) return;
     this.invulnTimer = Math.max(this.invulnTimer, seconds);
   }
 
-  /** True while the Shield Generator bubble is holding. */
+  /** True while the shield bubble is holding. */
   get isInvulnerable(): boolean {
     return this.invulnTimer > 0;
+  }
+
+  /**
+   * Overdrive ability: multiply drive torque by `multiplier` for `seconds`.
+   * Re-activation takes the longer time and the stronger pull rather than
+   * stacking, so spamming it can never run away with the drivetrain.
+   */
+  grantOverdrive(seconds: number, multiplier: number): void {
+    if (seconds <= 0 || multiplier <= 1) return;
+    this.overdriveTimer = Math.max(this.overdriveTimer, seconds);
+    this.overdriveMultiplier = Math.max(this.overdriveMultiplier, multiplier);
+  }
+
+  /** True while the overdrive surge is running. */
+  get isOverdriving(): boolean {
+    return this.overdriveTimer > 0;
+  }
+
+  /**
+   * Hellfire ability: overcharge one part's own weapon for `seconds` — hotter,
+   * further, and wider than its stock spray, and (for the flamethrower's
+   * periodic nozzle) with no pause between bursts. Returns false when the part
+   * carries no weapon, so the caller can decline to start a cooldown.
+   */
+  grantHellfire(
+    partId: string,
+    seconds: number,
+    multipliers: {
+      damageMultiplier: number;
+      rangeMultiplier: number;
+      coneMultiplier: number;
+    },
+  ): boolean {
+    const weapon = this.weapons.find((w) => w.partId === partId);
+    if (weapon === undefined) return false;
+    overchargeWeapon(weapon, seconds, multipliers);
+    return true;
+  }
+
+  /** True while any weapon on the rig is running a Hellfire overcharge. */
+  get isOvercharged(): boolean {
+    return this.weapons.some((w) => w.overcharge !== null);
   }
 
   /** Find the closest attached, living part by its collider-centre centroid. */
@@ -389,6 +435,10 @@ export class RuntimeVehicle {
     if (this.invulnTimer > 0) {
       this.invulnTimer = Math.max(0, this.invulnTimer - dt);
     }
+    if (this.overdriveTimer > 0) {
+      this.overdriveTimer = Math.max(0, this.overdriveTimer - dt);
+      if (this.overdriveTimer === 0) this.overdriveMultiplier = 1;
+    }
     const body = this.assembled.body;
     const velocityAtStart = body.linvel();
     const angularVelocityAtStart = body.angvel();
@@ -455,6 +505,9 @@ export class RuntimeVehicle {
     const mass = Math.max(1, body.mass());
     const massPerformance = vehicleMassPerformanceFactor(mass);
     totalTorque *= massPerformance;
+    // Overdrive rides on top of the mass penalty, so the surge is worth most
+    // to the heavy rigs the penalty hurts.
+    if (this.overdriveTimer > 0) totalTorque *= this.overdriveMultiplier;
 
     const torques = distributeTorque(
       totalTorque,

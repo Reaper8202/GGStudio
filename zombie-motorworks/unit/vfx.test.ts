@@ -8,6 +8,7 @@ import {
 import {
   impactKindForShot,
   muzzleStyleForShot,
+  tracerStyleForShot,
   type ShotAppearance,
 } from '../src/vfx/shotVfx.ts';
 import { FRAME_SPAWN_BUDGET, VFX_PALETTE } from '../src/vfx/vfxConfig.ts';
@@ -196,6 +197,40 @@ describe('VfxSystem emitters', () => {
     vfx.dispose();
   });
 
+  it('rolls a freeze burst out to the ability radius', () => {
+    const { vfx } = system();
+    vfx.freezeBurst(0, 0, 3, 8);
+    expect(vfx.particleCount).toBeGreaterThan(0);
+    vfx.dispose();
+  });
+
+  it('ignores a freeze burst with no radius to cover', () => {
+    const { vfx } = system();
+    vfx.freezeBurst(0, 0, 3, 0);
+    expect(vfx.particleCount).toBe(0);
+    vfx.dispose();
+  });
+
+  it('encases a caught zombie and shatters the ice again', () => {
+    const { vfx } = system();
+    vfx.freezeEncase(0, 1, 2);
+    const afterEncase = vfx.particleCount;
+    expect(afterEncase).toBeGreaterThan(0);
+
+    vfx.frostShatter(0, 1, 2);
+    expect(vfx.particleCount).toBeGreaterThan(afterEncase);
+    vfx.dispose();
+  });
+
+  it('keeps freeze effects out of a scene the camera has left behind', () => {
+    const { vfx } = system();
+    vfx.freezeBurst(0, 0, 400, 8);
+    vfx.freezeEncase(0, 1, 400);
+    vfx.frostShatter(0, 1, 400);
+    expect(vfx.particleCount).toBe(0);
+    vfx.dispose();
+  });
+
   it('gives the heavy muzzle more presence than the standard one', () => {
     const standard = system();
     const heavy = system();
@@ -255,6 +290,7 @@ describe('shot appearance rules', () => {
       slowFactor: 0,
       hitZombieHandle: null,
       hitSurface: false,
+      overcharged: false,
       ...overrides,
     };
   }
@@ -306,5 +342,14 @@ describe('shot appearance rules', () => {
 
   it('leaves nothing behind for a round that ran out of range in mid-air', () => {
     expect(impactKindForShot(shot(), false)).toBeNull();
+  });
+
+  it('draws cryo fire turquoise and everything else in tracer gold', () => {
+    expect(tracerStyleForShot(shot())).toBe('standard');
+    expect(
+      tracerStyleForShot(shot({ damageType: 'projectile', slowFactor: 0.5 })),
+    ).toBe('ice');
+    // The flamethrower renders its own cone; a line on top reads as a stray wire.
+    expect(tracerStyleForShot(shot({ damageType: 'aoe', damage: 9 }))).toBeNull();
   });
 });
