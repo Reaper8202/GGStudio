@@ -98,8 +98,11 @@ export const SURFACES: Record<SurfaceKind, SurfaceParams> = {
     },
   },
   snow: {
-    muLong: 0.45,
-    muLat: 0.3,
+    // Braking on tarmac is limited by brake torque, not grip, so trimming grip
+    // a little barely lengthens a stop. These are set low enough that snow is
+    // grip-limited well before the brakes are — that is what makes it scary.
+    muLong: 0.34,
+    muLat: 0.24,
     rollingResistance: 0.05,
     sinkage: 0.3,
     spray: {

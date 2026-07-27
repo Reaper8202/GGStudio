@@ -59,3 +59,40 @@ budget intact. Normal maps are unused by Lambert and get dropped entirely.
 same voxel set as the current graveyard, and
 `Shared/voxel/characters/ZombieAsset/obj/` has unused zombie variants — both worth
 revisiting for biome-specific dressing later.
+
+## D8 — The Test Chamber applies a biome's drive modifiers, not just its ground
+
+A biome is more than its surface: snow only drifts because it also relaxes the
+anti-sideslip assist. A chamber that replicated the ground alone would let a player tune a
+rig that behaves differently in the real run, which defeats the point of test-driving
+before committing to a map.
+
+## D9 — Measured handling, and a known limit in braking contrast
+
+Numbers from the chamber probe (starter rig, 45 km/h entry), asphalt -> snow:
+
+| | asphalt | snow | sand |
+| --- | ---: | ---: | ---: |
+| 0-45 km/h | 2.0 s | 5.5 s | 3.75 s |
+| stopping distance | 9.5 m | 12.0 m | 6.0 m |
+| stopping time | 1.33 s | 1.87 s | 0.93 s |
+| yaw swept at full lock | 81 deg | 38 deg | 97 deg |
+| turn radius | 16 m | 35 m | 12 m |
+
+Snow's dominant, unmistakable effect is that it will not turn: the same steering input
+sweeps less than half the yaw and more than doubles the radius. Braking is worse but only
+by ~1.25x in both distance and time.
+
+That braking ceiling is structural, not a tuning miss. `stepWheels` clamps braking to a
+fixed stop-response term as well as to grip, so once grip is merely adequate the response
+term dominates and surface friction stops mattering. Dropping snow's `muLong` to 0.32 did
+not produce a smooth curve — it fell off a cliff to a 66 m stop, which is unplayable in a
+105 m arena. Snow sits at 0.34/0.24 as the point where cornering is dramatic and braking
+is degraded without becoming uncontrollable.
+
+Making snow braking genuinely frightening means reworking the brake model itself, which is
+shared by every surface and every existing handling test. That is a deliberate follow-up
+for after playtest, not something to slip in during a biome pass.
+
+Sand deliberately stops *shorter* than asphalt: its rolling resistance and sinkage scrub
+speed. Sand is about sluggishness and bogging down under weight, not about sliding.
