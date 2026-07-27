@@ -13,3 +13,4 @@ verify-balance-pass.mjs
 verify-leaderboard.mjs
 verify-ui.mjs
 probe.mjs
+verify-timeline.mjs
