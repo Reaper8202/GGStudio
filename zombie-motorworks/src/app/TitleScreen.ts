@@ -9,6 +9,8 @@ import type { Arena } from '../survival/arena/Arena.ts';
 import { ArenaBuilder } from '../survival/arena/ArenaBuilder.ts';
 import { GRAVEYARD } from '../survival/arena/recipes/graveyard.ts';
 import type { SavedRun } from '../core/runSave.ts';
+import { leaderboardRows, type LeaderboardRow } from '../core/leaderboard.ts';
+import { leaderboardStore } from './leaderboardStore.ts';
 import { profileStore } from './profileStore.ts';
 // buildStarterBlueprint is a plain function export; the cross-import back
 // into App.ts is safe because it is only invoked at call time, well after
@@ -26,6 +28,45 @@ const ORBIT_HEIGHT_M = 5;
 const ORBIT_PERIOD_S = 25;
 
 const PORTRAIT_ROOT = `${import.meta.env.BASE_URL}assets/zombies/portraits`;
+
+const SECOND_MS = 1_000;
+const MINUTE_MS = 60 * SECOND_MS;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+const WEEK_MS = 7 * DAY_MS;
+
+function ago(count: number, unit: string): string {
+  return `${count.toLocaleString()} ${unit}${count === 1 ? '' : 's'} ago`;
+}
+
+/** Formats a completed-run timestamp relative to `now` without reading the DOM. */
+export function formatRelativeDate(
+  timestamp: number,
+  now: number = Date.now(),
+): string {
+  if (
+    !Number.isFinite(timestamp) ||
+    !Number.isFinite(now) ||
+    timestamp >= now
+  ) {
+    return 'just now';
+  }
+
+  const elapsed = now - timestamp;
+  if (elapsed < MINUTE_MS) {
+    return ago(Math.max(1, Math.floor(elapsed / SECOND_MS)), 'second');
+  }
+  if (elapsed < HOUR_MS) {
+    return ago(Math.floor(elapsed / MINUTE_MS), 'minute');
+  }
+  if (elapsed < DAY_MS) {
+    return ago(Math.floor(elapsed / HOUR_MS), 'hour');
+  }
+  if (elapsed < WEEK_MS) {
+    return ago(Math.floor(elapsed / DAY_MS), 'day');
+  }
+  return ago(Math.floor(elapsed / WEEK_MS), 'week');
+}
 
 /** Loads the same "current" blueprint App would resume into, for the backdrop car. */
 function loadBackdropBlueprint(): VehicleBlueprint {
@@ -84,6 +125,56 @@ function disposeObjectResources(root: THREE.Object3D): void {
   for (const material of materials) material.dispose();
 }
 
+function buildTitleLeaderboard(
+  rows: readonly LeaderboardRow[],
+  now: number,
+): HTMLElement {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'leaderboard';
+  if (rows.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'leaderboard__empty';
+    empty.textContent =
+      'No runs yet. Take your rig out and set the first score.';
+    wrapper.appendChild(empty);
+    return wrapper;
+  }
+
+  const table = document.createElement('table');
+  table.setAttribute('aria-label', 'Local leaderboard');
+  const head = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  for (const label of ['Rank', 'Score', 'Wave', 'Kills', 'When']) {
+    const cell = document.createElement('th');
+    cell.scope = 'col';
+    cell.textContent = label;
+    headRow.appendChild(cell);
+  }
+  head.appendChild(headRow);
+
+  const body = document.createElement('tbody');
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    const rank = document.createElement('th');
+    rank.scope = 'row';
+    rank.textContent = String(row.rank);
+    tr.appendChild(rank);
+    for (const value of [row.score, row.wave, row.kills]) {
+      const cell = document.createElement('td');
+      cell.textContent = value.toLocaleString();
+      tr.appendChild(cell);
+    }
+    const completed = document.createElement('td');
+    completed.textContent = formatRelativeDate(row.at, now);
+    tr.appendChild(completed);
+    body.appendChild(tr);
+  }
+
+  table.append(head, body);
+  wrapper.appendChild(table);
+  return wrapper;
+}
+
 /**
  * Boot screen: DOM title card on top of a live 3D graveyard backdrop with the
  * player's parked vehicle and a slow orbiting camera. It owns and removes
@@ -95,6 +186,10 @@ export class TitleScreen {
   private readonly resumeRunButton = document.createElement('button');
   private readonly newGameButton = document.createElement('button');
   private readonly continueButton = document.createElement('button');
+  private readonly leaderboardButton = document.createElement('button');
+  private readonly leaderboardOverlay = document.createElement('div');
+  private readonly leaderboardContent = document.createElement('div');
+  private readonly leaderboardCloseButton = document.createElement('button');
   private readonly confirmation = document.createElement('div');
   private readonly confirmButton = document.createElement('button');
   private readonly cancelButton = document.createElement('button');
@@ -119,6 +214,34 @@ export class TitleScreen {
 
   private readonly onContinueClick = (): void => {
     this.continueGame();
+  };
+
+  private readonly onLeaderboardClick = (): void => {
+    if (this.disposed) return;
+    this.leaderboardContent.replaceChildren(
+      buildTitleLeaderboard(
+        leaderboardRows(leaderboardStore.load()),
+        Date.now(),
+      ),
+    );
+    this.leaderboardOverlay.hidden = false;
+    this.leaderboardCloseButton.focus();
+  };
+
+  private readonly onLeaderboardCloseClick = (): void => {
+    this.closeLeaderboard();
+  };
+
+  private readonly onLeaderboardOverlayPointerDown = (
+    event: PointerEvent,
+  ): void => {
+    if (event.target === this.leaderboardOverlay) this.closeLeaderboard();
+  };
+
+  private readonly onLeaderboardKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape') return;
+    this.closeLeaderboard();
+    event.preventDefault();
   };
 
   private readonly onConfirmClick = (): void => {
@@ -180,10 +303,16 @@ export class TitleScreen {
     this.continueButton.hidden = !hasSave;
     this.continueButton.disabled = !hasSave;
 
+    this.leaderboardButton.type = 'button';
+    this.leaderboardButton.className = 'title-action';
+    this.leaderboardButton.textContent = 'Leaderboard';
+    this.leaderboardButton.setAttribute('aria-haspopup', 'dialog');
+
     actions.append(
       this.resumeRunButton,
       this.newGameButton,
       this.continueButton,
+      this.leaderboardButton,
     );
 
     this.confirmation.className = 'title-confirm';
@@ -215,13 +344,69 @@ export class TitleScreen {
     zombieRight.alt = '';
     zombieRight.setAttribute('aria-hidden', 'true');
 
-    panel.append(kicker, title, subtitle, actions, this.confirmation, zombieLeft, zombieRight);
-    this.root.appendChild(panel);
+    this.leaderboardOverlay.className = 'title-leaderboard-overlay';
+    this.leaderboardOverlay.hidden = true;
+    this.leaderboardOverlay.setAttribute('role', 'dialog');
+    this.leaderboardOverlay.setAttribute('aria-modal', 'true');
+    this.leaderboardOverlay.setAttribute(
+      'aria-labelledby',
+      'title-leaderboard-title',
+    );
+    this.leaderboardOverlay.setAttribute(
+      'aria-describedby',
+      'title-leaderboard-description',
+    );
+    const leaderboardDialog = document.createElement('section');
+    leaderboardDialog.className = 'panel title-leaderboard-dialog';
+    const leaderboardTitle = document.createElement('h2');
+    leaderboardTitle.id = 'title-leaderboard-title';
+    leaderboardTitle.textContent = 'Local Leaderboard';
+    const leaderboardDescription = document.createElement('p');
+    leaderboardDescription.id = 'title-leaderboard-description';
+    leaderboardDescription.textContent = 'Your best runs on this device.';
+    this.leaderboardContent.className = 'title-leaderboard__board';
+    const leaderboardActions = document.createElement('div');
+    leaderboardActions.className = 'title-leaderboard__actions';
+    this.leaderboardCloseButton.type = 'button';
+    this.leaderboardCloseButton.className = 'primary';
+    this.leaderboardCloseButton.textContent = 'Back to Title';
+    leaderboardActions.appendChild(this.leaderboardCloseButton);
+    leaderboardDialog.append(
+      leaderboardTitle,
+      leaderboardDescription,
+      this.leaderboardContent,
+      leaderboardActions,
+    );
+    this.leaderboardOverlay.appendChild(leaderboardDialog);
+
+    panel.append(
+      kicker,
+      title,
+      subtitle,
+      actions,
+      this.confirmation,
+      zombieLeft,
+      zombieRight,
+    );
+    this.root.append(panel, this.leaderboardOverlay);
     container.appendChild(this.root);
 
     this.resumeRunButton.addEventListener('click', this.onResumeRunClick);
     this.newGameButton.addEventListener('click', this.onNewGameClick);
     this.continueButton.addEventListener('click', this.onContinueClick);
+    this.leaderboardButton.addEventListener('click', this.onLeaderboardClick);
+    this.leaderboardCloseButton.addEventListener(
+      'click',
+      this.onLeaderboardCloseClick,
+    );
+    this.leaderboardOverlay.addEventListener(
+      'pointerdown',
+      this.onLeaderboardOverlayPointerDown,
+    );
+    this.leaderboardOverlay.addEventListener(
+      'keydown',
+      this.onLeaderboardKeyDown,
+    );
     this.confirmButton.addEventListener('click', this.onConfirmClick);
     this.cancelButton.addEventListener('click', this.onCancelClick);
 
@@ -298,12 +483,34 @@ export class TitleScreen {
     return true;
   }
 
+  private closeLeaderboard(): void {
+    if (this.disposed || this.leaderboardOverlay.hidden) return;
+    this.leaderboardOverlay.hidden = true;
+    this.leaderboardButton.focus();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     this.resumeRunButton.removeEventListener('click', this.onResumeRunClick);
     this.newGameButton.removeEventListener('click', this.onNewGameClick);
     this.continueButton.removeEventListener('click', this.onContinueClick);
+    this.leaderboardButton.removeEventListener(
+      'click',
+      this.onLeaderboardClick,
+    );
+    this.leaderboardCloseButton.removeEventListener(
+      'click',
+      this.onLeaderboardCloseClick,
+    );
+    this.leaderboardOverlay.removeEventListener(
+      'pointerdown',
+      this.onLeaderboardOverlayPointerDown,
+    );
+    this.leaderboardOverlay.removeEventListener(
+      'keydown',
+      this.onLeaderboardKeyDown,
+    );
     this.confirmButton.removeEventListener('click', this.onConfirmClick);
     this.cancelButton.removeEventListener('click', this.onCancelClick);
     this.root.remove();

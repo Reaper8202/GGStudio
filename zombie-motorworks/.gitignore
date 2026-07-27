@@ -11,4 +11,5 @@ npm-debug.log*
 verify-minimap-save.mjs
 verify-balance-pass.mjs
 verify-leaderboard.mjs
+verify-ui.mjs
 probe.mjs
