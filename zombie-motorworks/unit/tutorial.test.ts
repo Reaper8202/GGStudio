@@ -34,6 +34,8 @@ const EXPECTED_LABELS: Record<string, string> = {
   'sniper-light': 'Light Sniper',
   flamethrower: 'Flamethrower',
   'shield-generator': 'Shield Bubble',
+  'pulse-emitter': 'Push Blaster',
+  'nitro-injector': 'Speed Boost',
 };
 
 const FRAME_BUILD: readonly { defId: string; pos: Vec3i }[] = [
@@ -134,6 +136,7 @@ describe('editor catalog presentation', () => {
       'wheel-offroad',
       'wheel-moto',
       'tread-tank',
+      'nitro-injector',
       'engine-small',
       'fuel-tank',
       'mine-sweeper',
@@ -142,6 +145,7 @@ describe('editor catalog presentation', () => {
       'cannon-heavy',
       'ice-cannon',
       'shield-generator',
+      'pulse-emitter',
       'barrel-drum',
       'spike-ram',
       'sawblade',

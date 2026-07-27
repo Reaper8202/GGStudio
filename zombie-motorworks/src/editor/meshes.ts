@@ -24,6 +24,8 @@ const COLORS: Record<string, number> = {
   'cannon-heavy': 0x303840,
   'ice-cannon': 0x4db8e0,
   'shield-generator': 0x2f7bd6,
+  'pulse-emitter': 0x7a53c8,
+  'nitro-injector': 0x2fa86a,
   'barrel-drum': 0x7d5a3a,
   'spike-ram': 0x8a8f98,
   sawblade: 0x5c6570,
@@ -370,6 +372,26 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
       const cap = boxWithEdges(s * 0.6, s * 0.25, s * 0.6, 0x30343b, opacity);
       cap.position.set(centre.x, centre.y + s * 0.45, centre.z);
       group.add(cap);
+    }
+    // Ability-only parts (no barrel to give them away) get an emitter dome, so
+    // a shield, pulse, or nitro block reads as a device rather than a crate.
+    if (def.ability && !def.weapon) {
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(s * 0.28, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshLambertMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 0.35,
+          transparent: opacity < 1,
+          opacity,
+        }),
+      );
+      dome.userData.placementSurface = true;
+      dome.position.set(centre.x, centre.y + s * 0.49, centre.z);
+      group.add(dome);
+      const collar = boxWithEdges(s * 0.66, s * 0.1, s * 0.66, 0x30343b, opacity);
+      collar.position.set(centre.x, centre.y + s * 0.46, centre.z);
+      group.add(collar);
     }
     if (def.weapon) {
       const fwd = rotateVec(placed.orient, { x: 0, y: 0, z: 1 });

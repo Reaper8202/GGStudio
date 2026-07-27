@@ -17,6 +17,8 @@ export interface ShotAppearance {
   readonly slowFactor: number;
   readonly hitZombieHandle: number | null;
   readonly hitSurface: boolean;
+  /** Fired by a nozzle running the Hellfire overcharge. */
+  readonly overcharged: boolean;
 }
 
 /**
@@ -25,10 +27,25 @@ export interface ShotAppearance {
  * upgrade never silently changes a weapon's muzzle.
  */
 export function muzzleStyleForShot(shot: ShotAppearance): MuzzleVfxStyle {
-  if (shot.damageType === 'aoe') return 'flame';
+  if (shot.damageType === 'aoe') {
+    return shot.overcharged ? 'hellfire' : 'flame';
+  }
   if (shot.slowFactor > 0) return 'ice';
   if (shot.damage < 20) return 'standard';
   return shot.damageType === 'hitscan' ? 'sniper' : 'heavy';
+}
+
+/**
+ * Colour of the tracer line drawn along the shot, or null when the shot draws
+ * no line at all: the flamethrower renders its own cone of fire, and a tracer
+ * on top of it just reads as a stray orange wire. Cryo fire runs turquoise so
+ * the freezing weapon is obvious from its ray alone.
+ */
+export function tracerStyleForShot(
+  shot: ShotAppearance,
+): 'standard' | 'ice' | null {
+  if (shot.damageType === 'aoe') return null;
+  return shot.slowFactor > 0 ? 'ice' : 'standard';
 }
 
 /**
@@ -43,7 +60,10 @@ export function impactKindForShot(
   const landed = shot.hitZombieHandle !== null || shot.hitSurface;
   // Flame washes around the phone addict's bubble at full strength, and it
   // sets light to headstones as readily as to zombies — one effect for both.
-  if (shot.damageType === 'aoe') return landed ? 'burn' : null;
+  if (shot.damageType === 'aoe') {
+    if (!landed) return null;
+    return shot.overcharged ? 'hellburn' : 'burn';
+  }
   if (shot.hitZombieHandle !== null) {
     if (shielded) return 'shield';
     return shot.slowFactor > 0 ? 'ice' : 'flesh';

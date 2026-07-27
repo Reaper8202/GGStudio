@@ -1,5 +1,12 @@
 /** Garage DOM UI: store, inventory, vehicle stats, and selected-part inspector. */
 
+import {
+  HOTBAR_CAPACITY,
+  resolveHotbar,
+  toggleHotbarSlot,
+  withHotbarSlot,
+} from '../core/hotbar.ts';
+import { ABILITY_SLOT_KEYS } from '../core/abilities.ts';
 import { KID_LABELS, SIMPLE_PART_IDS } from '../core/tutorial.ts';
 import {
   PAINT_COLORS,
@@ -18,6 +25,8 @@ export interface EditorUIHandlers {
   onPurchasePart?(defId: string): void;
   onBuyPart(defId: string): void;
   onArmPart(defId: string): void;
+  /** The player re-curated the build bar; older harnesses may omit this. */
+  onHotbarChange?(defIds: readonly string[]): void;
   onToggleErase(): void;
   onCancelTool(): void;
   newGarageDisposalSummary(): NewGarageDisposalSummary;
@@ -33,6 +42,8 @@ export interface EditorUIHandlers {
   onFightZombies(): void;
   onStartTutorial(): void;
   onConfigChange(partId: string, key: string, value: boolean | string): void;
+  /** A box in the garage ability planner was clicked: load the next ability. */
+  onAbilitySlotClick(slot: number): void;
   onUpgradePart(partId: string): void;
   onRepairPart(partId: string): void;
   onRepairAll(): void;
@@ -84,6 +95,28 @@ export interface NewGarageDisposalSummary {
   forfeited: number;
 }
 
+/** One box of the garage's ability planner; null when the box is empty. */
+export interface AbilityLoadoutSlotView {
+  /** Ability name, e.g. "Cryo Nova". */
+  name: string;
+  /** Single glyph for the ability's kind. */
+  glyph: string;
+  /** Placed part supplying it, e.g. "Ice Cannon". */
+  partName: string;
+  /** Hover text: what the ability does. */
+  blurb: string;
+}
+
+/** Where a selected ability part stands in the three-slot survival bar. */
+export interface AbilitySlotStatus {
+  /** Key of the slot it fills (`q`/`e`/`r`), or null when it missed the cut. */
+  key: string | null;
+  /** Ability parts on the rig right now. */
+  candidates: number;
+  /** Slots the bar has. */
+  capacity: number;
+}
+
 export interface RunRepairEconomy {
   integrityPct: number;
   totalCost: number;
@@ -94,13 +127,22 @@ export interface RunRepairEconomy {
 type StoreGroup = 'essentials' | 'weapons' | 'defence' | 'mobility';
 
 /**
- * Catalog parts filed under `weapon` that are bought for defence: they have no
- * offensive payload, only a protective ability.
+ * Catalog parts filed under `weapon` that are bought for defence: they carry no
+ * normal fire, only an ability the player reaches for when the rig is in
+ * trouble — a bubble to hide behind, or a ring to shove a swarm off the doors.
  */
-const DEFENSIVE_WEAPON_PART_IDS = new Set(['shield-generator']);
+const DEFENSIVE_WEAPON_PART_IDS = new Set([
+  'shield-generator',
+  'pulse-emitter',
+]);
+
+/** Catalog parts filed under `weapon` that are really about getting around. */
+const MOBILITY_WEAPON_PART_IDS = new Set(['nitro-injector']);
 
 function storeGroupForPart(def: PartDefinition): StoreGroup {
-  if (def.category === 'movement') return 'mobility';
+  if (def.category === 'movement' || MOBILITY_WEAPON_PART_IDS.has(def.id)) {
+    return 'mobility';
+  }
   if (def.category === 'protection' || DEFENSIVE_WEAPON_PART_IDS.has(def.id)) {
     return 'defence';
   }
@@ -126,12 +168,17 @@ export interface EditorUI {
     economy?: SelectedPartEconomy,
     config?: PartConfig,
     effectiveSteering?: boolean,
+    abilitySlot?: AbilitySlotStatus,
   ): void;
+  /** Fill the garage ability planner; entries are per box, null when empty. */
+  setAbilityLoadout(slots: readonly (AbilityLoadoutSlotView | null)[]): void;
   setEconomy(
     money: number,
     unlockedDefIds: readonly string[],
     inventory: Readonly<Record<string, number>>,
     installedDefIds: readonly string[],
+    /** Chosen build-bar block types; omit to seed one from the inventory. */
+    hotbarDefIds?: readonly string[],
   ): void;
   setRunContext(
     wave?: number,
@@ -307,11 +354,44 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
       <path d="M50 16 58 12 55 19 61 21 52 24Z" fill="#c96a2f"/>
       <path d="M52 17 57 15 55 20Z" fill="#e0a13e"/>
     `,
+    // Emitter dome throwing two rings of force outward.
+    'pulse-emitter': `
+      ${common}
+      <path d="M24 20 32 16 40 20V26L32 30 24 26Z" fill="#7a53c8"/>
+      <path d="M27 20 32 17 37 20 32 23Z" fill="#cbb4ff"/>
+      <path d="M12 20 20 16M52 20 44 16M12 32 20 28M52 32 44 28" stroke="#b79bf0" stroke-width="4" fill="none"/>
+      <path d="M4 26 12 21M60 26 52 21" stroke="#7a53c8" stroke-width="4" fill="none"/>
+    `,
+    // Pressure bottle strapped to a block, venting a jet.
+    'nitro-injector': `
+      ${common}
+      <path d="M26 12H38V30H26Z" fill="#2fa86a"/>
+      <path d="M26 12H31V30H26Z" fill="#5ed49a"/>
+      <path d="M29 8H35V13H29Z" fill="#2a2e28"/>
+      <path d="M26 18H38V21H26Z" fill="#1c6b45"/>
+      <path d="M38 32 48 28 44 34 52 36 36 40Z" fill="#e0a13e"/>
+      <path d="M39 34 45 32 43 36Z" fill="#fff3c4"/>
+    `,
   };
   const drawing = drawings[def.id] ?? common;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" shape-rendering="crispEdges"><rect width="64" height="64" fill="#090b09"/>${drawing}</svg>`;
   const image = document.createElement('img');
   image.className = 'part-thumbnail';
+  image.alt = '';
+  image.draggable = false;
+  image.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  return image;
+}
+
+/** Crate-of-blocks mark for the inventory button on the build bar. */
+function inventoryIcon(): HTMLImageElement {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" shape-rendering="crispEdges">` +
+    `<path d="M4 6H28V26H4Z" fill="#20241f" stroke="#737b67" stroke-width="2"/>` +
+    `<path d="M8 10H14V15H8ZM18 10H24V15H18ZM8 18H14V23H8ZM18 18H24V23H18Z" fill="#89995a"/>` +
+    `</svg>`;
+  const image = document.createElement('img');
+  image.className = 'inventory-toggle__icon';
   image.alt = '';
   image.draggable = false;
   image.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
@@ -516,21 +596,24 @@ export function buildEditorUI(
   storeEmpty.setAttribute('aria-live', 'polite');
   storeEmpty.hidden = true;
   store.body.append(storeSearch, storeFilters, storeContent);
-  const inventoryPanel = document.createElement('section');
-  inventoryPanel.className = 'panel inventory-panel';
-  inventoryPanel.setAttribute('aria-label', 'Inventory hotbar');
-  const inventoryBody = document.createElement('div');
-  inventoryBody.className = 'inventory-hotbar__body';
-  inventoryPanel.appendChild(inventoryBody);
-  const inventory = { panel: inventoryPanel, body: inventoryBody };
+
+  garageDock.appendChild(store.panel);
+
+  // Inventory lives in a popover over the build bar rather than in the dock, so
+  // the model keeps the middle of the screen until the player goes looking.
+  const inventoryPopover = document.createElement('div');
+  inventoryPopover.className = 'inventory-popover';
+  inventoryPopover.id = 'garage-inventory-popover';
+  inventoryPopover.hidden = true;
+  const inventoryHint = document.createElement('p');
+  inventoryHint.className = 'inventory-hint';
   const inventoryContent = document.createElement('div');
-  inventoryContent.className = 'dock-list inventory-list';
+  inventoryContent.className = 'dock-list inventory-grid';
   const inventoryEmpty = document.createElement('p');
   inventoryEmpty.className = 'inventory-empty';
-  inventoryEmpty.textContent = 'Buy parts to fill your hotbar';
-  inventory.body.append(inventoryContent, inventoryEmpty);
-  garageDock.appendChild(store.panel);
-  root.appendChild(inventory.panel);
+  inventoryEmpty.textContent = 'Buy parts in the Store to stock your inventory';
+  inventoryEmpty.setAttribute('aria-live', 'polite');
+  inventoryPopover.append(inventoryHint, inventoryContent);
 
   const storeButtons = new Map<string, HTMLButtonElement>();
   const storePriceLabels = new Map<string, HTMLElement>();
@@ -538,8 +621,11 @@ export function buildEditorUI(
   const storeUnlockMilestones = new Map<string, HTMLElement>();
   const inventoryButtons = new Map<string, HTMLButtonElement>();
   const inventoryCountLabels = new Map<string, HTMLElement>();
+  const inventorySlotBadges = new Map<string, HTMLElement>();
   let armed: string | null = null;
   let highlighted: string | null = null;
+  let hotbar: string[] = [];
+  let stock: Readonly<Record<string, number>> = {};
 
   for (const id of SIMPLE_PART_IDS) {
     const def = catalog[id];
@@ -590,8 +676,10 @@ export function buildEditorUI(
     storeUnlockMilestones.set(id, unlockMilestone);
 
     const inventoryButton = document.createElement('button');
-    inventoryButton.className = 'part-btn inventory-item';
+    inventoryButton.className = 'part-btn inventory-item inventory-tile';
+    inventoryButton.type = 'button';
     inventoryButton.dataset.partId = id;
+    inventoryButton.hidden = true;
     const inventoryName = document.createElement('strong');
     inventoryName.textContent = displayName;
     const inventoryPreview = partThumbnail(def);
@@ -600,25 +688,231 @@ export function buildEditorUI(
     inventoryBlurb.textContent = description;
     const count = document.createElement('small');
     count.className = 'inventory-count';
-    count.textContent = '0';
-    inventoryButton.append(inventoryName, inventoryPreview, inventoryBlurb, count);
-    inventoryButton.addEventListener('click', () =>
-      armed === id ? handlers.onCancelTool() : handlers.onArmPart(id),
+    count.textContent = 'x0';
+    const slotBadge = document.createElement('small');
+    slotBadge.className = 'inventory-tile__slot';
+    slotBadge.hidden = true;
+    inventoryButton.append(
+      inventoryName,
+      inventoryPreview,
+      inventoryBlurb,
+      count,
+      slotBadge,
     );
+    inventoryButton.addEventListener('click', () => toggleHotbarEntry(id));
     inventoryContent.appendChild(inventoryButton);
     inventoryButtons.set(id, inventoryButton);
     inventoryCountLabels.set(id, count);
+    inventorySlotBadges.set(id, slotBadge);
   }
   storeContent.appendChild(storeEmpty);
+  inventoryContent.appendChild(inventoryEmpty);
 
-  const hotbarPlaceholders = Array.from({ length: 7 }, (_, index) => {
-    const placeholder = document.createElement('span');
-    placeholder.className = 'inventory-slot-placeholder';
-    placeholder.setAttribute('aria-hidden', 'true');
-    placeholder.dataset.slot = String(index + 1);
-    inventoryContent.appendChild(placeholder);
-    return placeholder;
+  // The build bar: a fixed row of slots, one per chosen block type. Slots keep
+  // their position whatever the inventory does, so muscle memory survives
+  // buying, placing, and running a type down to zero.
+  const hotbarPanel = document.createElement('section');
+  hotbarPanel.className = 'panel hotbar-panel';
+  hotbarPanel.setAttribute('aria-label', 'Active block selection');
+  const hotbarList = document.createElement('div');
+  // `inventory-list` is the long-standing hook for the bar in tests.
+  hotbarList.className = 'inventory-list hotbar-list';
+
+  const inventoryToggle = document.createElement('button');
+  inventoryToggle.type = 'button';
+  inventoryToggle.className = 'inventory-toggle';
+  inventoryToggle.setAttribute('aria-expanded', 'false');
+  inventoryToggle.setAttribute('aria-controls', inventoryPopover.id);
+  const inventoryToggleIcon = inventoryIcon();
+  const inventoryToggleBadge = document.createElement('small');
+  inventoryToggleBadge.className = 'inventory-toggle__badge';
+  inventoryToggle.append(inventoryToggleIcon, inventoryToggleBadge);
+  const setInventoryOpen = (open: boolean): void => {
+    inventoryPopover.hidden = !open;
+    inventoryToggle.classList.toggle('active', open);
+    inventoryToggle.setAttribute('aria-expanded', String(open));
+    inventoryToggle.setAttribute(
+      'aria-label',
+      open ? 'Close inventory' : 'Open inventory',
+    );
+    inventoryToggle.title = open
+      ? 'Close inventory'
+      : 'Inventory — pick which blocks sit on the build bar';
+  };
+  inventoryToggle.addEventListener('click', () =>
+    setInventoryOpen(inventoryPopover.hidden),
+  );
+  setInventoryOpen(false);
+
+  hotbarPanel.append(inventoryPopover, hotbarList, inventoryToggle);
+  root.appendChild(hotbarPanel);
+
+  // Anything else the player touches — canvas, store, topbar — dismisses it.
+  window.addEventListener('pointerdown', (event) => {
+    if (inventoryPopover.hidden) return;
+    const target = event.target;
+    if (
+      target instanceof Node &&
+      (inventoryPopover.contains(target) || inventoryToggle.contains(target))
+    ) {
+      return;
+    }
+    setInventoryOpen(false);
   });
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || inventoryPopover.hidden) return;
+    setInventoryOpen(false);
+    inventoryToggle.focus();
+  });
+
+  interface HotbarSlotView {
+    defId: string | null;
+    button: HTMLButtonElement;
+    name: HTMLElement;
+    art: HTMLElement;
+    count: HTMLElement;
+  }
+
+  const hotbarSlots: HotbarSlotView[] = Array.from(
+    { length: HOTBAR_CAPACITY },
+    (_, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'part-btn inventory-item hotbar-slot';
+      const key = document.createElement('span');
+      key.className = 'hotbar-slot__index';
+      key.setAttribute('aria-hidden', 'true');
+      key.textContent = String(index + 1);
+      const name = document.createElement('strong');
+      const art = document.createElement('span');
+      art.className = 'hotbar-slot__art';
+      const count = document.createElement('small');
+      count.className = 'inventory-count';
+      button.append(key, name, art, count);
+      const slot: HotbarSlotView = { defId: null, button, name, art, count };
+      button.addEventListener('click', () => {
+        if (!slot.defId) {
+          status.textContent =
+            'Empty slot - open the Inventory button on the bar to fill it';
+          return;
+        }
+        if (armed === slot.defId) handlers.onCancelTool();
+        else handlers.onArmPart(slot.defId);
+      });
+      // Right-click clears a slot without a trip to the inventory grid.
+      button.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        if (slot.defId) toggleHotbarEntry(slot.defId);
+      });
+      hotbarList.appendChild(button);
+      return slot;
+    },
+  );
+
+  /** Repaints slot art, stock, and armed/tutorial state from `hotbar`. */
+  const renderHotbar = (): void => {
+    hotbarSlots.forEach((slot, index) => {
+      const defId = hotbar[index] ?? null;
+      const def = defId === null ? undefined : catalog[defId];
+      slot.defId = def ? defId : null;
+      if (!def || slot.defId === null) {
+        delete slot.button.dataset.partId;
+        slot.button.classList.add('hotbar-slot--empty');
+        slot.button.classList.remove('is-out-of-stock');
+        slot.name.textContent = '';
+        slot.count.textContent = '';
+        slot.art.replaceChildren();
+        slot.button.setAttribute('aria-label', `Slot ${index + 1}, empty`);
+        slot.button.title = 'Open the Inventory button to pick a block';
+        return;
+      }
+      const count = Math.max(0, stock[slot.defId] ?? 0);
+      const displayName = KID_LABELS[slot.defId]?.name ?? def.name;
+      slot.button.dataset.partId = slot.defId;
+      slot.button.classList.remove('hotbar-slot--empty');
+      slot.button.classList.toggle('is-out-of-stock', count <= 0);
+      slot.name.textContent = displayName;
+      slot.count.textContent = `x${count}`;
+      slot.art.replaceChildren(partThumbnail(def));
+      slot.button.setAttribute(
+        'aria-label',
+        `Slot ${index + 1}, ${displayName}, ${count} in inventory`,
+      );
+      slot.button.title =
+        count > 0
+          ? `Arm ${displayName} (right-click to clear the slot)`
+          : `${displayName} - none left, buy more in the Store`;
+    });
+    applyToolStates();
+  };
+
+  /** Mirrors armed tool and tutorial glow onto the bar and inventory grid. */
+  const applyToolStates = (): void => {
+    eraseButton.classList.toggle('active', armed === 'erase');
+    for (const slot of hotbarSlots) {
+      slot.button.classList.toggle(
+        'active',
+        slot.defId !== null && slot.defId === armed,
+      );
+      slot.button.classList.toggle(
+        'tutorial-glow',
+        slot.defId !== null && slot.defId === highlighted,
+      );
+    }
+    for (const [id, button] of inventoryButtons) {
+      button.classList.toggle('tutorial-glow', id === highlighted);
+    }
+    cancelButton.style.display = armed ? 'block' : 'none';
+  };
+
+  /** Inventory click: slot the block type, or take it back off the bar. */
+  const toggleHotbarEntry = (defId: string): void => {
+    hotbar = toggleHotbarSlot(hotbar, defId);
+    if (armed !== null && armed !== 'erase' && !hotbar.includes(armed)) {
+      handlers.onCancelTool();
+    }
+    renderInventory();
+    handlers.onHotbarChange?.(hotbar);
+  };
+
+  /** Repaints the inventory grid tiles and the bar they feed. */
+  const renderInventory = (): void => {
+    let ownedTypes = 0;
+    for (const id of SIMPLE_PART_IDS) {
+      const def = catalog[id];
+      if (!def) continue;
+      const count = Math.max(0, stock[id] ?? 0);
+      const tile = inventoryButtons.get(id);
+      const countLabel = inventoryCountLabels.get(id);
+      const slotBadge = inventorySlotBadges.get(id);
+      const slotIndex = hotbar.indexOf(id);
+      if (count > 0) ownedTypes += 1;
+      if (countLabel) countLabel.textContent = `x${count}`;
+      if (slotBadge) {
+        slotBadge.hidden = slotIndex < 0;
+        slotBadge.textContent = `SLOT ${slotIndex + 1}`;
+      }
+      if (!tile) continue;
+      const displayName = KID_LABELS[id]?.name ?? def.name;
+      tile.hidden = count <= 0;
+      tile.classList.toggle('is-slotted', slotIndex >= 0);
+      tile.setAttribute('aria-pressed', String(slotIndex >= 0));
+      tile.setAttribute(
+        'aria-label',
+        slotIndex >= 0
+          ? `${displayName}, ${count} in inventory, in slot ${slotIndex + 1} — click to remove`
+          : `${displayName}, ${count} in inventory — click to add to the bar`,
+      );
+      tile.title =
+        slotIndex >= 0
+          ? `Remove ${displayName} from slot ${slotIndex + 1}`
+          : `Put ${displayName} on the build bar`;
+    }
+    inventoryEmpty.hidden = ownedTypes > 0;
+    inventoryHint.textContent = `Build bar ${hotbar.length}/${HOTBAR_CAPACITY} - click a block to slot it`;
+    inventoryToggleBadge.textContent = String(ownedTypes);
+    renderHotbar();
+  };
 
   let activeStoreGroup: StoreGroup = 'essentials';
   const applyStoreFilters = (): void => {
@@ -701,6 +995,52 @@ export function buildEditorUI(
   vehicleStatsContent.className = 'vehicle-stats__content';
   vehicleStats.append(vehicleStatsHeader, vehicleStatsContent);
   root.appendChild(vehicleStats);
+
+  // Ability bar planner: the same three boxes the fight shows, bottom-right so
+  // they sit clear of the store, the stats panel, and the build bar. Clicking a
+  // box cycles which of the rig's ability parts is loaded into it.
+  const abilityLoadout = document.createElement('section');
+  abilityLoadout.className = 'panel ability-loadout';
+  abilityLoadout.setAttribute('aria-label', 'Ability bar');
+  const abilityLoadoutHeader = document.createElement('header');
+  const abilityLoadoutTitle = document.createElement('h2');
+  abilityLoadoutTitle.textContent = 'Abilities';
+  const abilityLoadoutHint = document.createElement('span');
+  abilityLoadoutHint.textContent = 'Click to swap';
+  abilityLoadoutHeader.append(abilityLoadoutTitle, abilityLoadoutHint);
+  const abilityLoadoutBoxes = document.createElement('div');
+  abilityLoadoutBoxes.className = 'ability-loadout__boxes';
+  abilityLoadout.append(abilityLoadoutHeader, abilityLoadoutBoxes);
+  root.appendChild(abilityLoadout);
+
+  interface AbilityLoadoutBox {
+    root: HTMLButtonElement;
+    glyph: HTMLSpanElement;
+    name: HTMLSpanElement;
+    part: HTMLSpanElement;
+  }
+  const abilityLoadoutBoxList: AbilityLoadoutBox[] = ABILITY_SLOT_KEYS.map(
+    (key, slot) => {
+      const box = document.createElement('button');
+      box.type = 'button';
+      box.className = 'ability-loadout__slot';
+      box.dataset.slot = String(slot);
+      const keyBadge = document.createElement('span');
+      keyBadge.className = 'ability-loadout__key';
+      keyBadge.textContent = key.toUpperCase();
+      const glyph = document.createElement('span');
+      glyph.className = 'ability-loadout__glyph';
+      glyph.setAttribute('aria-hidden', 'true');
+      const name = document.createElement('span');
+      name.className = 'ability-loadout__name';
+      const part = document.createElement('span');
+      part.className = 'ability-loadout__part';
+      box.append(keyBadge, glyph, name, part);
+      box.addEventListener('click', () => handlers.onAbilitySlotClick(slot));
+      abilityLoadoutBoxes.appendChild(box);
+      return { root: box, glyph, name, part };
+    },
+  );
 
   const bottom = document.createElement('div');
   bottom.className = 'bottombar';
@@ -813,6 +1153,7 @@ export function buildEditorUI(
       economy,
       partConfig,
       effectiveSteering,
+      abilitySlot,
     ) => {
       if (!def || !partId) {
         showNoSelection();
@@ -873,15 +1214,34 @@ export function buildEditorUI(
       }
 
       if ((effectiveDef ?? def).ability) {
+        // Ability bar picker. Ticking a part claims one of the three slots;
+        // with three or fewer ability parts on the rig every one is equipped
+        // anyway, so the tick only decides anything once the rig has more
+        // abilities than the bar can hold.
         const abilitySection = document.createElement('label');
         abilitySection.className = 'selected-part__ability';
         const abilityInput = document.createElement('input');
         abilityInput.type = 'checkbox';
-        abilityInput.checked = partConfig?.activeAbility === true;
+        // Ticked when the part actually holds a box, not when a config flag
+        // says so — the planner and this tick are two views of one loadout.
+        abilityInput.checked = abilitySlot
+          ? abilitySlot.key !== null
+          : partConfig?.activeAbility === true;
         abilityInput.addEventListener('change', () =>
           handlers.onConfigChange(partId, 'activeAbility', abilityInput.checked),
         );
-        abilitySection.append(abilityInput, 'Bind to Q ability');
+        abilitySection.append(abilityInput, 'Equip to ability bar');
+        if (abilitySlot) {
+          const status = document.createElement('span');
+          status.className = 'selected-part__ability-slot';
+          if (abilitySlot.key === null) {
+            status.classList.add('is-benched');
+            status.textContent = `Bench (bar full: ${abilitySlot.capacity}/${abilitySlot.candidates})`;
+          } else {
+            status.textContent = `Slot ${abilitySlot.key.toUpperCase()}`;
+          }
+          abilitySection.appendChild(status);
+        }
         selectedContent.appendChild(abilitySection);
       }
 
@@ -1014,30 +1374,39 @@ export function buildEditorUI(
         selectedContent.appendChild(moduleSection);
       }
     },
-    setEconomy: (money, unlockedDefIds, currentInventory, installedDefIds) => {
+    setAbilityLoadout: (slots) => {
+      abilityLoadoutBoxList.forEach((box, slot) => {
+        const view = slots[slot] ?? null;
+        const filled = view !== null;
+        box.root.classList.toggle('is-empty', !filled);
+        box.glyph.textContent = filled ? view.glyph : '+';
+        box.name.textContent = filled ? view.name : 'Empty';
+        box.part.textContent = filled ? view.partName : 'No ability fitted';
+        box.root.title = filled
+          ? `${view.name} — ${view.blurb} (from ${view.partName}). Click to load another ability here.`
+          : 'No ability in this box. Click to load one the rig carries.';
+      });
+    },
+    setEconomy: (
+      money,
+      unlockedDefIds,
+      currentInventory,
+      installedDefIds,
+      hotbarDefIds,
+    ) => {
       moneyReadout.textContent = `$${money}`;
+      stock = currentInventory;
+      hotbar = resolveHotbar(hotbarDefIds, currentInventory);
       const unlocked = new Set(unlockedDefIds);
       const installedCounts = new Map<string, number>();
       for (const defId of installedDefIds) {
         installedCounts.set(defId, (installedCounts.get(defId) ?? 0) + 1);
       }
-      let stockCount = 0;
-      let occupiedHotbarSlots = 0;
       for (const id of SIMPLE_PART_IDS) {
         const def = catalog[id];
         if (!def) continue;
         const storeButton = storeButtons.get(id);
-        const inventoryButton = inventoryButtons.get(id);
-        const countLabel = inventoryCountLabels.get(id);
         const count = Math.max(0, currentInventory[id] ?? 0);
-        stockCount += count;
-        if (count > 0) occupiedHotbarSlots += 1;
-        if (inventoryButton) {
-          inventoryButton.disabled = count <= 0;
-          inventoryButton.classList.toggle('is-empty', count <= 0);
-          inventoryButton.setAttribute('aria-label', `${def.name}, ${count} in inventory`);
-        }
-        if (countLabel) countLabel.textContent = `x${count}`;
 
         const locked = (def.unlockCost ?? 0) > 0 && !unlocked.has(def.id);
         const unlockPrice = def.unlockCost ?? 0;
@@ -1088,10 +1457,7 @@ export function buildEditorUI(
           unlockMilestone.textContent = 'Free after Wave 7';
         }
       }
-      hotbarPlaceholders.forEach((placeholder, index) => {
-        placeholder.hidden = index >= Math.max(0, 7 - occupiedHotbarSlots);
-      });
-      inventoryEmpty.hidden = stockCount > 0;
+      renderInventory();
     },
     setRunContext: (wave, summary, repair) => {
       menuBtn.style.display = wave === undefined ? '' : 'none';
@@ -1155,15 +1521,23 @@ export function buildEditorUI(
       }
     },
     setArmedPart: (defId) => {
-      if (armed) (armed === 'erase' ? eraseButton : inventoryButtons.get(armed))?.classList.remove('active');
       armed = defId;
-      if (armed) (armed === 'erase' ? eraseButton : inventoryButtons.get(armed))?.classList.add('active');
-      cancelButton.style.display = armed ? 'block' : 'none';
+      applyToolStates();
     },
     highlightPaletteButton: (defId) => {
-      if (highlighted) inventoryButtons.get(highlighted)?.classList.remove('tutorial-glow');
       highlighted = defId;
-      if (highlighted) inventoryButtons.get(highlighted)?.classList.add('tutorial-glow');
+      // A tutorial step that points at a block is unfollowable when that block
+      // is off the bar, so claim a free slot for it first.
+      if (defId !== null && !hotbar.includes(defId)) {
+        const next = withHotbarSlot(hotbar, defId);
+        if (next.length !== hotbar.length) {
+          hotbar = next;
+          renderInventory();
+          handlers.onHotbarChange?.(hotbar);
+          return;
+        }
+      }
+      applyToolStates();
     },
     setStatus: (text) => { status.textContent = text; },
     setNotice: (text) => {
@@ -1208,7 +1582,7 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
   }
   if (def.ability?.kind === 'freeze') {
     labels.push(
-      ['Activate', 'Press Q'],
+      ['Ability', 'Cryo Nova'],
       ['Freezes', `${formatStat(def.ability.baseTargets ?? 0)} zombies`],
       ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
@@ -1216,8 +1590,33 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
   }
   if (def.ability?.kind === 'shield') {
     labels.push(
-      ['Activate', 'Press Q'],
+      ['Ability', 'Shield'],
       ['Effect', 'Invulnerable'],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'pulse') {
+    labels.push(
+      ['Ability', 'Shockwave'],
+      ['Blast', `${formatStat(def.ability.baseDamage ?? 0)} DMG`],
+      ['Radius', `${formatStat(def.ability.rangeM ?? 0)} M`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'overdrive') {
+    labels.push(
+      ['Ability', 'Overdrive'],
+      ['Torque', `x${formatStat(def.ability.baseTorqueMultiplier ?? 1)}`],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'hellfire') {
+    labels.push(
+      ['Ability', 'Hellfire'],
+      ['Damage', `x${formatStat(def.ability.baseDamageMultiplier ?? 1)}`],
+      ['Reach', `x${formatStat(def.ability.rangeMultiplier ?? 1)}`],
       ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
@@ -1256,7 +1655,8 @@ function buildHelpOverlay(): HTMLDivElement {
     <div class="help-panel__header"><b>How to build a vehicle</b><button>Close</button></div>
     <div class="cat-title">quick start</div>
     <ol><li>Buy a part in the Store to add it to Inventory and arm it for immediate placement.</li>
-    <li>Place the armed part, or select any loose Inventory part later. Green can place; red explains why it cannot.</li>
+    <li>Open Inventory with the crate button beside the build bar, then click a block to slot it (5 slots; click it again or right-click a slot to clear it).</li>
+    <li>Click a bar slot to arm that block, then place it. Green can place; red explains why it cannot.</li>
     <li>Build blocks around the Truck Heart. Everything needs to connect face-to-face.</li>
     <li>Select a placed part to upgrade, rotate, paint, or sell it in the right inspector.</li>
     <li>Use Test Drive when the vehicle is ready.</li></ol>

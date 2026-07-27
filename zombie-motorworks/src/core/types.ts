@@ -184,26 +184,49 @@ export interface WeaponDefinition {
 }
 
 /**
- * Player-triggered active ability (Ice Cannon freeze, Shield Generator bubble).
- * Unlike a WeaponDefinition these do not auto-fire or follow aim — they
- * discharge on a key press (Q) and run on their own cooldown, handled outside
- * the weapon firing loop. A part may carry both a `weapon` (normal fire) and an
- * `ability`; the player picks which single placed ability is bound to Q.
+ * Player-triggered active ability carried by a part. Unlike a
+ * WeaponDefinition these do not auto-fire or follow aim — they discharge on a
+ * key press and run on their own cooldown, handled outside the weapon firing
+ * loop. A part may carry both a `weapon` (normal fire) and an `ability`.
+ *
+ * An ability only exists while its part is bolted on and alive. Survival shows
+ * the equipped ones in the centre-screen bar (Q / E / R); when the rig carries
+ * more ability parts than the bar has slots, the player picks which ones make
+ * the cut in the garage — see `activeAbility` on PartConfig and
+ * `resolveAbilityLoadout` in core/abilities.ts.
  */
 export interface AbilityDefinition {
   /**
    * 'freeze' flash-freezes the nearest zombies in place; 'shield' wraps the
-   * vehicle in a bubble granting temporary invulnerability.
+   * vehicle in a bubble granting temporary invulnerability; 'pulse' slams out
+   * a damaging ring of force; 'overdrive' floods the drivetrain with torque;
+   * 'hellfire' overcharges the part's own flame nozzle.
    */
-  kind: 'freeze' | 'shield';
+  kind: 'freeze' | 'shield' | 'pulse' | 'overdrive' | 'hellfire';
   /** Seconds between activations (fixed across levels). */
   cooldownSeconds: number;
   /** Effect duration in seconds at level 1 (grows with upgrade level). */
   baseDurationSeconds: number;
-  /** Freeze only: metres from the vehicle within which zombies can be caught. */
+  /** Freeze/pulse: metres from the vehicle the effect reaches. */
   rangeM?: number;
   /** Freeze only: zombies frozen at level 1 (grows with upgrade level). */
   baseTargets?: number;
+  /** Pulse only: blast damage at the centre at level 1 (grows with level). */
+  baseDamage?: number;
+  /** Overdrive only: drive-torque multiplier at level 1 (grows with level). */
+  baseTorqueMultiplier?: number;
+  /**
+   * Hellfire only: multiplier on the host weapon's damage at level 1 (grows
+   * with upgrade level).
+   */
+  baseDamageMultiplier?: number;
+  /**
+   * Hellfire only: multipliers on the host weapon's reach and spray cone while
+   * the overcharge runs. Fixed across levels — upgrades buy heat and duration,
+   * not a wider nozzle.
+   */
+  rangeMultiplier?: number;
+  coneMultiplier?: number;
 }
 
 /** Contact weapon (grinder drum, spikes, sawblade): damages any zombie touching the part. */
@@ -300,11 +323,18 @@ export interface PartConfig {
   steerInverted?: boolean;
   braking?: boolean;
   /**
-   * For parts with an `ability`: this is the single ability bound to Q. Only
-   * one placed part may have it set (the garage enforces exclusivity); when
-   * none is set the first ability part is used.
+   * Legacy tick for "equip this ability": kept so blueprints saved before the
+   * garage ability panel existed still resolve the same way. New edits write
+   * `abilitySlot` instead.
    */
   activeAbility?: boolean;
+  /**
+   * For parts with an `ability`: which of the three ability-bar boxes the
+   * player dropped it into (0 → Q, 1 → E, 2 → R), or
+   * `BENCHED_ABILITY_SLOT` (-1) when they took it out of the bar. Undefined
+   * means "wherever it fits", which is how every ability starts out.
+   */
+  abilitySlot?: number;
   suspensionPreset?: SuspensionPreset;
   /** Player-chosen paint; undefined = the part's default colour. */
   paint?: PaintColor;
