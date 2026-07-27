@@ -66,6 +66,8 @@ export class WaveClearCard {
     this.root = element('section', 'wave-clear');
     this.root.hidden = true;
     this.root.setAttribute('role', 'dialog');
+    // Focusable so the reveal sequence can hold focus without arming a button.
+    this.root.tabIndex = -1;
     this.root.setAttribute('aria-modal', 'true');
 
     const titleId = `wave-clear-title-${nextTitleId}`;
@@ -164,7 +166,11 @@ export class WaveClearCard {
     void this.card.offsetWidth;
     this.root.classList.add('wave-clear--visible');
     this.attachKeydown();
-    this.continueButton.focus();
+    // Focus the dialog, not the button, while the reveal plays. Space and Enter
+    // activate a focused button, so autofocusing Continue here would make the
+    // player's instinctive "skip this" keypress start the next wave instead.
+    // applyFinalState hands focus to Continue once the sequence settles.
+    this.root.focus();
     playSfx('cardIn');
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -229,8 +235,12 @@ export class WaveClearCard {
 
   /** Jump straight to the finished state. Idempotent. */
   skip(): void {
+    this.skipInternal(true);
+  }
+
+  private skipInternal(focusPrimary: boolean): void {
     if (!this.isVisible() || this.disposed) return;
-    this.applyFinalState();
+    this.applyFinalState(focusPrimary);
   }
 
   dispose(): void {
@@ -408,7 +418,12 @@ export class WaveClearCard {
     setTextIfChanged(this.moneyValue, formatMoney(value));
   }
 
-  private applyFinalState(): void {
+  /**
+   * `focusPrimary` is false for keyboard skips. Space activates a focused
+   * button on keyup, so moving focus to Continue during the keydown that
+   * asked to skip would let the trailing keyup start the next wave.
+   */
+  private applyFinalState(focusPrimary = true): void {
     this.cancelAsync();
     this.sequenceRunning = false;
     this.root.classList.add('wave-clear--complete');
@@ -428,6 +443,11 @@ export class WaveClearCard {
     this.previewBlock.classList.add('wave-clear__preview--visible');
     if (!this.warningBlock.hidden) {
       this.warningBlock.classList.add('wave-clear__warnings--visible');
+    }
+    // Only move focus if the dialog still holds it, so a player who tabbed
+    // elsewhere mid-reveal is not yanked back to the button.
+    if (focusPrimary && document.activeElement === this.root) {
+      this.continueButton.focus();
     }
   }
 
@@ -498,7 +518,7 @@ export class WaveClearCard {
     }
     event.preventDefault();
     event.stopPropagation();
-    this.skip();
+    this.skipInternal(false);
   };
 
   private readonly onContinue = (): void => {

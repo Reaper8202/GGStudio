@@ -6,6 +6,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { effectiveFreeze, effectiveShield } from '../core/abilities.ts';
+import { evaluateWaveBadges, type WaveResultStats } from '../core/badges.ts';
 import {
   combineEnvironments,
   hazardEnvironment,
@@ -27,7 +28,10 @@ import {
   mineSweeperRadius,
 } from '../core/turretModules.ts';
 import type { Vec3, VehicleBlueprint } from '../core/types.ts';
+import { buildWaveTimeline, type WaveTimeline } from '../core/waveTimeline.ts';
 import { randomSeed } from '../core/rng.ts';
+import { badgeStore } from '../app/badgeStore.ts';
+import { isSfxMuted, playSfx, setSfxMuted, unlockAudio } from '../app/sfx.ts';
 import type { RuntimePart } from '../runtime/assembler.ts';
 import { buildPartMesh } from '../editor/meshes.ts';
 import { lowestPointM } from '../runtime/assembler.ts';
@@ -53,10 +57,7 @@ import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import type { Arena } from './arena/Arena.ts';
 import { ArenaBuilder } from './arena/ArenaBuilder.ts';
-import {
-  DEFAULT_BIOME_ID,
-  getBiome,
-} from './arena/recipes/index.ts';
+import { DEFAULT_BIOME_ID, getBiome } from './arena/recipes/index.ts';
 import { Minimap } from './Minimap.ts';
 import {
   WaveManager,
@@ -64,11 +65,15 @@ import {
   healthMultiplierForWave,
   speedMultiplierForWave,
   zombieCompositionForWave,
+  zombieCountForWave,
 } from './WaveManager.ts';
 import {
   formatWaveComposition,
+  newThreatsForWave,
   threatWarningsForWave,
 } from './waveBalance.ts';
+import { WaveClearCard, type WaveClearCardView } from './WaveClearCard.ts';
+import { WaveTimelineHud } from './WaveTimelineHud.ts';
 import { ZombieSystem } from './zombies/ZombieSystem.ts';
 import { isDevMode } from './devtuning/devMode.ts';
 import { devTuning, subscribeTuning } from './devtuning/DevTuning.ts';
@@ -146,11 +151,7 @@ export interface SurvivalCallbacks {
    * Mid-wave zombie state is not restorable, so App persists its wave-start
    * checkpoint rather than this live vehicle state.
    */
-  onSaveAndQuit(snapshot: {
-    wave: number;
-    kills: number;
-    score: number;
-  }): void;
+  onSaveAndQuit(snapshot: { wave: number; kills: number; score: number }): void;
 }
 
 export interface WaveClearPayload {
@@ -285,26 +286,14 @@ interface SurvivalUi {
   abilityLabel: HTMLSpanElement;
   abilityFill: HTMLSpanElement;
   abilityValue: HTMLDivElement;
-  waveValue: HTMLSpanElement;
-  remainingValue: HTMLSpanElement;
+  waveTimeline: WaveTimelineHud;
   scoreValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
   pendingMoneyValue: HTMLSpanElement;
   stuckPrompt: HTMLDivElement;
   countdownOverlay: HTMLDivElement;
   countdownValue: HTMLDivElement;
-  victoryOverlay: HTMLDivElement;
-  victorySubtitle: HTMLDivElement;
-  victoryMoneyValue: HTMLElement;
-  victoryRunMoneyValue: HTMLElement;
-  victoryPendingMoneyValue: HTMLElement;
-  victoryKillsValue: HTMLElement;
-  victoryTimeValue: HTMLElement;
-  victoryIntegrityValue: HTMLElement;
-  victoryDamagedPartsValue: HTMLElement;
-  victoryLostPartsValue: HTMLElement;
-  victoryNextWaveValue: HTMLElement;
-  victoryWarning: HTMLDivElement;
+  waveClearCard: WaveClearCard;
   gameOverOverlay: HTMLDivElement;
   gameOverBest: HTMLDivElement;
   gameOverScore: HTMLDivElement;
@@ -314,6 +303,7 @@ interface SurvivalUi {
   settingsOverlay: HTMLDivElement;
   settingsButton: HTMLButtonElement;
   settingsEyebrow: HTMLSpanElement;
+  settingsSoundButton: HTMLButtonElement;
   spawnCheatButton: HTMLButtonElement;
   settingsStatus: HTMLDivElement;
 }
@@ -423,35 +413,25 @@ export class SurvivalMode {
   private shieldBubble: THREE.Mesh | null = null;
   private shieldBubbleMaterial: THREE.MeshBasicMaterial | null = null;
   private shieldBubblePhase = 0;
-  private readonly waveValue: HTMLSpanElement;
-  private readonly remainingValue: HTMLSpanElement;
+  private readonly waveTimelineHud: WaveTimelineHud;
+  private waveTimeline: WaveTimeline | null = null;
   private readonly scoreValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
   private readonly pendingMoneyValue: HTMLSpanElement;
   private readonly stuckPrompt: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly countdownValue: HTMLDivElement;
-  private readonly victoryOverlay: HTMLDivElement;
+  private readonly waveClearCard: WaveClearCard;
   private readonly gameOverOverlay: HTMLDivElement;
   private readonly gameOverBest: HTMLDivElement;
   private readonly gameOverScore: HTMLDivElement;
   private readonly gameOverWaveValue: HTMLElement;
   private readonly gameOverKillsValue: HTMLElement;
   private readonly gameOverBoard: HTMLDivElement;
-  private readonly victorySubtitle: HTMLDivElement;
-  private readonly victoryMoneyValue: HTMLElement;
-  private readonly victoryRunMoneyValue: HTMLElement;
-  private readonly victoryPendingMoneyValue: HTMLElement;
-  private readonly victoryKillsValue: HTMLElement;
-  private readonly victoryTimeValue: HTMLElement;
-  private readonly victoryIntegrityValue: HTMLElement;
-  private readonly victoryDamagedPartsValue: HTMLElement;
-  private readonly victoryLostPartsValue: HTMLElement;
-  private readonly victoryNextWaveValue: HTMLElement;
-  private readonly victoryWarning: HTMLDivElement;
   private readonly settingsOverlay: HTMLDivElement;
   private readonly settingsButton: HTMLButtonElement;
   private readonly settingsEyebrow: HTMLSpanElement;
+  private readonly settingsSoundButton: HTMLButtonElement;
   private readonly spawnCheatButton: HTMLButtonElement;
   private readonly settingsStatus: HTMLDivElement;
 
@@ -474,7 +454,6 @@ export class SurvivalMode {
   private lastHudIntegrity = -1;
   private lastHudSpeed = -1;
   private lastHudWave = -1;
-  private lastHudRemaining = -1;
   private lastHudScore = -1;
   private lastHudMoney = -1;
   private lastHudPending = -1;
@@ -485,6 +464,8 @@ export class SurvivalMode {
   private waveStartKills = 0;
   private waveMoneyEarned = 0;
   private waveElapsedSeconds = 0;
+  private waveStartIntegrityPct = 100;
+  private cleanWaveStreak = 0;
   private pendingTransition: PendingTransition | null = null;
   private stuckSeconds = 0;
   private currentMineSweeperLevel = 0;
@@ -497,6 +478,7 @@ export class SurvivalMode {
   private lastHudAbilityCooldown = -1;
   private lastHudAbilityName = '';
   private debugProgressionSuppressed = false;
+  private audioUnlocked = false;
   private devPanel: DevTunerPanel | null = null;
   private tuningUnsubscribe: (() => void) | null = null;
   private readonly recoveryImpulse = { x: 0, y: 0, z: 0 };
@@ -510,6 +492,7 @@ export class SurvivalMode {
   private mineWarningPulsed = new WeakSet<object>();
 
   private readonly keydown = (event: KeyboardEvent): void => {
+    this.unlockAudioFromInput();
     if (event.key === 'Escape' && this.phase !== 'gameOver') {
       this.setSettingsOpen(!this.settingsOpen);
       event.preventDefault();
@@ -598,9 +581,7 @@ export class SurvivalMode {
       this.arena.bounds,
     );
     this.waves = new WaveManager(this.zombies, {
-      onRemainingChanged: () => {
-        this.lastHudRemaining = -1;
-      },
+      onRemainingChanged: () => undefined,
       onWaveComplete: (wave, reward) => this.onWaveComplete(wave, reward),
     });
     this.buildTracerPool();
@@ -620,35 +601,24 @@ export class SurvivalMode {
     this.abilityLabel = builtUi.abilityLabel;
     this.abilityFill = builtUi.abilityFill;
     this.abilityValue = builtUi.abilityValue;
-    this.waveValue = builtUi.waveValue;
-    this.remainingValue = builtUi.remainingValue;
+    this.waveTimelineHud = builtUi.waveTimeline;
     this.scoreValue = builtUi.scoreValue;
     this.moneyValue = builtUi.moneyValue;
     this.pendingMoneyValue = builtUi.pendingMoneyValue;
     this.stuckPrompt = builtUi.stuckPrompt;
     this.countdownOverlay = builtUi.countdownOverlay;
     this.countdownValue = builtUi.countdownValue;
-    this.victoryOverlay = builtUi.victoryOverlay;
+    this.waveClearCard = builtUi.waveClearCard;
     this.gameOverOverlay = builtUi.gameOverOverlay;
     this.gameOverBest = builtUi.gameOverBest;
     this.gameOverScore = builtUi.gameOverScore;
     this.gameOverWaveValue = builtUi.gameOverWaveValue;
     this.gameOverKillsValue = builtUi.gameOverKillsValue;
     this.gameOverBoard = builtUi.gameOverBoard;
-    this.victorySubtitle = builtUi.victorySubtitle;
-    this.victoryMoneyValue = builtUi.victoryMoneyValue;
-    this.victoryRunMoneyValue = builtUi.victoryRunMoneyValue;
-    this.victoryPendingMoneyValue = builtUi.victoryPendingMoneyValue;
-    this.victoryKillsValue = builtUi.victoryKillsValue;
-    this.victoryTimeValue = builtUi.victoryTimeValue;
-    this.victoryIntegrityValue = builtUi.victoryIntegrityValue;
-    this.victoryDamagedPartsValue = builtUi.victoryDamagedPartsValue;
-    this.victoryLostPartsValue = builtUi.victoryLostPartsValue;
-    this.victoryNextWaveValue = builtUi.victoryNextWaveValue;
-    this.victoryWarning = builtUi.victoryWarning;
     this.settingsOverlay = builtUi.settingsOverlay;
     this.settingsButton = builtUi.settingsButton;
     this.settingsEyebrow = builtUi.settingsEyebrow;
+    this.settingsSoundButton = builtUi.settingsSoundButton;
     this.spawnCheatButton = builtUi.spawnCheatButton;
     this.settingsStatus = builtUi.settingsStatus;
     this.minimap = new Minimap(
@@ -672,6 +642,8 @@ export class SurvivalMode {
     if (Number.isFinite(run.kills) && (run.kills ?? 0) >= 0) {
       this.kills = Math.floor(run.kills ?? 0);
     }
+    this.waveStartKills = this.kills;
+    this.cleanWaveStreak = 0;
     if (Number.isFinite(run.score) && (run.score ?? 0) >= 0) {
       this.runScore = Math.floor(run.score ?? 0);
     }
@@ -781,22 +753,8 @@ export class SurvivalMode {
     root.className = 'ui-layer survival-ui';
     this.container.appendChild(root);
 
-    const waveHud = document.createElement('section');
-    waveHud.className = 'panel survival-wave-hud';
-    const waveBlock = document.createElement('div');
-    const waveLabel = document.createElement('span');
-    waveLabel.textContent = 'Wave';
-    const waveValue = document.createElement('strong');
-    waveBlock.append(waveLabel, waveValue);
-    const divider = document.createElement('span');
-    divider.className = 'survival-wave-hud__divider';
-    const zombieBlock = document.createElement('div');
-    const zombieLabel = document.createElement('span');
-    zombieLabel.textContent = 'Zombies on Field';
-    const remainingValue = document.createElement('strong');
-    zombieBlock.append(zombieLabel, remainingValue);
-    waveHud.append(waveBlock, divider, zombieBlock);
-    root.appendChild(waveHud);
+    const waveTimeline = new WaveTimelineHud();
+    root.appendChild(waveTimeline.root);
 
     const hud = document.createElement('div');
     hud.className = 'panel survival-driver-hud';
@@ -954,60 +912,11 @@ export class SurvivalMode {
     countdownOverlay.append(countdownLabel, countdownValue);
     root.appendChild(countdownOverlay);
 
-    const victoryOverlay = overlayPanel();
-    victoryOverlay.classList.add('survival-victory');
-    victoryOverlay.style.display = 'none';
-    const victoryTitle = document.createElement('div');
-    victoryTitle.className = 'survival-victory__title';
-    victoryTitle.textContent = 'VICTORY';
-    const victorySubtitle = document.createElement('div');
-    victorySubtitle.className = 'survival-victory__subtitle';
-    const victoryStats = document.createElement('div');
-    victoryStats.className = 'survival-victory__stats';
-    const statRow = (label: string): HTMLElement => {
-      const row = document.createElement('div');
-      const rowLabel = document.createElement('span');
-      rowLabel.textContent = label;
-      const rowValue = document.createElement('strong');
-      row.append(rowLabel, rowValue);
-      victoryStats.appendChild(row);
-      return rowValue;
-    };
-    const victoryMoneyValue = statRow('This Wave Banked');
-    const victoryRunMoneyValue = statRow('Run Total Banked');
-    const victoryPendingMoneyValue = statRow('Pending');
-    const victoryKillsValue = statRow('Zombies Killed');
-    const victoryTimeValue = statRow('Time');
-    const victoryIntegrityValue = statRow('Vehicle Integrity');
-    const victoryDamagedPartsValue = statRow('Damaged Parts');
-    const victoryLostPartsValue = statRow('Parts Lost (base value)');
-    victoryLostPartsValue.className = 'survival-victory__losses';
-    const victoryNextWaveValue = statRow('Next Wave');
-    victoryNextWaveValue.className = 'survival-victory__composition';
-    const victoryWarning = document.createElement('div');
-    victoryWarning.className = 'survival-victory__warning';
-    victoryWarning.setAttribute('role', 'status');
-    victoryWarning.hidden = true;
-    const victoryActions = document.createElement('div');
-    victoryActions.className = 'survival-victory__actions';
-    const nextWaveButton = document.createElement('button');
-    nextWaveButton.type = 'button';
-    nextWaveButton.className = 'primary';
-    nextWaveButton.textContent = 'Continue Now';
-    nextWaveButton.addEventListener('click', this.onNextWave);
-    const garageButton = document.createElement('button');
-    garageButton.type = 'button';
-    garageButton.textContent = 'Garage / Repair';
-    garageButton.addEventListener('click', this.onGoToGarage);
-    victoryActions.append(nextWaveButton, garageButton);
-    victoryOverlay.append(
-      victoryTitle,
-      victorySubtitle,
-      victoryStats,
-      victoryWarning,
-      victoryActions,
-    );
-    root.appendChild(victoryOverlay);
+    const waveClearCard = new WaveClearCard({
+      onContinue: this.onNextWave,
+      onGarage: this.onGoToGarage,
+    });
+    root.appendChild(waveClearCard.root);
 
     const gameOverOverlay = overlayPanel();
     gameOverOverlay.classList.add('survival-gameover');
@@ -1099,6 +1008,15 @@ export class SurvivalMode {
     );
     settingsHeader.append(settingsHeading, closeSettingsButton);
 
+    const soundOn = !isSfxMuted();
+    const settingsSoundButton = document.createElement('button');
+    settingsSoundButton.type = 'button';
+    settingsSoundButton.className =
+      'ui-button ui-button--medium survival-settings__cheat-toggle survival-settings__sound';
+    settingsSoundButton.textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
+    settingsSoundButton.setAttribute('aria-pressed', String(soundOn));
+    settingsSoundButton.addEventListener('click', this.onSoundToggle);
+
     const cheatsToggle = createToggle('Enable Cheats');
     cheatsToggle.classList.add('survival-settings__cheat-toggle');
     const cheatsInput = cheatsToggle.querySelector('input');
@@ -1160,6 +1078,7 @@ export class SurvivalMode {
     settingsStatus.setAttribute('role', 'status');
     settingsPanel.append(
       settingsHeader,
+      settingsSoundButton,
       cheatsToggle,
       cheatActions,
       resetSection,
@@ -1187,26 +1106,14 @@ export class SurvivalMode {
       abilityLabel,
       abilityFill,
       abilityValue,
-      waveValue,
-      remainingValue,
+      waveTimeline,
       scoreValue,
       moneyValue,
       pendingMoneyValue,
       stuckPrompt,
       countdownOverlay,
       countdownValue,
-      victoryOverlay,
-      victorySubtitle,
-      victoryMoneyValue,
-      victoryRunMoneyValue,
-      victoryPendingMoneyValue,
-      victoryKillsValue,
-      victoryTimeValue,
-      victoryIntegrityValue,
-      victoryDamagedPartsValue,
-      victoryLostPartsValue,
-      victoryNextWaveValue,
-      victoryWarning,
+      waveClearCard,
       gameOverOverlay,
       gameOverBest,
       gameOverScore,
@@ -1216,6 +1123,7 @@ export class SurvivalMode {
       settingsOverlay,
       settingsButton,
       settingsEyebrow,
+      settingsSoundButton,
       spawnCheatButton,
       settingsStatus,
     };
@@ -1235,6 +1143,23 @@ export class SurvivalMode {
     this.lastTime = performance.now();
   }
 
+  private unlockAudioFromInput(): void {
+    if (this.audioUnlocked) return;
+    this.audioUnlocked = true;
+    unlockAudio();
+  }
+
+  private readonly onSoundToggle = (): void => {
+    if (this.disposed) return;
+    this.unlockAudioFromInput();
+    const muted = !isSfxMuted();
+    setSfxMuted(muted);
+    const soundOn = !muted;
+    this.settingsSoundButton.textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
+    this.settingsSoundButton.setAttribute('aria-pressed', String(soundOn));
+    if (soundOn) playSfx('uiClick');
+  };
+
   private readonly onSpawnEveryZombie = (): void => {
     if (this.disposed || this.phase !== 'active') return;
     const spawned = this.waves.spawnBonusHorde([
@@ -1247,7 +1172,6 @@ export class SurvivalMode {
       spawned === 4
         ? 'Spawned a Walker, Ranged, Worker, and Phone User.'
         : `Spawned ${spawned} of 4 zombies — clear some room and try again.`;
-    this.lastHudRemaining = -1;
   };
 
   private readonly onInfiniteMoney = (): void => {
@@ -1289,7 +1213,7 @@ export class SurvivalMode {
   private readonly onGoToGarage = (): void => {
     if (this.disposed || this.phase !== 'cleared') return;
     const payload = this.clearedWavePayload();
-    this.victoryOverlay.style.display = 'none';
+    this.waveClearCard.hide();
     this.callbacks.onBuildPhase(
       payload.clearedRun,
       payload.survivingPartIds,
@@ -1329,6 +1253,7 @@ export class SurvivalMode {
   };
 
   private readonly onFireDown = (event: PointerEvent): void => {
+    this.unlockAudioFromInput();
     if (this.phase === 'active' && !this.settingsOpen && event.button === 0)
       this.pointerFiring = true;
   };
@@ -1663,7 +1588,7 @@ export class SurvivalMode {
     this.recoverySettleSeconds = 0;
     this.recoveryRequested = false;
     this.stuckPrompt.classList.remove('is-visible');
-    this.victoryOverlay.style.display = 'none';
+    this.waveClearCard.hide();
     this.countdownOverlay.style.display = 'block';
     this.mineWarningDistances = new WeakMap<object, number>();
     this.mineWarningPulsed = new WeakSet<object>();
@@ -1672,10 +1597,7 @@ export class SurvivalMode {
   }
 
   private setCurrentWave(wave: number): void {
-    const nextWave = Math.max(
-      1,
-      Math.floor(Number.isFinite(wave) ? wave : 1),
-    );
+    const nextWave = Math.max(1, Math.floor(Number.isFinite(wave) ? wave : 1));
     if (
       this.currentWave === nextWave &&
       this.biomeEnvironmentWave === nextWave
@@ -1704,6 +1626,7 @@ export class SurvivalMode {
     this.waveStartKills = this.kills;
     this.waveMoneyEarned = 0;
     this.waveElapsedSeconds = 0;
+    this.waveStartIntegrityPct = this.vehicle.integrityPct();
     // A fresh wave starts on clean ground rather than inheriting the last
     // wave's airborne gibs and settled splats.
     this.vfx.reset();
@@ -1712,10 +1635,7 @@ export class SurvivalMode {
     this.warningRefreshSeconds = 0;
   }
 
-  private handleZombieKilled(
-    reward: number,
-    kind: ZombieKind,
-  ): void {
+  private handleZombieKilled(reward: number, kind: ZombieKind): void {
     this.kills++;
     if (!this.debugProgressionSuppressed) {
       this.runScore = addScore(
@@ -1832,27 +1752,48 @@ export class SurvivalMode {
       });
     const nextWave = this.currentWave + 1;
     const warnings = threatWarningsForWave(nextWave);
+    const killsThisWave = Math.max(0, this.kills - this.waveStartKills);
+    const integrityPct = this.vehicle.integrityPct();
+    this.cleanWaveStreak =
+      lostParts.length === 0 ? this.cleanWaveStreak + 1 : 0;
 
-    this.victorySubtitle.textContent = `Wave ${this.currentWave} Cleared`;
-    this.victoryMoneyValue.textContent = `$${this.waveMoneyEarned}`;
-    this.victoryRunMoneyValue.textContent = `$${this.callbacks.runEarnings()}`;
-    this.victoryPendingMoneyValue.textContent = '$0';
-    this.victoryKillsValue.textContent = String(
-      Math.max(0, this.kills - this.waveStartKills),
-    );
-    this.victoryTimeValue.textContent = formatDuration(this.waveElapsedSeconds);
-    this.victoryIntegrityValue.textContent = `${Math.round(
-      this.vehicle.integrityPct(),
-    )}%`;
-    this.victoryDamagedPartsValue.textContent = String(damagedPartCount);
-    this.victoryLostPartsValue.textContent =
-      lostParts.length > 0 ? lostParts.join(', ') : 'None';
-    this.victoryNextWaveValue.textContent = formatWaveComposition(
-      zombieCompositionForWave(nextWave),
-    );
-    this.victoryWarning.textContent = warnings.join(' ');
-    this.victoryWarning.hidden = warnings.length === 0;
-    this.victoryOverlay.style.display = 'block';
+    const bestSecondsForWave = badgeStore.bestTimeForWave(this.currentWave);
+    if (!this.debugProgressionSuppressed) {
+      badgeStore.recordWaveTime(this.currentWave, this.waveElapsedSeconds);
+    }
+    const stats: WaveResultStats = {
+      wave: this.currentWave,
+      killsThisWave,
+      elapsedSeconds: this.waveElapsedSeconds,
+      moneyEarned: this.waveMoneyEarned,
+      integrityPct,
+      startIntegrityPct: this.waveStartIntegrityPct,
+      partsLost: lostParts.length,
+      damagedParts: damagedPartCount,
+      bestSecondsForWave,
+      cleanWaveStreak: this.cleanWaveStreak,
+    };
+    const earned = evaluateWaveBadges(stats);
+    const newBadgeIds = this.debugProgressionSuppressed
+      ? []
+      : badgeStore.record(earned.map((badge) => badge.id)).newlyEarned;
+    const view: WaveClearCardView = {
+      wave: this.currentWave,
+      moneyEarned: this.waveMoneyEarned,
+      runMoneyTotal: this.callbacks.runEarnings(),
+      kills: killsThisWave,
+      elapsedSeconds: this.waveElapsedSeconds,
+      integrityPct,
+      damagedParts: damagedPartCount,
+      lostParts,
+      nextWaveComposition: formatWaveComposition(
+        zombieCompositionForWave(nextWave),
+      ),
+      warnings,
+      badges: earned,
+      newBadgeIds,
+    };
+    this.waveClearCard.show(view);
   }
 
   private queueGameOver(pendingMoneyDiscarded = 0): void {
@@ -1865,7 +1806,7 @@ export class SurvivalMode {
     this.pointerFiring = false;
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
-    this.victoryOverlay.style.display = 'none';
+    this.waveClearCard.hide();
     this.stuckPrompt.classList.remove('is-visible');
     this.stopVehicleMotion();
     this.pendingTransition = {
@@ -2258,9 +2199,24 @@ export class SurvivalMode {
     const speed = Math.round(telemetry.speedKmh);
     if (this.currentWave !== this.lastHudWave) {
       this.lastHudWave = this.currentWave;
-      this.waveValue.textContent = String(this.currentWave);
       this.syncSpeedGaugeThresholds();
       this.lastHudSpeed = -1;
+    }
+    const killedThisWave = Math.max(0, this.kills - this.waveStartKills);
+    const totalThisWave = zombieCountForWave(this.currentWave);
+    if (
+      this.waveTimeline === null ||
+      this.waveTimeline.currentWave !== this.currentWave ||
+      this.waveTimeline.killedThisWave !== killedThisWave ||
+      this.waveTimeline.totalThisWave !== totalThisWave
+    ) {
+      this.waveTimeline = buildWaveTimeline({
+        currentWave: this.currentWave,
+        killedThisWave,
+        totalThisWave,
+        threatsForWave: newThreatsForWave,
+      });
+      this.waveTimelineHud.update(this.waveTimeline);
     }
     if (speed !== this.lastHudSpeed) {
       this.lastHudSpeed = speed;
@@ -2277,11 +2233,6 @@ export class SurvivalMode {
         String(integrity),
       );
       this.integrityFill.classList.toggle('is-critical', integrity <= 30);
-    }
-    const zombiesOnField = this.zombies.getActiveCount();
-    if (zombiesOnField !== this.lastHudRemaining) {
-      this.lastHudRemaining = zombiesOnField;
-      this.remainingValue.textContent = String(zombiesOnField);
     }
     const fuelLitres = Math.ceil(telemetry.fuel);
     if (fuelLitres !== this.lastHudFuel) {
@@ -2496,7 +2447,7 @@ export class SurvivalMode {
     this.pointerFiring = false;
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
-    this.victoryOverlay.style.display = 'none';
+    this.waveClearCard.hide();
     this.resetWaveStats();
     this.waves.startWave(this.currentWave);
   }
@@ -2507,19 +2458,17 @@ export class SurvivalMode {
     try {
       const unspawnedKills = this.waves.prepareDebugKillAll();
       this.kills += unspawnedKills;
-      this.addPendingWaveKillReward(
-        unspawnedKills * BASE_ZOMBIE_STATS.reward,
-      );
+      this.addPendingWaveKillReward(unspawnedKills * BASE_ZOMBIE_STATS.reward);
       this.zombies.forceKillAll();
       this.waves.fixedUpdate(0);
+      this.attachNewIslands(this.vehicle.finishStep());
+      this.queueCompletedStepTransition();
+      this.syncView(0);
+      this.renderer.render(this.scene, this.camera);
+      this.flushPendingTransition();
     } finally {
       this.debugProgressionSuppressed = false;
     }
-    this.attachNewIslands(this.vehicle.finishStep());
-    this.queueCompletedStepTransition();
-    this.syncView(0);
-    this.renderer.render(this.scene, this.camera);
-    this.flushPendingTransition();
   }
 
   /** Destroy the rig outright so tests can reach the game-over screen. */
@@ -2616,6 +2565,7 @@ export class SurvivalMode {
       'pointerdown',
       this.onFireDown,
     );
+    this.settingsSoundButton.removeEventListener('click', this.onSoundToggle);
     this.fuelPickups.dispose();
     this.zombies.dispose();
     this.vfx.dispose();
@@ -2626,6 +2576,8 @@ export class SurvivalMode {
     this.minimap.dispose();
     this.scopeCursor.dispose();
     this.warningHud.dispose();
+    this.waveTimelineHud.dispose();
+    this.waveClearCard.dispose();
     this.ui.remove();
     disposeObject(this.scene);
     this.scene.clear();
@@ -2636,13 +2588,6 @@ export class SurvivalMode {
     this.islandGroups.clear();
     this.tracers.length = 0;
   }
-}
-
-function formatDuration(seconds: number): string {
-  const whole = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(whole / 60);
-  const rest = whole % 60;
-  return `${minutes}:${String(rest).padStart(2, '0')}`;
 }
 
 /** Ranked board as a table; the current run's row is marked for styling. */
