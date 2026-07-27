@@ -27,7 +27,6 @@ export interface EditorUIHandlers {
   onArmPart(defId: string): void;
   /** The player re-curated the build bar; older harnesses may omit this. */
   onHotbarChange?(defIds: readonly string[]): void;
-  onToggleErase(): void;
   onCancelTool(): void;
   newGarageDisposalSummary(): NewGarageDisposalSummary;
   onNew(): void;
@@ -196,6 +195,7 @@ export interface EditorUI {
 interface CollapsiblePanel {
   panel: HTMLElement;
   body: HTMLElement;
+  setCollapsed(collapsed: boolean): void;
 }
 
 function buildCollapsiblePanel(titleText: string, className: string): CollapsiblePanel {
@@ -212,14 +212,17 @@ function buildCollapsiblePanel(titleText: string, className: string): Collapsibl
   toggle.setAttribute('aria-expanded', 'true');
   const body = document.createElement('div');
   body.className = 'dock-panel__body';
-  toggle.addEventListener('click', () => {
-    const collapsed = panel.classList.toggle('is-collapsed');
+  const setCollapsed = (collapsed: boolean): void => {
+    panel.classList.toggle('is-collapsed', collapsed);
     toggle.setAttribute('aria-expanded', String(!collapsed));
     toggle.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} ${titleText}`);
-  });
+  };
+  toggle.addEventListener('click', () =>
+    setCollapsed(!panel.classList.contains('is-collapsed')),
+  );
   header.append(title, toggle);
   panel.append(header, body);
-  return { panel, body };
+  return { panel, body, setCollapsed };
 }
 
 function buildMetric(
@@ -383,6 +386,30 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
   return image;
 }
 
+/**
+ * Blocky history arrows for the top bar. Inline (rather than a data URI) so the
+ * glyph inherits the button's colour through hover and the disabled state.
+ */
+const UNDO_ICON_SVG =
+  `<svg class="icon-btn__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M10 4 2 10l8 6z" fill="currentColor"/>` +
+  `<path d="M9 10h6a5 5 0 0 1 0 10h-4" fill="none" stroke="currentColor" stroke-width="3"/>` +
+  `</svg>`;
+const REDO_ICON_SVG =
+  `<svg class="icon-btn__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M14 4l8 6-8 6z" fill="currentColor"/>` +
+  `<path d="M15 10H9a5 5 0 0 0 0 10h4" fill="none" stroke="currentColor" stroke-width="3"/>` +
+  `</svg>`;
+const MIRROR_ICON_SVG =
+  `<svg class="icon-btn__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M12 2v20" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/>` +
+  `<path d="M3 7h6v10H3zM15 7h6v10h-6z" fill="currentColor"/>` +
+  `</svg>`;
+const CANCEL_ICON_SVG =
+  `<svg class="icon-btn__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M5 8 8 5l11 11-3 3zM19 8 16 5 5 16l3 3z" fill="currentColor"/>` +
+  `</svg>`;
+
 /** Crate-of-blocks mark for the inventory button on the build bar. */
 function inventoryIcon(): HTMLImageElement {
   const svg =
@@ -412,6 +439,23 @@ export function buildEditorUI(
     button.type = 'button';
     button.textContent = label;
     button.title = title;
+    button.addEventListener('click', fn);
+    return button;
+  };
+
+  /** Square, label-free button carrying an inline SVG glyph. */
+  const iconBtn = (
+    svg: string,
+    label: string,
+    fn: () => void,
+    hint: string,
+  ): HTMLButtonElement => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'icon-btn';
+    button.innerHTML = svg;
+    button.title = `${label} (${hint})`;
+    button.setAttribute('aria-label', label);
     button.addEventListener('click', fn);
     return button;
   };
@@ -502,18 +546,33 @@ export function buildEditorUI(
     openNewGarageDialog(newGarageBtn),
   );
   newGarageBtn.setAttribute('aria-haspopup', 'dialog');
-  top.append(nameInput, newGarageBtn, menuBtn);
-  const undoBtn = btn('Undo', handlers.onUndo, 'Ctrl+Z');
-  const redoBtn = btn('Redo', handlers.onRedo, 'Ctrl+Shift+Z');
-  top.append(undoBtn, redoBtn);
+  top.append(nameInput, newGarageBtn);
+  const history = document.createElement('div');
+  history.className = 'topbar-history';
+  const undoBtn = iconBtn(UNDO_ICON_SVG, 'Undo', handlers.onUndo, 'Ctrl+Z');
+  const redoBtn = iconBtn(REDO_ICON_SVG, 'Redo', handlers.onRedo, 'Ctrl+Shift+Z');
+  history.append(undoBtn, redoBtn);
+  top.appendChild(history);
   let symmetry = false;
-  const symmetryBtn = btn('Mirror Build', () => {
-    symmetry = !symmetry;
-    symmetryBtn.classList.toggle('active', symmetry);
-    symmetryBtn.setAttribute('aria-pressed', String(symmetry));
-    handlers.onSymmetryToggle(symmetry);
-  });
+  const symmetryBtn = iconBtn(
+    MIRROR_ICON_SVG,
+    'Mirror build',
+    () => {
+      symmetry = !symmetry;
+      symmetryBtn.classList.toggle('active', symmetry);
+      symmetryBtn.setAttribute('aria-pressed', String(symmetry));
+      symmetryBtn.setAttribute(
+        'aria-label',
+        `Mirror build, ${symmetry ? 'on' : 'off'}`,
+      );
+      symmetryBtn.title = `Mirror build: ${symmetry ? 'on' : 'off'}`;
+      handlers.onSymmetryToggle(symmetry);
+    },
+    'off',
+  );
   symmetryBtn.setAttribute('aria-pressed', 'false');
+  symmetryBtn.setAttribute('aria-label', 'Mirror build, off');
+  symmetryBtn.title = 'Mirror build: off';
   top.appendChild(symmetryBtn);
   const viewSelect = document.createElement('select');
   viewSelect.title = 'View (keys 1-5)';
@@ -526,7 +585,46 @@ export function buildEditorUI(
   viewSelect.addEventListener('change', () =>
     handlers.onView(viewSelect.value as 'persp' | 'front' | 'rear' | 'side' | 'top'),
   );
-  top.append(viewSelect, btn('Tutorial', handlers.onStartTutorial), btn('Help', () => toggleHelp()));
+  top.appendChild(viewSelect);
+
+  // Build height lives in the top bar beside the view picker: it slices the
+  // model the same way the camera presets do, so the two belong together.
+  const layerControl = document.createElement('label');
+  layerControl.className = 'topbar-layer';
+  const layerLabel = document.createElement('span');
+  layerLabel.className = 'topbar-layer__label';
+  layerLabel.textContent = 'Height';
+  const layerSlider = document.createElement('input');
+  layerSlider.type = 'range';
+  layerSlider.className = 'topbar-layer__slider';
+  layerSlider.min = '-1';
+  layerSlider.max = '8';
+  layerSlider.value = '-1';
+  layerSlider.setAttribute('aria-label', 'Build height');
+  const layerValue = document.createElement('span');
+  layerValue.className = 'topbar-layer__value';
+  layerValue.textContent = 'All';
+  layerSlider.addEventListener('input', () => {
+    const layer = Number(layerSlider.value);
+    const text = layer < 0 ? 'All' : String(layer);
+    layerValue.textContent = text;
+    layerSlider.setAttribute('aria-valuetext', text);
+    layerControl.title = `Build height: ${text}`;
+    handlers.onLayerChange(layer);
+  });
+  layerSlider.setAttribute('aria-valuetext', 'All');
+  layerControl.title = 'Build height: All';
+  layerControl.append(layerLabel, layerSlider, layerValue);
+  top.appendChild(layerControl);
+
+  const utilityButtons = document.createElement('div');
+  utilityButtons.className = 'topbar-utilities';
+  utilityButtons.append(
+    menuBtn,
+    btn('Tutorial', handlers.onStartTutorial),
+    btn('Help', () => toggleHelp()),
+  );
+  top.appendChild(utilityButtons);
   const testBtn = btn('Test Drive', handlers.onTestDrive);
   testBtn.className = 'primary btn-hero btn-hero-first';
   const fightBtn = btn('Fight Zombies', handlers.onFightZombies);
@@ -551,6 +649,16 @@ export function buildEditorUI(
   noticeBanner.className = 'panel editor-notice';
   noticeBanner.style.display = 'none';
   root.appendChild(noticeBanner);
+
+  // With the bottom bar gone the status line floats just above the build bar,
+  // and stays invisible (`:empty`) until there is something to say.
+  const status = document.createElement('div');
+  status.className = 'status garage-status';
+  status.setAttribute('role', 'status');
+  root.appendChild(status);
+  const setStatus = (text: string): void => {
+    status.textContent = text;
+  };
 
   const garageDock = document.createElement('aside');
   garageDock.className = 'garage-dock';
@@ -595,6 +703,8 @@ export function buildEditorUI(
   storeEmpty.textContent = 'No matching parts';
   storeEmpty.setAttribute('aria-live', 'polite');
   storeEmpty.hidden = true;
+  // Tiles carry their price as their `order`, so park the placeholder past them.
+  storeEmpty.style.order = '999999';
   store.body.append(storeSearch, storeFilters, storeContent);
 
   garageDock.appendChild(store.panel);
@@ -669,6 +779,9 @@ export function buildEditorUI(
       if (handlers.onPurchasePart) handlers.onPurchasePart(id);
       else handlers.onBuyPart(id);
     });
+    storeButton.addEventListener('animationend', () =>
+      storeButton.classList.remove('is-revealed'),
+    );
     storeContent.appendChild(storeButton);
     storeButtons.set(id, storeButton);
     storePriceLabels.set(id, price);
@@ -744,7 +857,22 @@ export function buildEditorUI(
   );
   setInventoryOpen(false);
 
-  hotbarPanel.append(inventoryPopover, hotbarList, inventoryToggle);
+  // Only shown while a tool is armed, so the resting bar stays just slots.
+  const cancelButton = iconBtn(
+    CANCEL_ICON_SVG,
+    'Cancel Tool',
+    handlers.onCancelTool,
+    'Esc',
+  );
+  cancelButton.classList.add('cancel-tool');
+  cancelButton.style.display = 'none';
+
+  hotbarPanel.append(
+    inventoryPopover,
+    cancelButton,
+    hotbarList,
+    inventoryToggle,
+  );
   root.appendChild(hotbarPanel);
 
   // Anything else the player touches — canvas, store, topbar — dismisses it.
@@ -783,7 +911,9 @@ export function buildEditorUI(
       key.className = 'hotbar-slot__index';
       key.setAttribute('aria-hidden', 'true');
       key.textContent = String(index + 1);
+      // Kept for screen readers; the visible slot is art plus count only.
       const name = document.createElement('strong');
+      name.className = 'hotbar-slot__name';
       const art = document.createElement('span');
       art.className = 'hotbar-slot__art';
       const count = document.createElement('small');
@@ -792,8 +922,15 @@ export function buildEditorUI(
       const slot: HotbarSlotView = { defId: null, button, name, art, count };
       button.addEventListener('click', () => {
         if (!slot.defId) {
-          status.textContent =
-            'Empty slot - open the Inventory button on the bar to fill it';
+          setStatus(
+            'Empty slot - open the Inventory button on the bar to fill it',
+          );
+          return;
+        }
+        // A slot the player has run down to zero is a shopping list entry, not
+        // a dead button: send them straight to its shelf in the store.
+        if ((stock[slot.defId] ?? 0) <= 0) {
+          revealInStore(slot.defId);
           return;
         }
         if (armed === slot.defId) handlers.onCancelTool();
@@ -836,19 +973,20 @@ export function buildEditorUI(
       slot.art.replaceChildren(partThumbnail(def));
       slot.button.setAttribute(
         'aria-label',
-        `Slot ${index + 1}, ${displayName}, ${count} in inventory`,
+        count > 0
+          ? `Slot ${index + 1}, ${displayName}, ${count} in inventory`
+          : `Slot ${index + 1}, ${displayName}, none left — show it in the store`,
       );
       slot.button.title =
         count > 0
           ? `Arm ${displayName} (right-click to clear the slot)`
-          : `${displayName} - none left, buy more in the Store`;
+          : `${displayName} - none left, click to find it in the Store`;
     });
     applyToolStates();
   };
 
   /** Mirrors armed tool and tutorial glow onto the bar and inventory grid. */
   const applyToolStates = (): void => {
-    eraseButton.classList.toggle('active', armed === 'erase');
     for (const slot of hotbarSlots) {
       slot.button.classList.toggle(
         'active',
@@ -868,7 +1006,7 @@ export function buildEditorUI(
   /** Inventory click: slot the block type, or take it back off the bar. */
   const toggleHotbarEntry = (defId: string): void => {
     hotbar = toggleHotbarSlot(hotbar, defId);
-    if (armed !== null && armed !== 'erase' && !hotbar.includes(armed)) {
+    if (armed !== null && !hotbar.includes(armed)) {
       handlers.onCancelTool();
     }
     renderInventory();
@@ -948,14 +1086,25 @@ export function buildEditorUI(
   storeSearch.addEventListener('input', applyStoreFilters);
   setStoreFilter('essentials');
 
-  const inventoryTools = document.createElement('div');
-  inventoryTools.className = 'inventory-tools';
-  const eraseButton = btn('Erase Part', handlers.onToggleErase, 'Delete a part with the next click');
-  eraseButton.className = 'erase-btn';
-  const cancelButton = btn('Cancel Tool', handlers.onCancelTool);
-  cancelButton.className = 'cancel-tool';
-  cancelButton.style.display = 'none';
-  inventoryTools.append(eraseButton, cancelButton);
+  /**
+   * Scrolls the store to a part and flashes it: the answer to "I want more of
+   * this block". Clears whatever search and filter were hiding it first.
+   */
+  const revealInStore = (defId: string): void => {
+    const def = catalog[defId];
+    const storeButton = storeButtons.get(defId);
+    if (!def || !storeButton) return;
+    setInventoryOpen(false);
+    store.setCollapsed(false);
+    storeSearch.value = '';
+    setStoreFilter(storeGroupForPart(def));
+    storeButton.scrollIntoView({ block: 'center' });
+    storeButton.classList.remove('is-revealed');
+    void storeButton.offsetWidth;
+    storeButton.classList.add('is-revealed');
+    const displayName = KID_LABELS[defId]?.name ?? def.name;
+    setStatus(`Out of ${displayName} - buy more in the Store`);
+  };
 
   const selectedPanel = document.createElement('aside');
   selectedPanel.className = 'panel selected-panel';
@@ -1042,24 +1191,6 @@ export function buildEditorUI(
     },
   );
 
-  const bottom = document.createElement('div');
-  bottom.className = 'bottombar';
-  root.appendChild(bottom);
-  const layerLabel = document.createElement('span');
-  layerLabel.textContent = 'Build height: All';
-  const layerSlider = document.createElement('input');
-  layerSlider.type = 'range';
-  layerSlider.min = '-1';
-  layerSlider.max = '8';
-  layerSlider.value = '-1';
-  layerSlider.addEventListener('input', () => {
-    const layer = Number(layerSlider.value);
-    layerLabel.textContent = layer < 0 ? 'Build height: All' : `Build height: ${layer}`;
-    handlers.onLayerChange(layer);
-  });
-  const status = document.createElement('span');
-  status.className = 'status';
-  bottom.append(layerLabel, layerSlider, inventoryTools, status);
 
   const ghostTip = document.createElement('div');
   ghostTip.className = 'ghost-tip';
@@ -1418,11 +1549,19 @@ export function buildEditorUI(
         storeButton?.classList.toggle('locked', locked);
         storeButton?.classList.toggle('unaffordable', unaffordable);
         storeButton?.classList.toggle('limit-reached', atOwnershipLimit);
+        // Affordable tiles are lit; everything else recedes into the panel.
+        storeButton?.classList.toggle(
+          'is-affordable',
+          !unaffordable && !atOwnershipLimit,
+        );
         storeButton?.classList.toggle(
           'has-unlock-milestone',
           locked && id === 'mine-sweeper',
         );
         if (storeButton) {
+          // Cheapest first. `order` reshuffles the grid without touching the
+          // DOM, so a live search or a focused tile keeps its place.
+          storeButton.style.order = String(price);
           storeButton.disabled = unaffordable || atOwnershipLimit;
           storeButton.setAttribute('aria-label', atOwnershipLimit
             ? `${def.name}, ownership limit reached`
@@ -1539,13 +1678,13 @@ export function buildEditorUI(
       }
       applyToolStates();
     },
-    setStatus: (text) => { status.textContent = text; },
+    setStatus,
     setNotice: (text) => {
       noticeBanner.textContent = text;
       noticeBanner.style.display = 'block';
     },
     deny: (text) => {
-      status.textContent = text;
+      setStatus(text);
       moneyReadout.classList.remove('deny-shake');
       void moneyReadout.offsetWidth;
       moneyReadout.classList.add('deny-shake');
@@ -1607,7 +1746,9 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
   if (def.ability?.kind === 'overdrive') {
     labels.push(
       ['Ability', 'Overdrive'],
+      ['Thrust', `${formatStat(def.ability.baseThrustAccel ?? 0)} M/S²`],
       ['Torque', `x${formatStat(def.ability.baseTorqueMultiplier ?? 1)}`],
+      ['Top Speed', `x${formatStat(def.ability.baseTopSpeedMultiplier ?? 1)}`],
       ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
@@ -1656,14 +1797,14 @@ function buildHelpOverlay(): HTMLDivElement {
     <div class="cat-title">quick start</div>
     <ol><li>Buy a part in the Store to add it to Inventory and arm it for immediate placement.</li>
     <li>Open Inventory with the crate button beside the build bar, then click a block to slot it (5 slots; click it again or right-click a slot to clear it).</li>
-    <li>Click a bar slot to arm that block, then place it. Green can place; red explains why it cannot.</li>
+    <li>Click a bar slot to arm that block, then place it. Green can place; red explains why it cannot. A slot showing x0 jumps you to that block in the Store.</li>
     <li>Build blocks around the Truck Heart. Everything needs to connect face-to-face.</li>
     <li>Select a placed part to upgrade, rotate, paint, or sell it in the right inspector.</li>
     <li>Use Test Drive when the vehicle is ready.</li></ol>
     <div class="cat-title">controls</div>
     <table><tr><td>Orbit / zoom</td><td>left-drag / mouse wheel; keys <b>1-5</b> choose views</td></tr>
     <tr><td>Rotate selected / held part</td><td><b>R</b> turn; <b>F</b> flip</td></tr>
-    <tr><td>Erase</td><td>right-click, Erase Part, or <b>Delete</b> on a selected part</td></tr>
-    <tr><td>Undo / redo</td><td>Ctrl+Z / Ctrl+Shift+Z</td></tr><tr><td>Layers</td><td>bottom slider slices the build by height</td></tr></table>`;
+    <tr><td>Erase</td><td>right-click a part, or <b>Delete</b> on a selected part</td></tr>
+    <tr><td>Undo / redo</td><td>Ctrl+Z / Ctrl+Shift+Z</td></tr><tr><td>Layers</td><td>the Height slider in the top bar slices the build</td></tr></table>`;
   return wrap;
 }

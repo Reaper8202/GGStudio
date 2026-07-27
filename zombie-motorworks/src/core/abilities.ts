@@ -36,6 +36,10 @@ export interface OverdriveStats {
   durationSeconds: number;
   /** Multiplier applied to drive torque while it runs. */
   torqueMultiplier: number;
+  /** Multiplier applied to the vehicle's top-speed ceiling while it runs. */
+  topSpeedMultiplier: number;
+  /** Thrust in m/s^2 pushed through the chassis, throttle or no throttle. */
+  thrustAccel: number;
   /** Seconds between activations. */
   cooldownSeconds: number;
 }
@@ -107,9 +111,10 @@ export function effectivePulse(def: AbilityDefinition, level = 1): PulseStats {
 
 /**
  * Scales an overdrive ability by the placed part's upgrade level. Each level
- * beyond the first adds a second of surge and a tenth of drive torque; the
- * cooldown is fixed. Level 1 → 4s at ×1.8, level 5 → 8s at ×2.2 (with the
- * default nitro-injector payload).
+ * beyond the first adds a second of surge, four tenths of drive torque, a
+ * further twentieth of speed ceiling, and 2 m/s^2 of thrust; the cooldown is
+ * fixed. Level 1 → 5s at ×3.2 torque / ×1.35 speed / 16 m/s^2, level 5 → 9s
+ * at ×4.8 / ×1.55 / 24 m/s^2 (with the default nitro-injector payload).
  */
 export function effectiveOverdrive(
   def: AbilityDefinition,
@@ -118,7 +123,9 @@ export function effectiveOverdrive(
   const steps = upgradeSteps(level);
   return {
     durationSeconds: def.baseDurationSeconds + steps,
-    torqueMultiplier: (def.baseTorqueMultiplier ?? 1) + 0.1 * steps,
+    torqueMultiplier: (def.baseTorqueMultiplier ?? 1) + 0.4 * steps,
+    topSpeedMultiplier: (def.baseTopSpeedMultiplier ?? 1) + 0.05 * steps,
+    thrustAccel: (def.baseThrustAccel ?? 0) + 2 * steps,
     cooldownSeconds: def.cooldownSeconds,
   };
 }

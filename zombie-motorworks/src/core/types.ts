@@ -216,6 +216,20 @@ export interface AbilityDefinition {
   /** Overdrive only: drive-torque multiplier at level 1 (grows with level). */
   baseTorqueMultiplier?: number;
   /**
+   * Overdrive only: multiplier on the vehicle's top-speed ceiling at level 1
+   * (grows with upgrade level). Without it the extra torque would only be felt
+   * below the normal cap, so a rig already flat out would feel nothing.
+   */
+  baseTopSpeedMultiplier?: number;
+  /**
+   * Overdrive only: propellant thrust in m/s^2 at level 1 (grows with upgrade
+   * level), pushed through the chassis along its heading. This is what makes
+   * nitro work with the throttle shut or the drive wheels stalled — the torque
+   * multiplier alone does nothing when the engine is not being asked for
+   * anything.
+   */
+  baseThrustAccel?: number;
+  /**
    * Hellfire only: multiplier on the host weapon's damage at level 1 (grows
    * with upgrade level).
    */

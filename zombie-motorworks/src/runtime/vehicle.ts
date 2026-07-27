@@ -211,6 +211,17 @@ export class RuntimeVehicle {
   private overdriveTimer = 0;
   /** Drive-torque multiplier applied while `overdriveTimer` runs. */
   private overdriveMultiplier = 1;
+  /**
+   * Multiplier on the anti-explosion speed ceiling while overdriving. Without
+   * it the surge would only be felt up to the normal cap, and a rig already at
+   * cap would feel nothing at all.
+   */
+  private overdriveSpeedMultiplier = 1;
+  /**
+   * Thrust in m/s^2 applied along the rig's heading while overdriving,
+   * independent of throttle and of whether the drive wheels have any grip.
+   */
+  private overdriveThrustAccel = 0;
   private topSpeedCap = BASE_TOP_SPEED_MPS;
   private lastWheelTelemetry: WheelTelemetry = {
     groundedCount: 0,
@@ -285,14 +296,42 @@ export class RuntimeVehicle {
   }
 
   /**
-   * Overdrive ability: multiply drive torque by `multiplier` for `seconds`.
-   * Re-activation takes the longer time and the stronger pull rather than
-   * stacking, so spamming it can never run away with the drivetrain.
+   * Overdrive ability: multiply drive torque by `multiplier` for `seconds`,
+   * and lift the speed ceiling by `speedMultiplier` so the surge is felt at
+   * the top end too. Re-activation takes the longer time and the stronger
+   * pull rather than stacking, so spamming it can never run away with the
+   * drivetrain.
    */
-  grantOverdrive(seconds: number, multiplier: number): void {
+  grantOverdrive(
+    seconds: number,
+    multiplier: number,
+    speedMultiplier = 1,
+    thrustAccel = 0,
+  ): void {
     if (seconds <= 0 || multiplier <= 1) return;
     this.overdriveTimer = Math.max(this.overdriveTimer, seconds);
     this.overdriveMultiplier = Math.max(this.overdriveMultiplier, multiplier);
+    this.overdriveSpeedMultiplier = Math.max(
+      this.overdriveSpeedMultiplier,
+      Math.max(1, speedMultiplier),
+    );
+    this.overdriveThrustAccel = Math.max(
+      this.overdriveThrustAccel,
+      Math.max(0, thrustAccel),
+    );
+  }
+
+  /**
+   * The speed ceiling in force this step: the engine-derived cap, lifted while
+   * an overdrive surge runs but never past the hard limit that keeps the
+   * solver stable.
+   */
+  private currentSpeedCeiling(): number {
+    if (this.overdriveTimer <= 0) return this.topSpeedCap;
+    return Math.min(
+      HARD_MAX_SPEED_MPS,
+      this.topSpeedCap * this.overdriveSpeedMultiplier,
+    );
   }
 
   /** True while the overdrive surge is running. */
@@ -437,7 +476,11 @@ export class RuntimeVehicle {
     }
     if (this.overdriveTimer > 0) {
       this.overdriveTimer = Math.max(0, this.overdriveTimer - dt);
-      if (this.overdriveTimer === 0) this.overdriveMultiplier = 1;
+      if (this.overdriveTimer === 0) {
+        this.overdriveMultiplier = 1;
+        this.overdriveSpeedMultiplier = 1;
+        this.overdriveThrustAccel = 0;
+      }
     }
     const body = this.assembled.body;
     const velocityAtStart = body.linvel();
@@ -530,6 +573,7 @@ export class RuntimeVehicle {
     );
 
     this.applyStabilityForces(dt, mass, steer);
+    this.applyOverdriveThrust(dt, mass, reversing);
 
     const weaponResult = stepWeapons(
       this.world,
@@ -582,6 +626,7 @@ export class RuntimeVehicle {
    */
   postStepStability(dt: number): void {
     const body = this.assembled.body;
+    const speedCeiling = this.currentSpeedCeiling();
     const velocity = body.linvel();
     let correctedX = velocity.x;
     let correctedY = velocity.y;
@@ -593,7 +638,7 @@ export class RuntimeVehicle {
       this.velocityBeforeSolve.z,
     );
     const allowedHorizontalSpeed = Math.min(
-      this.topSpeedCap,
+      speedCeiling,
       horizontalSpeedBefore + MAX_POST_SOLVE_SPEED_GAIN_MPS,
     );
     if (horizontalSpeed > allowedHorizontalSpeed && horizontalSpeed > 1e-6) {
@@ -612,7 +657,7 @@ export class RuntimeVehicle {
       this.velocityBeforeSolve.z,
     );
     const allowedSpeed = Math.min(
-      this.topSpeedCap,
+      speedCeiling,
       speedBefore + MAX_POST_SOLVE_SPEED_GAIN_MPS,
     );
     if (speed > allowedSpeed && speed > 1e-6) {
@@ -676,6 +721,45 @@ export class RuntimeVehicle {
         true,
       );
     }
+  }
+
+  /**
+   * Overdrive as a propellant: while the surge runs the rig is shoved along
+   * its own heading whether or not the driver is on the throttle, so nitro
+   * still digs you out when you are stalled against a wall of zombies or
+   * coasting with your foot off the pedal.
+   *
+   * The shove is a centre-of-mass impulse flattened to the ground plane — off
+   * the wheels entirely, so it works with the drive wheels stalled, and with
+   * no vertical component to launch a nose-up chassis. Reverse points it
+   * backwards, so the bottle always pushes the way the driver is asking to go.
+   */
+  private applyOverdriveThrust(
+    dt: number,
+    mass: number,
+    reversing: boolean,
+  ): void {
+    if (this.overdriveTimer <= 0 || this.overdriveThrustAccel <= 0) return;
+    const body = this.assembled.body;
+    const forward = rotateByQuat(body.rotation(), { x: 0, y: 0, z: 1 });
+    const horizontal = Math.hypot(forward.x, forward.z);
+    if (horizontal < 1e-4) return;
+    // Past the ceiling the clamp would only scrub the extra back off again;
+    // stopping here keeps the impulse from fighting the speed guard.
+    const velocity = body.linvel();
+    if (Math.hypot(velocity.x, velocity.z) >= this.currentSpeedCeiling()) {
+      return;
+    }
+    const direction = reversing ? -1 : 1;
+    const impulse = mass * this.overdriveThrustAccel * dt * direction;
+    body.applyImpulse(
+      {
+        x: (forward.x / horizontal) * impulse,
+        y: 0,
+        z: (forward.z / horizontal) * impulse,
+      },
+      true,
+    );
   }
 
   private applyStabilityForces(

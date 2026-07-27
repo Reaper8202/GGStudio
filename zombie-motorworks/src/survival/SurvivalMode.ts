@@ -27,7 +27,7 @@ import {
 } from '../core/turretModules.ts';
 import type { Vec3, VehicleBlueprint } from '../core/types.ts';
 import type { RuntimePart } from '../runtime/assembler.ts';
-import { buildPartMesh } from '../editor/meshes.ts';
+import { applyWeaponAim, buildPartMesh } from '../editor/meshes.ts';
 import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
 import {
@@ -463,6 +463,8 @@ export class SurvivalMode {
   private readonly abilityCandidates: AbilityCandidate[] = [];
   private readonly abilitySlotViews: (AbilitySlotView | undefined)[] =
     ABILITY_SLOT_KEYS.map(() => undefined);
+  /** Loadout the slot views were built from; see abilityLoadoutSignature. */
+  private abilitySlotViewSignature = '';
   /** Whether the shield bubble was up last frame, for its raise/drop effects. */
   private shieldWasUp = false;
   private debugProgressionSuppressed = false;
@@ -1721,6 +1723,13 @@ export class SurvivalMode {
       if (wheelMesh) wheelMesh.visible = false;
     }
 
+    // Turn each gun to where it is actually shooting.
+    for (const weapon of this.vehicle.weaponStates()) {
+      const mesh = this.vehicleGroup.getObjectByName(`part:${weapon.partId}`);
+      if (mesh)
+        applyWeaponAim(mesh, weapon.forwardLocal, weapon.yaw, weapon.pitch);
+    }
+
     for (const wheel of this.vehicle.wheels()) {
       const mesh = this.wheelMeshes.get(wheel.partId);
       if (!mesh || wheel.broken) continue;
@@ -1905,6 +1914,8 @@ export class SurvivalMode {
     this.vehicle.grantOverdrive(
       overdrive.durationSeconds,
       overdrive.torqueMultiplier,
+      overdrive.topSpeedMultiplier,
+      overdrive.thrustAccel,
     );
     const rotation = this.vehicle.body.rotation();
     this.abilityQuaternion.set(
@@ -1985,28 +1996,56 @@ export class SurvivalMode {
    * victory or game-over panels. A rig with no ability parts shows no boxes.
    */
   private syncAbilityHud(): void {
-    this.refreshAbilityLoadout();
+    // While a wave is running the fixed step already refreshes the loadout
+    // every step; outside one nothing else does, so the HUD keeps it current.
+    if (this.phase !== 'active') this.refreshAbilityLoadout();
     this.abilityBar.setVisible(
       (this.phase === 'countdown' || this.phase === 'active') &&
         this.abilityLoadout.length > 0,
     );
-    // Indexed by slot, not packed: the player can leave box E empty and still
-    // have an ability bound to R.
-    this.abilitySlotViews.fill(undefined);
+    // The loadout only changes when a part is fitted, lost, or repaired, and
+    // the labels only change with it — so the views (and the strings in them)
+    // are rebuilt on that signature, not every frame. Cooldowns are the one
+    // thing that moves continuously, so only those are written per frame.
+    const signature = this.abilityLoadoutSignature();
+    if (signature !== this.abilitySlotViewSignature) {
+      this.abilitySlotViewSignature = signature;
+      // Indexed by slot, not packed: the player can leave box E empty and
+      // still have an ability bound to R.
+      this.abilitySlotViews.fill(undefined);
+      for (const assignment of this.abilityLoadout) {
+        const meta = ABILITY_KIND_META[assignment.ability.kind];
+        const keyLabel = assignment.key.toUpperCase();
+        this.abilitySlotViews[assignment.slot] = {
+          partId: assignment.partId,
+          keyLabel,
+          glyph: meta.glyph,
+          name: meta.label,
+          detail: abilityDetail(assignment),
+          tooltip: `${meta.label} (${keyLabel}) — ${meta.blurb} [${assignment.partName}]`,
+          cooldownSeconds: assignment.ability.cooldownSeconds,
+          remainingSeconds: 0,
+        };
+      }
+    }
     for (const assignment of this.abilityLoadout) {
-      const meta = ABILITY_KIND_META[assignment.ability.kind];
-      this.abilitySlotViews[assignment.slot] = {
-        partId: assignment.partId,
-        keyLabel: assignment.key.toUpperCase(),
-        glyph: meta.glyph,
-        name: meta.label,
-        detail: abilityDetail(assignment),
-        tooltip: `${meta.label} (${assignment.key.toUpperCase()}) — ${meta.blurb} [${assignment.partName}]`,
-        cooldownSeconds: assignment.ability.cooldownSeconds,
-        remainingSeconds: this.abilityCooldowns.get(assignment.partId) ?? 0,
-      };
+      const view = this.abilitySlotViews[assignment.slot];
+      if (view === undefined) continue;
+      view.remainingSeconds = this.abilityCooldowns.get(assignment.partId) ?? 0;
     }
     this.abilityBar.render(this.abilitySlotViews);
+  }
+
+  /**
+   * Cheap identity for the current loadout: which part is in which box, and at
+   * what upgrade level. Changes exactly when the bar's labels need rewriting.
+   */
+  private abilityLoadoutSignature(): string {
+    let signature = '';
+    for (const assignment of this.abilityLoadout) {
+      signature += `${assignment.slot}:${assignment.partId}:${assignment.level}|`;
+    }
+    return signature;
   }
 
   /** Exhaust trail behind the rig for as long as an overdrive surge runs. */

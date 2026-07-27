@@ -10,9 +10,20 @@ import { decodeProfile, defaultProfile, encodeProfile } from '../src/core/profil
 
 const STARTER_STOCK = defaultProfile().inventory ?? {};
 
+/** More owned types than the bar can hold, listed out of catalog order. */
+const STOCKED_GARAGE = {
+  turret: 1,
+  'fuel-tank': 1,
+  'frame-box': 4,
+  sawblade: 1,
+  'wheel-standard': 4,
+  'engine-small': 1,
+  'spike-ram': 1,
+};
+
 describe('build bar seeding', () => {
   it('seeds from owned block types in catalog order, capped at capacity', () => {
-    const seeded = seedHotbar(STARTER_STOCK);
+    const seeded = seedHotbar(STOCKED_GARAGE);
 
     expect(seeded).toHaveLength(HOTBAR_CAPACITY);
     expect(seeded).toEqual([
@@ -22,6 +33,11 @@ describe('build bar seeding', () => {
       'fuel-tank',
       'turret',
     ]);
+  });
+
+  it('leaves a new garage with an empty bar — it owns nothing yet', () => {
+    expect(STARTER_STOCK).toEqual({});
+    expect(seedHotbar(STARTER_STOCK)).toEqual([]);
   });
 
   it('leaves out block types the player owns none of', () => {

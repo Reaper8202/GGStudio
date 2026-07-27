@@ -1672,12 +1672,13 @@ export class VfxSystem {
     const detail = this.detailAt(x, y, z);
     if (detail <= 0) return;
 
-    this.flash(x - dirX, y + 0.3, z - dirZ, 1.5, 0.12, VFX_PALETTE.sparkHot);
+    this.flash(x - dirX, y + 0.3, z - dirZ, 1.4, 0.1, 0xffffff);
+    this.flash(x - dirX * 1.4, y + 0.35, z - dirZ * 1.4, 2.6, 0.2, VFX_PALETTE.sparkHot);
 
-    const jet = this.count(18, detail);
+    const jet = this.count(26, detail);
     for (let i = 0; i < jet; i++) {
       const spread = this.randSigned(0.5);
-      const speed = this.rand(7, 16);
+      const speed = this.rand(11, 24);
       this.reset0();
       this.spec.x = x - dirX * this.rand(0.6, 1.4);
       this.spec.y = y + this.rand(0.1, 0.6);

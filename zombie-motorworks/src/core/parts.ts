@@ -1,5 +1,5 @@
 import type { Face, PartDefinition, StructuralSocket, Vec3i } from './types.ts';
-import { ALL_FACES, rotateVec } from './grid.ts';
+import { ALL_FACES, orientationFromSteps, rotateVec } from './grid.ts';
 import type { OrientationIndex } from './types.ts';
 
 const ORIGIN: Vec3i = { x: 0, y: 0, z: 0 };
@@ -57,6 +57,17 @@ function singleSocket(
 }
 
 const oneCell = [ORIGIN];
+
+/** Long Spikes: origin cell plus the one it reaches into, along local +Z. */
+const SPIKE_CELLS: Vec3i[] = [ORIGIN, v(0, 0, 1)];
+
+/** Sawblade: a 2x2 pad in the horizontal plane, back edge on local -Z. */
+const SAW_CELLS: Vec3i[] = [ORIGIN, v(1, 0, 0), v(0, 0, 1), v(1, 0, 1)];
+
+/** The four turns about the vertical axis, for parts that must stay level. */
+const YAW_ORIENTATIONS: OrientationIndex[] = [0, 1, 2, 3].map((quarter) =>
+  orientationFromSteps(0, quarter, 0),
+);
 
 function upgrade(maxLevel: number, cost: number) {
   return { maxLevel, basePrice: Math.round(cost * 0.6), priceGrowth: 1.6 };
@@ -495,10 +506,15 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Long Spikes',
     category: 'weapon',
     description:
-      'A long, heavy pike that impales anything it touches. Long reach, but a small contact area — line it up.',
-    cells: oneCell,
+      'A long, heavy pike that impales anything it touches. Two blocks of ' +
+      'reach, but a small contact area — line it up.',
+    // Two cells deep along the part's forward axis: the pike is as long as it
+    // looks, so the footprint the editor blocks out matches the reach.
+    cells: SPIKE_CELLS,
     clearanceCells: [],
-    sockets: frameSockets(oneCell),
+    // Bolts on by its back plate alone. Melee weapons are terminal — see the
+    // socket note on `sawblade`.
+    sockets: [singleSocket('spike-mount', 'frame', ORIGIN, 'nz')],
     massKg: 90,
     health: 130,
     cost: 170,
@@ -514,10 +530,22 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Sawblade',
     category: 'weapon',
     description:
-      'Big flat blade that sweeps a wide area, sawing through anything it grazes.',
-    cells: oneCell,
+      'Big flat blade on a two-by-two mount that sweeps a wide area, sawing ' +
+      'through anything it grazes.',
+    // A 2x2 pad under the disc: the blade sweeps a full two blocks across, so
+    // it reserves the square it actually spins through.
+    cells: SAW_CELLS,
     clearanceCells: [],
-    sockets: frameSockets(oneCell),
+    // Only the two back cells carry a socket, and they carry the modelled arm.
+    // Nothing bolts onto a spinning blade, so the rest of the pad is bare —
+    // `canPlacePart` refuses to support a part on a melee weapon as well.
+    sockets: [
+      singleSocket('saw-mount-left', 'frame', ORIGIN, 'nz'),
+      singleSocket('saw-mount-right', 'frame', v(1, 0, 0), 'nz'),
+    ],
+    // The disc is always flat and horizontal, so the pad only ever turns about
+    // the vertical axis with it.
+    allowedOrientations: YAW_ORIENTATIONS,
     massKg: 85,
     health: 120,
     cost: 150,
@@ -662,9 +690,10 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Nitro Injector',
     category: 'weapon',
     description:
-      'Bottled shove for the drivetrain. Fills an ability slot: floods the ' +
-      'engines with torque for a burst of ramming speed. 20s cooldown; ' +
-      'upgrades run longer and pull harder.',
+      'Strapped-on rocket bottle. Fills an ability slot: five seconds of raw ' +
+      'thrust that shoves the rig along whether you are on the throttle or ' +
+      'not, plus triple drive torque and a lifted speed limit. 20s cooldown; ' +
+      'upgrades run longer and push harder.',
     cells: oneCell,
     clearanceCells: [v(0, 1, 0)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
@@ -679,8 +708,15 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     ability: {
       kind: 'overdrive',
       cooldownSeconds: 20,
-      baseDurationSeconds: 4,
-      baseTorqueMultiplier: 1.8,
+      baseDurationSeconds: 5,
+      // A shove, not a nudge: triple torque hauls even a heavy rig out of a
+      // crowd, and the ceiling lift is what makes it read as speed rather
+      // than just quicker acceleration into the same wall.
+      baseTorqueMultiplier: 3.2,
+      baseTopSpeedMultiplier: 1.35,
+      // Propellant: fires through the chassis, so it still shoves when the
+      // driver is coasting or the wheels are bogged in a crowd.
+      baseThrustAccel: 16,
     },
   },
 };

@@ -16,7 +16,7 @@ import {
 } from '../runtime/vehicle.ts';
 import { lowestPointM, GROUP_TERRAIN, GROUP_ZOMBIE } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
-import { buildPartMesh } from '../editor/meshes.ts';
+import { applyWeaponAim, buildPartMesh } from '../editor/meshes.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { ScopeCursor } from '../ui/ScopeCursor.ts';
 import type { TracerShot } from '../runtime/weapons.ts';
@@ -498,6 +498,13 @@ export class ChamberMode {
         const wm = this.wheelMeshes.get(id);
         if (wm) wm.visible = false;
       }
+    }
+
+    // Turn each gun to where it is actually shooting.
+    for (const weapon of this.vehicle.weaponStates()) {
+      const mesh = this.vehicleGroup.getObjectByName(`part:${weapon.partId}`);
+      if (mesh)
+        applyWeaponAim(mesh, weapon.forwardLocal, weapon.yaw, weapon.pitch);
     }
 
     // Wheels: world-space position with suspension travel + spin.

@@ -54,9 +54,7 @@ test('the garage dock shows store tiles, inventory stock, and the erase tool', a
     store.locator('.part-btn[data-part-id="frame-box"]'),
   ).toBeHidden();
 
-  // The starter garage hands over loose stock to place.
-  await expect(
-    inventory.locator('.part-btn[data-part-id="wheel-standard"]'),
-  ).toBeVisible();
+  // The starter garage owns nothing, so the build bar starts with no slots.
+  await expect(inventory.locator('.part-btn')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Erase Part' })).toBeVisible();
 });
