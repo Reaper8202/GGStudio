@@ -30,6 +30,29 @@ export function vehicleMassPerformanceFactor(massKg: number): number {
   );
 }
 
+/**
+ * Scales ramming-impact damage by vehicle mass: a heavier build hits harder,
+ * a lighter one hits softer. Pivots on the same reference mass as the
+ * performance factor above (1x at 800kg) so the two mass effects agree on
+ * what counts as a "normal" vehicle; the speed side of the ram formula is
+ * untouched (see IMPACT_DAMAGE_PER_SPEED in zombieConfig.ts).
+ */
+const VEHICLE_IMPACT_MASS_EXPONENT = 0.6;
+const VEHICLE_IMPACT_MIN_MASS_FACTOR = 0.4;
+const VEHICLE_IMPACT_MAX_MASS_FACTOR = 2.5;
+
+export function vehicleImpactMassFactor(massKg: number): number {
+  if (!Number.isFinite(massKg) || massKg <= 0) return 1;
+  const ratio = massKg / VEHICLE_PERFORMANCE_REFERENCE_MASS_KG;
+  return Math.min(
+    VEHICLE_IMPACT_MAX_MASS_FACTOR,
+    Math.max(
+      VEHICLE_IMPACT_MIN_MASS_FACTOR,
+      Math.pow(ratio, VEHICLE_IMPACT_MASS_EXPONENT),
+    ),
+  );
+}
+
 export interface CellMass {
   /** World grid cell. */
   cell: Vec3i;

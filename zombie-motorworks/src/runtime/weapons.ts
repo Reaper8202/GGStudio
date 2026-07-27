@@ -58,6 +58,12 @@ export interface TracerShot {
   from: Vec3;
   to: Vec3;
   hitZombieHandle: number | null;
+  /**
+   * True when the ray terminated against terrain or debris rather than a
+   * zombie or the end of its range. Presentation uses it to tell a ricochet
+   * off a headstone from a round that simply ran out of reach mid-air.
+   */
+  hitSurface: boolean;
   damage: number;
   /** Delivery type of the firing weapon; aoe rays render as flame. */
   damageType: DamageType;
@@ -73,6 +79,10 @@ export interface TracerShot {
   slowFactor: number;
   /** Seconds the cryo slow lasts; 0 = none. */
   slowDurationSeconds: number;
+  /** Blast radius around `to`; 0 = no explosion. */
+  splashRadiusM: number;
+  /** Blast damage at the centre, falling off to 0 at the rim; 0 = none. */
+  splashDamage: number;
 }
 
 export function createWeapon(
@@ -103,6 +113,13 @@ export function createWeapon(
 }
 
 const TURRET_YAW_RATE = 3.2; // rad/s
+/**
+ * Player-aimed turrets slew far faster than auto-aim ones. An auto turret's
+ * slow sweep is part of its cost — it takes time to come onto a new target.
+ * A manual turret is already limited by how fast the player can move the
+ * cursor, so a slow slew only reads as unresponsive input.
+ */
+const MANUAL_TURRET_YAW_RATE = 14; // rad/s
 // Move beyond the first surface while keeping the complete projectile path
 // bounded by the weapon's original range.
 const PIERCE_RAY_EPSILON_M = 1e-4;
@@ -162,10 +179,12 @@ export function stepWeapons(
         // shortest-path tracking, unbounded arc
         desired = normalizeAngle(desired);
       }
+      const yawRate =
+        wpn.def.aimMode === 'manual' ? MANUAL_TURRET_YAW_RATE : TURRET_YAW_RATE;
       const dYaw = clamp(
         normalizeAngle(desired - wpn.yaw),
-        -TURRET_YAW_RATE * dt,
-        TURRET_YAW_RATE * dt,
+        -yawRate * dt,
+        yawRate * dt,
       );
       wpn.yaw += dYaw;
     } else {
@@ -200,9 +219,13 @@ export function stepWeapons(
       v3(pos.x, pos.y, pos.z),
       rotateByQuat(rot, wpn.mountLocal),
     );
-    const fireDir = wpn.def.aimMode === 'auto' && weaponInput.aimPoint
-      ? pitchedDirection(yawDir, up, mountW, weaponInput.aimPoint)
-      : yawDir;
+    // Any turret with a target point pitches onto it: auto turrets get theirs
+    // from AutoAim, manual turrets from the player's cursor. Fixed mounts (the
+    // flamethrower nozzle) keep firing along the hull and ignore it.
+    const fireDir =
+      wpn.def.mountType === 'turret' && weaponInput.aimPoint
+        ? pitchedDirection(yawDir, up, mountW, weaponInput.aimPoint)
+        : yawDir;
 
     // Cone weapons fan raysPerShot rays across coneDeg around the fire
     // direction; conventional weapons are the single-ray special case.
@@ -274,6 +297,7 @@ export function stepWeapons(
         from: muzzle,
         to: end,
         hitZombieHandle: zombieHandle,
+        hitSurface: hit !== null && zombieHandle === null,
         damage: wpn.def.damage,
         damageType: wpn.def.damageType,
         empLevel: wpn.empLevel,
@@ -282,6 +306,8 @@ export function stepWeapons(
         pierceTo,
         slowFactor: wpn.def.slowFactor ?? 0,
         slowDurationSeconds: wpn.def.slowDurationSeconds ?? 0,
+        splashRadiusM: wpn.def.splashRadiusM ?? 0,
+        splashDamage: wpn.def.splashDamage ?? 0,
       });
     }
 

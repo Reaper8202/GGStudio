@@ -1114,43 +1114,37 @@ export function buildStarterBlueprint(): VehicleBlueprint {
   });
   const parts: PlacedPart[] = [
     part('chassis-core', { x: 0, y: 1, z: 0 }),
-    // 3-wide deck, z -1..2 spine plus flanks (long wheelbase resists wheelies).
+    // Tight little triwheel: one steered wheel up front, a driven pair out
+    // back. Short spine keeps mass (and health) low so it's light on its
+    // feet compared to the old 4-wheel deck.
     part('frame-box', { x: 0, y: 1, z: 1 }),
-    part('frame-box', { x: 0, y: 1, z: 2 }),
     part('frame-box', { x: 0, y: 1, z: -1 }),
-    part('frame-box', { x: 1, y: 1, z: 0 }),
-    part('frame-box', { x: -1, y: 1, z: 0 }),
-    part('frame-box', { x: 1, y: 1, z: 1 }),
-    part('frame-box', { x: -1, y: 1, z: 1 }),
     part('frame-box', { x: 1, y: 1, z: -1 }),
     part('frame-box', { x: -1, y: 1, z: -1 }),
-    part('frame-box', { x: 1, y: 1, z: 2 }),
-    part('frame-box', { x: -1, y: 1, z: 2 }),
-    part('frame-box', { x: 1, y: 1, z: -2 }),
-    part('frame-box', { x: -1, y: 1, z: -2 }),
+    // Front wheel hangs off the nz face of the frame ahead of it, like a
+    // motorcycle fork, so it sits centred instead of hanging off one side.
     part(
       'wheel-standard',
-      { x: 2, y: 1, z: 2 },
-      yaw180,
+      { x: 0, y: 1, z: 2 },
+      0,
       defaultWheelConfig(true),
     ),
-    part('wheel-standard', { x: -2, y: 1, z: 2 }, 0, defaultWheelConfig(true)),
     part(
       'wheel-standard',
-      { x: 2, y: 1, z: -2 },
+      { x: 2, y: 1, z: -1 },
       yaw180,
       defaultWheelConfig(false),
     ),
     part(
       'wheel-standard',
-      { x: -2, y: 1, z: -2 },
+      { x: -2, y: 1, z: -1 },
       0,
       defaultWheelConfig(false),
     ),
-    part('frame-box', { x: 0, y: 1, z: -2 }),
-    part('engine-small', { x: 0, y: 2, z: -2 }),
-    part('fuel-tank', { x: 0, y: 2, z: -1 }),
-    part('turret', { x: 0, y: 2, z: 1 }),
+    part('engine-small', { x: 0, y: 2, z: -1 }),
+    part('fuel-tank', { x: 0, y: 2, z: 0 }),
+    // No weapon pre-mounted — the player picks one of the starter weapons
+    // from the inventory bar and places it themselves.
   ];
   return { ...createEmptyBlueprint('starter-rig'), parts };
 }

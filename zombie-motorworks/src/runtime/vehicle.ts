@@ -45,6 +45,11 @@ export interface VehicleControls {
   steer: number; // -1..1
   fire: boolean;
   aimYawWorld: number; // rad
+  /**
+   * World point the player is aiming at. Manual turrets pitch onto it so they
+   * shoot exactly where the cursor is, rather than firing flat along the yaw.
+   */
+  aimPoint?: Vec3;
   /** Per-placed-weapon overrides; absent entries retain the global aim/fire. */
   weaponAim?: ReadonlyMap<string, { aimYawWorld: number; fire: boolean }>;
 }

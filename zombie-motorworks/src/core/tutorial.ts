@@ -27,6 +27,8 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'ice-cannon',
   'shield-generator',
   'barrel-drum',
+  'spike-ram',
+  'sawblade',
   'sniper-light',
   'flamethrower',
 ];
@@ -69,9 +71,15 @@ export const KID_LABELS: Record<string, PartLabel> = {
     name: 'Mine Finder',
     blurb: 'Beeps when buried mines are close by!',
   },
-  turret: { name: 'Zombie Blaster', blurb: 'Spins around to blast zombies!' },
+  turret: {
+    name: 'Zombie Blaster',
+    blurb: 'Aim with your mouse and click to blast zombies!',
+  },
   'armour-plate': { name: 'Armour Plate', blurb: 'Adds a tough layer of protection!' },
-  'cannon-heavy': { name: 'Heavy Cannon', blurb: 'A big boom for tough zombies!' },
+  'cannon-heavy': {
+    name: 'Heavy Cannon',
+    blurb: 'Click to lob a shell — it explodes and wipes out the whole crowd!',
+  },
   'ice-cannon': {
     name: 'Ice Cannon',
     blurb: 'Shoots chilly shards that slow zombies — press Q to freeze them solid!',
@@ -79,6 +87,14 @@ export const KID_LABELS: Record<string, PartLabel> = {
   'barrel-drum': {
     name: 'Grinder Drum',
     blurb: 'Spinning drum that munches zombies it touches!',
+  },
+  'spike-ram': {
+    name: 'Long Spikes',
+    blurb: 'Long, sharp spikes that poke any zombie that gets close!',
+  },
+  sawblade: {
+    name: 'Sawblade',
+    blurb: 'A spinning blade that saws through zombies it grazes!',
   },
   'sniper-light': {
     name: 'Light Sniper',

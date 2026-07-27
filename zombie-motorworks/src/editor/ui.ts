@@ -105,6 +105,23 @@ export interface RunRepairEconomy {
   nextWaveNotice?: string;
 }
 
+type StoreGroup = 'essentials' | 'weapons' | 'defence' | 'mobility';
+
+/**
+ * Catalog parts filed under `weapon` that are bought for defence: they have no
+ * offensive payload, only a protective ability.
+ */
+const DEFENSIVE_WEAPON_PART_IDS = new Set(['shield-generator']);
+
+function storeGroupForPart(def: PartDefinition): StoreGroup {
+  if (def.category === 'movement') return 'mobility';
+  if (def.category === 'protection' || DEFENSIVE_WEAPON_PART_IDS.has(def.id)) {
+    return 'defence';
+  }
+  if (def.category === 'weapon') return 'weapons';
+  return 'essentials';
+}
+
 export interface EditorUI {
   root: HTMLElement;
   setBlueprintName(name: string): void;
@@ -335,6 +352,21 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
       <path d="M14 22H18V26H14ZM26 20H30V24H26ZM38 22H42V26H38ZM20 42H24V46H20ZM32 44H36V48H32ZM44 42H48V46H44Z" fill="#242923"/>
       <path d="M10 30H54M10 38H54" stroke="#4a3320" stroke-width="2"/>
     `,
+    'spike-ram': `
+      <circle cx="32" cy="32" r="8" fill="#4b5245"/>
+      <path d="M32 6 36 20 28 20Z" fill="#8a939c"/>
+      <path d="M32 58 36 44 28 44Z" fill="#8a939c"/>
+      <path d="M6 32 20 36 20 28Z" fill="#8a939c"/>
+      <path d="M58 32 44 36 44 28Z" fill="#8a939c"/>
+      <path d="M14 14 24 24 18 26 12 20Z" fill="#8a939c"/>
+      <path d="M50 50 40 40 46 38 52 44Z" fill="#8a939c"/>
+    `,
+    sawblade: `
+      <circle cx="32" cy="32" r="20" fill="#5c6570" stroke="#242923" stroke-width="2"/>
+      <circle cx="32" cy="32" r="6" fill="#242923"/>
+      <path d="M32 8 36 16 28 16ZM32 56 36 48 28 48ZM8 32 16 28 16 36ZM56 32 48 36 48 28Z" fill="#8a939c"/>
+      <path d="M12 12 20 16 16 20ZM52 52 44 48 48 44ZM12 52 16 44 20 48ZM52 12 48 20 44 16Z" fill="#8a939c"/>
+    `,
     'sniper-light': `
       ${common}
       <path d="M26 20 32 16 38 20V27L32 31 26 27Z" fill="#4b5245"/>
@@ -556,6 +588,12 @@ export function buildEditorUI(
   root.appendChild(garageDock);
 
   const store = buildCollapsiblePanel('Store', 'store-panel');
+  const storeSearch = document.createElement('input');
+  storeSearch.type = 'search';
+  storeSearch.className = 'store-search';
+  storeSearch.placeholder = 'Search parts...';
+  storeSearch.setAttribute('aria-label', 'Search store parts');
+  storeSearch.autocomplete = 'off';
   const storeFilters = document.createElement('div');
   storeFilters.className = 'store-filters';
   const essentialsFilter = document.createElement('button');
@@ -567,18 +605,43 @@ export function buildEditorUI(
   weaponsFilter.type = 'button';
   weaponsFilter.textContent = 'Weapons';
   weaponsFilter.setAttribute('aria-pressed', 'false');
-  storeFilters.append(essentialsFilter, weaponsFilter);
+  const defenceFilter = document.createElement('button');
+  defenceFilter.type = 'button';
+  defenceFilter.textContent = 'Defence';
+  defenceFilter.setAttribute('aria-pressed', 'false');
+  const mobilityFilter = document.createElement('button');
+  mobilityFilter.type = 'button';
+  mobilityFilter.textContent = 'Mobility';
+  mobilityFilter.setAttribute('aria-pressed', 'false');
+  storeFilters.append(
+    essentialsFilter,
+    weaponsFilter,
+    defenceFilter,
+    mobilityFilter,
+  );
   const storeContent = document.createElement('div');
   storeContent.className = 'dock-list store-list';
-  store.body.append(storeFilters, storeContent);
-  const inventory = buildCollapsiblePanel('Inventory', 'inventory-panel');
+  const storeEmpty = document.createElement('p');
+  storeEmpty.className = 'store-empty';
+  storeEmpty.textContent = 'No matching parts';
+  storeEmpty.setAttribute('aria-live', 'polite');
+  storeEmpty.hidden = true;
+  store.body.append(storeSearch, storeFilters, storeContent);
+  const inventoryPanel = document.createElement('section');
+  inventoryPanel.className = 'panel inventory-panel';
+  inventoryPanel.setAttribute('aria-label', 'Inventory hotbar');
+  const inventoryBody = document.createElement('div');
+  inventoryBody.className = 'inventory-hotbar__body';
+  inventoryPanel.appendChild(inventoryBody);
+  const inventory = { panel: inventoryPanel, body: inventoryBody };
   const inventoryContent = document.createElement('div');
   inventoryContent.className = 'dock-list inventory-list';
   const inventoryEmpty = document.createElement('p');
   inventoryEmpty.className = 'inventory-empty';
-  inventoryEmpty.textContent = 'No loose parts. Buy stock from the Store.';
+  inventoryEmpty.textContent = 'Buy parts to fill your hotbar';
   inventory.body.append(inventoryContent, inventoryEmpty);
-  garageDock.append(store.panel, inventory.panel);
+  garageDock.appendChild(store.panel);
+  root.appendChild(inventory.panel);
 
   const storeButtons = new Map<string, HTMLButtonElement>();
   const storePriceLabels = new Map<string, HTMLElement>();
@@ -598,7 +661,13 @@ export function buildEditorUI(
     const storeButton = document.createElement('button');
     storeButton.className = 'part-btn store-item';
     storeButton.dataset.partId = id;
-    storeButton.dataset.storeGroup = def.category === 'weapon' ? 'weapons' : 'essentials';
+    storeButton.dataset.storeGroup = storeGroupForPart(def);
+    storeButton.dataset.searchText = [
+      displayName,
+      def.name,
+      description,
+      def.description,
+    ].join(' ').toLocaleLowerCase();
     const storeName = document.createElement('strong');
     storeName.textContent = displayName;
     const storePreview = partThumbnail(def);
@@ -651,19 +720,49 @@ export function buildEditorUI(
     inventoryButtons.set(id, inventoryButton);
     inventoryCountLabels.set(id, count);
   }
+  storeContent.appendChild(storeEmpty);
 
-  const setStoreFilter = (group: 'essentials' | 'weapons'): void => {
-    const essentialsActive = group === 'essentials';
-    essentialsFilter.classList.toggle('active', essentialsActive);
-    weaponsFilter.classList.toggle('active', !essentialsActive);
-    essentialsFilter.setAttribute('aria-pressed', String(essentialsActive));
-    weaponsFilter.setAttribute('aria-pressed', String(!essentialsActive));
+  const hotbarPlaceholders = Array.from({ length: 7 }, (_, index) => {
+    const placeholder = document.createElement('span');
+    placeholder.className = 'inventory-slot-placeholder';
+    placeholder.setAttribute('aria-hidden', 'true');
+    placeholder.dataset.slot = String(index + 1);
+    inventoryContent.appendChild(placeholder);
+    return placeholder;
+  });
+
+  let activeStoreGroup: StoreGroup = 'essentials';
+  const applyStoreFilters = (): void => {
+    const query = storeSearch.value.trim().toLocaleLowerCase();
+    let visibleCount = 0;
     for (const button of storeButtons.values()) {
-      button.hidden = button.dataset.storeGroup !== group;
+      const matchesGroup = button.dataset.storeGroup === activeStoreGroup;
+      const matchesSearch = !query || button.dataset.searchText?.includes(query);
+      button.hidden = !matchesGroup || !matchesSearch;
+      if (!button.hidden) visibleCount += 1;
     }
+    storeEmpty.hidden = visibleCount > 0;
+  };
+  const setStoreFilter = (group: StoreGroup): void => {
+    activeStoreGroup = group;
+    const filters = [
+      [essentialsFilter, 'essentials'],
+      [weaponsFilter, 'weapons'],
+      [defenceFilter, 'defence'],
+      [mobilityFilter, 'mobility'],
+    ] as const;
+    for (const [filter, filterGroup] of filters) {
+      const active = group === filterGroup;
+      filter.classList.toggle('active', active);
+      filter.setAttribute('aria-pressed', String(active));
+    }
+    applyStoreFilters();
   };
   essentialsFilter.addEventListener('click', () => setStoreFilter('essentials'));
   weaponsFilter.addEventListener('click', () => setStoreFilter('weapons'));
+  defenceFilter.addEventListener('click', () => setStoreFilter('defence'));
+  mobilityFilter.addEventListener('click', () => setStoreFilter('mobility'));
+  storeSearch.addEventListener('input', applyStoreFilters);
   setStoreFilter('essentials');
 
   const inventoryTools = document.createElement('div');
@@ -674,7 +773,6 @@ export function buildEditorUI(
   cancelButton.className = 'cancel-tool';
   cancelButton.style.display = 'none';
   inventoryTools.append(eraseButton, cancelButton);
-  inventory.body.appendChild(inventoryTools);
 
   const selectedPanel = document.createElement('aside');
   selectedPanel.className = 'panel selected-panel';
@@ -732,7 +830,7 @@ export function buildEditorUI(
   });
   const status = document.createElement('span');
   status.className = 'status';
-  bottom.append(layerLabel, layerSlider, status);
+  bottom.append(layerLabel, layerSlider, inventoryTools, status);
 
   const ghostTip = document.createElement('div');
   ghostTip.className = 'ghost-tip';
@@ -1035,6 +1133,7 @@ export function buildEditorUI(
         installedCounts.set(defId, (installedCounts.get(defId) ?? 0) + 1);
       }
       let stockCount = 0;
+      let occupiedHotbarSlots = 0;
       for (const id of SIMPLE_PART_IDS) {
         const def = catalog[id];
         if (!def) continue;
@@ -1043,6 +1142,7 @@ export function buildEditorUI(
         const countLabel = inventoryCountLabels.get(id);
         const count = Math.max(0, currentInventory[id] ?? 0);
         stockCount += count;
+        if (count > 0) occupiedHotbarSlots += 1;
         if (inventoryButton) {
           inventoryButton.disabled = count <= 0;
           inventoryButton.classList.toggle('is-empty', count <= 0);
@@ -1099,7 +1199,10 @@ export function buildEditorUI(
           unlockMilestone.textContent = 'Free after Wave 7';
         }
       }
-      inventoryEmpty.style.display = stockCount > 0 ? 'none' : 'block';
+      hotbarPlaceholders.forEach((placeholder, index) => {
+        placeholder.hidden = index >= Math.max(0, 7 - occupiedHotbarSlots);
+      });
+      inventoryEmpty.hidden = stockCount > 0;
     },
     setRunContext: (wave, summary, repair) => {
       menuBtn.style.display = wave === undefined ? '' : 'none';

@@ -18,7 +18,9 @@ test('vehicle drives forward, steers, and the blueprint survives the round trip'
   const t1 = await page.evaluate(() => window.__scrapRig.telemetry());
   expect(t1.position.z).toBeGreaterThan(3);
   expect(t1.speedKmh).toBeGreaterThan(10);
-  expect(t1.fuel).toBeLessThan(40);
+  // Fuel is burned, not a fixed litre count: capacity and burn rate are tuned
+  // often, so compare against the resting reading instead of a magic number.
+  expect(t1.fuel).toBeLessThan(rest.fuel);
 
   // Steering yaws the vehicle and bends the path.
   await page.evaluate(() => window.__scrapRig.setControls({ steer: 1 }));
