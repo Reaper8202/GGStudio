@@ -1,20 +1,22 @@
 import './WaveTimelineHud.css';
 import {
-  THREAT_ICONS,
-  THREAT_LABELS,
+  waveIcon,
   type TimelineNode,
   type TimelineNodeState,
+  type WaveIconKind,
   type WaveTimeline,
 } from '../core/waveTimeline.ts';
+
+const WAVE_ICON_KINDS = ['walker', 'horde', 'threat', 'milestone'] as const;
 
 interface TimelineNodeElements {
   readonly connector: HTMLDivElement;
   readonly root: HTMLDivElement;
   readonly number: HTMLSpanElement;
-  readonly threats: HTMLDivElement;
+  readonly icon: HTMLSpanElement;
   state: TimelineNodeState | null;
-  isMilestone: boolean | null;
-  threatSignature: string;
+  iconKind: WaveIconKind | null;
+  iconSignature: string;
 }
 
 export class WaveTimelineHud {
@@ -122,22 +124,26 @@ export class WaveTimelineHud {
       connector.appendChild(element('span', 'wave-timeline__connector-fill'));
 
       const root = element('div', 'wave-timeline__node');
+      const rig = element('span', 'wave-timeline__rig');
+      rig.setAttribute('aria-hidden', 'true');
+      rig.textContent = '🚙';
       const marker = element('span', 'wave-timeline__marker');
-      marker.setAttribute('aria-hidden', 'true');
+      const icon = element('span', 'wave-timeline__icon');
+      icon.setAttribute('role', 'img');
+      marker.appendChild(icon);
       const number = element('span', 'wave-timeline__number');
       setTextIfChanged(number, String(node.wave));
-      const threats = element('div', 'wave-timeline__threats');
-      root.append(marker, number, threats);
+      root.append(rig, marker, number);
 
       this.track.append(connector, root);
       this.nodeElements.push({
         connector,
         root,
         number,
-        threats,
+        icon,
         state: null,
-        isMilestone: null,
-        threatSignature: '',
+        iconKind: null,
+        iconSignature: '',
       });
     });
   }
@@ -162,28 +168,23 @@ export class WaveTimelineHud {
       elements.state = node.state;
     }
 
-    if (elements.isMilestone !== node.isMilestone) {
-      elements.root.classList.toggle(
-        'wave-timeline__node--milestone',
-        node.isMilestone,
-      );
-      elements.isMilestone = node.isMilestone;
+    const icon = waveIcon(node.wave, node.threats);
+    if (elements.iconKind !== icon.kind) {
+      for (const kind of WAVE_ICON_KINDS) {
+        elements.root.classList.toggle(
+          `wave-timeline__node--icon-${kind}`,
+          icon.kind === kind,
+        );
+      }
+      elements.iconKind = icon.kind;
     }
 
     setTextIfChanged(elements.number, String(node.wave));
-    const threatSignature = node.isMilestone ? node.threats.join('\u0000') : '';
-    if (elements.threatSignature !== threatSignature) {
-      elements.threats.replaceChildren();
-      if (node.isMilestone) {
-        for (const threat of node.threats) {
-          const icon = element('span', 'wave-timeline__threat');
-          icon.setAttribute('role', 'img');
-          icon.setAttribute('aria-label', THREAT_LABELS[threat] ?? threat);
-          setTextIfChanged(icon, THREAT_ICONS[threat] ?? '⚠️');
-          elements.threats.appendChild(icon);
-        }
-      }
-      elements.threatSignature = threatSignature;
+    const iconSignature = `${icon.kind}\u0000${icon.icon}\u0000${icon.label}`;
+    if (elements.iconSignature !== iconSignature) {
+      elements.icon.setAttribute('aria-label', icon.label);
+      setTextIfChanged(elements.icon, icon.icon);
+      elements.iconSignature = iconSignature;
     }
   }
 

@@ -172,10 +172,7 @@ export function prepareCheckpointForGarageFight(
         if (!checkpointPart) return [part.id, newMaxHp];
         const oldMaxHp = getEffectiveDef(checkpointPart).health;
         const currentHp = checkpoint.partHp[part.id] ?? oldMaxHp;
-        return [
-          part.id,
-          scaledHpOnUpgrade(currentHp, oldMaxHp, newMaxHp),
-        ];
+        return [part.id, scaledHpOnUpgrade(currentHp, oldMaxHp, newMaxHp)];
       }),
     ),
   };
@@ -227,14 +224,8 @@ export function savedRunFromCheckpoint(
 }
 
 /** Apply permanent wave progress and its catalog unlock to a profile. */
-export function recordWaveCleared(
-  profile: PlayerProfile,
-  wave: number,
-): void {
-  profile.highestWaveCleared = Math.max(
-    profile.highestWaveCleared ?? 0,
-    wave,
-  );
+export function recordWaveCleared(profile: PlayerProfile, wave: number): void {
+  profile.highestWaveCleared = Math.max(profile.highestWaveCleared ?? 0, wave);
   if (
     wave >= MINE_SWEEPER_UNLOCK_WAVE &&
     !profile.unlockedDefIds.includes('mine-sweeper')
@@ -407,8 +398,7 @@ export class App {
         profile: this.profile,
         persistProfile: () => this.saveProfileOrThrow(),
         onMenu: () => this.returnToTitle(),
-        selectedBiomeId:
-          this.checkpoint?.biomeId ?? this.preferredBiomeId,
+        selectedBiomeId: this.checkpoint?.biomeId ?? this.preferredBiomeId,
         biomeSelectionLocked: this.checkpoint !== null,
         onBiomeSelected: (biomeId) => {
           if (this.checkpoint === null) this.preferredBiomeId = biomeId;
@@ -594,6 +584,7 @@ export class App {
     this.survival = new SurvivalMode(this.root, this.renderer, bp, run, {
       profileMoney: () => this.profile.money,
       runEarnings: () => this.runMoneyEarned,
+      onRepairAll: (cost) => this.repairRunInPlace(cost),
       onReward: (amount) => this.creditRunReward(amount),
       onExit: () => this.abandonRun(),
       onWaveAdvance: (state, survivingPartIds, partHp, kills, score) => {
@@ -854,6 +845,33 @@ export class App {
     return true;
   }
 
+  /**
+   * The full repair bought from the wave-clear card. Unlike `repairAll` this
+   * runs mid-run rather than in a build phase, so it only charges the wallet
+   * and re-bases the checkpoint; SurvivalMode heals the live vehicle it is
+   * about to carry into the next wave.
+   */
+  private repairRunInPlace(cost: number): boolean {
+    if (!this.activeRun || this.checkpoint === null) return false;
+    if (!Number.isSafeInteger(cost) || cost <= 0) return false;
+    if (!canAfford(this.profile.money, cost)) return false;
+
+    try {
+      this.changeMoney(-cost, true);
+    } catch {
+      return false;
+    }
+    // The checkpoint is the authority when a run is resumed, so it has to
+    // agree with the vehicle that was just repaired. Parts already destroyed
+    // stay destroyed — a repair does not resurrect them.
+    for (const part of this.checkpoint.blueprint.parts) {
+      if ((this.checkpoint.partHp[part.id] ?? 0) > 0) {
+        this.checkpoint.partHp[part.id] = getEffectiveDef(part).health;
+      }
+    }
+    return true;
+  }
+
   private creditRunReward(amount: number): number {
     const credited = Math.min(
       amount,
@@ -1090,6 +1108,8 @@ export class App {
       debugKillAllZombies: () => this.survival?.debugKillAllZombies(),
       forceWaveComplete: () => this.survival?.debugForceWaveComplete(),
       forceGameOver: () => this.survival?.debugDestroyVehicle(),
+      damageVehicle: (fraction: number) =>
+        this.survival?.debugDamageVehicle(fraction),
       setScenario: (s: ScenarioName) => this.chamber?.debugSetScenario(s),
       resetVehicle: () => this.chamber?.reset(),
     };
@@ -1123,12 +1143,7 @@ export function buildStarterBlueprint(): VehicleBlueprint {
     part('frame-box', { x: -1, y: 1, z: -1 }),
     // Front wheel hangs off the nz face of the frame ahead of it, like a
     // motorcycle fork, so it sits centred instead of hanging off one side.
-    part(
-      'wheel-standard',
-      { x: 0, y: 1, z: 2 },
-      0,
-      defaultWheelConfig(true),
-    ),
+    part('wheel-standard', { x: 0, y: 1, z: 2 }, 0, defaultWheelConfig(true)),
     part(
       'wheel-standard',
       { x: 2, y: 1, z: -1 },

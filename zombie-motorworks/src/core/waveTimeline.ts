@@ -44,6 +44,50 @@ export const THREAT_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'phone-addict': 'Phone Addicts (shielded)',
 });
 
+export type WaveIconKind = 'walker' | 'horde' | 'threat' | 'milestone';
+
+/**
+ * The glyph a wave node shows. Threat waves surface their specialist marker;
+ * everything else escalates with the wave number.
+ */
+export function waveIcon(
+  wave: number,
+  threats: readonly string[],
+): { kind: WaveIconKind; icon: string; label: string } {
+  const normalizedWave = normalizeWave(wave);
+  const threat = threats[0];
+
+  if (threat !== undefined) {
+    return {
+      kind: 'threat',
+      icon: THREAT_ICONS[threat] ?? '⚠️',
+      label: `Wave ${normalizedWave} — ${THREAT_LABELS[threat] ?? 'specialist threat'}`,
+    };
+  }
+
+  if (normalizedWave % 5 === 0) {
+    return {
+      kind: 'milestone',
+      icon: '☣️',
+      label: `Wave ${normalizedWave} — milestone`,
+    };
+  }
+
+  if (normalizedWave <= 4) {
+    return {
+      kind: 'walker',
+      icon: '🧟',
+      label: `Wave ${normalizedWave} — walkers`,
+    };
+  }
+
+  return {
+    kind: 'horde',
+    icon: '☠️',
+    label: `Wave ${normalizedWave} — horde`,
+  };
+}
+
 function normalizeWave(value: number): number {
   return Number.isFinite(value) && value >= 1 ? Math.floor(value) : 1;
 }
