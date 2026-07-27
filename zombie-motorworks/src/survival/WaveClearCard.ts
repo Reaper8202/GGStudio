@@ -2,6 +2,13 @@ import './WaveClearCard.css';
 import type { BadgeDefinition } from '../core/badges.ts';
 import { playSfx } from '../app/sfx.ts';
 
+export interface WaveClearRepairOffer {
+  /** Total cost to restore every damaged part, in dollars. Always > 0. */
+  cost: number;
+  /** False when the player cannot afford it — show the price, disable the action. */
+  affordable: boolean;
+}
+
 export interface WaveClearCardView {
   wave: number;
   moneyEarned: number;
@@ -9,19 +16,18 @@ export interface WaveClearCardView {
   kills: number;
   elapsedSeconds: number;
   integrityPct: number;
-  damagedParts: number;
-  lostParts: readonly string[];
-  /** Preformatted composition string for the next wave. */
   nextWaveComposition: string;
   warnings: readonly string[];
   badges: readonly BadgeDefinition[];
-  /** Subset of `badges` earned for the first time ever — extra flourish. */
   newBadgeIds: readonly string[];
+  /** null when the rig is undamaged, so there is nothing to offer. */
+  repair: WaveClearRepairOffer | null;
 }
 
 export interface WaveClearCardHandlers {
   onContinue(): void;
   onGarage(): void;
+  onRepairAndContinue(): void;
 }
 
 interface StatRow {
@@ -52,6 +58,8 @@ export class WaveClearCard {
   private readonly previewBlock: HTMLElement;
   private readonly previewValue: HTMLDivElement;
   private readonly warningBlock: HTMLElement;
+  private readonly repairButton: HTMLButtonElement;
+  private readonly repairPrice: HTMLSpanElement;
   private readonly continueButton: HTMLButtonElement;
   private readonly garageButton: HTMLButtonElement;
   private readonly timeoutIds = new Set<number>();
@@ -102,8 +110,6 @@ export class WaveClearCard {
       this.buildStatRow(stats, 'Zombies Killed'),
       this.buildStatRow(stats, 'Clear Time'),
       this.buildStatRow(stats, 'Vehicle Integrity'),
-      this.buildStatRow(stats, 'Damaged Parts'),
-      this.buildStatRow(stats, 'Parts Lost'),
       this.buildStatRow(stats, 'Run Total Banked'),
     );
 
@@ -131,6 +137,16 @@ export class WaveClearCard {
     );
 
     const actions = element('footer', 'wave-clear__actions');
+    this.repairButton = element(
+      'button',
+      'wave-clear__button wave-clear__button--repair',
+    );
+    this.repairButton.type = 'button';
+    this.repairButton.hidden = true;
+    const repairLabel = element('span', 'wave-clear__button-label');
+    setTextIfChanged(repairLabel, 'Repair & Continue');
+    this.repairPrice = element('span', 'wave-clear__button-price');
+    this.repairButton.append(repairLabel, this.repairPrice);
     this.continueButton = element(
       'button',
       'wave-clear__button wave-clear__button--primary',
@@ -140,13 +156,14 @@ export class WaveClearCard {
     this.garageButton = element('button', 'wave-clear__button');
     this.garageButton.type = 'button';
     setTextIfChanged(this.garageButton, 'Garage / Repair');
-    actions.append(this.continueButton, this.garageButton);
+    actions.append(this.repairButton, this.continueButton, this.garageButton);
 
     this.card.append(header, body, actions);
     this.root.appendChild(this.card);
 
     this.root.addEventListener('pointerdown', this.onBackdropInput);
     this.root.addEventListener('click', this.onBackdropInput);
+    this.repairButton.addEventListener('click', this.onRepairAndContinue);
     this.continueButton.addEventListener('click', this.onContinue);
     this.garageButton.addEventListener('click', this.onGarage);
   }
@@ -166,10 +183,10 @@ export class WaveClearCard {
     void this.card.offsetWidth;
     this.root.classList.add('wave-clear--visible');
     this.attachKeydown();
-    // Focus the dialog, not the button, while the reveal plays. Space and Enter
-    // activate a focused button, so autofocusing Continue here would make the
+    // Focus the dialog, not an action, while the reveal plays. Space and Enter
+    // activate a focused button, so autofocusing an action here would make the
     // player's instinctive "skip this" keypress start the next wave instead.
-    // applyFinalState hands focus to Continue once the sequence settles.
+    // applyFinalState hands focus to the primary action once the sequence settles.
     this.root.focus();
     playSfx('cardIn');
 
@@ -249,6 +266,7 @@ export class WaveClearCard {
     this.disposed = true;
     this.root.removeEventListener('pointerdown', this.onBackdropInput);
     this.root.removeEventListener('click', this.onBackdropInput);
+    this.repairButton.removeEventListener('click', this.onRepairAndContinue);
     this.continueButton.removeEventListener('click', this.onContinue);
     this.garageButton.removeEventListener('click', this.onGarage);
     this.root.remove();
@@ -276,8 +294,6 @@ export class WaveClearCard {
       formatInteger(view.kills),
       formatDuration(view.elapsedSeconds),
       `${Math.round(view.integrityPct)}%`,
-      formatInteger(view.damagedParts),
-      view.lostParts.length > 0 ? view.lostParts.join(', ') : 'None',
       formatMoney(view.runMoneyTotal),
     ];
     this.statRows.forEach((row, index) => {
@@ -287,6 +303,26 @@ export class WaveClearCard {
     setTextIfChanged(this.previewValue, view.nextWaveComposition);
     setTextIfChanged(this.warningBlock, view.warnings.join(' '));
     this.warningBlock.hidden = view.warnings.length === 0;
+
+    const repair = view.repair;
+    this.repairButton.hidden = repair === null;
+    this.repairButton.disabled = repair !== null && !repair.affordable;
+    this.repairButton.title =
+      repair !== null && !repair.affordable
+        ? 'You cannot afford this repair.'
+        : '';
+    this.repairButton.classList.toggle(
+      'wave-clear__button--primary',
+      repair !== null,
+    );
+    this.continueButton.classList.toggle(
+      'wave-clear__button--primary',
+      repair === null,
+    );
+    setTextIfChanged(
+      this.repairPrice,
+      repair === null ? '' : formatMoney(repair.cost),
+    );
 
     this.badgesGrid.replaceChildren();
     this.badgeElements.length = 0;
@@ -447,8 +483,14 @@ export class WaveClearCard {
     // Only move focus if the dialog still holds it, so a player who tabbed
     // elsewhere mid-reveal is not yanked back to the button.
     if (focusPrimary && document.activeElement === this.root) {
-      this.continueButton.focus();
+      this.primaryButton().focus();
     }
+  }
+
+  private primaryButton(): HTMLButtonElement {
+    return this.repairButton.hidden || this.repairButton.disabled
+      ? this.continueButton
+      : this.repairButton;
   }
 
   private schedule(callback: () => void, delayMs: number): void {
@@ -523,6 +565,10 @@ export class WaveClearCard {
 
   private readonly onContinue = (): void => {
     this.handlers?.onContinue();
+  };
+
+  private readonly onRepairAndContinue = (): void => {
+    this.handlers?.onRepairAndContinue();
   };
 
   private readonly onGarage = (): void => {

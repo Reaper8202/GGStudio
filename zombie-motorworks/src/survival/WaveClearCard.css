@@ -227,10 +227,6 @@
   color: var(--ui-bone);
 }
 
-.wave-clear__stat-row:nth-child(5) .wave-clear__stat-value {
-  color: var(--ui-rust);
-}
-
 .wave-clear__badges,
 .wave-clear__preview,
 .wave-clear__warnings {
@@ -395,6 +391,7 @@
   display: flex;
   min-width: 0;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 12px 18px 14px;
   border-top: 1px solid var(--ui-edge);
@@ -405,9 +402,10 @@
   display: inline-flex;
   min-width: 0;
   min-height: 42px;
-  flex: 1 1 0;
+  flex: 1 1 150px;
   align-items: center;
   justify-content: center;
+  gap: 0.5em;
   padding: 7px 10px;
   border: 1px solid var(--ui-edge);
   border-radius: 0;
@@ -420,12 +418,12 @@
   cursor: pointer;
 }
 
-.wave-clear__button:hover {
+.wave-clear__button:hover:not(:disabled) {
   color: var(--ui-signal-strong);
   background: var(--ui-surface-2);
 }
 
-.wave-clear__button:active {
+.wave-clear__button:active:not(:disabled) {
   box-shadow: inset 0 2px 0 var(--ui-black);
   transform: translateY(1px);
 }
@@ -435,9 +433,20 @@
   color: var(--ui-text);
 }
 
-.wave-clear__button--primary:hover {
+.wave-clear__button--primary:hover:not(:disabled) {
   background: var(--ui-signal);
   color: var(--ui-black);
+}
+
+.wave-clear__button:disabled {
+  background: var(--ui-surface-1);
+  color: var(--ui-text-faint);
+  cursor: not-allowed;
+}
+
+.wave-clear__button-price {
+  color: var(--ui-bone);
+  font-variant-numeric: tabular-nums;
 }
 
 .wave-clear--complete .wave-clear__money,
@@ -608,8 +617,13 @@
 }
 
 @media (max-width: 380px) {
+  .wave-clear__actions {
+    flex-direction: column;
+  }
+
   .wave-clear__button {
     min-height: 40px;
+    flex: 1 1 auto;
     padding-inline: 6px;
     font-size: 12px;
   }

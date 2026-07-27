@@ -14,6 +14,7 @@ import {
   type BiomeHazardSpec,
   type EnvironmentModifiers,
 } from '../core/biomes.ts';
+import { repairPlan } from '../core/economy.ts';
 import type { RunState } from '../core/economy.ts';
 import {
   leaderboardRows,
@@ -46,6 +47,7 @@ import { createToggle } from '../ui/system.ts';
 import { ScopeCursor } from '../ui/ScopeCursor.ts';
 import { VfxSystem } from '../vfx/VfxSystem.ts';
 import { WarningHud } from './WarningHud.ts';
+import { TracerRenderer, type TracerStyle } from './Tracers.ts';
 import {
   activeVehicleWarnings,
   HULL_CRITICAL_PCT,
@@ -72,7 +74,11 @@ import {
   newThreatsForWave,
   threatWarningsForWave,
 } from './waveBalance.ts';
-import { WaveClearCard, type WaveClearCardView } from './WaveClearCard.ts';
+import {
+  WaveClearCard,
+  type WaveClearCardView,
+  type WaveClearRepairOffer,
+} from './WaveClearCard.ts';
 import { WaveTimelineHud } from './WaveTimelineHud.ts';
 import { ZombieSystem } from './zombies/ZombieSystem.ts';
 import { isDevMode } from './devtuning/devMode.ts';
@@ -91,7 +97,6 @@ const FIXED_DT = 1 / 60;
 const COUNTDOWN_SECONDS = 3;
 /** Radius of the Shield Generator bubble, generous enough to enclose most rigs. */
 const SHIELD_BUBBLE_RADIUS_M = 3.4;
-const TRACER_POOL_SIZE = 32;
 const STUCK_PROMPT_SECONDS = 1.6;
 const RECOVERY_COOLDOWN_SECONDS = 2.25;
 const RECOVERY_SETTLE_SECONDS = 0.42;
@@ -103,6 +108,12 @@ const CAMERA_SHAKE_FALLOFF_M = 26;
 export interface SurvivalCallbacks {
   profileMoney(): number;
   runEarnings(): number;
+  /**
+   * Charge `cost` for a full repair bought from the wave-clear card and
+   * re-base the run checkpoint as undamaged. Returns false when the wallet
+   * cannot cover it.
+   */
+  onRepairAll(cost: number): boolean;
   onReward(amount: number): number;
   onExit(run: RunState): void;
   onWaveAdvance(
@@ -265,10 +276,11 @@ export function applyZombieShot(
   return true;
 }
 
-interface TracerVisual {
-  line: THREE.Line;
-  positionAttribute: THREE.BufferAttribute;
-  ttl: number;
+function tracerStyleForShot(shot: TracerShot): TracerStyle {
+  if (shot.empLevel > 0) return 'emp';
+  if (shot.slowFactor > 0) return 'ice';
+  if (shot.damage < 20) return 'standard';
+  return shot.damageType === 'hitscan' ? 'sniper' : 'heavy';
 }
 
 interface SurvivalUi {
@@ -356,15 +368,7 @@ export class SurvivalMode {
     fire: false,
     aimYawWorld: 0,
   };
-  private readonly tracers: TracerVisual[] = [];
-  private readonly tracerMaterial = new THREE.LineBasicMaterial({
-    color: 0xffd76e,
-  });
-  private readonly pierceTracerMaterial = new THREE.LineBasicMaterial({
-    color: 0xffd76e,
-    transparent: true,
-    opacity: 0.35,
-  });
+  private readonly tracerRenderer: TracerRenderer;
   private readonly wheelSteerQuaternion = new THREE.Quaternion();
   private readonly wheelSteerAxis = new THREE.Vector3(0, 1, 0);
   private readonly pointerNdc = new THREE.Vector2();
@@ -458,7 +462,6 @@ export class SurvivalMode {
   private lastHudMoney = -1;
   private lastHudPending = -1;
   private lastCountdownSecond = -1;
-  private tracerCursor = 0;
   private pendingWaveKillReward = 0;
   private pendingWaveReward = 0;
   private waveStartKills = 0;
@@ -584,7 +587,7 @@ export class SurvivalMode {
       onRemainingChanged: () => undefined,
       onWaveComplete: (wave, reward) => this.onWaveComplete(wave, reward),
     });
-    this.buildTracerPool();
+    this.tracerRenderer = new TracerRenderer(this.scene);
 
     const builtUi = this.buildUI();
     this.ui = builtUi.root;
@@ -730,22 +733,6 @@ export class SurvivalMode {
     }
     this.scene.add(this.vehicleGroup);
     return vehicle;
-  }
-
-  private buildTracerPool(): void {
-    for (let i = 0; i < TRACER_POOL_SIZE; i++) {
-      const positionAttribute = new THREE.BufferAttribute(
-        new Float32Array(6),
-        3,
-      );
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', positionAttribute);
-      const line = new THREE.Line(geometry, this.tracerMaterial);
-      line.frustumCulled = false;
-      line.visible = false;
-      this.scene.add(line);
-      this.tracers.push({ line, positionAttribute, ttl: 0 });
-    }
   }
 
   private buildUI(): SurvivalUi {
@@ -915,6 +902,7 @@ export class SurvivalMode {
     const waveClearCard = new WaveClearCard({
       onContinue: this.onNextWave,
       onGarage: this.onGoToGarage,
+      onRepairAndContinue: this.onRepairAndContinue,
     });
     root.appendChild(waveClearCard.root);
 
@@ -1210,6 +1198,50 @@ export class SurvivalMode {
     );
   };
 
+  /**
+   * Priced from the live vehicle rather than the checkpoint: "Continue Now"
+   * carries the live rig straight into the next wave, so that is what the
+   * player is actually paying to fix.
+   */
+  private repairQuote(): WaveClearRepairOffer | null {
+    const items = [...this.vehicle.assembled.parts]
+      .filter(([, part]) => part.alive && !part.detached)
+      .map(([id, part]) => ({
+        id,
+        baseCost: getPartDef(part.placed.defId).cost,
+        currentHp: Math.max(0, part.health),
+        maxHp: part.def.health,
+      }));
+    const plan = repairPlan(items);
+    if (plan.totalCost <= 0) return null;
+    return {
+      cost: plan.totalCost,
+      affordable: this.callbacks.profileMoney() >= plan.totalCost,
+    };
+  }
+
+  private readonly onRepairAndContinue = (): void => {
+    if (this.disposed || this.phase !== 'cleared') return;
+    const quote = this.repairQuote();
+    if (quote === null || !quote.affordable) return;
+    // Charge first: if the wallet says no, nothing is healed.
+    if (!this.callbacks.onRepairAll(quote.cost)) return;
+    this.repairLiveVehicle();
+    this.onNextWave();
+  };
+
+  private repairLiveVehicle(): void {
+    for (const [, part] of this.vehicle.assembled.parts) {
+      if (!part.alive || part.detached) continue;
+      part.health = part.def.health;
+    }
+    // Structural joints wear down alongside the parts they hold. Leaving them
+    // damaged would let a "fully repaired" rig shed parts on the next impact.
+    for (const connection of this.vehicle.assembled.connections) {
+      if (connection.health > 0) connection.health = 1;
+    }
+  }
+
   private readonly onGoToGarage = (): void => {
     if (this.disposed || this.phase !== 'cleared') return;
     const payload = this.clearedWavePayload();
@@ -1358,12 +1390,7 @@ export class SurvivalMode {
         this.shotDirection,
       );
       if (pierceContinues && shot.pierceTo !== null) {
-        this.showTracerSegment(
-          shot.to,
-          shot.pierceTo,
-          this.pierceTracerMaterial,
-          0.06,
-        );
+        this.tracerRenderer.spawn(shot.to, shot.pierceTo, 'pierce');
       }
     }
 
@@ -1630,6 +1657,7 @@ export class SurvivalMode {
     // A fresh wave starts on clean ground rather than inheriting the last
     // wave's airborne gibs and settled splats.
     this.vfx.reset();
+    this.tracerRenderer.reset();
     // Re-baseline damage tracking: carried-over wave damage is not a new hit.
     this.lastLiveHealth = -1;
     this.warningRefreshSeconds = 0;
@@ -1784,14 +1812,13 @@ export class SurvivalMode {
       kills: killsThisWave,
       elapsedSeconds: this.waveElapsedSeconds,
       integrityPct,
-      damagedParts: damagedPartCount,
-      lostParts,
       nextWaveComposition: formatWaveComposition(
         zombieCompositionForWave(nextWave),
       ),
       warnings,
       badges: earned,
       newBadgeIds,
+      repair: this.repairQuote(),
     };
     this.waveClearCard.show(view);
   }
@@ -1934,7 +1961,7 @@ export class SurvivalMode {
     this.zombies.updateVisuals(frameDt);
     this.fuelPickups.updateVisuals(frameDt);
     this.syncShieldBubble(frameDt);
-    this.syncTracers(frameDt);
+    this.tracerRenderer.update(frameDt, this.camera);
     // Camera-relative LOD, so a firefight across the graveyard costs less than
     // the same firefight under the player's nose.
     this.vfx.setViewpoint(this.camera.position);
@@ -2349,42 +2376,11 @@ export class SurvivalMode {
     );
   }
 
-  private syncTracers(frameDt: number): void {
-    for (const tracer of this.tracers) {
-      if (!tracer.line.visible) continue;
-      tracer.ttl -= frameDt;
-      if (tracer.ttl > 0) continue;
-      tracer.line.visible = false;
-      tracer.ttl = 0;
-    }
-  }
-
   private showTracer(shot: TracerShot): void {
     // The flamethrower draws its own cone of fire in the VFX layer; a tracer
     // line on top of it just reads as a stray orange wire.
     if (shot.damageType === 'aoe') return;
-    this.showTracerSegment(shot.from, shot.to, this.tracerMaterial, 0.08);
-  }
-
-  private showTracerSegment(
-    from: Vec3,
-    to: Vec3,
-    material: THREE.LineBasicMaterial,
-    ttl: number,
-  ): void {
-    const tracer = this.tracers[this.tracerCursor];
-    this.tracerCursor = (this.tracerCursor + 1) % this.tracers.length;
-    const positions = tracer.positionAttribute.array as Float32Array;
-    positions[0] = from.x;
-    positions[1] = from.y;
-    positions[2] = from.z;
-    positions[3] = to.x;
-    positions[4] = to.y;
-    positions[5] = to.z;
-    tracer.positionAttribute.needsUpdate = true;
-    tracer.line.material = material;
-    tracer.ttl = ttl;
-    tracer.line.visible = true;
+    this.tracerRenderer.spawn(shot.from, shot.to, tracerStyleForShot(shot));
   }
 
   /** Debug seam control injection, matching ChamberMode's key-backed path. */
@@ -2469,6 +2465,23 @@ export class SurvivalMode {
     } finally {
       this.debugProgressionSuppressed = false;
     }
+  }
+
+  /**
+   * Chip every part down to `fraction` of its maximum so tests can reach a
+   * damaged-but-alive rig. Destruction is already covered by
+   * `debugDestroyVehicle`; this exists for the repair flow, which only has
+   * anything to offer while the vehicle is hurt but still driving.
+   */
+  debugDamageVehicle(fraction = 0.5): void {
+    if (this.disposed || this.pendingTransition !== null) return;
+    const keep = Math.min(0.95, Math.max(0.05, fraction));
+    for (const [, part] of this.vehicle.assembled.parts) {
+      if (!part.alive || part.detached) continue;
+      part.health = Math.max(1, Math.round(part.def.health * keep));
+    }
+    this.syncView(0);
+    this.renderer.render(this.scene, this.camera);
   }
 
   /** Destroy the rig outright so tests can reach the game-over screen. */
@@ -2579,14 +2592,12 @@ export class SurvivalMode {
     this.waveTimelineHud.dispose();
     this.waveClearCard.dispose();
     this.ui.remove();
+    this.tracerRenderer.dispose();
     disposeObject(this.scene);
     this.scene.clear();
-    this.tracerMaterial.dispose();
-    this.pierceTracerMaterial.dispose();
     this.wheelMeshes.clear();
     this.wheelSpin.clear();
     this.islandGroups.clear();
-    this.tracers.length = 0;
   }
 }
 

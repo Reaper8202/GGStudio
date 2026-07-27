@@ -69,6 +69,11 @@ function createHarness(options: { destroyed?: boolean } = {}): {
   const callbacks = {
     profileMoney: () => profile.money,
     runEarnings: () => profile.money - 100,
+    onRepairAll: (cost: number) => {
+      if (profile.money < cost) return false;
+      profile.money -= cost;
+      return true;
+    },
     onReward: (amount: number) => {
       rewardCalls.push(amount);
       profile.money += amount;
