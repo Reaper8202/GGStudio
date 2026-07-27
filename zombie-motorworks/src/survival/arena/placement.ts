@@ -463,3 +463,26 @@ export class VoxelPlacer {
     );
   }
 }
+
+export interface WallSpec {
+  readonly size: readonly [number, number, number];
+  readonly pos: readonly [number, number, number];
+}
+
+/**
+ * The four boundary walls of an arena, derived purely from its half size.
+ *
+ * The base ground collider stops exactly at halfSize while the cosmetic ground
+ * tiles overhang it, so without these the player drives onto ground that
+ * visibly exists and falls through. This used to be authored per-recipe, which
+ * meant only the graveyard had a boundary at all.
+ */
+export function perimeterWalls(halfSize: number): WallSpec[] {
+  const span = halfSize + 1;
+  return [
+    { size: [span, 2, 0.5], pos: [0, 2, -halfSize] },
+    { size: [span, 2, 0.5], pos: [0, 2, halfSize] },
+    { size: [0.5, 2, span], pos: [-halfSize, 2, 0] },
+    { size: [0.5, 2, span], pos: [halfSize, 2, 0] },
+  ];
+}

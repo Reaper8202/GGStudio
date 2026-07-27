@@ -22,6 +22,7 @@ import {
   addFixturePointLight,
   addLantern,
   ArenaColliders,
+  perimeterWalls,
   sampleScatterPositions,
   VoxelPlacer,
   type ScatterPosition,
@@ -170,6 +171,7 @@ export class ArenaBuilder implements Arena {
     this.groundFallback = this.buildGroundVisual();
     this.buildRoads();
     this.buildSurfacePatches();
+    this.buildPerimeter();
     this.buildFixtures();
     this.buildScatters();
     this.voxelPlacer.flushVoxelBatches();
@@ -637,6 +639,49 @@ export class ArenaBuilder implements Arena {
           0.9,
           false,
         );
+      }
+    }
+  }
+
+  /**
+   * Invisible walls plus optional edge dressing, for every biome.
+   *
+   * The base ground collider stops exactly at halfSize, but the cosmetic ground
+   * tiles deliberately overhang it (tileSpan adds two tiles, and the per-row
+   * stagger pushes further along +x). Without a wall the player drives onto
+   * ground that visibly exists and falls through it — worst on the right-hand
+   * edge, where the stagger reaches furthest.
+   *
+   * This used to be authored per-recipe, so only the graveyard had it.
+   * Deriving it from layout.halfSize means no biome can ship without a
+   * boundary.
+   */
+  private buildPerimeter(): void {
+    const { halfSize, baseSurface, perimeterProp } = this.biome.layout;
+    for (const wall of perimeterWalls(halfSize)) {
+      this.colliders.addBox(wall.size, wall.pos, baseSurface, 0.2, true);
+    }
+
+    if (perimeterProp === undefined) return;
+    // A wall you cannot see reads as a bug. Ring the edge so the boundary is
+    // legible before you hit it.
+    const edge = halfSize - 0.55;
+    const scale = perimeterProp.scale?.[0] ?? 0.92;
+    for (let p = -(halfSize - 1.5); p <= halfSize - 1.5; p += 2) {
+      for (const [x, z, rotation] of [
+        [p, -edge, 0],
+        [p, edge, Math.PI],
+        [-edge, p, Math.PI / 2],
+        [edge, p, -Math.PI / 2],
+      ] as const) {
+        this.voxelPlacer.placeVoxel({
+          asset: perimeterProp.asset,
+          x,
+          z,
+          rotation,
+          scale,
+          tint: perimeterProp.tint,
+        });
       }
     }
   }

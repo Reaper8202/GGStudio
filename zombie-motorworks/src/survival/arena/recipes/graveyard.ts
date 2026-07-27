@@ -5,7 +5,6 @@ import {
   type FixturePlacement,
 } from '../../../core/biomes.ts';
 
-const COLLIDER_FIXTURE_ASSET = '@arena/collider';
 const FIRE_FIXTURE_ASSET = '@arena/fire';
 const GHOST_LIGHT_FIXTURE_ASSET = '@arena/ghost-light';
 const LANTERN_FIXTURE_ASSET = '@arena/lantern';
@@ -32,36 +31,10 @@ function fenceRun(
   }));
 }
 
-const perimeter: FixturePlacement[] = [
-  {
-    asset: COLLIDER_FIXTURE_ASSET,
-    x: 0,
-    z: -HALF_SIZE,
-    collider: 'box',
-    colliderSize: [HALF_SIZE + 1, 2, 0.5],
-  },
-  {
-    asset: COLLIDER_FIXTURE_ASSET,
-    x: 0,
-    z: HALF_SIZE,
-    collider: 'box',
-    colliderSize: [HALF_SIZE + 1, 2, 0.5],
-  },
-  {
-    asset: COLLIDER_FIXTURE_ASSET,
-    x: -HALF_SIZE,
-    z: 0,
-    collider: 'box',
-    colliderSize: [0.5, 2, HALF_SIZE + 1],
-  },
-  {
-    asset: COLLIDER_FIXTURE_ASSET,
-    x: HALF_SIZE,
-    z: 0,
-    collider: 'box',
-    colliderSize: [0.5, 2, HALF_SIZE + 1],
-  },
-];
+// Wall colliders are built by ArenaBuilder from layout.halfSize for every
+// biome, so they are no longer authored here. This list is now just the
+// visible fence ring.
+const perimeter: FixturePlacement[] = [];
 
 const fenceEdge = HALF_SIZE - 0.55;
 const fenceSpan = HALF_SIZE - 1.5;

@@ -7,7 +7,9 @@ import { GRAVEYARD } from '../src/survival/arena/recipes/graveyard.ts';
 describe('graveyard arena recipe', () => {
   it('keeps authored fixtures valid and collider dimensions explicit', () => {
     const fixtures = GRAVEYARD.layout.fixtures ?? [];
-    expect(fixtures).toHaveLength(340);
+    // 336 authored placements: the four perimeter wall colliders moved into
+    // ArenaBuilder so every biome gets a boundary, not just this one.
+    expect(fixtures).toHaveLength(336);
 
     for (const fixture of fixtures) {
       expect(fixture.asset.trim()).not.toBe('');
