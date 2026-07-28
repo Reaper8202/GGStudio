@@ -19,7 +19,7 @@ import type {
   WeaponDefinition,
 } from '../core/types.ts';
 import { rotateVec } from '../core/grid.ts';
-import { cellCentreM } from '../core/mass.ts';
+import { footprintCentreM } from '../core/mass.ts';
 import { getPartDef } from '../core/parts.ts';
 import { KID_LABELS } from '../core/tutorial.ts';
 import {
@@ -134,7 +134,9 @@ export function createWeapon(
     weaponDefId: partDef.id,
     def,
     label: KID_LABELS[partDef.id]?.name ?? partDef.name,
-    mountLocal: cellCentreM(placed.pos),
+    // Shots leave from the middle of the footprint, which is where the gun is
+    // modelled: a multi-cell mount would otherwise fire out of its corner cell.
+    mountLocal: footprintCentreM(partDef, placed),
     forwardLocal: rotateVec(placed.orient, { x: 0, y: 0, z: 1 }),
     yaw: 0,
     pitch: 0,

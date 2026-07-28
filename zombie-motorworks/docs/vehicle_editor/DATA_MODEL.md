@@ -40,7 +40,7 @@ The value is validated during deserialization and used by editor analysis, runti
 `WeaponDefinition` includes `mountType`, `aimMode`, arc, damage, fire rate, ammunition/power use, recoil, projectile speed, and range. `aimMode` is either `'auto'` or `'manual'`: an auto weapon acquires its own targets in range, a manual one only follows the player's aim input. Independently of `aimMode`, while the player holds fire every weapon abandons its acquired target and converges on the cursor point (`VehicleControls.manualAim`).
 
 - `turret` is a self-acquiring, 360° turret.
-- `cannon-heavy` is a self-acquiring, 360° heavy cannon with a splash payload.
+- `cannon-heavy` is a self-acquiring, 360° heavy cannon with a splash payload. It is the one multi-cell gun: a 2x2 horizontal barbette (`cells` = the pad, a `ny` hardpoint and a cell of clearance over each of the four cells). Multi-cell weapons mount and fire from the middle of their footprint (`footprintCentreM`), not from the anchor cell.
 
 `armour-plate` is a regular one-cell protection part in the current catalog (`cells: [{x:0,y:0,z:0}]`), not the older face-mounted-panel design. It has armour protection metadata and a high reinforcement multiplier. The runtime supports face-mounted definitions generically, but no current catalog part uses `armour.faceMounted: true`.
 

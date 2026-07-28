@@ -320,9 +320,10 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
     `,
     'cannon-heavy': `
       ${common}
-      <path d="M22 18 34 12 43 18V28L32 34 22 28Z" fill="#4a5044"/>
-      <path d="M34 14H58V21H34Z" fill="#8a5035"/>
-      <path d="M53 12H61V23H53Z" fill="#2a2e28"/>
+      <path d="M8 40H50V48H8Z" fill="#2a2e28"/>
+      <path d="M12 22 20 16H42L48 22V36L40 40H18L12 36Z" fill="#4a5044"/>
+      <path d="M34 20H58V28H34Z" fill="#8a5035"/>
+      <path d="M53 17H61V31H53Z" fill="#2a2e28"/>
     `,
     'barrel-drum': `
       <path d="M10 24H54V44H10Z" fill="#6b4a2e"/>
@@ -369,25 +370,38 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
       <path d="M12 20 20 16M52 20 44 16M12 32 20 28M52 32 44 28" stroke="#b79bf0" stroke-width="4" fill="none"/>
       <path d="M4 26 12 21M60 26 52 21" stroke="#7a53c8" stroke-width="4" fill="none"/>
     `,
-    // Pressure bottle strapped to a block, venting a jet.
+    // Strapped pressure bottles over a solenoid, venting a jet out the back.
     'nitro-injector': `
       ${common}
-      <path d="M26 12H38V30H26Z" fill="#2fa86a"/>
-      <path d="M26 12H31V30H26Z" fill="#5ed49a"/>
-      <path d="M29 8H35V13H29Z" fill="#2a2e28"/>
-      <path d="M26 18H38V21H26Z" fill="#1c6b45"/>
-      <path d="M38 32 48 28 44 34 52 36 36 40Z" fill="#e0a13e"/>
-      <path d="M39 34 45 32 43 36Z" fill="#fff3c4"/>
+      <path d="M20 14H32V44H20Z" fill="#76837c"/>
+      <path d="M20 14H25V44H20Z" fill="#a8b3ac"/>
+      <path d="M34 18H44V44H34Z" fill="#67736d"/>
+      <path d="M34 18H38V44H34Z" fill="#93a09a"/>
+      <path d="M23 10H29V15H23ZM36 14H42V19H36Z" fill="#2a2e28"/>
+      <path d="M20 26H32V31H20Z" fill="#3fbd7a"/>
+      <path d="M34 29H44V33H34Z" fill="#3fbd7a"/>
+      <path d="M18 20H46V23H18ZM18 38H46V41H18Z" fill="#20241f"/>
+      <path d="M14 44H48V50H14Z" fill="#4a5049"/>
+      <circle cx="44" cy="47" r="2" fill="#7bffbc"/>
+      <path d="M8 46 16 44 12 50 20 52 4 56Z" fill="#e0a13e"/>
+      <path d="M9 49 15 47 13 51Z" fill="#fff3c4"/>
     `,
-    // Coil throwing a stack of thinning copies forward.
+    // Chromed spine in a lit trough: scales widening towards the muzzle.
     'phase-drive': `
       ${common}
-      <path d="M22 18H30V34H22Z" fill="#35d7ff"/>
-      <path d="M22 18H26V34H22Z" fill="#d9fff9"/>
-      <path d="M34 20H40V32H34Z" fill="#35d7ff" opacity="0.7"/>
-      <path d="M44 22H48V30H44Z" fill="#35d7ff" opacity="0.45"/>
-      <path d="M52 24H55V28H52Z" fill="#35d7ff" opacity="0.25"/>
-      <path d="M18 40H32V44H18Z" fill="#1c6f8a"/>
+      <path d="M6 30H58V36H6Z" fill="#1b2c33"/>
+      <path d="M8 32H56V34H8Z" fill="#2fe3d0"/>
+      <path d="M10 26H16V38H10Z" fill="#8d97a1"/>
+      <path d="M12 24H14V40H12Z" fill="#cfd6dd"/>
+      <path d="M20 24H27V40H20Z" fill="#9aa4ae"/>
+      <path d="M22 22H25V42H22Z" fill="#dfe6ec"/>
+      <path d="M31 22H39V42H31Z" fill="#9aa4ae"/>
+      <path d="M33 20H37V44H33Z" fill="#dfe6ec"/>
+      <path d="M17 30H20V34H17ZM28 30H31V34H28ZM43 30H46V34H43Z" fill="#2fe3d0"/>
+      <path d="M46 24H50V40H46Z" fill="#8d97a1"/>
+      <path d="M52 26H56V38H52Z" fill="#3f9dff"/>
+      <path d="M53 30H55V34H53Z" fill="#d9fff9"/>
+      <path d="M12 27H14V29H12ZM23 25H25V27H23ZM34 23H36V25H34ZM12 39H14V41H12ZM23 41H25V43H23ZM34 43H36V45H34Z" fill="#2a2e28"/>
     `,
   };
   const drawing = drawings[def.id] ?? common;

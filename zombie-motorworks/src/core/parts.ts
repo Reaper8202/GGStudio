@@ -61,8 +61,26 @@ const oneCell = [ORIGIN];
 /** Long Spikes: origin cell plus the one it reaches into, along local +Z. */
 const SPIKE_CELLS: Vec3i[] = [ORIGIN, v(0, 0, 1)];
 
-/** Sawblade: a 2x2 pad in the horizontal plane, back edge on local -Z. */
-const SAW_CELLS: Vec3i[] = [ORIGIN, v(1, 0, 0), v(0, 0, 1), v(1, 0, 1)];
+/** Phase Drive: a two-cell coil rail lying along the part's forward axis. */
+const RAIL_2X1_CELLS: Vec3i[] = [ORIGIN, v(0, 0, 1)];
+
+/**
+ * A 2x2 pad in the horizontal plane, back edge on local -Z: the area the
+ * sawblade sweeps through, and the barbette the Heavy Cannon is bolted across.
+ */
+const PAD_2X2_CELLS: Vec3i[] = [ORIGIN, v(1, 0, 0), v(0, 0, 1), v(1, 0, 1)];
+
+/** One cell of headroom over every cell of a footprint. */
+function headroom(cells: readonly Vec3i[]): Vec3i[] {
+  return cells.map((cell) => v(cell.x, cell.y + 1, cell.z));
+}
+
+/** A downward hardpoint under every cell of a footprint. */
+function hardpointsBelow(cells: readonly Vec3i[]): StructuralSocket[] {
+  return cells.map((cell) =>
+    singleSocket(`hardpoint-${cellId(cell)}-ny`, 'frame', cell, 'ny'),
+  );
+}
 
 /** The four turns about the vertical axis, for parts that must stay level. */
 const YAW_ORIENTATIONS: OrientationIndex[] = [0, 1, 2, 3].map((quarter) =>
@@ -411,13 +429,17 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Heavy Cannon',
     category: 'weapon',
     description:
-      'Slow, devastating cannon. It shells zombies in range on its own; click ' +
-      'to aim it where you want the blast instead.',
-    cells: oneCell,
-    clearanceCells: [v(0, 1, 0)],
-    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
-    massKg: 140,
-    health: 160,
+      'Slow, devastating cannon on a two-by-two barbette. It shells zombies ' +
+      'in range on its own; click to aim it where you want the blast instead.',
+    // A four-cell pad, not a hardpoint: the gun is the size it looks, so it
+    // costs real deck space and is bolted down across all four cells.
+    cells: PAD_2X2_CELLS,
+    clearanceCells: headroom(PAD_2X2_CELLS),
+    sockets: hardpointsBelow(PAD_2X2_CELLS),
+    // Four cells of cast turret: heavier than any other gun, and tough enough
+    // that the extra surface zombies can reach does not make it fragile.
+    massKg: 240,
+    health: 300,
     cost: 340,
     upgrade: upgrade(5, 340),
     unlockCost: 500,
@@ -435,7 +457,10 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       // Heavy enough to visibly shove the rig when it goes off.
       recoilImpulse: 900,
       projectileSpeed: 260,
-      rangeM: 30,
+      // Short of the sniper's reach on purpose: the blast is the payoff, so
+      // the gun has to be brought into the fight rather than shelling from
+      // across the map.
+      rangeM: 20,
       splashRadiusM: 4.5,
       splashDamage: 26,
     },
@@ -470,7 +495,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       fireRate: 2.5,
       recoilImpulse: 30,
       projectileSpeed: 150,
-      rangeM: 18,
+      // Short reach: the chill lands on what is already closing in, not on
+      // the far edge of the horde.
+      rangeM: 12,
       slowFactor: 0.35,
       slowDurationSeconds: 3,
     },
@@ -536,7 +563,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       'through anything it grazes.',
     // A 2x2 pad under the disc: the blade sweeps a full two blocks across, so
     // it reserves the square it actually spins through.
-    cells: SAW_CELLS,
+    cells: PAD_2X2_CELLS,
     clearanceCells: [],
     // Only the two back cells carry a socket, and they carry the modelled arm.
     // Nothing bolts onto a spinning blade, so the rest of the pad is bare —
@@ -726,12 +753,15 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     name: 'Phase Drive',
     category: 'weapon',
     description:
-      'Displacement coil. Fills an ability slot: blink ten metres straight ' +
-      'ahead, passing clean through zombies, wrecks and scenery — only the ' +
-      'arena wall stops it. 7s cooldown; upgrades blink further.',
-    cells: oneCell,
-    clearanceCells: [v(0, 1, 0)],
-    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+      'Displacement coil on a two-block rail. Fills an ability slot: blink ten ' +
+      'metres straight ahead, passing clean through zombies, wrecks and ' +
+      'scenery — only the arena wall stops it. 7s cooldown; upgrades blink ' +
+      'further.',
+    // Two cells along the part's forward axis: the accelerator rail is as long
+    // as it looks, and pointing the coil stack costs real deck space.
+    cells: RAIL_2X1_CELLS,
+    clearanceCells: headroom(RAIL_2X1_CELLS),
+    sockets: hardpointsBelow(RAIL_2X1_CELLS),
     massKg: 85,
     health: 110,
     cost: 280,

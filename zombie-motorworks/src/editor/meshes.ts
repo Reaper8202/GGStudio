@@ -14,9 +14,11 @@ import { rotateVec } from '../core/grid.ts';
 import { cellCentreM } from '../core/mass.ts';
 import { boxWithEdges, partColor } from './parts/shared.ts';
 import { buildArmourPlateMesh, buildFaceArmourMesh } from './parts/armourPlate.ts';
+import { buildPulseEmitterMesh, buildShieldGeneratorMesh } from './parts/defence.ts';
 import { buildEngineMesh } from './parts/engine.ts';
 import { buildFuelTankMesh } from './parts/fuelTank.ts';
 import { buildMeleeMesh } from './parts/melee.ts';
+import { buildNitroInjectorMesh, buildPhaseDriveMesh } from './parts/mobility.ts';
 import { buildWeaponMesh } from './parts/weapons.ts';
 import { buildTreadMesh, buildWheelMesh } from './parts/wheels.ts';
 
@@ -62,6 +64,29 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
         ? buildFaceArmourMesh(def, placed, color, opacity)
         : buildArmourPlateMesh(placed, color, opacity),
     );
+    return group;
+  }
+
+  // Ability parts with a modelled device of their own: defence emitters and
+  // mobility hardware. Anything else with an ability falls through to the
+  // generic block-plus-dome treatment at the bottom of this function.
+  if (def.id === 'shield-generator') {
+    group.add(buildShieldGeneratorMesh(placed, color, opacity));
+    return group;
+  }
+
+  if (def.id === 'pulse-emitter') {
+    group.add(buildPulseEmitterMesh(placed, color, opacity));
+    return group;
+  }
+
+  if (def.id === 'nitro-injector') {
+    group.add(buildNitroInjectorMesh(placed, color, opacity));
+    return group;
+  }
+
+  if (def.id === 'phase-drive') {
+    group.add(buildPhaseDriveMesh(placed, color, opacity));
     return group;
   }
 

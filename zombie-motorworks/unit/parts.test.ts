@@ -137,6 +137,37 @@ describe('part catalog integrity', () => {
     expect(PART_CATALOG['cannon-heavy'].weapon?.splashDamage).toBeGreaterThan(0);
   });
 
+  it('gives the Heavy Cannon a bolted-down 2x2 barbette', () => {
+    const cannon = PART_CATALOG['cannon-heavy'];
+    expect(new Set(cannon.cells.map(cellKey))).toEqual(
+      new Set(
+        [
+          { x: 0, y: 0, z: 0 },
+          { x: 1, y: 0, z: 0 },
+          { x: 0, y: 0, z: 1 },
+          { x: 1, y: 0, z: 1 },
+        ].map(cellKey),
+      ),
+    );
+    // A hardpoint under every cell, and headroom over every cell: the gun is
+    // carried by the whole pad and nothing may be built through it.
+    expect(cannon.sockets).toHaveLength(4);
+    expect(cannon.sockets.every((socket) => socket.face === 'ny')).toBe(true);
+    expect(new Set(cannon.clearanceCells.map(cellKey))).toEqual(
+      new Set(cannon.cells.map((cell) => cellKey({ ...cell, y: cell.y + 1 }))),
+    );
+  });
+
+  it('keeps the splash and cryo guns inside sniper range', () => {
+    const sniper = PART_CATALOG['sniper-light'].weapon!.rangeM;
+    // Reach is the sniper's job. The cannon has to be driven into the fight
+    // for its blast, and the ice cannon chills what is already closing in.
+    expect(PART_CATALOG['cannon-heavy'].weapon!.rangeM).toBeLessThan(sniper);
+    expect(PART_CATALOG['ice-cannon'].weapon!.rangeM).toBeLessThan(
+      PART_CATALOG['cannon-heavy'].weapon!.rangeM,
+    );
+  });
+
   it('defines the unique Mine Sweeper outside the starter catalog', () => {
     expect(PART_CATALOG['mine-sweeper']).toMatchObject({
       cost: 180,
