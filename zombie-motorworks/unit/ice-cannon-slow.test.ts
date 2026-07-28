@@ -24,6 +24,7 @@ function shot(overrides: Partial<TracerShot> = {}): TracerShot {
     splashRadiusM: 0,
     splashDamage: 0,
     overcharged: false,
+    damageOnly: false,
     ...overrides,
   };
 }

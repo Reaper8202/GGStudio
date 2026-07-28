@@ -39,6 +39,8 @@ const COLORS: Record<string, number> = {
   // its vertebrae, so the body itself stays grey (see `parts/mobility.ts`).
   'phase-drive': 0x939ca6,
   'barrel-drum': 0x7d5a3a,
+  // Plant yellow: the one part on the rig that is site machinery, not scrap.
+  'dozer-blade': 0xc9a227,
   'spike-ram': 0x8a8f98,
   sawblade: 0x5c6570,
   'sniper-light': 0x33404f,

@@ -51,7 +51,6 @@ import {
   type EditorUI,
   type NewGarageDisposalSummary,
   type RunSummary,
-  type TurretModuleEconomy,
 } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
@@ -59,6 +58,8 @@ import { getEffectiveDef } from '../core/upgrades.ts';
 import {
   ABILITY_KIND_META,
   ABILITY_SLOT_KEYS,
+  abilityUnlocked,
+  abilityUnlockLevel,
   BENCHED_ABILITY_SLOT,
   MAX_ABILITY_SLOTS,
   resolveAbilityLoadout,
@@ -79,13 +80,6 @@ import {
 } from '../core/economy.ts';
 import type { PlayerProfile } from '../core/profile.ts';
 import { resolveHotbar, withHotbarSlot } from '../core/hotbar.ts';
-import {
-  isEmpUnlocked,
-  isPiercingUnlocked,
-  turretModuleLevel,
-  turretModulePrice,
-  type TurretModule,
-} from '../core/turretModules.ts';
 import { threatWarningsForWave } from '../survival/waveBalance.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
@@ -226,58 +220,6 @@ export function previewUpgradeMetrics(
       estimatedTopSpeedKph: afterReport.estimatedTopSpeedKph,
     },
   };
-}
-
-export interface TurretModulePurchase {
-  config: PartConfig;
-  targetLevel: number;
-  price: number;
-}
-
-/** Build the immutable config change shared by UI purchases and unit tests. */
-export function nextTurretModulePurchase(
-  config: PartConfig,
-  module: TurretModule,
-): TurretModulePurchase | null {
-  const targetLevel = turretModuleLevel(config, module) + 1;
-  const price = turretModulePrice(module, targetLevel);
-  if (price === null) return null;
-  return {
-    config: {
-      ...config,
-      ...(module === 'emp'
-        ? { empLevel: targetLevel }
-        : { piercingLevel: targetLevel }),
-    },
-    targetLevel,
-    price,
-  };
-}
-
-/** Derive all button gates from wallet and profile progress in one place. */
-export function turretModuleEconomy(
-  config: PartConfig,
-  money: number,
-  progress: Pick<
-    PlayerProfile,
-    'highestWaveCleared' | 'phoneAddictsKilled'
-  >,
-): Record<TurretModule, TurretModuleEconomy> {
-  const state = (module: TurretModule): TurretModuleEconomy => {
-    const level = turretModuleLevel(config, module);
-    const purchase = nextTurretModulePurchase(config, module);
-    const unlocked =
-      module === 'emp' ? isEmpUnlocked(progress) : isPiercingUnlocked();
-    return {
-      level,
-      targetLevel: purchase?.targetLevel ?? null,
-      price: purchase?.price ?? null,
-      unlocked,
-      canBuy:
-        unlocked && purchase !== null && canAfford(money, purchase.price),
-    };
-  };
-  return { emp: state('emp'), piercing: state('piercing') };
 }
 
 interface GhostState {
@@ -445,8 +387,6 @@ export class EditorMode {
       onUpgradePart: (partId) => this.buyUpgrade(partId),
       onRepairPart: (partId) => this.repairPart(partId),
       onRepairAll: () => this.repairAll(),
-      onBuyTurretModule: (partId, module) =>
-        this.buyTurretModule(partId, module),
       onDeleteSelected: () => this.deleteSelected(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onCancelTool: () => this.disarmTool(),
@@ -772,17 +712,23 @@ export class EditorMode {
     this.selectOnly(partId);
   }
 
-  /** Every ability part on the rig, in build order, as loadout candidates. */
+  /**
+   * Every ability part on the rig, in build order, as loadout candidates. A
+   * part below its ability's unlock level is not one yet: the garage shows the
+   * same empty box the fight would.
+   */
   private abilityCandidates(): AbilityCandidate[] {
     const candidates: AbilityCandidate[] = [];
     for (const placed of this.bp.parts) {
       const def = getPartDef(placed.defId);
       if (def.ability === undefined) continue;
+      const level = placed.config.level ?? 1;
+      if (!abilityUnlocked(def.ability, level)) continue;
       candidates.push({
         partId: placed.id,
         partName: def.name,
         ability: def.ability,
-        level: placed.config.level ?? 1,
+        level,
         preferred: placed.config.activeAbility === true,
         slot: placed.config.abilitySlot,
       });
@@ -1029,43 +975,6 @@ export class EditorMode {
     this.refreshProfile();
     this.ui.setStatus(`Vehicle fully repaired (-$${plan.totalCost})`);
     return true;
-  }
-
-  private buyTurretModule(
-    partId: string,
-    module: TurretModule,
-  ): boolean {
-    const part = getPart(this.bp, partId);
-    if (!part || part.defId !== 'turret') {
-      this.deny(`Unknown turret: ${partId}`);
-      return false;
-    }
-    const state = turretModuleEconomy(
-      part.config,
-      this.profile.money,
-      this.profile,
-    )[module];
-    if (!state.unlocked) {
-      this.deny('Clear wave 10 or kill a Phone Addict to unlock EMP');
-      return false;
-    }
-    const purchase = nextTurretModulePurchase(part.config, module);
-    if (purchase === null) {
-      const displayName = module === 'emp' ? 'EMP' : 'Piercing';
-      this.deny(`${displayName} is already at maximum level`);
-      return false;
-    }
-    const bought = this.exec(
-      updateConfigCommand(part.id, purchase.config, -purchase.price),
-    );
-    if (bought) {
-      this.selectOnly(part.id);
-      const displayName = module === 'emp' ? 'EMP' : 'Piercing';
-      this.ui.setStatus(
-        `${displayName} upgraded to level ${purchase.targetLevel} (-$${purchase.price})`,
-      );
-    }
-    return bought;
   }
 
   private sellPart(partId: string): boolean {
@@ -1566,10 +1475,17 @@ export class EditorMode {
     const assignment = resolveAbilityLoadout(candidates).find(
       (slot) => slot.partId === partId,
     );
+    const part = getPart(this.bp, partId);
+    const ability = part ? getPartDef(part.defId).ability : undefined;
+    const locked =
+      ability !== undefined &&
+      !abilityUnlocked(ability, part?.config.level ?? 1);
     return {
       key: assignment?.key ?? null,
       candidates: candidates.length,
       capacity: MAX_ABILITY_SLOTS,
+      lockedUntilLevel:
+        locked && ability !== undefined ? abilityUnlockLevel(ability) : null,
     };
   }
 
@@ -1624,10 +1540,6 @@ export class EditorMode {
       sellRefund: selectionRefund,
       repairCost: repair?.cost ?? null,
       canRepair: repair?.canRepair ?? false,
-      turretModules:
-        def.id === 'turret'
-          ? turretModuleEconomy(part.config, this.profile.money, this.profile)
-          : undefined,
       upgradePreview: previewUpgradeMetrics(this.bp, part.id) ?? undefined,
     }, part.config, def.wheel
       ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
@@ -1826,13 +1738,7 @@ export class EditorMode {
     const plan = this.currentRepairPlan();
     const nextWave = (this.runContext?.wave ?? 0) + 1;
     const threatNotice = threatWarningsForWave(nextWave).join(' ');
-    const nextWaveNotice =
-      threatNotice ||
-      (this.runContext !== undefined &&
-      nextWave === 9 &&
-      !isEmpUnlocked(this.profile)
-        ? 'EMP unlocks after clearing Wave 9.'
-        : undefined);
+    const nextWaveNotice = threatNotice || undefined;
     this.ui.setRunContext(
       this.runContext?.wave,
       this.runSummary,

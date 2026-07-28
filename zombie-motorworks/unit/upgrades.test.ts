@@ -5,6 +5,7 @@ import {
   getEffectiveDef,
   upgradePrice,
 } from '../src/core/upgrades.ts';
+import { MAX_UPGRADE_STEPS } from '../src/core/partUpgrades.ts';
 
 describe('part upgrades', () => {
   it('returns the catalog object unchanged at level one', () => {
@@ -16,13 +17,16 @@ describe('part upgrades', () => {
   it('clamps levels and scales only the applicable payloads without mutating the base', () => {
     const engine = getPartDef('engine-small');
     const effective = effectivePartDef(engine, 99);
+    // Clamped to the top of the five-unlock chain, i.e. MAX_UPGRADE_STEPS steps
+    // above the base definition.
+    const steps = MAX_UPGRADE_STEPS;
 
-    expect(effective.health).toBeCloseTo(engine.health * 1.32);
+    expect(effective.health).toBeCloseTo(engine.health * (1 + 0.08 * steps));
     expect(effective.engine?.maxPowerKw).toBeCloseTo(
-      engine.engine!.maxPowerKw * 1.32 * 1.56,
+      engine.engine!.maxPowerKw * (1 + 0.08 * steps) * (1 + 0.14 * steps),
     );
     expect(effective.engine?.torqueCurve[1][1]).toBeCloseTo(
-      engine.engine!.torqueCurve[1][1] * 1.32,
+      engine.engine!.torqueCurve[1][1] * (1 + 0.08 * steps),
     );
     expect(engine.engine?.maxPowerKw).toBe(95);
     expect(engine.engine?.torqueCurve[1][1]).toBe(210);

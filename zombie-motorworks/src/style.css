@@ -1207,19 +1207,6 @@ button:disabled {
   bottom: 180px;
 }
 
-.paint-swatches {
-  display: flex;
-  gap: 3px;
-}
-
-.paint-swatch {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 2px solid var(--ui-edge);
-  border-radius: 0;
-}
-
 .ready {
   color: var(--ui-signal);
   font-weight: 700;
@@ -2219,14 +2206,6 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.selected-part__title span {
-  flex: 0 0 auto;
-  padding: 3px 6px;
-  background: var(--ui-recess);
-  color: var(--ui-signal);
-  font: var(--ui-text-10)/1 var(--ui-font-body);
-}
-
 .selected-part__description {
   margin: 8px 0 14px;
   color: var(--ui-text-muted);
@@ -2466,26 +2445,6 @@ button:disabled {
   accent-color: var(--ui-signal);
 }
 
-.selected-part__paint {
-  display: grid;
-  gap: 7px;
-  margin-top: 14px;
-  color: var(--ui-text-muted);
-  font-size: var(--ui-text-11);
-  text-transform: uppercase;
-}
-
-.selected-part__paint .paint-swatches {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 3px;
-}
-
-.selected-part__paint .paint-swatch {
-  width: 100%;
-  height: 24px;
-}
-
 .selected-part__modules {
   display: grid;
   gap: 4px;
@@ -2520,19 +2479,160 @@ button:disabled {
   border-top: 1px solid var(--ui-edge);
 }
 
-.selected-part__upgrade-preview {
+/* Star rating: one star per unlock bought, five slots always drawn. */
+.selected-part__rating {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.selected-part__stars {
+  display: flex;
+  gap: 2px;
+  font: var(--ui-text-16)/1 var(--ui-font-display);
+}
+
+.selected-part__stars .star {
+  color: var(--ui-text-faint);
+}
+
+.selected-part__stars .star.is-earned {
+  color: var(--ui-bone);
+  text-shadow: 0 0 6px rgb(183 168 115 / 45%);
+}
+
+.selected-part__rating-count {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.06em;
+}
+
+/* The unlock chain: what this part can still become, and what it costs. */
+.selected-part__upgrades {
   display: grid;
-  gap: 0;
+  gap: 8px;
   margin-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--ui-edge);
 }
 
-.selected-part__upgrade-preview-title {
-  padding: 10px 0 6px;
+.selected-part__upgrades-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   color: var(--ui-signal);
   font: var(--ui-text-10)/1 var(--ui-font-body);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.selected-part__upgrades-title span:last-child {
+  color: var(--ui-text-muted);
+}
+
+/* The one-step lookahead row under the buy button. */
+.upgrade-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border-left: 2px solid var(--ui-edge);
+  background: var(--ui-recess);
+}
+
+.upgrade-step__icon {
+  color: var(--ui-text-faint);
+  font: var(--ui-text-14)/1 var(--ui-font-display);
+  text-align: center;
+}
+
+.upgrade-step__text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.upgrade-step__text strong {
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1.2 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.upgrade-step__text span {
+  overflow: hidden;
+  color: var(--ui-text-faint);
+  font: 9px/1.3 var(--ui-font-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upgrade-step__status {
+  color: var(--ui-text-faint);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  white-space: nowrap;
+}
+
+/* The buy button: icon, what it bolts on, what it does, what it costs. */
+.upgrade-unlock {
+  display: grid;
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  padding: 8px 10px;
+  border: 1px solid var(--ui-edge);
+  background: var(--accent-green);
+  box-shadow: inset 0 -2px 0 var(--ui-black);
+  color: #e3e8cf;
+  text-align: left;
+}
+
+.upgrade-unlock:hover:not(:disabled) {
+  background: #56623a;
+}
+
+.upgrade-unlock__icon {
+  font: var(--ui-text-20)/1 var(--ui-font-display);
+  text-align: center;
+}
+
+.upgrade-unlock__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.upgrade-unlock__text strong {
+  font: var(--ui-text-12)/1.2 var(--ui-font-display);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.upgrade-unlock__text span {
+  color: #c3cbab;
+  font: 9px/1.35 var(--ui-font-body);
+}
+
+.upgrade-unlock__cost {
+  font: var(--ui-text-14)/1 var(--ui-font-display);
+}
+
+.selected-part__upgrades-maxed {
+  margin: 0;
+  color: var(--ui-bone);
+  font: var(--ui-text-10)/1.4 var(--ui-font-body);
+}
+
+.selected-part__upgrade-preview {
+  display: grid;
+  gap: 0;
 }
 
 .selected-part__upgrade-preview-row {

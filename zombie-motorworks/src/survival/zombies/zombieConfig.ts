@@ -1,3 +1,5 @@
+import type { PlowDefinition } from '../../core/types.ts';
+
 /** Wave-one zombie stats. WaveManager supplies health/speed/damage multipliers. */
 export const BASE_ZOMBIE_STATS = {
   health: 40,
@@ -40,6 +42,102 @@ export const IMPACT_DAMAGE_PER_SPEED = 1.8;
 export const KNOCKBACK_SPEED = 9;
 export const KNOCKBACK_DURATION = 0.35;
 export const IMPACT_COOLDOWN_SECONDS = 0.4;
+
+/**
+ * Bulldozer blade (`PlowDefinition`). The blade's own numbers — how wide it
+ * catches, how many it carries, how hard the slam lands — live on the part, so
+ * what is left here is the shape of the mechanic rather than its balance.
+ */
+/** How far ahead of the blade a wall counts as an impending slam, metres. */
+export const PLOW_WALL_PROBE_M = 1.4;
+/** Extra probe distance per m/s, so a fast rig fires before the wall stops it. */
+export const PLOW_WALL_PROBE_PER_SPEED = 0.1;
+/** One slam is one event: a blade cannot crush again inside this window. */
+export const PLOW_CRUSH_COOLDOWN_SECONDS = 0.8;
+/**
+ * Held zombies are put in the knockback state — no chasing, no biting — and
+ * the hold is refreshed every step the blade keeps them, so it lapses on its
+ * own shortly after they roll off the end of it.
+ */
+export const PLOW_HOLD_SECONDS = 0.3;
+/** Height gap between blade and body beyond which the blade rides over it. */
+export const PLOW_HEIGHT_TOLERANCE_M = 1.2;
+/** Below this closing speed a blade is furniture: it scoops nothing. */
+export const PLOW_MIN_CARRY_SPEED_MPS = 2;
+/** Centre-to-centre gap between bodies in a carried load. */
+export const PLOW_SLOT_SPACING_M = ZOMBIE_RADIUS * 2.2;
+/**
+ * Blade centroid out to the front rank: half a cell of blade plus a body
+ * radius, so the front rank rides against the face instead of inside it —
+ * slots buried in the blade's own collider are slots the solver pushes out.
+ */
+export const PLOW_FACE_CLEARANCE_M = 0.62;
+/** How hard a carried body is steered onto its slot, per second. */
+export const PLOW_SLOT_STIFFNESS = 9;
+/** Cap on that steering, so a body scooped off the tip is drawn in, not flung. */
+export const PLOW_SLOT_MAX_SPEED = 7;
+
+/** One body's place in a carried load, relative to the blade. */
+export interface PlowSlot {
+  /** Metres left of the blade's forward axis; negative is to its right. */
+  readonly lateral: number;
+  /** Metres ahead of the blade centroid. */
+  readonly depth: number;
+}
+
+/**
+ * Where every body in a full load rides.
+ *
+ * A blade holds a *pile*, not a row, so the load is laid out as a lattice of
+ * ranks stacked ahead of the blade — as many abreast as the catch zone is wide,
+ * then back in ranks until the capacity is spent. Each body gets its own place
+ * and is steered onto it, which is what stops a load from squeezing itself out
+ * the ends: bodies shoved into the same spot are bodies the physics solver has
+ * to spit sideways.
+ *
+ * Slots come out front rank first, and centre-out within a rank, so a part-full
+ * blade carries a wedge on its nose rather than two stragglers on the tips.
+ */
+export function plowSlots(plow: PlowDefinition): PlowSlot[] {
+  // A body's slot is its centre, so the lattice is inset by a radius: the outer
+  // rank has to sit inside the catch zone, not straddle its edge, or the blade
+  // would keep losing the bodies it just steered out there.
+  const usableWidth = plow.halfWidthM * 2 - ZOMBIE_RADIUS * 2;
+  const columns = Math.max(1, Math.floor(usableWidth / PLOW_SLOT_SPACING_M));
+  const centre = (columns - 1) / 2;
+  const centreOut = Array.from({ length: columns }, (_, column) => column).sort(
+    (a, b) => Math.abs(a - centre) - Math.abs(b - centre) || a - b,
+  );
+  const slots: PlowSlot[] = [];
+  for (let i = 0; i < plow.capacity; i++) {
+    const column = centreOut[i % columns];
+    slots.push({
+      lateral: (column - centre) * PLOW_SLOT_SPACING_M,
+      depth:
+        PLOW_FACE_CLEARANCE_M + Math.floor(i / columns) * PLOW_SLOT_SPACING_M,
+    });
+  }
+  return slots;
+}
+
+/**
+ * What one body in a slammed pile takes.
+ *
+ * Two things make a slam hurt: how fast the blade was closing on the wall, and
+ * how many bodies are packed in there — a full blade turns the pile itself into
+ * part of the hammer. Below the blade's minimum speed nothing is crushed at
+ * all, which is what keeps the plough a manoeuvre rather than a passive weapon.
+ */
+export function plowCrushDamage(
+  plow: PlowDefinition,
+  closingSpeedMps: number,
+  pileSize: number,
+): number {
+  if (closingSpeedMps < plow.minCrushSpeedMps || pileSize <= 0) return 0;
+  const overSpeed = closingSpeedMps - plow.minCrushSpeedMps;
+  const pileScale = 1 + plow.pileBonus * (pileSize - 1);
+  return (plow.crushDamage + plow.crushDamagePerSpeed * overSpeed) * pileScale;
+}
 
 export const SPAWN_RISE_DURATION = 0.45;
 export const DEATH_FEEDBACK_DURATION = 0.6;

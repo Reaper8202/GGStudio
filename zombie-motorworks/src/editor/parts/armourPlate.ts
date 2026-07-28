@@ -25,6 +25,7 @@ import {
   shade,
   toVector3,
 } from './shared.ts';
+import { addArmourUpgrades, placedUpgradeLevel } from './upgradeKit.ts';
 
 /** Local axis the plate's outward face points along at orientation 0. */
 export const ARMOUR_FACE_AXIS: Vec3i = { x: 0, y: 1, z: 0 };
@@ -33,7 +34,13 @@ export const ARMOUR_FACE_AXIS: Vec3i = { x: 0, y: 1, z: 0 };
  * The layered plate itself, built flat in the XZ plane with its outward face
  * along +Y and its mounting face at -thickness/2.
  */
-function armourSlab(width: number, thickness: number, color: number, opacity: number): THREE.Group {
+function armourSlab(
+  width: number,
+  thickness: number,
+  color: number,
+  opacity: number,
+  level = 1,
+): THREE.Group {
   const group = new THREE.Group();
   const flangeThickness = thickness * 0.42;
   // Sunk a little into the flange: butting the two layers face to face would
@@ -154,6 +161,10 @@ function armourSlab(width: number, thickness: number, color: number, opacity: nu
       opacity,
     }),
   );
+
+  // Unlocked hardware, in the slab's own frame: +Y is the outward face, so a
+  // thin face skin gets a thin kit and a full plate a chunky one.
+  addArmourUpgrades(group, width, thickness, level, color, opacity);
   return group;
 }
 
@@ -169,7 +180,7 @@ export function buildArmourPlateMesh(
   const s = CELL_SIZE;
   const thickness = s * 0.34;
   const group = new THREE.Group();
-  const slab = armourSlab(s * 0.98, thickness, color, opacity);
+  const slab = armourSlab(s * 0.98, thickness, color, opacity, placedUpgradeLevel(placed));
   slab.quaternion.copy(orientationQuaternion(placed.orient));
 
   // The host block is on the -normal side of this cell; sit the mounting face
@@ -203,6 +214,7 @@ export function buildFaceArmourMesh(
     thickness,
     color,
     def.armour?.cosmetic ? Math.min(opacity, 0.9) : opacity,
+    placedUpgradeLevel(placed),
   );
   slab.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
 

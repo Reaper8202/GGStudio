@@ -1,115 +1,77 @@
 import { describe, expect, it } from 'vitest';
-import {
-  nextTurretModulePurchase,
-  turretModuleEconomy,
-} from '../src/editor/EditorMode.ts';
 import { sellRefund } from '../src/core/economy.ts';
 import { getPartDef } from '../src/core/parts.ts';
+import { upgradeStepFor } from '../src/core/partUpgrades.ts';
 import {
-  EMP_PRICE_BY_LEVEL,
-  PIERCING_PRICE_BY_LEVEL,
-  turretModulePrice,
+  empShieldLeak,
+  piercingDamageFraction,
 } from '../src/core/turretModules.ts';
-import type { PartConfig, PlacedPart } from '../src/core/types.ts';
+import { createWeapon } from '../src/runtime/weapons.ts';
+import type { PlacedPart } from '../src/core/types.ts';
 import { upgradePrice } from '../src/core/upgrades.ts';
 
-describe('turret module garage logic', () => {
-  it('uses the L1, L2, and L3 prices and stops past max for both modules', () => {
-    expect([1, 2, 3].map((level) => turretModulePrice('emp', level))).toEqual(
-      [...EMP_PRICE_BY_LEVEL.slice(1)],
-    );
-    expect(
-      [1, 2, 3].map((level) => turretModulePrice('piercing', level)),
-    ).toEqual([...PIERCING_PRICE_BY_LEVEL.slice(1)]);
-    expect(turretModulePrice('emp', 4)).toBeNull();
-    expect(turretModulePrice('piercing', 4)).toBeNull();
+function turret(level?: number): PlacedPart {
+  return {
+    id: 'blaster',
+    defId: 'turret',
+    pos: { x: 0, y: 0, z: 0 },
+    orient: 0,
+    config: level === undefined ? {} : { level },
+  };
+}
+
+describe('turret EMP and piercing as upgrade unlocks', () => {
+  it('names both effects on the turret chain rather than selling them apart', () => {
+    const def = getPartDef('turret');
+    expect(upgradeStepFor(def, 4)?.name).toBe('EMP Coil');
+    expect(upgradeStepFor(def, 5)?.name).toBe('Piercing Rounds');
   });
 
-  it('enables purchases at the exact price and disables them one dollar short', () => {
-    const empPrice = EMP_PRICE_BY_LEVEL[1];
-    expect(
-      turretModuleEconomy({}, empPrice, { highestWaveCleared: 10 }).emp
-        .canBuy,
-    ).toBe(true);
-    expect(
-      turretModuleEconomy({}, empPrice - 1, { highestWaveCleared: 10 }).emp
-        .canBuy,
-    ).toBe(false);
-
-    const piercingPrice = PIERCING_PRICE_BY_LEVEL[1];
-    expect(turretModuleEconomy({}, piercingPrice, {}).piercing.canBuy).toBe(
-      true,
-    );
-    expect(
-      turretModuleEconomy({}, piercingPrice - 1, {}).piercing.canBuy,
-    ).toBe(false);
-  });
-
-  it('gates EMP on wave or Phone Addict progress', () => {
-    const money = Number.MAX_SAFE_INTEGER;
-    expect(turretModuleEconomy({}, money, {}).emp.unlocked).toBe(false);
-    expect(
-      turretModuleEconomy({}, money, { highestWaveCleared: 10 }).emp.unlocked,
-    ).toBe(true);
-    expect(
-      turretModuleEconomy({}, money, { phoneAddictsKilled: 1 }).emp.unlocked,
-    ).toBe(true);
-    expect(
-      turretModuleEconomy({}, money, { highestWaveCleared: 9 }).emp.unlocked,
-    ).toBe(true);
-    expect(
-      turretModuleEconomy({}, money, { highestWaveCleared: 8 }).emp.unlocked,
-    ).toBe(false);
-  });
-
-  it('never progression-gates Piercing', () => {
-    expect(
-      turretModuleEconomy({}, PIERCING_PRICE_BY_LEVEL[1], {}).piercing,
-    ).toMatchObject({ unlocked: true, canBuy: true });
-  });
-
-  it('raises only the purchased module and leaves generic level alone', () => {
-    const original: PartConfig = {
-      level: 3,
+  it('arms a built weapon straight from the part level', () => {
+    expect(createWeapon(turret())).toMatchObject({
+      empLevel: 0,
+      piercingLevel: 0,
+    });
+    expect(createWeapon(turret(4))).toMatchObject({
       empLevel: 1,
-      piercingLevel: 1,
-    };
-    const empPurchase = nextTurretModulePurchase(original, 'emp');
-    const piercingPurchase = nextTurretModulePurchase(original, 'piercing');
-
-    expect(empPurchase?.config).toMatchObject({
-      level: 3,
+      piercingLevel: 0,
+    });
+    expect(createWeapon(turret(5))).toMatchObject({
       empLevel: 2,
       piercingLevel: 1,
     });
-    expect(piercingPurchase?.config).toMatchObject({
-      level: 3,
-      empLevel: 1,
-      piercingLevel: 2,
+    expect(createWeapon(turret(6))).toMatchObject({
+      empLevel: 3,
+      piercingLevel: 3,
     });
-    expect(original).toEqual({ level: 3, empLevel: 1, piercingLevel: 1 });
   });
 
-  it('refunds half of base cost, generic upgrades, and both module spends', () => {
+  it('leaves every other gun without either effect at any level', () => {
+    const sniper: PlacedPart = { ...turret(6), id: 'rifle', defId: 'sniper-light' };
+    expect(createWeapon(sniper)).toMatchObject({
+      empLevel: 0,
+      piercingLevel: 0,
+    });
+  });
+
+  it('turns those levels into the tuned shield leak and second-target damage', () => {
+    const maxed = createWeapon(turret(6));
+    expect(empShieldLeak(maxed.empLevel)).toBe(0.65);
+    expect(piercingDamageFraction(maxed.piercingLevel)).toBe(0.6);
+
+    const base = createWeapon(turret());
+    expect(empShieldLeak(base.empLevel)).toBe(0.1);
+    expect(piercingDamageFraction(base.piercingLevel)).toBe(0);
+  });
+
+  it('refunds half of base cost and upgrade spend, with no module spend left', () => {
     const def = getPartDef('turret');
-    const turret: PlacedPart = {
-      id: 'turret-with-modules',
-      defId: def.id,
-      pos: { x: 0, y: 0, z: 0 },
-      orient: 0,
-      config: { level: 3, empLevel: 3, piercingLevel: 3 },
-    };
-    const genericUpgradeSpend = [2, 3].reduce(
+    const upgradeSpend = [2, 3, 4].reduce(
       (total, targetLevel) => total + (upgradePrice(def, targetLevel) ?? 0),
       0,
     );
-    const moduleSpend = [
-      ...EMP_PRICE_BY_LEVEL.slice(1),
-      ...PIERCING_PRICE_BY_LEVEL.slice(1),
-    ].reduce<number>((total, price) => total + price, 0);
-
-    expect(sellRefund(turret)).toBe(
-      Math.floor((def.cost + genericUpgradeSpend + moduleSpend) * 0.5),
+    expect(sellRefund(turret(4))).toBe(
+      Math.floor((def.cost + upgradeSpend) * 0.5),
     );
   });
 });

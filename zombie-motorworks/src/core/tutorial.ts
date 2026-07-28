@@ -32,6 +32,7 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'barrel-drum',
   'spike-ram',
   'sawblade',
+  'dozer-blade',
   'sniper-light',
   'flamethrower',
 ];
@@ -99,6 +100,10 @@ export const KID_LABELS: Record<string, PartLabel> = {
   sawblade: {
     name: 'Sawblade',
     blurb: 'A spinning blade that saws through zombies it grazes!',
+  },
+  'dozer-blade': {
+    name: 'Bulldozer Blade',
+    blurb: 'Scoops up a whole crowd — squash them against a wall!',
   },
   'sniper-light': {
     name: 'Light Sniper',

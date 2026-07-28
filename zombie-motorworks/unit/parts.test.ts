@@ -39,6 +39,7 @@ const EXPECTED_CATALOG_IDS = [
   'barrel-drum',
   'spike-ram',
   'sawblade',
+  'dozer-blade',
   'sniper-light',
   'flamethrower',
   'shield-generator',

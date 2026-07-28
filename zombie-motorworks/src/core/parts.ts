@@ -1,5 +1,6 @@
 import type { Face, PartDefinition, StructuralSocket, Vec3i } from './types.ts';
 import { ALL_FACES, orientationFromSteps, rotateVec } from './grid.ts';
+import { MAX_PART_LEVEL } from './partUpgrades.ts';
 import type { OrientationIndex } from './types.ts';
 
 const ORIGIN: Vec3i = { x: 0, y: 0, z: 0 };
@@ -61,6 +62,9 @@ const oneCell = [ORIGIN];
 /** Long Spikes: origin cell plus the one it reaches into, along local +Z. */
 const SPIKE_CELLS: Vec3i[] = [ORIGIN, v(0, 0, 1)];
 
+/** Bulldozer Blade: three cells across the nose, centred on the origin. */
+const BLADE_3X1_CELLS: Vec3i[] = [v(-1, 0, 0), ORIGIN, v(1, 0, 0)];
+
 /** Phase Drive: a two-cell coil rail lying along the part's forward axis. */
 const RAIL_2X1_CELLS: Vec3i[] = [ORIGIN, v(0, 0, 1)];
 
@@ -87,8 +91,19 @@ const YAW_ORIENTATIONS: OrientationIndex[] = [0, 1, 2, 3].map((quarter) =>
   orientationFromSteps(0, quarter, 0),
 );
 
-function upgrade(maxLevel: number, cost: number) {
-  return { maxLevel, basePrice: Math.round(cost * 0.6), priceGrowth: 1.6 };
+/**
+ * Every upgradeable part runs the same five-unlock chain (see
+ * `core/partUpgrades.ts`), so the garage's star rating means the same thing on
+ * a frame box as on a heavy cannon: one star per unlock bought, five at most.
+ * `cost` is the part's shelf price; the first unlock asks a bit over half of it
+ * and each one after that is 1.6x the last.
+ */
+function upgrade(cost: number) {
+  return {
+    maxLevel: MAX_PART_LEVEL,
+    basePrice: Math.round(cost * 0.6),
+    priceGrowth: 1.6,
+  };
 }
 
 export function wheelAxleWorld(orient: OrientationIndex): Vec3i {
@@ -111,7 +126,10 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 60,
     health: 400,
     cost: 0,
-    upgrade: upgrade(3, 0),
+    // The core is free to own but not free to harden: it is the one block the
+    // rig cannot lose, so its five unlocks are priced off what they protect
+    // rather than off its (zero) shelf price.
+    upgrade: upgrade(60),
     reinforcement: 1.5,
     unique: true,
     isRoot: true,
@@ -127,7 +145,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 25,
     health: 150,
     cost: 10,
-    upgrade: upgrade(3, 10),
+    upgrade: upgrade(10),
     reinforcement: 1,
   },
   'frame-reinforced': {
@@ -141,7 +159,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 85,
     health: 320,
     cost: 25,
-    upgrade: upgrade(3, 25),
+    upgrade: upgrade(25),
     unlockCost: 150,
     reinforcement: 2,
   },
@@ -162,7 +180,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 28,
     health: 90,
     cost: 18,
-    upgrade: upgrade(5, 18),
+    upgrade: upgrade(18),
     reinforcement: 1,
     wheel: {
       radius: 0.3,
@@ -199,7 +217,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 44,
     health: 130,
     cost: 32,
-    upgrade: upgrade(5, 32),
+    upgrade: upgrade(32),
     unlockCost: 250,
     reinforcement: 1,
     wheel: {
@@ -238,7 +256,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 12,
     health: 45,
     cost: 24,
-    upgrade: upgrade(5, 24),
+    upgrade: upgrade(24),
     unlockCost: 180,
     reinforcement: 1,
     wheel: {
@@ -278,7 +296,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     // Stronger: a tracked rig should be the tankiest way to roll.
     health: 620,
     cost: 85,
-    upgrade: upgrade(5, 85),
+    upgrade: upgrade(85),
     unlockCost: 450,
     reinforcement: 2.6,
     wheel: {
@@ -324,7 +342,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 120,
     health: 120,
     cost: 60,
-    upgrade: upgrade(5, 60),
+    upgrade: upgrade(60),
     reinforcement: 1,
     // Engines carry a small internal fuel reserve so an engine-only build can
     // still drive; fuel-tank blocks extend total onboard fuel from there.
@@ -355,7 +373,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 55,
     health: 80,
     cost: 20,
-    upgrade: upgrade(3, 20),
+    upgrade: upgrade(20),
     reinforcement: 1,
     fuelCapacity: 50,
   },
@@ -370,7 +388,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 35,
     health: 90,
     cost: 180,
-    upgrade: upgrade(3, 120),
+    upgrade: upgrade(120),
     unlockCost: 220,
     reinforcement: 1,
     unique: true,
@@ -388,7 +406,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 85,
     health: 140,
     cost: 150,
-    upgrade: upgrade(5, 150),
+    upgrade: upgrade(150),
     reinforcement: 1,
     weapon: {
       mountType: 'turret',
@@ -415,7 +433,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 95,
     health: 220,
     cost: 120,
-    upgrade: upgrade(5, 120),
+    upgrade: upgrade(120),
     unlockCost: 200,
     reinforcement: 2.5,
     armour: {
@@ -441,7 +459,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 240,
     health: 300,
     cost: 340,
-    upgrade: upgrade(5, 340),
+    upgrade: upgrade(340),
     unlockCost: 500,
     reinforcement: 1.25,
     weapon: {
@@ -479,7 +497,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 110,
     health: 150,
     cost: 300,
-    upgrade: upgrade(5, 300),
+    upgrade: upgrade(300),
     unlockCost: 600,
     reinforcement: 1.15,
     // Normal fire: an auto-aim cryo turret whose shards slow zombies on hit.
@@ -523,7 +541,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 240,
     health: 360,
     cost: 200,
-    upgrade: upgrade(5, 200),
+    upgrade: upgrade(200),
     unlockCost: 400,
     reinforcement: 1.5,
     melee: {
@@ -547,7 +565,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 90,
     health: 130,
     cost: 170,
-    upgrade: upgrade(5, 170),
+    upgrade: upgrade(170),
     reinforcement: 1,
     melee: {
       damage: 32,
@@ -578,11 +596,70 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 85,
     health: 120,
     cost: 150,
-    upgrade: upgrade(5, 150),
+    upgrade: upgrade(150),
     reinforcement: 1,
     melee: {
       damage: 20,
       visual: 'blade',
+    },
+  },
+  'dozer-blade': {
+    id: 'dozer-blade',
+    name: 'Bulldozer Blade',
+    category: 'weapon',
+    description:
+      'Three-block plough blade. It barely scratches what it touches — ' +
+      'instead it scoops the horde up and carries it along the nose. Drive ' +
+      'that load into a wall, a tree or a wreck and the whole pile is ' +
+      'flattened at once; the bigger the pile and the faster you hit, the ' +
+      'harder it lands.',
+    // Three cells across the nose: the catch zone is as wide as the blade
+    // looks, so a player can read what it will sweep up off the silhouette.
+    cells: BLADE_3X1_CELLS,
+    clearanceCells: [],
+    // Bolts on by its back face alone, like every melee weapon; only the cell
+    // that finds a neighbour behind it carries the load.
+    sockets: BLADE_3X1_CELLS.map((cell) =>
+      singleSocket(`blade-mount-${cellId(cell)}`, 'frame', cell, 'nz'),
+    ),
+    // A blade that is not upright is not a blade, so it only ever turns about
+    // the vertical axis.
+    allowedOrientations: YAW_ORIENTATIONS,
+    // The heaviest thing on the nose: the mass is the point, since it is what
+    // lets the rig keep pushing a full load instead of bogging down in it.
+    massKg: 280,
+    health: 380,
+    cost: 260,
+    upgrade: upgrade(260),
+    unlockCost: 480,
+    reinforcement: 2,
+    // Driving the load into a wall is what the blade is *for*, so it takes a
+    // fifth of what a collision would otherwise cost it. Without this the
+    // finisher the part is built around is also the thing that destroys it.
+    impactResistance: 0.8,
+    melee: {
+      // Deliberately feeble. A zombie riding the blade takes this and nothing
+      // else — see `PlowDefinition`, which also suppresses the speed ram.
+      damage: 4,
+      visual: 'plow',
+      plow: {
+        // The catch zone flares a full cell past each end of the blade, so a
+        // body clipped by a corner is scooped into the load rather than spat
+        // out down the side. Three ride abreast; the rest stack up behind them.
+        halfWidthM: 1.5,
+        // Deep enough for every rank of a full load — four of them, at the
+        // spacing `plowSlots` lays out. Shorten this and the back ranks fall
+        // out of the blade's hands and get rammed instead of carried.
+        reachM: 2.9,
+        capacity: 12,
+        // 45 kills a base walker outright; a loaded blade at speed clears
+        // several waves' worth of health per body in the pile.
+        crushDamage: 45,
+        crushDamagePerSpeed: 9,
+        // ~18 km/h: below that the blade is a snowplough, not a weapon.
+        minCrushSpeedMps: 5,
+        pileBonus: 0.1,
+      },
     },
   },
   'sniper-light': {
@@ -597,7 +674,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 40,
     health: 90,
     cost: 220,
-    upgrade: upgrade(5, 220),
+    upgrade: upgrade(220),
     unlockCost: 350,
     reinforcement: 1,
     weapon: {
@@ -620,16 +697,16 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     category: 'weapon',
     description:
       'Heavy fixed nozzle that periodically sprays a cone of flame ahead. ' +
-      'Also fills an ability slot with Hellfire: the nozzle stays wide open ' +
-      'for six seconds, throwing a hotter, longer, wider sheet of fire with ' +
-      'no pause between bursts. 20s cooldown; upgrades run hotter and longer.',
+      'Its fourth upgrade, the Pilot Cluster, also fills an ability slot with ' +
+      'Hellfire: the nozzle stays wide open, throwing a hotter, longer, wider ' +
+      'sheet of fire with no pause between bursts. 35s cooldown.',
     cells: oneCell,
     clearanceCells: [v(0, 0, 1)],
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 130,
     health: 120,
     cost: 260,
-    upgrade: upgrade(5, 260),
+    upgrade: upgrade(260),
     unlockCost: 450,
     reinforcement: 1,
     weapon: {
@@ -649,15 +726,20 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       burstIntervalSeconds: 6.6,
     },
     // Hellfire overcharges this part's own nozzle rather than the whole rig:
-    // 7m → 12.6m of reach and a 50° → 80° cone at 2.4× damage (21 → ~50 per
-    // ray), sprayed continuously instead of in bursts. The burst gap is worth
-    // as much as the multiplier here — six seconds of unbroken spray is
-    // roughly four times the flame the nozzle would otherwise put out.
+    // 7m → 12.6m of reach and a 50° → 80° cone, sprayed continuously instead
+    // of in bursts. The multiplier is the smaller half of it — flame burns
+    // everything standing in the cone, so an unbroken sheet across a crowd is
+    // most of what the ability is worth, and ×1.9 on top of that is plenty.
+    //
+    // It arrives with the fourth upgrade (level 5, the Pilot Cluster). The
+    // nozzle is bought for its own fire; Hellfire is the pay-off near the end
+    // of its chain, not a free ability slot on the cheapest flamethrower.
     ability: {
       kind: 'hellfire',
-      cooldownSeconds: 20,
-      baseDurationSeconds: 6,
-      baseDamageMultiplier: 2.4,
+      unlockLevel: 5,
+      cooldownSeconds: 35,
+      baseDurationSeconds: 4,
+      baseDamageMultiplier: 1.1,
       rangeMultiplier: 1.8,
       coneMultiplier: 1.6,
     },
@@ -676,7 +758,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 120,
     health: 160,
     cost: 320,
-    upgrade: upgrade(5, 320),
+    upgrade: upgrade(320),
     unlockCost: 650,
     reinforcement: 1.15,
     // Ability payload only (no `weapon`): SurvivalMode grants the vehicle
@@ -701,7 +783,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 130,
     health: 150,
     cost: 300,
-    upgrade: upgrade(5, 300),
+    upgrade: upgrade(300),
     unlockCost: 600,
     reinforcement: 1.15,
     // The panic button for a rig that has been swarmed: no aim, no travel
@@ -729,7 +811,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 95,
     health: 120,
     cost: 260,
-    upgrade: upgrade(5, 260),
+    upgrade: upgrade(260),
     unlockCost: 520,
     reinforcement: 1.1,
     // Multiplies drive torque rather than granting speed directly, so it pays
@@ -765,7 +847,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 85,
     health: 110,
     cost: 280,
-    upgrade: upgrade(5, 280),
+    upgrade: upgrade(280),
     unlockCost: 560,
     reinforcement: 1.1,
     // The escape hatch nitro is not: no wind-up, no traction needed, and it

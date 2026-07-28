@@ -141,8 +141,9 @@ export function effectiveOverdrive(
 /**
  * Scales a hellfire ability by the placed part's upgrade level. Each level
  * beyond the first adds half a second of overcharge and a fifth of extra
- * damage; reach, cone, and cooldown are fixed. Level 1 → 6s at ×2.4, level 5 →
- * 8s at ×3.2 (with the default flamethrower payload).
+ * damage; reach, cone, and cooldown are fixed. With the default flamethrower
+ * payload the ability only exists from level 5 (see `unlockLevel`), where it
+ * reads 6s at ×1.9, growing to 6.5s at ×2.1 at level 6.
  */
 export function effectiveHellfire(
   def: AbilityDefinition,
@@ -252,6 +253,20 @@ function slabLimit(
 /** Upgrade levels past the first, floored at 0 so level 0 reads as level 1. */
 function upgradeSteps(level: number): number {
   return Math.max(0, Math.floor(level) - 1);
+}
+
+/**
+ * Whether a placed part is upgraded far enough to offer its ability. Below the
+ * unlock level the part still works — it simply has nothing to put in the bar
+ * yet, so it is never offered as a loadout candidate.
+ */
+export function abilityUnlocked(def: AbilityDefinition, level = 1): boolean {
+  return Math.max(1, Math.floor(level)) >= abilityUnlockLevel(def);
+}
+
+/** Upgrade level an ability unlocks at; 1 when it ships with the part. */
+export function abilityUnlockLevel(def: AbilityDefinition): number {
+  return Math.max(1, Math.floor(def.unlockLevel ?? 1));
 }
 
 /** Keys that fire the ability bar's slots, left to right. */

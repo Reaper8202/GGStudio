@@ -311,9 +311,9 @@ describe('hybrid weapon input', () => {
     }
     expect(volleys).toBe(12);
 
-    // And it reverts the moment the overcharge lapses.
-    fire(hellfire.durationSeconds);
-    const cooled = fire(1 / def.fireRate).shots;
+    // And it reverts the moment the overcharge lapses: the step that burns off
+    // the last of it already fires a stock volley.
+    const cooled = fire(hellfire.durationSeconds).shots;
     expect(weapon.overcharge).toBeNull();
     expect(cooled[0].damage).toBeCloseTo(def.damage);
     expect(cooled.every((shot) => shot.overcharged)).toBe(false);

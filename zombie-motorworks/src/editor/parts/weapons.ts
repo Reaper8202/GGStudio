@@ -31,6 +31,7 @@ import {
   orientationQuaternion,
   shade,
 } from './shared.ts';
+import { addWeaponUpgrades, placedUpgradeLevel } from './upgradeKit.ts';
 
 const GUNMETAL = 0x22262c;
 const FROST = 0x8fe3ff;
@@ -152,6 +153,17 @@ export function buildWeaponMesh(
       buildAutocannon(hardware, color, opacity);
       break;
   }
+
+  // Unlocked hardware goes on last, so it can measure the barrel the gun just
+  // built and hang the brake off the real muzzle rather than a guessed one.
+  addWeaponUpgrades(
+    hardware,
+    def.id,
+    placedUpgradeLevel(placed),
+    color,
+    opacity,
+    Math.max(span.x, span.z),
+  );
   return group;
 }
 

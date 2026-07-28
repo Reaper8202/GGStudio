@@ -48,6 +48,11 @@ They describe work at the time they were written and can be stale.
 - **Effective Definition**: a Part Definition after applying the Placed Part's
   upgrade level. Analysis, assembly, repair maxima, and weapons must resolve
   through `getEffectiveDef` rather than reimplement scaling.
+- **Upgrade Unlock**: one named, iconed step in a part's five-link chain
+  (`src/core/partUpgrades.ts`). Levels are bought in order, so a part's level is
+  its unlock count plus one, and the garage shows it as 0-5 stars. Each unlock
+  also owns a piece of geometry in `src/editor/parts/upgradeKit.ts`; the two
+  files change together.
 - **Connection Graph**: socket-derived structural graph. The root island remains
   the controllable vehicle; detached non-root islands become debris.
 - **Profile**: persistent wallet, unlocks, inventory, selected blueprint name,
@@ -198,7 +203,8 @@ the task crosses their Interface.
 | Vehicle analysis/metrics | `src/core/analysis.ts` | `mass.ts`, `upgrades.ts`, `wheelLayout.ts` | `unit/analysis.test.ts` |
 | Blueprint schema/migration | `src/core/serialize.ts` | `types.ts`, `blueprint.ts` | `unit/serialize.test.ts`, `unit/blueprint.test.ts` |
 | Profile/inventory/unlocks | `src/core/profile.ts` | `app/profileStore.ts`, `editor/EditorMode.ts` | `unit/profile.test.ts`, `unit/profile-store.test.ts`, `unit/store-flow.test.ts` |
-| Economy/repair/upgrades | `src/core/economy.ts` | `upgrades.ts`, `editor/EditorMode.ts`, `app/App.ts` | `unit/economy.test.ts`, `unit/repair.test.ts`, `unit/store-flow.test.ts` |
+| Economy/repair/upgrades | `src/core/economy.ts` | `upgrades.ts`, `partUpgrades.ts`, `editor/EditorMode.ts`, `app/App.ts` | `unit/economy.test.ts`, `unit/repair.test.ts`, `unit/store-flow.test.ts` |
+| Upgrade unlock names/icons/visuals | `src/core/partUpgrades.ts` | `editor/parts/upgradeKit.ts`, `editor/ui.ts` | `unit/part-upgrades.test.ts` |
 | Garage input/placement | `src/editor/EditorMode.ts` | `editor/meshes.ts`, `editor/overlays.ts` | `tests/editor.spec.ts` |
 | Garage DOM/store/inspector | `src/editor/ui.ts` | `EditorMode.ts`, `style.css`, `ui/system.ts` | `unit/store-flow.test.ts`, `tests/editor.spec.ts` |
 | Test-drive physics | `src/chamber/ChamberMode.ts` | `runtime/vehicle.ts`, `runtime/assembler.ts` | `tests/drive.spec.ts`, `tests/collision.spec.ts` |

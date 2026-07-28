@@ -9,16 +9,17 @@ import {
 import { ABILITY_SLOT_KEYS } from '../core/abilities.ts';
 import { KID_LABELS, SIMPLE_PART_IDS } from '../core/tutorial.ts';
 import {
-  PAINT_COLORS,
   type PartDefinition,
   type PartConfig,
   type ValidationIssue,
   type VehicleAnalysisReport,
 } from '../core/types.ts';
 import {
-  TURRET_MODULE_MAX_LEVEL,
-  type TurretModule,
-} from '../core/turretModules.ts';
+  MAX_UPGRADE_STEPS,
+  upgradeStars,
+  upgradeStepsFor,
+} from '../core/partUpgrades.ts';
+import { upgradePrice } from '../core/upgrades.ts';
 
 export interface EditorUIHandlers {
   /** Atomic production store action; old harnesses may omit this callback. */
@@ -46,7 +47,6 @@ export interface EditorUIHandlers {
   onUpgradePart(partId: string): void;
   onRepairPart(partId: string): void;
   onRepairAll(): void;
-  onBuyTurretModule(partId: string, module: TurretModule): void;
   onDeleteSelected(): void;
   onRotateSelected(axis: 'y' | 'x'): void;
 }
@@ -57,7 +57,6 @@ export interface SelectedPartEconomy {
   sellRefund: number;
   repairCost: number | null;
   canRepair: boolean;
-  turretModules?: Record<TurretModule, TurretModuleEconomy>;
   upgradePreview?: {
     before: {
       totalDps: number;
@@ -70,14 +69,6 @@ export interface SelectedPartEconomy {
       estimatedTopSpeedKph: number;
     };
   };
-}
-
-export interface TurretModuleEconomy {
-  level: number;
-  targetLevel: number | null;
-  price: number | null;
-  unlocked: boolean;
-  canBuy: boolean;
 }
 
 export interface RunSummary {
@@ -118,6 +109,12 @@ export interface AbilitySlotStatus {
   candidates: number;
   /** Slots the bar has. */
   capacity: number;
+  /**
+   * Upgrade level this part has to reach before its ability can be equipped at
+   * all, or null once it has. Set means the part missed the cut because it is
+   * not upgraded far enough, not because the bar is full.
+   */
+  lockedUntilLevel: number | null;
 }
 
 export interface RunRepairEconomy {
@@ -260,6 +257,161 @@ function buildMetric(
   return metric;
 }
 
+/**
+ * Star rating for a part's unlocks: one filled star per unlock bought, five
+ * slots always drawn so an untouched part reads as "0 of 5" at a glance rather
+ * than as a part without upgrades at all.
+ */
+function buildStarRating(level: number): HTMLElement {
+  const earned = upgradeStars(level);
+  const rating = document.createElement('div');
+  rating.className = 'selected-part__rating';
+  rating.setAttribute('role', 'img');
+  rating.setAttribute('aria-label', `${earned} of ${MAX_UPGRADE_STEPS} upgrades fitted`);
+  const stars = document.createElement('span');
+  stars.className = 'selected-part__stars';
+  for (let i = 0; i < MAX_UPGRADE_STEPS; i++) {
+    const star = document.createElement('span');
+    star.className = i < earned ? 'star is-earned' : 'star';
+    star.textContent = i < earned ? '★' : '☆';
+    stars.appendChild(star);
+  }
+  const count = document.createElement('span');
+  count.className = 'selected-part__rating-count';
+  count.textContent = `${earned}/${MAX_UPGRADE_STEPS}`;
+  rating.append(stars, count);
+  return rating;
+}
+
+/** The stat changes the next unlock would make, as `before → after` rows. */
+function upgradeDeltaRows(
+  preview: NonNullable<SelectedPartEconomy['upgradePreview']>,
+): [string, string][] {
+  const rows: [string, string][] = [];
+  if (preview.before.totalDps !== preview.after.totalDps) {
+    rows.push([
+      'DPS',
+      `${preview.before.totalDps.toFixed(1)} → ${preview.after.totalDps.toFixed(1)}`,
+    ]);
+  }
+  if (preview.before.integrity !== preview.after.integrity) {
+    rows.push([
+      'Integrity',
+      `${formatStat(preview.before.integrity)} → ${formatStat(preview.after.integrity)}`,
+    ]);
+  }
+  if (preview.before.estimatedTopSpeedKph !== preview.after.estimatedTopSpeedKph) {
+    rows.push([
+      'Top Speed',
+      `${preview.before.estimatedTopSpeedKph.toFixed(0)} → ${preview.after.estimatedTopSpeedKph.toFixed(0)} km/h`,
+    ]);
+  }
+  return rows;
+}
+
+/**
+ * The part's unlock chain: every upgrade it can ever fit, named and priced,
+ * with the ones already bought ticked off and exactly one buyable — the next
+ * link. Buying is the same `onUpgradePart` call as before; what changed is that
+ * the player can see what the money buys before spending it.
+ */
+function buildUpgradeSection(
+  def: PartDefinition,
+  level: number,
+  economy: SelectedPartEconomy | undefined,
+  onUnlock: () => void,
+): HTMLElement {
+  const section = document.createElement('section');
+  section.className = 'selected-part__upgrades';
+
+  const heading = document.createElement('div');
+  heading.className = 'selected-part__upgrades-title';
+  const headingText = document.createElement('span');
+  headingText.textContent = 'Upgrades';
+  const headingCount = document.createElement('span');
+  headingCount.textContent = `${upgradeStars(level)}/${MAX_UPGRADE_STEPS} unlocked`;
+  heading.append(headingText, headingCount);
+  section.appendChild(heading);
+
+  const steps = upgradeStepsFor(def);
+  const nextStep = steps.find((step) => step.level === level + 1);
+
+  if (!nextStep) {
+    const maxed = document.createElement('p');
+    maxed.className = 'selected-part__upgrades-maxed';
+    maxed.textContent = `Fully upgraded — all ${MAX_UPGRADE_STEPS} unlocks fitted.`;
+    section.appendChild(maxed);
+    return section;
+  }
+
+  const price = economy?.nextUpgradePrice ?? upgradePrice(def, nextStep.level) ?? 0;
+  const unlock = document.createElement('button');
+  unlock.type = 'button';
+  unlock.className = 'upgrade-unlock';
+  unlock.disabled = economy?.canUpgrade !== true;
+  if (economy?.canUpgrade === false) unlock.title = 'Not enough money';
+  const unlockIcon = document.createElement('span');
+  unlockIcon.className = 'upgrade-unlock__icon';
+  unlockIcon.textContent = nextStep.icon;
+  const unlockText = document.createElement('span');
+  unlockText.className = 'upgrade-unlock__text';
+  const unlockLead = document.createElement('strong');
+  unlockLead.textContent = `Unlock ${nextStep.name}`;
+  const unlockBlurb = document.createElement('span');
+  unlockBlurb.textContent = nextStep.blurb;
+  unlockText.append(unlockLead, unlockBlurb);
+  const unlockCost = document.createElement('span');
+  unlockCost.className = 'upgrade-unlock__cost';
+  unlockCost.textContent = `$${price}`;
+  unlock.append(unlockIcon, unlockText, unlockCost);
+  unlock.addEventListener('click', onUnlock);
+  section.appendChild(unlock);
+
+  const deltaRows = economy?.upgradePreview
+    ? upgradeDeltaRows(economy.upgradePreview)
+    : [];
+  if (deltaRows.length > 0) {
+    const preview = document.createElement('div');
+    preview.className = 'selected-part__upgrade-preview';
+    for (const [labelText, valueText] of deltaRows) {
+      const row = document.createElement('div');
+      row.className = 'selected-part__upgrade-preview-row';
+      const label = document.createElement('span');
+      label.textContent = labelText;
+      const value = document.createElement('strong');
+      value.textContent = valueText;
+      row.append(label, value);
+      preview.appendChild(row);
+    }
+    section.appendChild(preview);
+  }
+
+  // One step of lookahead and no more. Showing the whole chain turned the panel
+  // into a price list; showing what comes after the current buy is enough to
+  // make saving up a decision.
+  const afterStep = steps.find((step) => step.level === nextStep.level + 1);
+  if (afterStep) {
+    const row = document.createElement('div');
+    row.className = 'upgrade-step is-locked';
+    const icon = document.createElement('span');
+    icon.className = 'upgrade-step__icon';
+    icon.textContent = afterStep.icon;
+    const text = document.createElement('span');
+    text.className = 'upgrade-step__text';
+    const name = document.createElement('strong');
+    name.textContent = `Then: ${afterStep.name}`;
+    const blurb = document.createElement('span');
+    blurb.textContent = afterStep.blurb;
+    text.append(name, blurb);
+    const status = document.createElement('span');
+    status.className = 'upgrade-step__status';
+    status.textContent = `$${upgradePrice(def, afterStep.level) ?? 0}`;
+    row.append(icon, text, status);
+    section.appendChild(row);
+  }
+  return section;
+}
+
 function partThumbnail(def: PartDefinition): HTMLImageElement {
   const common = `
     <path d="M16 24 32 15 48 24 32 33Z" fill="#59604f"/>
@@ -346,6 +498,18 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
       <circle cx="32" cy="32" r="6" fill="#242923"/>
       <path d="M32 8 36 16 28 16ZM32 56 36 48 28 48ZM8 32 16 28 16 36ZM56 32 48 36 48 28Z" fill="#8a939c"/>
       <path d="M12 12 20 16 16 20ZM52 52 44 48 48 44ZM12 52 16 44 20 48ZM52 12 48 20 44 16Z" fill="#8a939c"/>
+    `,
+    // Curved mouldboard seen from its working side, wings capping both ends
+    // and a shoved heap of bodies piling up against the face.
+    'dozer-blade': `
+      <path d="M10 16H16V50H10ZM48 16H54V50H48Z" fill="#8a6f17"/>
+      <path d="M16 18H48V22H16Z" fill="#e0bc3c"/>
+      <path d="M16 22H48V42H16Z" fill="#c9a227"/>
+      <path d="M16 42H48V48H16Z" fill="#8a6f17"/>
+      <path d="M16 48H48V52H16Z" fill="#c6cdd4"/>
+      <path d="M22 22H26V42H22ZM38 22H42V42H38Z" fill="#a8871c"/>
+      <path d="M20 30H44V34H20Z" fill="#e0bc3c"/>
+      <path d="M18 52H24V58H18ZM28 50H34V58H28ZM40 52H46V58H40Z" fill="#4c6b3f"/>
     `,
     'sniper-light': `
       ${common}
@@ -1255,7 +1419,7 @@ export function buildEditorUI(
     const mark = document.createElement('span');
     mark.textContent = '[ ]';
     const text = document.createElement('p');
-    text.textContent = 'Select a block on the model to inspect, upgrade, rotate, paint, or sell it.';
+    text.textContent = 'Select a block on the model to inspect, upgrade, rotate, or sell it.';
     empty.append(mark, text);
     selectedContent.appendChild(empty);
   };
@@ -1327,14 +1491,14 @@ export function buildEditorUI(
       // Match the store/HUD: show the kid-facing label (e.g. "Zombie Blaster"),
       // falling back to the catalog name.
       name.textContent = KID_LABELS[def.id]?.name ?? def.name;
-      const levelBadge = document.createElement('span');
-      const maxLevel = def.upgrade?.maxLevel;
-      levelBadge.textContent = maxLevel === undefined ? `LV ${level}` : `LV ${level}/${maxLevel}`;
-      title.append(name, levelBadge);
+      // No level number: the stars under the name are the whole story.
+      title.append(name);
       const description = document.createElement('p');
       description.className = 'selected-part__description';
       description.textContent = KID_LABELS[def.id]?.blurb ?? def.description;
-      selectedContent.append(title, description);
+      selectedContent.append(title);
+      if (def.upgrade !== undefined) selectedContent.append(buildStarRating(level));
+      selectedContent.append(description);
 
       const statList = document.createElement('div');
       statList.className = 'selected-part__stats';
@@ -1349,6 +1513,12 @@ export function buildEditorUI(
         statList.appendChild(row);
       }
       selectedContent.appendChild(statList);
+
+      if (def.upgrade !== undefined) {
+        selectedContent.appendChild(
+          buildUpgradeSection(def, level, economy, () => handlers.onUpgradePart(partId)),
+        );
+      }
 
       if (effectiveDef?.wheel) {
         const advanced = document.createElement('details');
@@ -1386,6 +1556,8 @@ export function buildEditorUI(
         abilityInput.checked = abilitySlot
           ? abilitySlot.key !== null
           : partConfig?.activeAbility === true;
+        // Nothing to equip until the part is upgraded into its ability.
+        abilityInput.disabled = abilitySlot?.lockedUntilLevel != null;
         abilityInput.addEventListener('change', () =>
           handlers.onConfigChange(partId, 'activeAbility', abilityInput.checked),
         );
@@ -1393,7 +1565,10 @@ export function buildEditorUI(
         if (abilitySlot) {
           const status = document.createElement('span');
           status.className = 'selected-part__ability-slot';
-          if (abilitySlot.key === null) {
+          if (abilitySlot.lockedUntilLevel !== null) {
+            status.classList.add('is-benched');
+            status.textContent = `Unlocks at Lv ${abilitySlot.lockedUntilLevel}`;
+          } else if (abilitySlot.key === null) {
             status.classList.add('is-benched');
             status.textContent = `Bench (bar full: ${abilitySlot.capacity}/${abilitySlot.candidates})`;
           } else {
@@ -1403,25 +1578,6 @@ export function buildEditorUI(
         }
         selectedContent.appendChild(abilitySection);
       }
-
-      const paintSection = document.createElement('div');
-      paintSection.className = 'selected-part__paint';
-      const paintLabel = document.createElement('span');
-      paintLabel.textContent = 'Paint';
-      const swatches = document.createElement('div');
-      swatches.className = 'paint-swatches';
-      for (const [paint, color] of Object.entries(PAINT_COLORS)) {
-        const swatch = document.createElement('button');
-        swatch.type = 'button';
-        swatch.className = 'paint-swatch';
-        swatch.style.background = `#${color.toString(16).padStart(6, '0')}`;
-        swatch.title = `Paint ${paint}`;
-        swatch.setAttribute('aria-label', `Paint ${paint}`);
-        swatch.addEventListener('click', () => handlers.onConfigChange(partId, 'paint', paint));
-        swatches.appendChild(swatch);
-      }
-      paintSection.append(paintLabel, swatches);
-      selectedContent.appendChild(paintSection);
 
       const actions = document.createElement('div');
       actions.className = 'selected-part__actions';
@@ -1438,100 +1594,14 @@ export function buildEditorUI(
         }
         actions.appendChild(repairButton);
       }
-      const nextPrice = economy?.nextUpgradePrice ?? null;
-      const upgradePreview = economy?.upgradePreview;
-      if (nextPrice !== null && upgradePreview) {
-        const previewRows: [string, string][] = [];
-        if (upgradePreview.before.totalDps !== upgradePreview.after.totalDps) {
-          previewRows.push([
-            'DPS',
-            `${upgradePreview.before.totalDps.toFixed(1)} → ${upgradePreview.after.totalDps.toFixed(1)}`,
-          ]);
-        }
-        if (upgradePreview.before.integrity !== upgradePreview.after.integrity) {
-          previewRows.push([
-            'Integrity',
-            `${formatStat(upgradePreview.before.integrity)} → ${formatStat(upgradePreview.after.integrity)}`,
-          ]);
-        }
-        if (
-          upgradePreview.before.estimatedTopSpeedKph !==
-          upgradePreview.after.estimatedTopSpeedKph
-        ) {
-          previewRows.push([
-            'Top Speed',
-            `${upgradePreview.before.estimatedTopSpeedKph.toFixed(0)} → ${upgradePreview.after.estimatedTopSpeedKph.toFixed(0)} km/h`,
-          ]);
-        }
-        if (previewRows.length > 0) {
-          const preview = document.createElement('div');
-          preview.className = 'selected-part__upgrade-preview';
-          const previewHeading = document.createElement('span');
-          previewHeading.className = 'selected-part__upgrade-preview-title';
-          previewHeading.textContent = 'Next upgrade';
-          preview.appendChild(previewHeading);
-          for (const [labelText, valueText] of previewRows) {
-            const row = document.createElement('div');
-            row.className = 'selected-part__upgrade-preview-row';
-            const label = document.createElement('span');
-            label.textContent = labelText;
-            const value = document.createElement('strong');
-            value.textContent = valueText;
-            row.append(label, value);
-            preview.appendChild(row);
-          }
-          selectedContent.appendChild(preview);
-        }
-      }
-      const upgradeButton = btn(
-        nextPrice === null ? 'Max Level' : `Upgrade  $${nextPrice}`,
-        () => handlers.onUpgradePart(partId),
-      );
-      upgradeButton.className = 'primary selected-upgrade';
-      upgradeButton.disabled = nextPrice === null || economy?.canUpgrade !== true;
-      if (nextPrice !== null && economy?.canUpgrade === false) upgradeButton.title = 'Not enough money';
-      actions.appendChild(upgradeButton);
       if (!def.isRoot) {
         actions.append(
           btn('Turn', () => handlers.onRotateSelected('y'), 'R'),
-          btn('Flip', () => handlers.onRotateSelected('x'), 'F'),
           btn(`Sell  +$${economy?.sellRefund ?? 0}`, handlers.onDeleteSelected, 'Delete'),
         );
       }
       selectedContent.appendChild(actions);
 
-      if (def.id === 'turret' && economy?.turretModules) {
-        const moduleSection = document.createElement('div');
-        moduleSection.className = 'selected-part__modules';
-        for (const module of ['emp', 'piercing'] as const) {
-          const moduleEconomy = economy.turretModules[module];
-          const displayName = module === 'emp' ? 'EMP' : 'Piercing';
-          const row = document.createElement('div');
-          row.className = 'selected-part__module-row';
-          const label = document.createElement('span');
-          label.textContent = `${displayName}  L${moduleEconomy.level} / ${TURRET_MODULE_MAX_LEVEL}`;
-          const buyButton = btn(
-            moduleEconomy.targetLevel === null || moduleEconomy.price === null
-              ? 'Max'
-              : `${displayName} L${moduleEconomy.targetLevel}  $${moduleEconomy.price}`,
-            () => handlers.onBuyTurretModule(partId, module),
-          );
-          buyButton.className = 'selected-part__module-buy';
-          buyButton.disabled = !moduleEconomy.canBuy;
-          if (!moduleEconomy.unlocked) {
-            buyButton.title =
-              'Clear wave 10 or kill a Phone Addict to unlock EMP';
-          } else if (
-            moduleEconomy.price !== null &&
-            !moduleEconomy.canBuy
-          ) {
-            buyButton.title = 'Not enough money';
-          }
-          row.append(label, buyButton);
-          moduleSection.appendChild(row);
-        }
-        selectedContent.appendChild(moduleSection);
-      }
     },
     setAbilityLoadout: (slots) => {
       abilityLoadoutBoxList.forEach((box, slot) => {
@@ -1839,7 +1909,7 @@ function buildHelpOverlay(): HTMLDivElement {
     <li>Open Inventory with the crate button beside the build bar, then click a block to slot it (5 slots; click it again or right-click a slot to clear it).</li>
     <li>Click a bar slot to arm that block, then place it. Green can place; red explains why it cannot. A slot showing x0 jumps you to that block in the Store.</li>
     <li>Build blocks around the Truck Heart. Everything needs to connect face-to-face.</li>
-    <li>Select a placed part to upgrade, rotate, paint, or sell it in the right inspector.</li>
+    <li>Select a placed part to upgrade, rotate, or sell it in the right inspector.</li>
     <li>Use Test Drive when the vehicle is ready.</li></ol>
     <div class="cat-title">controls</div>
     <table><tr><td>Orbit / zoom</td><td>left-drag / mouse wheel; keys <b>1-5</b> choose views</td></tr>

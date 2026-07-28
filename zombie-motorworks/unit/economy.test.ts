@@ -9,6 +9,7 @@ import {
   unlockCost,
 } from '../src/core/economy.ts';
 import { getPartDef } from '../src/core/parts.ts';
+import { MAX_PART_LEVEL } from '../src/core/partUpgrades.ts';
 import type { PlacedPart } from '../src/core/types.ts';
 
 function placed(defId: string, level?: number): PlacedPart {
@@ -42,7 +43,7 @@ describe('economy helpers', () => {
       targetLevel: 2,
       price: 90,
     });
-    expect(nextUpgrade(placed('turret', 5))).toBeNull();
+    expect(nextUpgrade(placed('turret', MAX_PART_LEVEL))).toBeNull();
   });
 
   it('handles a catalog part with no upgrade metadata as its base cost only', () => {

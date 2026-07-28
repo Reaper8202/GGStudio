@@ -7,6 +7,7 @@ import {
   deserializeBlueprint,
   serializeBlueprint,
 } from '../src/core/serialize.ts';
+import { MAX_PART_LEVEL } from '../src/core/partUpgrades.ts';
 
 function sampleBlueprint() {
   let bp = createEmptyBlueprint('roundtrip rig');
@@ -192,7 +193,7 @@ describe('blueprint serialization', () => {
     );
 
     expect(result.parts[0].config).toEqual({
-      level: 5,
+      level: MAX_PART_LEVEL,
       driven: true,
       braking: false,
     });

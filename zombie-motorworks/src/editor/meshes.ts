@@ -21,9 +21,30 @@ import { buildMeleeMesh } from './parts/melee.ts';
 import { buildNitroInjectorMesh, buildPhaseDriveMesh } from './parts/mobility.ts';
 import { buildWeaponMesh } from './parts/weapons.ts';
 import { buildTreadMesh, buildWheelMesh } from './parts/wheels.ts';
+import { buildBlockUpgrades } from './parts/upgradeKit.ts';
 
 export { partColor };
 export { applyWeaponAim } from './parts/weapons.ts';
+
+/**
+ * Bolt on whatever the part's upgrade level has unlocked and hand the group
+ * back, so a builder can end with `return withUpgradeKit(...)`.
+ *
+ * Guns, wheels and armour plates are absent from here on purpose: their kits go
+ * inside the aiming group, the spinning group and the slab respectively, so the
+ * hardware moves with the thing it is bolted to.
+ */
+function withUpgradeKit(
+  group: THREE.Group,
+  def: PartDefinition,
+  placed: PlacedPart,
+  color: number,
+  opacity: number,
+): THREE.Group {
+  const kit = buildBlockUpgrades(def, placed, color, opacity);
+  if (kit) group.add(kit);
+  return group;
+}
 
 /**
  * Build a vehicle-local mesh for a placed part. Children sit at cell centres
@@ -54,7 +75,7 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
     // onto. Selection still hits them.
     group.userData.blocksAttachments = true;
     group.add(buildMeleeMesh(def, placed, color, opacity));
-    return group;
+    return withUpgradeKit(group, def, placed, color, opacity);
   }
 
   if (def.armour) {
@@ -64,6 +85,7 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
         ? buildFaceArmourMesh(def, placed, color, opacity)
         : buildArmourPlateMesh(placed, color, opacity),
     );
+    // Plates carry their own kit inside the slab, in the slab's frame.
     return group;
   }
 
@@ -72,30 +94,31 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
   // generic block-plus-dome treatment at the bottom of this function.
   if (def.id === 'shield-generator') {
     group.add(buildShieldGeneratorMesh(placed, color, opacity));
-    return group;
+    return withUpgradeKit(group, def, placed, color, opacity);
   }
 
   if (def.id === 'pulse-emitter') {
     group.add(buildPulseEmitterMesh(placed, color, opacity));
-    return group;
+    return withUpgradeKit(group, def, placed, color, opacity);
   }
 
   if (def.id === 'nitro-injector') {
     group.add(buildNitroInjectorMesh(placed, color, opacity));
-    return group;
+    return withUpgradeKit(group, def, placed, color, opacity);
   }
 
   if (def.id === 'phase-drive') {
     group.add(buildPhaseDriveMesh(placed, color, opacity));
-    return group;
+    return withUpgradeKit(group, def, placed, color, opacity);
   }
 
   if (def.id === 'fuel-tank') {
     group.add(buildFuelTankMesh(placed, color, opacity));
-    return group;
+    return withUpgradeKit(group, def, placed, color, opacity);
   }
 
   if (def.weapon) {
+    // Guns bolt their own kit onto the aiming group, so it swings with them.
     group.add(buildWeaponMesh(def, placed, color, opacity));
     return group;
   }
@@ -118,7 +141,7 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
         group.add(box);
       }
     }
-    return group;
+    return withUpgradeKit(group, def, placed, color, opacity);
   }
 
   let first = true;
@@ -171,5 +194,5 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
       group.add(collar);
     }
   }
-  return group;
+  return withUpgradeKit(group, def, placed, color, opacity);
 }

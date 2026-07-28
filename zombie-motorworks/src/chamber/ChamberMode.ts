@@ -464,7 +464,9 @@ export class ChamberMode {
 
     // Weapon hits on zombies.
     for (const shot of this.vehicle.telemetry().shotsThisStep) {
-      this.emitShotVfx(shot);
+      // Flame-volume burns carry damage only; the cone's own jets already drew
+      // the fire that produced them.
+      if (!shot.damageOnly) this.emitShotVfx(shot);
       if (shot.hitZombieHandle === null) continue;
       for (const z of this.zombies) {
         if (!z.alive) continue;
@@ -601,6 +603,7 @@ export class ChamberMode {
 
     // Tracers.
     for (const shot of this.vehicle.telemetry().shotsThisStep) {
+      if (shot.damageOnly) continue;
       const geo = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(shot.from.x, shot.from.y, shot.from.z),
         new THREE.Vector3(shot.to.x, shot.to.y, shot.to.z),

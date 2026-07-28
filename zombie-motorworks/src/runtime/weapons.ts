@@ -24,15 +24,19 @@ import { getPartDef } from '../core/parts.ts';
 import { KID_LABELS } from '../core/tutorial.ts';
 import {
   piercingDamageFraction,
-  turretModuleLevel,
+  turretEmpLevel,
+  turretPiercingLevel,
 } from '../core/turretModules.ts';
 import {
   add,
   clamp,
+  dot,
+  len,
   norm,
   rotateAroundAxis,
   rotateByQuat,
   scale,
+  sub,
   v3,
 } from './vec.ts';
 
@@ -68,9 +72,9 @@ export interface RuntimeWeapon {
   /** Elapsed time in the current burst cycle for periodic burst weapons, s. */
   cycleTime: number;
   shotsFired: number;
-  /** Turret EMP module level (0 for every non-turret weapon). */
+  /** EMP strength, derived from the turret's upgrade level; 0 for other guns. */
   empLevel: number;
-  /** Turret piercing module level (0 for every non-turret weapon). */
+  /** Piercing strength, derived the same way; 0 for every other gun. */
   piercingLevel: number;
   /** Active Hellfire overcharge, or null while the weapon runs stock. */
   overcharge: WeaponOvercharge | null;
@@ -117,6 +121,12 @@ export interface TracerShot {
    * multipliers are already baked into `damage` and the ray's reach.
    */
   overcharged: boolean;
+  /**
+   * A burn resolved from a cone weapon's flame volume rather than from a ray it
+   * drew. It carries damage only: the visual rays already drew the fire, so
+   * presentation skips these or the cone renders once per zombie caught in it.
+   */
+  damageOnly: boolean;
 }
 
 export function createWeapon(
@@ -143,8 +153,10 @@ export function createWeapon(
     cooldown: 0,
     cycleTime: 0,
     shotsFired: 0,
-    empLevel: isTurret ? turretModuleLevel(placed.config, 'emp') : 0,
-    piercingLevel: isTurret ? turretModuleLevel(placed.config, 'piercing') : 0,
+    // Both come off the part's upgrade level: the EMP Coil and Piercing Rounds
+    // are unlocks on the turret's chain, not separately bought modules.
+    empLevel: isTurret ? turretEmpLevel(placed) : 0,
+    piercingLevel: isTurret ? turretPiercingLevel(placed) : 0,
     overcharge: null,
   };
 }
@@ -195,6 +207,21 @@ const MANUAL_TURRET_YAW_RATE = 14; // rad/s
 const PIERCE_RAY_EPSILON_M = 1e-4;
 const WEAPON_RAY_GROUPS =
   (0xffff << 16) | (GROUP_TERRAIN | GROUP_ZOMBIE | GROUP_DEBRIS);
+/**
+ * A cone weapon's rays are presentation: flame washes over a crowd rather than
+ * stopping dead in the first zombie, so the jets ignore bodies and run until
+ * they meet scenery. Damage comes from the volume query below instead.
+ */
+const FLAME_RAY_GROUPS = (0xffff << 16) | (GROUP_TERRAIN | GROUP_DEBRIS);
+const ZOMBIE_QUERY_GROUPS = (0xffff << 16) | GROUP_ZOMBIE;
+/**
+ * Half a body's width of slack on the cone edge, so a zombie the flame is
+ * visibly licking burns instead of being missed by a hair.
+ */
+const FLAME_EDGE_ALLOWANCE_M = 0.5;
+const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 };
+/** Reused so a cone weapon does not allocate a query shape every shot. */
+const flameVolume = new RAPIER.Ball(1);
 
 export interface WeaponStepResult {
   shots: TracerShot[];
@@ -342,8 +369,8 @@ export function stepWeapons(
 
     // Cone weapons fan raysPerShot rays across coneDeg around the fire
     // direction; conventional weapons are the single-ray special case.
-    const rays =
-      wpn.def.coneDeg !== undefined ? Math.max(1, wpn.def.raysPerShot ?? 1) : 1;
+    const isCone = wpn.def.coneDeg !== undefined;
+    const rays = isCone ? Math.max(1, wpn.def.raysPerShot ?? 1) : 1;
     const coneDeg = (wpn.def.coneDeg ?? 0) * (overcharge?.coneMultiplier ?? 1);
     const halfCone = (coneDeg / 2) * (Math.PI / 180);
     for (let i = 0; i < rays; i++) {
@@ -359,7 +386,7 @@ export function stepWeapons(
         rangeM,
         true,
         undefined,
-        WEAPON_RAY_GROUPS,
+        isCone ? FLAME_RAY_GROUPS : WEAPON_RAY_GROUPS,
         undefined,
         body,
       );
@@ -375,7 +402,7 @@ export function stepWeapons(
       let pierceDamage = 0;
       let pierceTo: Vec3 | null = null;
       const pierceFraction =
-        rays === 1 ? piercingDamageFraction(wpn.piercingLevel) : 0;
+        rays === 1 && !isCone ? piercingDamageFraction(wpn.piercingLevel) : 0;
       if (hit && zombieHandle !== null && pierceFraction > 0) {
         const remainingRange = rangeM - hit.timeOfImpact - PIERCE_RAY_EPSILON_M;
         if (remainingRange > 0) {
@@ -423,7 +450,47 @@ export function stepWeapons(
         splashRadiusM: wpn.def.splashRadiusM ?? 0,
         splashDamage: wpn.def.splashDamage ?? 0,
         overcharged: overcharge !== null,
+        damageOnly: false,
       });
+    }
+
+    // Flame burns the volume it fills, not the handful of lines drawn through
+    // it. Ray spacing grows with distance — at the far end of a Hellfire cone
+    // the gaps between six rays are wider than a zombie, which is why targets
+    // plainly inside the fire used to take nothing until they closed in. Every
+    // zombie in the cone burns instead, so the back of a crowd cooks with the
+    // front. No line of sight is traced: fire washes around a headstone.
+    if (isCone) {
+      for (const target of zombiesInCone(
+        world,
+        body,
+        mountW,
+        fireDir,
+        up,
+        rangeM,
+        halfCone,
+      )) {
+        shots.push({
+          from: mountW,
+          to: target.point,
+          weaponDefId: wpn.weaponDefId,
+          hitZombieHandle: target.handle,
+          hitSurface: false,
+          damage,
+          damageType: wpn.def.damageType,
+          empLevel: wpn.empLevel,
+          piercingLevel: wpn.piercingLevel,
+          pierceZombieHandle: null,
+          pierceDamage: 0,
+          pierceTo: null,
+          slowFactor: wpn.def.slowFactor ?? 0,
+          slowDurationSeconds: wpn.def.slowDurationSeconds ?? 0,
+          splashRadiusM: 0,
+          splashDamage: 0,
+          overcharged: overcharge !== null,
+          damageOnly: true,
+        });
+      }
     }
 
     // Recoil at the mount, opposite fire direction (once per trigger pull).
@@ -437,6 +504,65 @@ export function stepWeapons(
     wpn.shotsFired++;
   }
   return { shots };
+}
+
+/**
+ * Every zombie standing in a weapon's flame cone: inside `rangeM` of the muzzle
+ * and within `halfCone` of the fire direction, measured in the plane the cone
+ * fans across (rays sweep around `up`, so the spray is a sheet, not a circular
+ * cone — height never excludes a target). The edge carries a body-width
+ * allowance, since a zombie the flame visibly licks should burn.
+ */
+function zombiesInCone(
+  world: RAPIER.World,
+  body: RAPIER.RigidBody,
+  muzzle: Vec3,
+  fireDir: Vec3,
+  up: Vec3,
+  rangeM: number,
+  halfCone: number,
+): { handle: number; point: Vec3 }[] {
+  const found: { handle: number; point: Vec3 }[] = [];
+  const aim = flatten(fireDir, up);
+  if (len(aim) < 1e-6) return found;
+  const aimDir = norm(aim);
+  flameVolume.radius = rangeM;
+  world.intersectionsWithShape(
+    muzzle,
+    IDENTITY_ROTATION,
+    flameVolume,
+    (collider) => {
+      const at = collider.translation();
+      const point = v3(at.x, at.y, at.z);
+      const offset = sub(point, muzzle);
+      const distance = len(offset);
+      if (distance > rangeM) return true;
+      const flat = flatten(offset, up);
+      // Anything effectively on top of the muzzle is inside the cone whatever
+      // its bearing works out to.
+      const angle =
+        len(flat) < 1e-6
+          ? 0
+          : Math.acos(clamp(dot(norm(flat), aimDir), -1, 1));
+      const allowance = Math.atan2(
+        FLAME_EDGE_ALLOWANCE_M,
+        Math.max(distance, FLAME_EDGE_ALLOWANCE_M),
+      );
+      if (angle <= halfCone + allowance)
+        found.push({ handle: collider.handle, point });
+      return true;
+    },
+    undefined,
+    ZOMBIE_QUERY_GROUPS,
+    undefined,
+    body,
+  );
+  return found;
+}
+
+/** Component of `v` in the plane perpendicular to the unit vector `up`. */
+function flatten(v: Vec3, up: Vec3): Vec3 {
+  return sub(v, scale(up, dot(v, up)));
 }
 
 /**

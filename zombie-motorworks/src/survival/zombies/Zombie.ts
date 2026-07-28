@@ -547,6 +547,74 @@ export class Zombie {
     return 'killed';
   }
 
+  /**
+   * Ridden on a bulldozer blade: carried at the blade's velocity, and held in
+   * the knockback state so the zombie can neither chase nor bite while the
+   * blade has it. The caller refreshes this every step it keeps hold, so the
+   * hold lapses on its own once the zombie rolls off.
+   *
+   * A frozen zombie is left alone — the ice owns it until it thaws.
+   */
+  holdOnPlow(velocityX: number, velocityZ: number, holdSeconds: number): void {
+    if (!this.isTargetable || this.freezeTimer > 0) return;
+    this.state = ZombieState.KnockedBack;
+    this.knockbackTimer = Math.max(this.knockbackTimer, holdSeconds);
+    // Vertical velocity is the physics engine's business: overwriting it would
+    // hold the load off the ground while the blade is climbing a kerb.
+    this.velocityScratch.x = velocityX;
+    this.velocityScratch.y = this.body.linvel().y;
+    this.velocityScratch.z = velocityZ;
+    this.body.setLinvel(this.velocityScratch, true);
+  }
+
+  /**
+   * Contact damage from a blade that is carrying this zombie rather than
+   * throwing it clear: no knockback, because being flung is exactly what the
+   * blade is preventing. Paced by the same impact cooldown as a ram.
+   */
+  applyPlowScrape(damage: number): VehicleImpactResult {
+    if (!this.isTargetable || damage <= 0 || this.impactCooldown > 0)
+      return 'ignored';
+
+    this.impactCooldown = IMPACT_COOLDOWN_SECONDS;
+    this.health -= damage;
+    this.hitFlashTimer = HIT_FLASH_DURATION;
+    if (this.health > 0) return 'damaged';
+    this.die();
+    return 'killed';
+  }
+
+  /**
+   * The blade drove its load into something solid. Deliberately ignores the
+   * impact cooldown: the slam is one discrete event, not a contact tick, and it
+   * must land on every body in the pile the moment it happens. Survivors are
+   * thrown up and out of the way rather than merely shoved.
+   */
+  applyPlowCrush(
+    damage: number,
+    dirX: number,
+    dirZ: number,
+  ): VehicleImpactResult {
+    if (!this.isTargetable || damage <= 0) return 'ignored';
+
+    this.impactCooldown = IMPACT_COOLDOWN_SECONDS;
+    this.health -= damage;
+    this.hitFlashTimer = HIT_FLASH_DURATION;
+    this.state = ZombieState.KnockedBack;
+    this.knockbackTimer = KNOCKBACK_DURATION;
+
+    const length = Math.hypot(dirX, dirZ) || 1;
+    const impulseMagnitude = this.body.mass() * KNOCKBACK_SPEED;
+    this.impulseScratch.x = (dirX / length) * impulseMagnitude;
+    this.impulseScratch.y = impulseMagnitude * 0.5;
+    this.impulseScratch.z = (dirZ / length) * impulseMagnitude;
+    this.body.applyImpulse(this.impulseScratch, true);
+
+    if (this.health > 0) return 'damaged';
+    this.die();
+    return 'killed';
+  }
+
   fixedUpdate(
     dt: number,
     vehicle: RuntimeVehicle,

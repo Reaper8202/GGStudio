@@ -1,49 +1,50 @@
 import { describe, expect, it } from 'vitest';
 import {
   empShieldLeak,
-  isEmpUnlocked,
-  isPiercingUnlocked,
   MINE_SWEEPER_MINIMAP_LEVEL,
   mineSweeperRadius,
   piercingDamageFraction,
-  turretModuleLevel,
-  turretModulePrice,
+  turretEmpLevel,
+  turretPiercingLevel,
 } from '../src/core/turretModules.ts';
 
-describe('turret modules', () => {
-  it('uses the exact EMP shield leak for every module level', () => {
+const atLevel = (level?: number) => ({
+  config: level === undefined ? {} : { level },
+});
+
+describe('turret fire tuning', () => {
+  it('uses the exact EMP shield leak for every strength', () => {
     expect([0, 1, 2, 3].map(empShieldLeak)).toEqual([0.1, 0.35, 0.5, 0.65]);
   });
 
-  it('uses the exact secondary-target damage fraction for every piercing level', () => {
+  it('uses the exact secondary-target damage fraction for every strength', () => {
     expect([0, 1, 2, 3].map(piercingDamageFraction)).toEqual([
       0, 0.3, 0.45, 0.6,
     ]);
   });
 
-  it('returns the exact target-level prices and stops past the maximum', () => {
-    expect([1, 2, 3].map((level) => turretModulePrice('emp', level))).toEqual([
-      100, 175, 300,
+  it('derives EMP strength from the turret upgrade level alone', () => {
+    // The EMP Coil is the level 4 unlock; the two above it tighten the coil.
+    expect([1, 2, 3, 4, 5, 6].map((l) => turretEmpLevel(atLevel(l)))).toEqual([
+      0, 0, 0, 1, 2, 3,
     ]);
+    expect(turretEmpLevel(atLevel())).toBe(0);
+    expect(turretEmpLevel(atLevel(99))).toBe(3);
+    expect(turretEmpLevel(atLevel(Number.NaN))).toBe(0);
+  });
+
+  it('derives piercing strength from the same level', () => {
+    // Piercing Rounds unlock at level 5 and the last level tops them out.
     expect(
-      [1, 2, 3].map((level) => turretModulePrice('piercing', level)),
-    ).toEqual([125, 225, 375]);
-    expect(turretModulePrice('emp', 4)).toBeNull();
-    expect(turretModulePrice('piercing', 99)).toBeNull();
+      [1, 2, 3, 4, 5, 6].map((l) => turretPiercingLevel(atLevel(l))),
+    ).toEqual([0, 0, 0, 0, 1, 3]);
+    expect(turretPiercingLevel(atLevel())).toBe(0);
+    expect(turretPiercingLevel(atLevel(99))).toBe(3);
   });
 
-  it('clamps invalid stored module levels', () => {
-    expect(turretModuleLevel({ empLevel: Number.NaN }, 'emp')).toBe(0);
-    expect(turretModuleLevel({ piercingLevel: -1 }, 'piercing')).toBe(0);
-    expect(turretModuleLevel({ empLevel: 99 }, 'emp')).toBe(3);
-  });
-
-  it('unlocks EMP through wave or Phone Addict progress while piercing is ungated', () => {
-    expect(isEmpUnlocked({})).toBe(false);
-    expect(isEmpUnlocked({ highestWaveCleared: 8 })).toBe(false);
-    expect(isEmpUnlocked({ highestWaveCleared: 9 })).toBe(true);
-    expect(isEmpUnlocked({ phoneAddictsKilled: 1 })).toBe(true);
-    expect(isPiercingUnlocked()).toBe(true);
+  it('gives a maxed turret the strongest leak and piercing on the ladder', () => {
+    expect(empShieldLeak(turretEmpLevel(atLevel(6)))).toBe(0.65);
+    expect(piercingDamageFraction(turretPiercingLevel(atLevel(6)))).toBe(0.6);
   });
 
   it('clamps Mine Sweeper levels to the configured reveal radii', () => {

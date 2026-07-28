@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import {
   ABILITY_KIND_META,
   ABILITY_SLOT_KEYS,
+  abilityUnlocked,
   effectiveFreeze,
   effectiveHellfire,
   effectiveOverdrive,
@@ -1449,20 +1450,28 @@ export class SurvivalMode {
     });
 
     const shots = this.vehicle.shotsThisStep();
+    // Flame burns every zombie in the cone, so its hits arrive by the dozen:
+    // one cue for the whole volley instead of one per body caught in the fire.
+    let burnAnnounced = false;
     for (const shot of shots) {
       const missed = shot.hitZombieHandle === null && !shot.hitSurface;
-      this.showTracer(shot, missed);
       this.shotDirection.set(
         shot.to.x - shot.from.x,
         shot.to.y - shot.from.y,
         shot.to.z - shot.from.z,
       );
       if (this.shotDirection.lengthSq() > 1e-8) this.shotDirection.normalize();
-      this.emitShotVfx(shot);
+      if (!shot.damageOnly) {
+        this.showTracer(shot, missed);
+        this.emitShotVfx(shot);
+      }
       this.detonateShell(shot);
       if (shot.hitZombieHandle === null) continue;
-      this.scopeCursor.flashHit('hit');
-      playSfx('hitTick');
+      if (!shot.damageOnly || !burnAnnounced) {
+        this.scopeCursor.flashHit('hit');
+        playSfx('hitTick');
+        burnAnnounced ||= shot.damageOnly;
+      }
       const pierceContinues = applyZombieShot(
         this.zombies,
         shot,
@@ -2142,11 +2151,14 @@ export class SurvivalMode {
       const ability = part.def.ability;
       if (ability === undefined) continue;
       if (!this.isAttachedAlivePart(part)) continue;
+      const level = part.placed.config.level ?? 1;
+      // An ability the part has not unlocked yet holds no slot.
+      if (!abilityUnlocked(ability, level)) continue;
       this.abilityCandidates.push({
         partId: part.placed.id,
         partName: part.def.name,
         ability,
-        level: part.placed.config.level ?? 1,
+        level,
         preferred: part.placed.config.activeAbility === true,
         slot: part.placed.config.abilitySlot,
       });
