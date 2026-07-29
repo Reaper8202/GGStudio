@@ -20,16 +20,16 @@
  * as subprocesses keeps each tool's own CLI the single source of truth.
  */
 
-import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
-const VOXELIZE_SCRIPT = path.join(TOOL_DIR, 'voxelize.py');
-const OPTIMIZE_SCRIPT = path.join(TOOL_DIR, 'optimize.mjs');
+const VOXELIZE_SCRIPT = path.join(TOOL_DIR, "voxelize.py");
+const OPTIMIZE_SCRIPT = path.join(TOOL_DIR, "optimize.mjs");
 
 function usage() {
   return `Usage: pipeline.mjs INPUT.glb [INPUT.glb ...] [options] [-- OPTIMIZE_ARGS]
@@ -47,8 +47,9 @@ Optimize (stage 1, on the textured source):
       --skip-optimize      Voxelize the source as-is.
 
 Voxelize (stage 2, produces the final look):
-      --depth N            Blocks remesh octree depth, 1-10 (default: 6).
-                           Larger = smaller voxels and far more geometry.
+      --depth N            Blocks remesh octree depth, 1-10 (default: 5).
+                           Larger = smaller voxels and far more geometry;
+                           lower = chunkier blocks.
       --color-samples N    Texture samples per voxel face: 1 or 5 (default: 5).
       --per-face-color     Colour each cube face separately instead of giving
                            every voxel one flat colour.
@@ -78,7 +79,7 @@ export function parseArgs(argv) {
     inputs: [],
     output: null,
     outputDir: null,
-    depth: 6,
+    depth: 7,
     colorSamples: 5,
     perFaceColor: false,
     keepLargest: false,
@@ -88,7 +89,7 @@ export function parseArgs(argv) {
     skipOptimize: false,
     skipCompress: false,
     blender: null,
-    python: 'python3',
+    python: "python3",
     keepIntermediate: false,
     dryRun: false,
     optimizeArgs: [],
@@ -96,7 +97,8 @@ export function parseArgs(argv) {
 
   const number = (raw, flag) => {
     const value = Number(raw);
-    if (!Number.isFinite(value)) throw new Error(`${flag} expects a number, got "${raw}"`);
+    if (!Number.isFinite(value))
+      throw new Error(`${flag} expects a number, got "${raw}"`);
     return value;
   };
 
@@ -104,7 +106,7 @@ export function parseArgs(argv) {
     const arg = argv[i];
 
     // Everything past a lone `--` belongs to stage 2.
-    if (arg === '--') {
+    if (arg === "--") {
       options.optimizeArgs = argv.slice(i + 1);
       break;
     }
@@ -116,100 +118,116 @@ export function parseArgs(argv) {
     };
 
     switch (arg) {
-      case '-h':
-      case '--help':
+      case "-h":
+      case "--help":
         return { help: true };
-      case '-o':
-      case '--output':
+      case "-o":
+      case "--output":
         options.output = next();
         break;
-      case '--output-dir':
+      case "--output-dir":
         options.outputDir = next();
         break;
-      case '--depth':
-      case '--factor':
+      case "--depth":
+      case "--factor":
         options.depth = number(next(), arg);
         break;
-      case '--color-samples':
+      case "--color-samples":
         options.colorSamples = number(next(), arg);
         break;
-      case '--per-face-color':
-      case '--per-face-colour':
+      case "--per-face-color":
+      case "--per-face-colour":
         options.perFaceColor = true;
         break;
-      case '--keep-largest':
+      case "--keep-largest":
         options.keepLargest = true;
         break;
-      case '--min-part':
+      case "--min-part":
         options.minPart = number(next(), arg);
         break;
-      case '--skip-voxelize':
-      case '--no-voxelize':
+      case "--skip-voxelize":
+      case "--no-voxelize":
         options.skipVoxelize = true;
         break;
-      case '--budget':
+      case "--budget":
         options.budget = number(next(), arg);
         break;
-      case '--skip-optimize':
-      case '--no-optimize':
+      case "--skip-optimize":
+      case "--no-optimize":
         options.skipOptimize = true;
         break;
-      case '--skip-compress':
-      case '--no-compress':
+      case "--skip-compress":
+      case "--no-compress":
         options.skipCompress = true;
         break;
-      case '--blender':
+      case "--blender":
         options.blender = next();
         break;
-      case '--python':
+      case "--python":
         options.python = next();
         break;
-      case '--keep-intermediate':
+      case "--keep-intermediate":
         options.keepIntermediate = true;
         break;
-      case '--dry-run':
+      case "--dry-run":
         options.dryRun = true;
         break;
       default:
-        if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}`);
+        if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
         options.inputs.push(arg);
     }
   }
 
-  if (!options.inputs.length) throw new Error('At least one input GLB is required.');
+  if (!options.inputs.length)
+    throw new Error("At least one input GLB is required.");
   if (options.output && options.inputs.length > 1) {
-    throw new Error('--output only works with a single input; use --output-dir for batches.');
+    throw new Error(
+      "--output only works with a single input; use --output-dir for batches.",
+    );
   }
   if (options.skipVoxelize && options.skipOptimize) {
-    throw new Error('--skip-voxelize and --skip-optimize together would do nothing.');
+    throw new Error(
+      "--skip-voxelize and --skip-optimize together would do nothing.",
+    );
   }
   if (options.skipVoxelize && options.budget === 0) {
     throw new Error(
-      '--skip-voxelize with --budget 0 leaves nothing for the optimizer to do.',
+      "--skip-voxelize with --budget 0 leaves nothing for the optimizer to do.",
     );
   }
-  if (!Number.isInteger(options.depth) || options.depth < 1 || options.depth > 10) {
-    throw new Error('--depth must be a whole number between 1 and 10.');
+  if (
+    !Number.isInteger(options.depth) ||
+    options.depth < 1 ||
+    options.depth > 10
+  ) {
+    throw new Error("--depth must be a whole number between 1 and 10.");
   }
   if (![1, 5].includes(options.colorSamples)) {
-    throw new Error('--color-samples must be 1 or 5.');
+    throw new Error("--color-samples must be 1 or 5.");
   }
   if (!(options.minPart > 0) || options.minPart > 1) {
-    throw new Error('--min-part must be greater than 0 and at most 1.');
+    throw new Error("--min-part must be greater than 0 and at most 1.");
   }
   return options;
 }
 
 export function outputPathFor(inputPath, options) {
   if (options.output) return path.resolve(options.output);
-  const dir = options.outputDir ? path.resolve(options.outputDir) : path.dirname(inputPath);
-  return path.join(dir, `${path.basename(inputPath, path.extname(inputPath))}.pipeline.glb`);
+  const dir = options.outputDir
+    ? path.resolve(options.outputDir)
+    : path.dirname(inputPath);
+  return path.join(
+    dir,
+    `${path.basename(inputPath, path.extname(inputPath))}.pipeline.glb`,
+  );
 }
 
 function run(command, args, label) {
-  const result = spawnSync(command, args, { stdio: 'inherit' });
+  const result = spawnSync(command, args, { stdio: "inherit" });
   if (result.error) {
-    throw new Error(`${label} could not start (${command}): ${result.error.message}`);
+    throw new Error(
+      `${label} could not start (${command}): ${result.error.message}`,
+    );
   }
   if (result.status !== 0) {
     throw new Error(`${label} failed with exit code ${result.status}.`);
@@ -220,23 +238,30 @@ function voxelizeArgsFor(inputPath, outputPath, options) {
   const args = [
     VOXELIZE_SCRIPT,
     inputPath,
-    '-o',
+    "-o",
     outputPath,
-    '--depth',
+    "--depth",
     String(options.depth),
-    '--color-samples',
+    "--color-samples",
     String(options.colorSamples),
   ];
-  args.push('--min-part', String(options.minPart));
-  if (options.perFaceColor) args.push('--per-face-color');
-  if (options.keepLargest) args.push('--keep-largest');
-  if (options.blender) args.push('--blender', options.blender);
+  args.push("--min-part", String(options.minPart));
+  if (options.perFaceColor) args.push("--per-face-color");
+  if (options.keepLargest) args.push("--keep-largest");
+  if (options.blender) args.push("--blender", options.blender);
   return args;
 }
 
 function optimizeArgsFor(inputPath, outputPath, options) {
-  const args = [OPTIMIZE_SCRIPT, inputPath, '-o', outputPath, '--budget', String(options.budget)];
-  if (options.blender) args.push('--blender', options.blender);
+  const args = [
+    OPTIMIZE_SCRIPT,
+    inputPath,
+    "-o",
+    outputPath,
+    "--budget",
+    String(options.budget),
+  ];
+  if (options.blender) args.push("--blender", options.blender);
   return args.concat(options.optimizeArgs);
 }
 
@@ -246,44 +271,62 @@ function optimizeArgsFor(inputPath, outputPath, options) {
  * colours into gradient-shaded n-gons.
  */
 function compressArgsFor(inputPath, outputPath) {
-  return [OPTIMIZE_SCRIPT, inputPath, '-o', outputPath, '--no-remesh', '--budget', '0'];
+  return [
+    OPTIMIZE_SCRIPT,
+    inputPath,
+    "-o",
+    outputPath,
+    "--no-remesh",
+    "--budget",
+    "0",
+  ];
 }
 
 function processFile(inputPath, outputPath, options) {
   const stages = [];
   if (!options.skipOptimize) {
     stages.push({
-      label: 'optimize',
-      suffix: 'opt',
+      label: "optimize",
+      suffix: "opt",
       run: (from, to) =>
-        run(process.execPath, optimizeArgsFor(from, to, options), 'Optimize stage'),
+        run(
+          process.execPath,
+          optimizeArgsFor(from, to, options),
+          "Optimize stage",
+        ),
     });
   }
   if (!options.skipVoxelize) {
     stages.push({
-      label: 'voxelize',
-      suffix: 'voxel',
+      label: "voxelize",
+      suffix: "voxel",
       run: (from, to) =>
-        run(options.python, voxelizeArgsFor(from, to, options), 'Voxelize stage'),
+        run(
+          options.python,
+          voxelizeArgsFor(from, to, options),
+          "Voxelize stage",
+        ),
     });
   }
   // Compression only earns its place when the voxel stage produced fresh,
   // uncompressed geometry; the optimizer already compresses its own output.
   if (!options.skipCompress && !options.skipVoxelize) {
     stages.push({
-      label: 'compress',
-      suffix: 'packed',
-      run: (from, to) => run(process.execPath, compressArgsFor(from, to), 'Compress stage'),
+      label: "compress",
+      suffix: "packed",
+      run: (from, to) =>
+        run(process.execPath, compressArgsFor(from, to), "Compress stage"),
     });
   }
 
-  if (!stages.length) throw new Error('Every stage was skipped; nothing to do.');
+  if (!stages.length)
+    throw new Error("Every stage was skipped; nothing to do.");
 
   const intermediateDir =
     stages.length > 1
       ? options.keepIntermediate
         ? path.dirname(outputPath)
-        : fs.mkdtempSync(path.join(os.tmpdir(), 'glb-pipeline-'))
+        : fs.mkdtempSync(path.join(os.tmpdir(), "glb-pipeline-"))
       : null;
   if (intermediateDir) fs.mkdirSync(intermediateDir, { recursive: true });
 
@@ -331,13 +374,15 @@ async function main() {
       console.error(`Input does not exist: ${inputPath}`);
       return 1;
     }
-    if (path.extname(inputPath).toLowerCase() !== '.glb') {
+    if (path.extname(inputPath).toLowerCase() !== ".glb") {
       console.error(`Input must be a .glb file: ${inputPath}`);
       return 1;
     }
     const outputPath = outputPathFor(inputPath, options);
     if (outputPath === inputPath) {
-      console.error(`Output must differ from input to avoid overwriting the source: ${inputPath}`);
+      console.error(
+        `Output must differ from input to avoid overwriting the source: ${inputPath}`,
+      );
       return 1;
     }
     jobs.push({ inputPath, outputPath });
@@ -348,13 +393,13 @@ async function main() {
       console.log(`${inputPath} -> ${outputPath}`);
     }
     const plan = [
-      options.skipOptimize ? null : 'optimize',
-      options.skipVoxelize ? null : 'voxelize',
-      options.skipCompress || options.skipVoxelize ? null : 'compress',
+      options.skipOptimize ? null : "optimize",
+      options.skipVoxelize ? null : "voxelize",
+      options.skipCompress || options.skipVoxelize ? null : "compress",
     ].filter(Boolean);
     console.log(
-      `stages=${plan.join(' -> ')} depth=${options.depth} budget=${options.budget} ` +
-        `color=${options.perFaceColor ? 'face' : 'voxel'}`,
+      `stages=${plan.join(" -> ")} depth=${options.depth} budget=${options.budget} ` +
+        `color=${options.perFaceColor ? "face" : "voxel"}`,
     );
     return 0;
   }
@@ -373,6 +418,9 @@ async function main() {
 }
 
 // Only run when invoked as a CLI, so the helpers above stay importable by tests.
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   process.exitCode = await main();
 }

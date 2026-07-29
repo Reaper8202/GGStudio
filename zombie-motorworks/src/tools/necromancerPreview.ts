@@ -23,13 +23,16 @@ interface ClipDef {
 }
 
 const MODELS = {
-  textured: {
+  // The rig the game ships: the current pipeline bake, vertex-coloured and
+  // untextured, which is also what `SurvivalMode` loads for the caster.
+  necromancer: {
     file: 'necromancer.rigged.glb',
     clips: { walk: { pose: walkPose }, cast: { pose: castPose, period: 2.4 } },
   },
-  // Same bone names and the same pose curves as the textured Necromancer — only
-  // the geometry differs, which is the whole point of keeping the names aligned.
-  voxel: {
+  // An earlier bake of the same character. Same bone names and the same pose
+  // curves — only the geometry differs, which is the whole point of keeping the
+  // names aligned.
+  'necromancer-old': {
     file: 'necromancer-voxel.rigged.glb',
     clips: { walk: { pose: walkPose }, cast: { pose: castPose, period: 2.4 } },
   },
@@ -58,7 +61,7 @@ const modelRow = document.getElementById('models') as HTMLDivElement;
 let speed = Number(params.get('speed') ?? 1);
 let model: ModelKey = MODEL_KEYS.includes(params.get('model') as ModelKey)
   ? (params.get('model') as ModelKey)
-  : 'textured';
+  : 'necromancer';
 // A clip only exists on some models, so fall back to the walk every rig has.
 let clip: string = clipNames(model).includes(params.get('clip') ?? '')
   ? params.get('clip')!

@@ -8,6 +8,12 @@ import {
 import type { WaveComposition } from './WaveManager.ts';
 import {
   BASE_ZOMBIE_STATS,
+  GUNSLINGER_HEALTH_MULTIPLIER,
+  GUNSLINGER_REWARD,
+  KAMIKAZE_HEALTH_MULTIPLIER,
+  KAMIKAZE_REWARD,
+  NECROMANCER_HEALTH_MULTIPLIER,
+  NECROMANCER_REWARD,
   PHONE_ADDICT_HEALTH_MULTIPLIER,
   PHONE_ADDICT_REWARD,
   THROWER_HEALTH_MULTIPLIER,
@@ -17,28 +23,41 @@ import {
 } from './zombies/zombieConfig.ts';
 
 export type SpecialistZombieKind =
+  | 'gunslinger'
+  | 'necromancer'
   | 'thrower'
   | 'worker'
-  | 'phone-addict';
+  | 'phone-addict'
+  | 'kamikaze';
 
 const SPECIALIST_KINDS: readonly SpecialistZombieKind[] = [
+  'gunslinger',
+  'necromancer',
   'thrower',
   'worker',
   'phone-addict',
+  'kamikaze',
 ];
 
 const COMPOSITION_LABELS: Record<keyof WaveComposition, [string, string]> = {
   walker: ['walker', 'walkers'],
+  gunslinger: ['gunslinger', 'gunslingers'],
+  necromancer: ['necromancer', 'necromancers'],
   thrower: ['thrower', 'throwers'],
   worker: ['worker', 'workers'],
   'phone-addict': ['phone-addict', 'phone-addicts'],
+  kamikaze: ['kamikaze', 'kamikazes'],
 };
 
 const THREAT_WARNINGS: Record<SpecialistZombieKind, string> = {
+  gunslinger: 'Gunslingers in the horde — slow, tough, and they hit hard.',
+  necromancer:
+    'Necromancers next — they stop and raise ranged throwers. Kill them mid-cast.',
   thrower: 'Ranged throwers next!',
   worker: 'Mine-laying workers next — mines go hidden from wave 8',
   'phone-addict':
     'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage before wave 10.',
+  kamikaze: 'Kamikazes incoming — small, fast, and they explode on contact.',
 };
 
 /** Specialist kinds that first appear on the requested wave. */
@@ -83,17 +102,23 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
   const baseHealth = BASE_ZOMBIE_STATS.health * healthMultiplier;
   const effectiveTotalHp = Math.round(
     composition.walker * baseHealth +
+      composition.gunslinger * baseHealth * GUNSLINGER_HEALTH_MULTIPLIER +
+      composition.necromancer * baseHealth * NECROMANCER_HEALTH_MULTIPLIER +
       composition.thrower * baseHealth * THROWER_HEALTH_MULTIPLIER +
       composition.worker * baseHealth * WORKER_HEALTH_MULTIPLIER +
       composition['phone-addict'] *
         baseHealth *
-        PHONE_ADDICT_HEALTH_MULTIPLIER,
+        PHONE_ADDICT_HEALTH_MULTIPLIER +
+      composition.kamikaze * baseHealth * KAMIKAZE_HEALTH_MULTIPLIER,
   );
   const totalPossibleReward =
     composition.walker * BASE_ZOMBIE_STATS.reward +
+    composition.gunslinger * GUNSLINGER_REWARD +
+    composition.necromancer * NECROMANCER_REWARD +
     composition.thrower * THROWER_REWARD +
     composition.worker * WORKER_REWARD +
     composition['phone-addict'] * PHONE_ADDICT_REWARD +
+    composition.kamikaze * KAMIKAZE_REWARD +
     waveRewardForWave(wave);
 
   return {

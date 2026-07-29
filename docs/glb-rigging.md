@@ -155,6 +155,11 @@ or three iterations on joint positions.
   `COLOR_0` and has no texture at all — drop the attribute and the model comes
   out flat grey. `--debug-colors` deliberately strips `COLOR_0`, because glTF
   multiplies it into the base colour and it would tint the debug palette.
+  Values are carried through byte for byte, which includes the colour-space
+  defect described in
+  [glb-pipeline.md](glb-pipeline.md#color_0-holds-srgb-values-but-gltf-says-it-is-linear):
+  a rigged pipeline model still needs its `COLOR_0` decoded from sRGB on load,
+  or it renders pale and washed out.
 - **Uncompressed**, by design. See the note in [glb-pipeline.md](glb-pipeline.md).
 
 ## Animating the result

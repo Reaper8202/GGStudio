@@ -1,7 +1,22 @@
 import type { ZombieKind } from '../zombies/Zombie.ts';
 import {
   BASE_ZOMBIE_STATS,
+  GUNSLINGER_HEALTH_MULTIPLIER,
+  GUNSLINGER_REWARD,
+  GUNSLINGER_SPEED_MULTIPLIER,
+  KAMIKAZE_DETONATE_RANGE,
+  KAMIKAZE_EXPLOSION_DAMAGE,
+  KAMIKAZE_EXPLOSION_RADIUS,
+  KAMIKAZE_HEALTH_MULTIPLIER,
+  KAMIKAZE_REWARD,
+  KAMIKAZE_SPEED_MULTIPLIER,
   LANDMINE_DAMAGE,
+  NECROMANCER_HEALTH_MULTIPLIER,
+  NECROMANCER_REWARD,
+  NECROMANCER_SPEED_MULTIPLIER,
+  NECROMANCER_SUMMON_COUNT,
+  NECROMANCER_SUMMON_RANGE,
+  NECROMANCER_SUMMON_SECONDS,
   PHONE_ADDICT_HEALTH_MULTIPLIER,
   PHONE_ADDICT_REWARD,
   PHONE_ADDICT_SPEED_MULTIPLIER,
@@ -66,10 +81,16 @@ export interface WaveTuning {
 
 export interface SpecialistTuning {
   throwerAttackRange: number;
+  necromancerSummonRange: number;
+  necromancerSummonSeconds: number;
+  necromancerSummonCount: number;
   projectileDamage: number;
   workerPlantRange: number;
   workerPlantSeconds: number;
   landmineDamage: number;
+  kamikazeDetonateRange: number;
+  kamikazeExplosionDamage: number;
+  kamikazeExplosionRadius: number;
 }
 
 export interface CheatTuning {
@@ -95,9 +116,12 @@ export interface DevTuningState {
 
 const KIND_ORDER: readonly ZombieKind[] = [
   'walker',
+  'gunslinger',
+  'necromancer',
   'thrower',
   'worker',
   'phone-addict',
+  'kamikaze',
 ];
 
 /** Fresh default state cloned from the shipped constants — the "reset" target. */
@@ -117,6 +141,22 @@ export function defaultTuning(): DevTuningState {
         damageMult: 1,
         attackInterval: BASE_ZOMBIE_STATS.attackInterval,
         reward: BASE_ZOMBIE_STATS.reward,
+        countOverride: null,
+      },
+      gunslinger: {
+        healthMult: GUNSLINGER_HEALTH_MULTIPLIER,
+        speedMult: GUNSLINGER_SPEED_MULTIPLIER,
+        damageMult: 1,
+        attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+        reward: GUNSLINGER_REWARD,
+        countOverride: null,
+      },
+      necromancer: {
+        healthMult: NECROMANCER_HEALTH_MULTIPLIER,
+        speedMult: NECROMANCER_SPEED_MULTIPLIER,
+        damageMult: 1,
+        attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+        reward: NECROMANCER_REWARD,
         countOverride: null,
       },
       thrower: {
@@ -143,6 +183,14 @@ export function defaultTuning(): DevTuningState {
         reward: PHONE_ADDICT_REWARD,
         countOverride: null,
       },
+      kamikaze: {
+        healthMult: KAMIKAZE_HEALTH_MULTIPLIER,
+        speedMult: KAMIKAZE_SPEED_MULTIPLIER,
+        damageMult: 1,
+        attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+        reward: KAMIKAZE_REWARD,
+        countOverride: null,
+      },
     },
     wave: {
       health: { perWave: 0.06, cap: 2.2 },
@@ -150,9 +198,12 @@ export function defaultTuning(): DevTuningState {
       damage: { perWave: 0.06, cap: 2 },
       composition: {
         walker: { startWave: 1, base: 13, perStep: 3, every: 1, cap: 70 },
+        gunslinger: { startWave: 1, base: 1, perStep: 1, every: 3, cap: 8 },
+        necromancer: { startWave: 6, base: 1, perStep: 1, every: 5, cap: 4 },
         thrower: { startWave: 3, base: 1, perStep: 1, every: 2, cap: 10 },
         worker: { startWave: 7, base: 1, perStep: 1, every: 3, cap: 6 },
         'phone-addict': { startWave: 10, base: 1, perStep: 1, every: 4, cap: 6 },
+        kamikaze: { startWave: 4, base: 2, perStep: 1, every: 2, cap: 10 },
       },
       hordeInterval: 1.45,
       hordeSizeMin: 8,
@@ -163,10 +214,16 @@ export function defaultTuning(): DevTuningState {
     },
     specialist: {
       throwerAttackRange: THROWER_ATTACK_RANGE,
+      necromancerSummonRange: NECROMANCER_SUMMON_RANGE,
+      necromancerSummonSeconds: NECROMANCER_SUMMON_SECONDS,
+      necromancerSummonCount: NECROMANCER_SUMMON_COUNT,
       projectileDamage: PROJECTILE_DAMAGE,
       workerPlantRange: WORKER_PLANT_RANGE,
       workerPlantSeconds: WORKER_PLANT_SECONDS,
       landmineDamage: LANDMINE_DAMAGE,
+      kamikazeDetonateRange: KAMIKAZE_DETONATE_RANGE,
+      kamikazeExplosionDamage: KAMIKAZE_EXPLOSION_DAMAGE,
+      kamikazeExplosionRadius: KAMIKAZE_EXPLOSION_RADIUS,
     },
     cheats: {
       godMode: false,

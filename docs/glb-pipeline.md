@@ -73,16 +73,17 @@ more cubes than the decimated source had faces; the final count is set by
 
 Run `node pipeline.mjs --help` for the full list. The ones that matter:
 
-### `--depth` — voxel resolution (default 6)
+### `--depth` — voxel resolution (default 5)
 
-Blender's Blocks Remesh octree depth, and the main quality knob. Each step up
-creates substantially more geometry.
+Blender's Blocks Remesh octree depth, and the main quality knob. Each step
+*halves* the voxel edge, so a step up creates substantially more geometry and a
+step down gives visibly chunkier blocks.
 
 | Depth | Result | Typical use |
 | --- | --- | --- |
-| 4 | Large blocks, very low detail | Props, strong pixel style |
-| 5 | Medium blocks | Good default for props |
-| 6 | Small blocks | Characters (pipeline default) |
+| 4 | Large blocks, very low detail | Props, strongest pixel style |
+| 5 | Chunky blocks | Characters and props (pipeline default) |
+| 6 | Small blocks | When silhouette detail matters more than the block look |
 | 7 | Fine blocks, heavier mesh | Close-up and hero assets |
 
 ### `--keep-largest` and `--min-part` (default 0.05)
@@ -153,6 +154,38 @@ attribute, so no atlas or external image is needed.
 This matters downstream: anything consuming the output must read `COLOR_0`, or
 the model renders flat grey.
 
+### `COLOR_0` holds sRGB values, but glTF says it is linear
+
+**Known defect. Consumers have to decode it themselves.** glTF defines `COLOR_0`
+as linear, and every renderer treats it that way. Stage 2 writes the base colour
+texture's **sRGB** texels into it unconverted, so a compliant renderer encodes
+already-encoded values a second time on the way to the screen and the model
+comes out pale, chalky, and desaturated — a 0.45 mid-tone displays as 0.70.
+
+Measured on the Zombie Gunslinger, source texture against pipeline output:
+
+| | mean R, G, B |
+| --- | --- |
+| `Baked_BaseColor` texels, sRGB byte values normalized | 0.514, 0.446, 0.309 |
+| Pipeline `COLOR_0` | 0.524, 0.451, 0.308 |
+
+The match is the whole finding: the sampled sRGB value is copied through
+verbatim. If `COLOR_0` were the linear value the spec asks for, it would read
+about 0.24, 0.17, 0.08.
+
+Until the pipeline is fixed, decode on load. Zombie Motorworks does this in
+`zombie-motorworks/src/survival/VoxelAssetLoader.ts`, applying the standard sRGB
+transfer function to the colour attribute once per cached template.
+
+The suspect is `paint_voxel_faces()` in `blender_voxelize.py`, which creates a
+`BYTE_COLOR` attribute and assigns `attribute.data[i].color`. Blender documents
+that setter as scene-linear, and `image.pixels` hands back linear floats, so on
+paper the chain is correct — but an sRGB encode demonstrably leaks in somewhere
+between that assignment and the exported buffer. Writing `.color_srgb` instead,
+or switching the attribute to `FLOAT_COLOR`, are the things to try. **Neither
+has been tested.** Whoever fixes it must also strip the consumer-side decode, or
+the models will go double-dark.
+
 Buffer compression is `meshopt` (`EXT_meshopt_compression`), which needs a
 decoder registered at runtime. In three.js:
 
@@ -172,6 +205,13 @@ Do not judge voxel colour from a lit Blender render — `glb-rigger/verify/rende
 blows the palette out to near-white and made a correctly-coloured model look
 broken. Read `COLOR_0` directly, or rasterize it unlit, before concluding
 anything about colour.
+
+When a model does look washed out, the test that separates a bad bake from the
+colour-space defect above is to compare distributions rather than eyeball it:
+decode the source `Baked_BaseColor` PNG, take the mean of its texels as raw byte
+values, and compare against the mean of `COLOR_0`. Matching means say the bake
+is faithful and the paleness is the double encode; a genuinely lighter `COLOR_0`
+says the bake itself lost the paint.
 
 ## Limitations
 

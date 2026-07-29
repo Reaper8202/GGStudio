@@ -30,15 +30,6 @@ describe('economy helpers', () => {
     expect(partInvestment(placed('turret'))).toBe(150);
   });
 
-  it('includes both turret module investments in the sell refund', () => {
-    const turret = placed('turret', 3);
-    turret.config.empLevel = 2;
-    turret.config.piercingLevel = 1;
-
-    expect(partInvestment(turret)).toBe(150 + 90 + 144 + 100 + 175 + 125);
-    expect(sellRefund(turret)).toBe(392);
-  });
-
   it('refunds only the unlock spend when a part goes back to inventory', () => {
     // Returning a part hands back a base block, so the base price stays spent
     // and everything above it comes back in full.

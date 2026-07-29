@@ -15,9 +15,12 @@ export interface WaveManagerCallbacks {
 
 export interface WaveComposition {
   walker: number;
+  gunslinger: number;
+  necromancer: number;
   thrower: number;
   worker: number;
   'phone-addict': number;
+  kamikaze: number;
 }
 
 /** Resolve one kind's count from its composition curve, honouring a dev pin. */
@@ -43,6 +46,16 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
       types.walker.countOverride,
       safeWave,
     ),
+    gunslinger: countFromCurve(
+      composition.gunslinger,
+      types.gunslinger.countOverride,
+      safeWave,
+    ),
+    necromancer: countFromCurve(
+      composition.necromancer,
+      types.necromancer.countOverride,
+      safeWave,
+    ),
     thrower: countFromCurve(
       composition.thrower,
       types.thrower.countOverride,
@@ -56,6 +69,11 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
     'phone-addict': countFromCurve(
       composition['phone-addict'],
       types['phone-addict'].countOverride,
+      safeWave,
+    ),
+    kamikaze: countFromCurve(
+      composition.kamikaze,
+      types.kamikaze.countOverride,
       safeWave,
     ),
   };
@@ -120,7 +138,14 @@ function hordeSizeForWave(): number {
 function spawnOrderForWave(wave: number): ZombieKind[] {
   const composition = zombieCompositionForWave(wave);
   const specials: ZombieKind[] = [];
-  for (const kind of ['thrower', 'worker', 'phone-addict'] as const) {
+  for (const kind of [
+    'gunslinger',
+    'necromancer',
+    'thrower',
+    'worker',
+    'phone-addict',
+    'kamikaze',
+  ] as const) {
     for (let i = 0; i < composition[kind]; i++) specials.push(kind);
   }
   if (specials.length === 0) return Array(composition.walker).fill('walker');
@@ -219,9 +244,19 @@ export class WaveManager {
       kinds.length,
       Math.max(0, this.zombies.trySpawnHorde(kinds)),
     );
+    this.countBonusSpawns(spawned);
+    return spawned;
+  }
+
+  /**
+   * Take ownership of bodies that entered the arena without being assigned by
+   * this director — a necromancer's raise, a cheat horde. They have to be
+   * counted, or the wave completes with them still walking around.
+   */
+  countBonusSpawns(spawned: number): void {
+    if (this.waveDone || spawned <= 0) return;
     this.assignedCount += spawned;
     this.emitRemaining();
-    return spawned;
   }
 
   /**
