@@ -2,55 +2,20 @@
 // `glb-rigger`. Pure math only — no Three.js — so the curves stay unit
 // testable and the same values can drive a preview page or the game.
 //
-// Convention, verified against the exported hierarchy: the model faces +Z, so
-// a NEGATIVE rotation about a bone's local X swings it forward and a positive
-// one swings it back. Angles are radians.
+// The bone vocabulary and the rotation convention are shared with every other
+// character rig — see `rigPose.ts`. In short: the model faces +Z, so a NEGATIVE
+// rotation about a bone's local X swings it forward. Angles are radians.
+// The .ts extension is explicit here so bare Node can run this module directly
+// from `glb-rigger/verify/emit_pose.ts`, which has no bundler to resolve for it.
+import { TAU, rot, smoothStep, type CharacterPose } from './rigPose.ts';
 
-/** Bone names emitted by `glb-rigger/necromancer.rig.json`. */
-export type BoneName =
-  | 'hips'
-  | 'torso'
-  | 'head'
-  | 'armR_upper'
-  | 'armR_fore'
-  | 'armL_upper'
-  | 'armL_fore'
-  | 'legR_thigh'
-  | 'legR_shin'
-  | 'footR'
-  | 'legL_thigh'
-  | 'legL_shin'
-  | 'footL';
-
-export const BONE_NAMES: readonly BoneName[] = [
-  'hips',
-  'torso',
-  'head',
-  'armR_upper',
-  'armR_fore',
-  'armL_upper',
-  'armL_fore',
-  'legR_thigh',
-  'legR_shin',
-  'footR',
-  'legL_thigh',
-  'legL_shin',
-  'footL',
-];
-
-/** Local Euler rotation for one bone, in radians. */
-export interface BonePose {
-  readonly rx: number;
-  readonly ry: number;
-  readonly rz: number;
-}
-
-export interface CharacterPose {
-  /** Bones absent from the map stay at their bind rotation. */
-  readonly bones: Partial<Record<BoneName, BonePose>>;
-  /** Vertical offset for the root, in model units (model is 2.0 tall). */
-  readonly rootLift: number;
-}
+export {
+  BONE_NAMES,
+  smoothStep,
+  type BoneName,
+  type BonePose,
+  type CharacterPose,
+} from './rigPose.ts';
 
 export interface WalkOptions {
   /** Steps per second. */
@@ -84,18 +49,6 @@ const CAST_DEFAULTS: Required<CastOptions> = {
   reach: 0.85,
   recoil: 0.22,
 };
-
-const TAU = Math.PI * 2;
-
-function rot(rx: number, ry = 0, rz = 0): BonePose {
-  return { rx, ry, rz };
-}
-
-/** Smooth 0..1 ramp with zero slope at both ends. */
-export function smoothStep(t: number): number {
-  const clamped = t <= 0 ? 0 : t >= 1 ? 1 : t;
-  return clamped * clamped * (3 - 2 * clamped);
-}
 
 /**
  * Shambling walk cycle.

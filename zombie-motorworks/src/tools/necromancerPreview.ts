@@ -1,27 +1,50 @@
-// Standalone preview for the rigid-chunk Necromancer rig. Loaded via
+// Standalone preview for the rigid-chunk character rigs. Loaded via
 // necromancer.html; run `npm run dev` and open /necromancer.html.
 //
-// The rig is a plain node hierarchy — no skinning — so animating it is just
-// assigning Euler angles from `necromancerPose` onto nodes looked up by name.
+// Each rig is a plain node hierarchy — no skinning — so animating it is just
+// assigning Euler angles from a pose module onto nodes looked up by name. Every
+// rig shares the bone vocabulary in `rigPose`, but the clips differ per
+// character: the Necromancer casts, the Gunslinger shoots.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-import { BONE_NAMES, castPose, walkPose, type BoneName, type CharacterPose } from './necromancerPose';
+import { castPose, walkPose } from './necromancerPose';
+import { shootPose, walkPose as gunWalkPose } from './gunslingerPose';
+import { BONE_NAMES, type BoneName, type CharacterPose } from './rigPose';
 
-// Both rigs use identical bone names, so one set of pose curves drives either.
+/**
+ * A one-shot clip needs a period so it reads as a repeating action; a cycling
+ * clip like a walk is driven by raw elapsed time instead.
+ */
+interface ClipDef {
+  readonly pose: (t: number) => CharacterPose;
+  readonly period?: number;
+}
+
 const MODELS = {
-  textured: 'necromancer.rigged.glb',
-  voxel: 'necromancer-voxel.rigged.glb',
-} as const;
+  textured: {
+    file: 'necromancer.rigged.glb',
+    clips: { walk: { pose: walkPose }, cast: { pose: castPose, period: 2.4 } },
+  },
+  // Same bone names and the same pose curves as the textured Necromancer — only
+  // the geometry differs, which is the whole point of keeping the names aligned.
+  voxel: {
+    file: 'necromancer-voxel.rigged.glb',
+    clips: { walk: { pose: walkPose }, cast: { pose: castPose, period: 2.4 } },
+  },
+  gunslinger: {
+    file: 'gunslinger.rigged.glb',
+    clips: { walk: { pose: gunWalkPose }, shoot: { pose: shootPose, period: 2.0 } },
+  },
+} as const satisfies Record<string, { file: string; clips: Record<string, ClipDef> }>;
+
 type ModelKey = keyof typeof MODELS;
 const MODEL_KEYS = Object.keys(MODELS) as ModelKey[];
 
-const CLIPS = ['walk', 'cast'] as const;
-type Clip = (typeof CLIPS)[number];
-
-/** One cast every this many seconds, so the clip reads as a repeating action. */
-const CAST_PERIOD = 2.4;
+const clipNames = (key: ModelKey): string[] => Object.keys(MODELS[key].clips);
+const clipDef = (key: ModelKey, name: string): ClipDef | undefined =>
+  (MODELS[key].clips as Record<string, ClipDef>)[name];
 
 const params = new URLSearchParams(window.location.search);
 const stage = document.getElementById('stage') as HTMLDivElement;
@@ -32,11 +55,14 @@ const showParts = document.getElementById('showParts') as HTMLInputElement;
 const clipRow = document.getElementById('clips') as HTMLDivElement;
 const modelRow = document.getElementById('models') as HTMLDivElement;
 
-let clip: Clip = CLIPS.includes(params.get('clip') as Clip) ? (params.get('clip') as Clip) : 'walk';
 let speed = Number(params.get('speed') ?? 1);
 let model: ModelKey = MODEL_KEYS.includes(params.get('model') as ModelKey)
   ? (params.get('model') as ModelKey)
   : 'textured';
+// A clip only exists on some models, so fall back to the walk every rig has.
+let clip: string = clipNames(model).includes(params.get('clip') ?? '')
+  ? params.get('clip')!
+  : 'walk';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -101,13 +127,17 @@ function applyPose(pose: CharacterPose): void {
   }
 }
 
+/** Rebuilt on every model switch, because the clip set is per character. */
 function buildClipButtons(): void {
-  for (const name of CLIPS) {
+  clipRow.replaceChildren();
+  if (!clipNames(model).includes(clip)) clip = 'walk';
+  for (const name of clipNames(model)) {
     const button = document.createElement('button');
     button.textContent = name;
     button.setAttribute('aria-pressed', String(name === clip));
     button.addEventListener('click', () => {
       clip = name;
+      elapsed = 0;
       for (const child of clipRow.children) {
         child.setAttribute('aria-pressed', String(child.textContent === clip));
       }
@@ -127,6 +157,7 @@ function buildModelButtons(): void {
       for (const child of modelRow.children) {
         child.setAttribute('aria-pressed', String(child.textContent === model));
       }
+      buildClipButtons();
       void loadModel(model).catch(reportFailure);
     });
     modelRow.appendChild(button);
@@ -172,7 +203,7 @@ async function loadModel(key: ModelKey): Promise<void> {
   unload();
 
   const gltf = await new GLTFLoader().loadAsync(
-    `${import.meta.env.BASE_URL}assets/zombies/${MODELS[key]}`,
+    `${import.meta.env.BASE_URL}assets/zombies/${MODELS[key].file}`,
   );
   const scene = gltf.scene;
   rigRoot.add(scene);
@@ -250,9 +281,11 @@ let elapsed = 0;
 
 renderer.setAnimationLoop(() => {
   elapsed += clock.getDelta() * speed;
-  applyPose(
-    clip === 'walk' ? walkPose(elapsed) : castPose((elapsed % CAST_PERIOD) / CAST_PERIOD),
-  );
+  const active = clipDef(model, clip);
+  if (active) {
+    // A periodic clip runs 0..1 across its period; a cycle takes elapsed time.
+    applyPose(active.pose(active.period ? (elapsed % active.period) / active.period : elapsed));
+  }
   controls.update();
   renderer.render(scene, camera);
 });
