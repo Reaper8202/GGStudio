@@ -11,6 +11,7 @@ import {
 import { BLUEPRINT_SCHEMA_VERSION } from '../src/core/types.ts';
 import type { VehicleBlueprint } from '../src/core/types.ts';
 import { getEffectiveDef } from '../src/core/upgrades.ts';
+import { DEFAULT_BIOME_ID } from '../src/survival/arena/recipes/index.ts';
 import {
   createWaveClearPayload,
   SurvivalMode,
@@ -50,11 +51,13 @@ function checkpointBlueprint(): VehicleBlueprint {
 describe('run checkpoints', () => {
   it('starts wave 1 with explicit effective full HP for every part', () => {
     const blueprint = checkpointBlueprint();
-    const checkpoint = createInitialRunCheckpoint(blueprint);
+    const checkpoint = createInitialRunCheckpoint(blueprint, 'snowfield');
 
     expect(checkpoint).toMatchObject({
       wave: 1,
       kills: 0,
+      biomeId: 'snowfield',
+      score: 0,
       bankedEarnings: 0,
       partHp: fullPartHp(blueprint),
     });
@@ -70,13 +73,18 @@ describe('run checkpoints', () => {
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 217.5, seat: 61, frame: 0 },
       kills: 9,
+      biomeId: 'desert',
+      seed: 42,
+      score: 0,
       bankedEarnings: 73,
+      elapsedSeconds: 120,
     });
 
     expect(checkpoint).toMatchObject({
       wave: 2,
       partHp: { core: 217.5, seat: 61 },
       kills: 9,
+      score: 0,
       bankedEarnings: 73,
     });
     expect(checkpoint.blueprint.parts.map((part) => part.id)).toEqual([
@@ -92,7 +100,11 @@ describe('run checkpoints', () => {
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 188, seat: 47 },
       kills: 31,
+      biomeId: 'snowfield',
+      seed: 314159,
+      score: 0,
       bankedEarnings: 240,
+      elapsedSeconds: 120,
     });
 
     const continued = runStateFromCheckpoint(checkpoint);
@@ -115,7 +127,11 @@ describe('run checkpoints', () => {
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 155, seat: 39, frame: 0 },
       kills: 54,
+      biomeId: 'graveyard',
+      seed: 9001,
+      score: 0,
       bankedEarnings: 410,
+      elapsedSeconds: 120,
     });
 
     const recovered = recoverRunFromCheckpoint(failedWaveStart);
@@ -126,7 +142,10 @@ describe('run checkpoints', () => {
     ]);
     expect(recovered.partHp).toEqual(fullPartHp(recovered.blueprint));
 
-    const nextRun = createInitialRunCheckpoint(recovered.blueprint);
+    const nextRun = createInitialRunCheckpoint(
+      recovered.blueprint,
+      DEFAULT_BIOME_ID,
+    );
     expect(nextRun.wave).toBe(1);
     expect(nextRun.blueprint.parts.map((part) => part.id)).not.toContain(
       'frame',
@@ -141,7 +160,11 @@ describe('run checkpoints', () => {
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 201, seat: 72 },
       kills: 18,
+      biomeId: 'desert',
+      seed: 8675309,
+      score: 0,
       bankedEarnings: 165,
+      elapsedSeconds: 120,
     });
     const liveMidWave = {
       wave: 3,
@@ -152,9 +175,11 @@ describe('run checkpoints', () => {
     const saved = savedRunFromCheckpoint(checkpoint, 1_800_000_000_000);
 
     expect(saved).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 4,
       wave: checkpoint.wave,
       kills: checkpoint.kills,
+      biomeId: checkpoint.biomeId,
+      seed: checkpoint.seed,
       bankedEarnings: checkpoint.bankedEarnings,
       partHp: checkpoint.partHp,
     });
@@ -168,14 +193,17 @@ describe('run checkpoints', () => {
       ['core', 'seat'],
       { core: 175, seat: 44 },
       23,
+      940,
+      186,
     );
 
     expect(payload).toEqual({
-      clearedRun: { wave: 2 },
-      nextRun: { wave: 3 },
+      clearedRun: { wave: 2, elapsedSeconds: 186 },
+      nextRun: { wave: 3, elapsedSeconds: 186 },
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 175, seat: 44 },
       kills: 23,
+      score: 940,
     });
   });
 
@@ -194,6 +222,8 @@ describe('run checkpoints', () => {
       lastHudPending: -1,
       currentWave: 2,
       kills: 23,
+      runScore: 940,
+      runElapsedSeconds: 186,
       vehicle: {
         isDestroyed: () => false,
         survivingPartIds: () => ['core', 'seat'],
@@ -217,10 +247,11 @@ describe('run checkpoints', () => {
     expect(checkpointCalls).toEqual([
       [
         40,
-        { wave: 3 },
+        { wave: 3, elapsedSeconds: 186 },
         ['core', 'seat'],
         { core: 175, seat: 44 },
         23,
+        940,
       ],
     ]);
   });

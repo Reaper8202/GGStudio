@@ -49,6 +49,7 @@ interface PendingRewardsHarness {
   onWaveComplete(wave: number, reward: number): void;
   queueCompletedStepTransition(): void;
   onResetWave(): void;
+  onReturnToGarage(): void;
   onSaveAndQuit(): void;
   debugKillAllZombies(): void;
 }
@@ -59,16 +60,23 @@ function createHarness(options: { destroyed?: boolean } = {}): {
   rewardCalls: number[];
   discardedCalls: number[];
   resetCalls: number[];
+  garageCalls: number[];
   saveCalls: number[];
 } {
   const profile = { money: 100 };
   const rewardCalls: number[] = [];
   const discardedCalls: number[] = [];
   const resetCalls: number[] = [];
+  const garageCalls: number[] = [];
   const saveCalls: number[] = [];
   const callbacks = {
     profileMoney: () => profile.money,
     runEarnings: () => profile.money - 100,
+    onRepairAll: (cost: number) => {
+      if (profile.money < cost) return false;
+      profile.money -= cost;
+      return true;
+    },
     onReward: (amount: number) => {
       rewardCalls.push(amount);
       profile.money += amount;
@@ -77,8 +85,17 @@ function createHarness(options: { destroyed?: boolean } = {}): {
     onExit: vi.fn(),
     onWaveAdvance: vi.fn(),
     onBuildPhase: vi.fn(),
-    onGameOver: vi.fn(),
+    onGameOver: vi.fn(() => ({
+      score: 0,
+      wave: 1,
+      kills: 0,
+      isPersonalBest: false,
+      rank: null,
+      entries: [],
+    })),
+    onGameOverContinue: vi.fn(),
     onResetWave: (run: { wave: number }) => resetCalls.push(run.wave),
+    onReturnToGarage: (run: { wave: number }) => garageCalls.push(run.wave),
     onCheatInfiniteMoney: vi.fn(),
     onPhoneAddictKilled: vi.fn(),
     onWaveCleared: vi.fn(),
@@ -134,6 +151,7 @@ function createHarness(options: { destroyed?: boolean } = {}): {
     rewardCalls,
     discardedCalls,
     resetCalls,
+    garageCalls,
     saveCalls,
   };
 }
@@ -205,6 +223,20 @@ describe('pending survival wave rewards', () => {
     mode.onResetWave();
 
     expect(resetCalls).toEqual([1]);
+    expect(profile.money).toBe(100);
+    expect(rewardCalls).toEqual([]);
+    expect(mode.pendingWaveKillReward).toBe(0);
+    expect(mode.pendingWaveReward).toBe(0);
+  });
+
+  it('discards both pending buckets when leaving mid-wave for the garage', () => {
+    const { mode, profile, rewardCalls, garageCalls } = createHarness();
+    mode.handleZombieKilled(29, 'walker');
+    mode.onWaveComplete(1, 50);
+
+    mode.onReturnToGarage();
+
+    expect(garageCalls).toEqual([1]);
     expect(profile.money).toBe(100);
     expect(rewardCalls).toEqual([]);
     expect(mode.pendingWaveKillReward).toBe(0);

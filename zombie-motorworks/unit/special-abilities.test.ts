@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ABILITY_KIND_META,
   ABILITY_SLOT_KEYS,
+  abilityUnlocked,
   BENCHED_ABILITY_SLOT,
   effectiveHellfire,
   effectiveOverdrive,
@@ -195,10 +196,18 @@ describe('flamethrower hellfire catalog entry', () => {
     expect(def.weapon).toBeDefined();
   });
 
+  it('is the pay-off near the end of the nozzle upgrade chain', () => {
+    // Bought for its flame first: the ability only appears once the fourth
+    // upgrade is on the part.
+    expect(ability.unlockLevel).toBe(5);
+    expect(abilityUnlocked(ability, 4)).toBe(false);
+    expect(abilityUnlocked(ability, 5)).toBe(true);
+  });
+
   it('overcharges reach, cone, and damage all at once', () => {
-    const hellfire = effectiveHellfire(ability, 1);
+    const hellfire = effectiveHellfire(ability, ability.unlockLevel);
     expect(hellfire.durationSeconds).toBe(6);
-    expect(hellfire.damageMultiplier).toBeCloseTo(2.4);
+    expect(hellfire.damageMultiplier).toBeCloseTo(1.9);
     expect(hellfire.rangeMultiplier).toBeGreaterThan(1);
     expect(hellfire.coneMultiplier).toBeGreaterThan(1);
   });

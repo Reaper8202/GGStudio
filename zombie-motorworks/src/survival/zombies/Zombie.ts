@@ -11,7 +11,6 @@ import type { VfxSystem } from '../../vfx/VfxSystem.ts';
 import { VFX_PALETTE } from '../../vfx/vfxConfig.ts';
 import { instantiateVoxelAsset } from '../VoxelAssetLoader.ts';
 import {
-  BASE_ZOMBIE_STATS,
   DEATH_FEEDBACK_DURATION,
   DETOUR_BLEND,
   DETOUR_DURATION,
@@ -25,9 +24,6 @@ import {
   OBSTACLE_PROBE_HEIGHT,
   PHONE_ADDICT_GLOW_OPACITY,
   PHONE_ADDICT_GLOW_RADIUS,
-  PHONE_ADDICT_HEALTH_MULTIPLIER,
-  PHONE_ADDICT_REWARD,
-  PHONE_ADDICT_SPEED_MULTIPLIER,
   PHONE_ADDICT_VISUAL_HEIGHT,
   SCALE_VARIATION,
   SHIELD_FLASH_DURATION,
@@ -37,30 +33,21 @@ import {
   STUCK_SPEED_THRESHOLD,
   STUCK_TIME_THRESHOLD,
   THROWER_ATTACK_EXIT_MARGIN,
-  THROWER_ATTACK_INTERVAL,
-  THROWER_ATTACK_RANGE,
-  THROWER_HEALTH_MULTIPLIER,
-  THROWER_REWARD,
-  THROWER_SPEED_MULTIPLIER,
   THROWER_VISUAL_HEIGHT,
   WALK_BOB_AMPLITUDE,
   WALK_BOB_FREQUENCY,
-  WORKER_HEALTH_MULTIPLIER,
-  WORKER_PLANT_RANGE,
-  WORKER_PLANT_SECONDS,
   WORKER_RETREAT_RANGE,
   WORKER_RING_MAX_RADIUS,
   WORKER_RING_MAX_RATE,
   WORKER_RING_MIN_RATE,
   WORKER_RING_OPACITY,
-  WORKER_REWARD,
-  WORKER_SPEED_MULTIPLIER,
   WORKER_VISUAL_HEIGHT,
   ZOMBIE_ATTACK_EXIT_MARGIN,
   ZOMBIE_ATTACK_RANGE,
   ZOMBIE_HALF_HEIGHT,
   ZOMBIE_RADIUS,
 } from './zombieConfig.ts';
+import { devTuning } from '../devtuning/DevTuning.ts';
 
 const ZOMBIE_GROUPS =
   (GROUP_ZOMBIE << 16) | (GROUP_TERRAIN | GROUP_VEHICLE | GROUP_ZOMBIE);
@@ -198,43 +185,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-/** Per-kind stat multipliers over BASE_ZOMBIE_STATS, plus flat rewards. */
-const KIND_STATS: Record<
-  ZombieKind,
-  {
-    readonly health: number;
-    readonly speed: number;
-    readonly reward: number;
-    readonly attackInterval: number;
-  }
-> = {
-  walker: {
-    health: 1,
-    speed: 1,
-    reward: BASE_ZOMBIE_STATS.reward,
-    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
-  },
-  thrower: {
-    health: THROWER_HEALTH_MULTIPLIER,
-    speed: THROWER_SPEED_MULTIPLIER,
-    reward: THROWER_REWARD,
-    attackInterval: THROWER_ATTACK_INTERVAL,
-  },
-  'phone-addict': {
-    health: PHONE_ADDICT_HEALTH_MULTIPLIER,
-    speed: PHONE_ADDICT_SPEED_MULTIPLIER,
-    reward: PHONE_ADDICT_REWARD,
-    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
-  },
-  // Workers never attack; the interval is inert but kept sane.
-  worker: {
-    health: WORKER_HEALTH_MULTIPLIER,
-    speed: WORKER_SPEED_MULTIPLIER,
-    reward: WORKER_REWARD,
-    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
-  },
-};
-
 /** One persistent pooled zombie body, collider, visual, and AI state machine. */
 export class Zombie {
   readonly root = new THREE.Group();
@@ -297,6 +247,8 @@ export class Zombie {
   private plantTimer = 0;
 
   private health = 0;
+  /** Full health at spawn, so live re-tuning can preserve the damage fraction. */
+  private spawnHealth = 0;
   private moveSpeed = 0;
   private attackDamage = 0;
   private attackInterval = 0;
@@ -478,10 +430,13 @@ export class Zombie {
     if (this.disposed) return;
     this.active = true;
     this.state = ZombieState.Spawning;
-    const stats = KIND_STATS[this.kind];
-    this.health = BASE_ZOMBIE_STATS.health * healthMultiplier * stats.health;
-    this.moveSpeed = BASE_ZOMBIE_STATS.speed * speedMultiplier * stats.speed;
-    this.attackDamage = BASE_ZOMBIE_STATS.attackDamage * attackDamageMultiplier;
+    const base = devTuning.base;
+    const stats = devTuning.types[this.kind];
+    this.health = base.health * healthMultiplier * stats.healthMult;
+    this.spawnHealth = this.health;
+    this.moveSpeed = base.speed * speedMultiplier * stats.speedMult;
+    this.attackDamage =
+      base.attackDamage * attackDamageMultiplier * stats.damageMult;
     this.attackInterval = stats.attackInterval;
     this.reward = stats.reward;
     this.shieldTimer = 0;
@@ -538,6 +493,34 @@ export class Zombie {
     this.setOpacity(0.15);
   }
 
+  /**
+   * Dev-tuner live re-apply for a zombie that is already on the field. Recomputes
+   * stats from the current tuning and the supplied wave multipliers, preserving
+   * the zombie's remaining-health fraction so a live edit never revives or
+   * one-shots it. No-op for dead/inactive zombies.
+   */
+  reapplyStats(
+    healthMultiplier: number,
+    speedMultiplier: number,
+    attackDamageMultiplier: number,
+  ): void {
+    if (!this.isAlive) return;
+    const base = devTuning.base;
+    const stats = devTuning.types[this.kind];
+    const fraction =
+      this.spawnHealth > 0
+        ? Math.max(0, Math.min(1, this.health / this.spawnHealth))
+        : 1;
+    const newFull = base.health * healthMultiplier * stats.healthMult;
+    this.spawnHealth = newFull;
+    this.health = Math.max(1e-3, newFull * fraction);
+    this.moveSpeed = base.speed * speedMultiplier * stats.speedMult;
+    this.attackDamage =
+      base.attackDamage * attackDamageMultiplier * stats.damageMult;
+    this.attackInterval = stats.attackInterval;
+    this.reward = stats.reward;
+  }
+
   /** Apply speed-scaled vehicle damage and a real Rapier knockback impulse. */
   applyVehicleImpact(
     damage: number,
@@ -556,6 +539,74 @@ export class Zombie {
     const impulseMagnitude = this.body.mass() * KNOCKBACK_SPEED;
     this.impulseScratch.x = (dirX / length) * impulseMagnitude;
     this.impulseScratch.y = 0;
+    this.impulseScratch.z = (dirZ / length) * impulseMagnitude;
+    this.body.applyImpulse(this.impulseScratch, true);
+
+    if (this.health > 0) return 'damaged';
+    this.die();
+    return 'killed';
+  }
+
+  /**
+   * Ridden on a bulldozer blade: carried at the blade's velocity, and held in
+   * the knockback state so the zombie can neither chase nor bite while the
+   * blade has it. The caller refreshes this every step it keeps hold, so the
+   * hold lapses on its own once the zombie rolls off.
+   *
+   * A frozen zombie is left alone — the ice owns it until it thaws.
+   */
+  holdOnPlow(velocityX: number, velocityZ: number, holdSeconds: number): void {
+    if (!this.isTargetable || this.freezeTimer > 0) return;
+    this.state = ZombieState.KnockedBack;
+    this.knockbackTimer = Math.max(this.knockbackTimer, holdSeconds);
+    // Vertical velocity is the physics engine's business: overwriting it would
+    // hold the load off the ground while the blade is climbing a kerb.
+    this.velocityScratch.x = velocityX;
+    this.velocityScratch.y = this.body.linvel().y;
+    this.velocityScratch.z = velocityZ;
+    this.body.setLinvel(this.velocityScratch, true);
+  }
+
+  /**
+   * Contact damage from a blade that is carrying this zombie rather than
+   * throwing it clear: no knockback, because being flung is exactly what the
+   * blade is preventing. Paced by the same impact cooldown as a ram.
+   */
+  applyPlowScrape(damage: number): VehicleImpactResult {
+    if (!this.isTargetable || damage <= 0 || this.impactCooldown > 0)
+      return 'ignored';
+
+    this.impactCooldown = IMPACT_COOLDOWN_SECONDS;
+    this.health -= damage;
+    this.hitFlashTimer = HIT_FLASH_DURATION;
+    if (this.health > 0) return 'damaged';
+    this.die();
+    return 'killed';
+  }
+
+  /**
+   * The blade drove its load into something solid. Deliberately ignores the
+   * impact cooldown: the slam is one discrete event, not a contact tick, and it
+   * must land on every body in the pile the moment it happens. Survivors are
+   * thrown up and out of the way rather than merely shoved.
+   */
+  applyPlowCrush(
+    damage: number,
+    dirX: number,
+    dirZ: number,
+  ): VehicleImpactResult {
+    if (!this.isTargetable || damage <= 0) return 'ignored';
+
+    this.impactCooldown = IMPACT_COOLDOWN_SECONDS;
+    this.health -= damage;
+    this.hitFlashTimer = HIT_FLASH_DURATION;
+    this.state = ZombieState.KnockedBack;
+    this.knockbackTimer = KNOCKBACK_DURATION;
+
+    const length = Math.hypot(dirX, dirZ) || 1;
+    const impulseMagnitude = this.body.mass() * KNOCKBACK_SPEED;
+    this.impulseScratch.x = (dirX / length) * impulseMagnitude;
+    this.impulseScratch.y = impulseMagnitude * 0.5;
     this.impulseScratch.z = (dirZ / length) * impulseMagnitude;
     this.body.applyImpulse(this.impulseScratch, true);
 
@@ -824,7 +875,11 @@ export class Zombie {
       if (planting) {
         // Each pulse expands from the worker and fades; pulses come faster as
         // the arming channel nears completion.
-        const charge = clamp(1 - this.plantTimer / WORKER_PLANT_SECONDS, 0, 1);
+        const charge = clamp(
+          1 - this.plantTimer / devTuning.specialist.workerPlantSeconds,
+          0,
+          1,
+        );
         const rate =
           WORKER_RING_MIN_RATE +
           (WORKER_RING_MAX_RATE - WORKER_RING_MIN_RATE) * charge;
@@ -897,9 +952,9 @@ export class Zombie {
         } else {
           away = -1;
         }
-      } else if (target.distance <= WORKER_PLANT_RANGE) {
+      } else if (target.distance <= devTuning.specialist.workerPlantRange) {
         // In range: commit to the arming channel wherever the vehicle goes.
-        this.plantTimer = WORKER_PLANT_SECONDS;
+        this.plantTimer = devTuning.specialist.workerPlantSeconds;
         this.ringPhase = 0;
         this.state = ZombieState.Planting;
         this.zeroHorizontalVelocity();
@@ -908,7 +963,9 @@ export class Zombie {
       }
     } else {
       const attackRange =
-        this.kind === 'thrower' ? THROWER_ATTACK_RANGE : ZOMBIE_ATTACK_RANGE;
+        this.kind === 'thrower'
+          ? devTuning.specialist.throwerAttackRange
+          : ZOMBIE_ATTACK_RANGE;
       if (target.distance <= attackRange) {
         this.state = ZombieState.Attacking;
         // Throwers wind up quickly on arrival instead of a full idle interval.
@@ -966,7 +1023,7 @@ export class Zombie {
     const target = this.vehicleTarget;
     const exitRange =
       this.kind === 'thrower'
-        ? THROWER_ATTACK_RANGE + THROWER_ATTACK_EXIT_MARGIN
+        ? devTuning.specialist.throwerAttackRange + THROWER_ATTACK_EXIT_MARGIN
         : ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN;
     if (target.partId === null || target.distance > exitRange) {
       this.state = ZombieState.Chasing;

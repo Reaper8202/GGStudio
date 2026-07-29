@@ -12,14 +12,14 @@
  */
 
 import RAPIER from '@dimforge/rapier3d-compat';
+import type { EnvironmentModifiers } from '../core/biomes.ts';
+import type { SurfaceKind } from '../core/surfaces.ts';
+import { SURFACES } from '../core/surfaces.ts';
+import type { Vec3 } from '../core/types.ts';
+import { CELL_SIZE } from '../core/types.ts';
 import type { RuntimeWheel } from './assembler.ts';
 import { WHEEL_RAY_GROUPS } from './assembler.ts';
-import type { SurfaceKind } from './surfaces.ts';
-import { SURFACES } from './surfaces.ts';
 import { add, clamp, cross, dot, len, norm, rotateAroundAxis, rotateByQuat, scale, sub, v3 } from './vec.ts';
-import type { Vec3 } from '../core/types.ts';
-
-import { CELL_SIZE } from '../core/types.ts';
 
 /** Grid cell centres sit at (i+0.5)·CELL_SIZE, so the lateral mirror plane
  * of a column-0-centred vehicle is x = CELL_SIZE/2, not 0. */
@@ -38,6 +38,9 @@ const LAT_SLIP_SATURATION = 0.7; // m/s lateral speed for full lateral force
 const WHEEL_REST_EPSILON = 0.001; // m/s
 const BRAKE_STOP_RESPONSE_STEPS = 1;
 const GRAVITY_MPS2 = 9.81;
+// Soft-ground drag rises with load relative to the wheel's rated capacity, so
+// heavy builds bog down without changing firm-ground handling.
+const SINKAGE_LOAD_GAIN = 4;
 // Suspension: rest sag sets the base spring rate (k = cornerWeight / sag), so
 // the ride frequency is the same for every build (~1.8 Hz) regardless of
 // mass. Preset multipliers (light/heavy-duty/off-road) then scale each
@@ -65,6 +68,7 @@ export interface WheelStepInput {
   brake: number; // 0..1
   steer: number; // -1..1
   driveTorques: Map<string, number>; // partId -> N·m this step
+  env: EnvironmentModifiers;
 }
 
 export interface AckermannGeometry {
@@ -127,10 +131,21 @@ export function steerTargets(
   return out;
 }
 
+export interface WheelContactSample {
+  partId: string;
+  /** World-space contact point. */
+  point: { x: number; y: number; z: number };
+  surface: SurfaceKind;
+  /** Combined slip magnitude, already normalised to roughly 0..1. */
+  slip: number;
+  loadN: number;
+}
+
 export interface WheelTelemetry {
   groundedCount: number;
   meanDrivenOmega: number;
   overloadedWheels: string[];
+  contacts: WheelContactSample[];
 }
 
 export function stepWheels(
@@ -162,6 +177,7 @@ export function stepWheels(
   let drivenOmegaSum = 0;
   let drivenCount = 0;
   const overloaded: string[] = [];
+  const contacts: WheelContactSample[] = [];
 
   const linvelV = v3(linvel.x, linvel.y, linvel.z);
   const angvelV = v3(angvel.x, angvel.y, angvel.z);
@@ -260,15 +276,18 @@ export function stepWheels(
     const fwd = scale(forward, 1 / forwardLen);
     const lat = axleW;
 
-    const surface = SURFACES[surfaceOf(hit.collider.handle)];
+    const surfaceKind = surfaceOf(hit.collider.handle);
+    const surface = SURFACES[surfaceKind];
     const muLong =
       w.wheelDef.frictionLong *
       surface.muLong *
-      TIRE_LONGITUDINAL_GRIP_MULTIPLIER;
+      TIRE_LONGITUDINAL_GRIP_MULTIPLIER *
+      input.env.gripLongMul;
     const muLat =
       w.wheelDef.frictionLat *
       surface.muLat *
-      TIRE_LATERAL_GRIP_MULTIPLIER;
+      TIRE_LATERAL_GRIP_MULTIPLIER *
+      input.env.gripLatMul;
 
     // Velocity of the chassis at the contact point.
     const vContact = add(linvelV, cross(angvelV, sub(contactW, comV)));
@@ -286,6 +305,20 @@ export function stepWheels(
     // Longitudinal: slip between wheel surface speed and ground speed. At rest,
     // suppress tiny residual slip so the tire cannot manufacture creep.
     const slip = w.omega * w.radius - vLong;
+    const slipMagnitude = Math.min(
+      1,
+      Math.hypot(
+        slip / LONG_SLIP_SATURATION,
+        vLat / LAT_SLIP_SATURATION,
+      ),
+    );
+    contacts.push({
+      partId: w.partId,
+      point: contactW,
+      surface: surfaceKind,
+      slip: slipMagnitude,
+      loadN: N,
+    });
     let fLong = atRest
       ? 0
       : muLong * N * clamp(slip / LONG_SLIP_SATURATION, -1, 1);
@@ -316,7 +349,15 @@ export function stepWheels(
     // then brake as a no-reversal clamp (locks cleanly instead of
     // oscillating when brakeTorque·dt/I exceeds ω).
     const brakeT = w.braking ? input.brake * w.wheelDef.brakeTorque : 0;
-    const rollRes = surface.rollingResistance * N * w.radius;
+    const loadRatio = N / Math.max(1, w.wheelDef.maxLoad);
+    const sinkageFactor =
+      1 + surface.sinkage * loadRatio * SINKAGE_LOAD_GAIN;
+    const rollRes =
+      surface.rollingResistance *
+      input.env.rollingResistanceMul *
+      sinkageFactor *
+      N *
+      w.radius;
     w.omega +=
       ((drive - fLong * w.radius - Math.sign(w.omega) * Math.min(rollRes, (Math.abs(w.omega) * w.inertia) / dt)) /
         w.inertia) *
@@ -333,6 +374,7 @@ export function stepWheels(
     groundedCount,
     meanDrivenOmega: drivenCount > 0 ? drivenOmegaSum / drivenCount : 0,
     overloadedWheels: overloaded,
+    contacts,
   };
 }
 

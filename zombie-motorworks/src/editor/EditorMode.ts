@@ -20,6 +20,7 @@ import {
   nextPartId,
 } from '../core/blueprint.ts';
 import { canPlacePart, validateBlueprint } from '../core/placement.ts';
+import { cellCentreM } from '../core/mass.ts';
 import { deriveConnections } from '../core/structural.ts';
 import { analyzeVehicle } from '../core/analysis.ts';
 import {
@@ -51,7 +52,6 @@ import {
   type EditorUI,
   type NewGarageDisposalSummary,
   type RunSummary,
-  type TurretModuleEconomy,
 } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
@@ -59,6 +59,8 @@ import { getEffectiveDef } from '../core/upgrades.ts';
 import {
   ABILITY_KIND_META,
   ABILITY_SLOT_KEYS,
+  abilityUnlocked,
+  abilityUnlockLevel,
   BENCHED_ABILITY_SLOT,
   MAX_ABILITY_SLOTS,
   resolveAbilityLoadout,
@@ -75,17 +77,11 @@ import {
   scaledHpOnUpgrade,
   sellRefund,
   unlockCost,
+  unlockInvestment,
   type RunState,
 } from '../core/economy.ts';
 import type { PlayerProfile } from '../core/profile.ts';
 import { resolveHotbar, withHotbarSlot } from '../core/hotbar.ts';
-import {
-  isEmpUnlocked,
-  isPiercingUnlocked,
-  turretModuleLevel,
-  turretModulePrice,
-  type TurretModule,
-} from '../core/turretModules.ts';
 import { threatWarningsForWave } from '../survival/waveBalance.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
@@ -228,58 +224,6 @@ export function previewUpgradeMetrics(
   };
 }
 
-export interface TurretModulePurchase {
-  config: PartConfig;
-  targetLevel: number;
-  price: number;
-}
-
-/** Build the immutable config change shared by UI purchases and unit tests. */
-export function nextTurretModulePurchase(
-  config: PartConfig,
-  module: TurretModule,
-): TurretModulePurchase | null {
-  const targetLevel = turretModuleLevel(config, module) + 1;
-  const price = turretModulePrice(module, targetLevel);
-  if (price === null) return null;
-  return {
-    config: {
-      ...config,
-      ...(module === 'emp'
-        ? { empLevel: targetLevel }
-        : { piercingLevel: targetLevel }),
-    },
-    targetLevel,
-    price,
-  };
-}
-
-/** Derive all button gates from wallet and profile progress in one place. */
-export function turretModuleEconomy(
-  config: PartConfig,
-  money: number,
-  progress: Pick<
-    PlayerProfile,
-    'highestWaveCleared' | 'phoneAddictsKilled'
-  >,
-): Record<TurretModule, TurretModuleEconomy> {
-  const state = (module: TurretModule): TurretModuleEconomy => {
-    const level = turretModuleLevel(config, module);
-    const purchase = nextTurretModulePurchase(config, module);
-    const unlocked =
-      module === 'emp' ? isEmpUnlocked(progress) : isPiercingUnlocked();
-    return {
-      level,
-      targetLevel: purchase?.targetLevel ?? null,
-      price: purchase?.price ?? null,
-      unlocked,
-      canBuy:
-        unlocked && purchase !== null && canAfford(money, purchase.price),
-    };
-  };
-  return { emp: state('emp'), piercing: state('piercing') };
-}
-
 interface GhostState {
   defId: string;
   orient: number;
@@ -324,6 +268,9 @@ export class EditorMode {
   private readonly history: CommandHistory;
   private bp: VehicleBlueprint;
   private selected = new Set<string>();
+  /** World point the selection shortcut card hangs above, or null when idle. */
+  private selectionTipAnchor: THREE.Vector3 | null = null;
+  private readonly tipProjection = new THREE.Vector3();
   private symmetry = false;
   private layer = -1;
   private readonly toggles: OverlayToggles = { ...defaultToggles(), com: true, contacts: true, supportPolygon: true, connections: false, arcs: false };
@@ -445,9 +392,8 @@ export class EditorMode {
       onUpgradePart: (partId) => this.buyUpgrade(partId),
       onRepairPart: (partId) => this.repairPart(partId),
       onRepairAll: () => this.repairAll(),
-      onBuyTurretModule: (partId, module) =>
-        this.buyTurretModule(partId, module),
       onDeleteSelected: () => this.deleteSelected(),
+      onReturnSelected: () => this.returnSelectedToInventory(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onCancelTool: () => this.disarmTool(),
     });
@@ -479,7 +425,30 @@ export class EditorMode {
 
   update(): void {
     this.controls.update();
+    this.updateSelectionTip();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Pin the shortcut card above the selection. It rides the camera every frame
+   * rather than being placed once, so orbiting never leaves it stranded.
+   */
+  private updateSelectionTip(): void {
+    const tip = this.ui.selectionTip;
+    // While a part is armed, R turns the ghost and the card would be lying.
+    if (!this.selectionTipAnchor || this.ghost) {
+      tip.style.display = 'none';
+      return;
+    }
+    const projected = this.tipProjection.copy(this.selectionTipAnchor).project(this.camera);
+    if (projected.z > 1) {
+      tip.style.display = 'none';
+      return;
+    }
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    tip.style.display = 'flex';
+    tip.style.left = `${rect.left + ((projected.x + 1) / 2) * rect.width}px`;
+    tip.style.top = `${rect.top + ((1 - projected.y) / 2) * rect.height}px`;
   }
 
   resize(w: number, h: number): void {
@@ -642,7 +611,7 @@ export class EditorMode {
       const prev = this.history.undo(this.bp);
       if (prev) {
         this.bp = prev;
-        if (this.isInventoryPlacementLabel(label)) {
+        if (this.isInventoryStockLabel(label)) {
           this.reconcilePlacementInventory(before, prev);
         }
         this.selected.clear();
@@ -661,7 +630,7 @@ export class EditorMode {
       const next = this.history.redo(this.bp);
       if (next) {
         this.bp = next;
-        if (this.isInventoryPlacementLabel(label)) {
+        if (this.isInventoryStockLabel(label)) {
           this.reconcilePlacementInventory(before, next);
         }
         this.selected.clear();
@@ -728,8 +697,17 @@ export class EditorMode {
     this.refreshProfile();
   }
 
-  private isInventoryPlacementLabel(label: string): boolean {
-    return label.startsWith('Place ') || label === 'symmetric place';
+  /**
+   * Commands that move blocks between the rig and owned stock, and so have to
+   * be mirrored in the inventory when undone or redone. Selling is not one:
+   * the block leaves the game for cash either way.
+   */
+  private isInventoryStockLabel(label: string): boolean {
+    return (
+      label.startsWith('Place ') ||
+      label === 'symmetric place' ||
+      label === 'return to inventory'
+    );
   }
 
   /** Keeps owned stock consistent when a placement is undone or redone. */
@@ -772,17 +750,23 @@ export class EditorMode {
     this.selectOnly(partId);
   }
 
-  /** Every ability part on the rig, in build order, as loadout candidates. */
+  /**
+   * Every ability part on the rig, in build order, as loadout candidates. A
+   * part below its ability's unlock level is not one yet: the garage shows the
+   * same empty box the fight would.
+   */
   private abilityCandidates(): AbilityCandidate[] {
     const candidates: AbilityCandidate[] = [];
     for (const placed of this.bp.parts) {
       const def = getPartDef(placed.defId);
       if (def.ability === undefined) continue;
+      const level = placed.config.level ?? 1;
+      if (!abilityUnlocked(def.ability, level)) continue;
       candidates.push({
         partId: placed.id,
         partName: def.name,
         ability: def.ability,
-        level: placed.config.level ?? 1,
+        level,
         preferred: placed.config.activeAbility === true,
         slot: placed.config.abilitySlot,
       });
@@ -901,7 +885,12 @@ export class EditorMode {
     this.selectOnly(partId);
   }
 
-  private deleteSelected(): void {
+  /**
+   * The selection, minus the Truck Heart. Returns an empty list (after saying
+   * why) when the player only had the root selected, so the two removal
+   * actions agree on what may come off the rig.
+   */
+  private removableSelection(refusal: string): PlacedPart[] {
     const parts = [...this.selected]
       .map((id) => getPart(this.bp, id))
       .filter((part): part is PlacedPart => part !== undefined && !getPartDef(part.defId).isRoot);
@@ -910,10 +899,44 @@ export class EditorMode {
         const part = getPart(this.bp, id);
         return part ? getPartDef(part.defId).isRoot : false;
       })) {
-        this.ui.setStatus("Truck Heart can't be deleted");
+        this.ui.setStatus(refusal);
       }
-      return;
     }
+    return parts;
+  }
+
+  /**
+   * Pull the selection off the rig and back into owned stock, ready to place
+   * again for free. Unlike a sale the player keeps the blocks, so the only
+   * money that moves is a full refund of their unlocks: inventory counts
+   * blocks by type and cannot carry a level, and silently burning that spend
+   * would make the move a trap.
+   */
+  private returnSelectedToInventory(): void {
+    const parts = this.removableSelection("Truck Heart can't be removed");
+    if (parts.length === 0) return;
+    const refund = parts.reduce((total, part) => total + unlockInvestment(part), 0);
+    const returned = this.exec(batchCommand(
+      'return to inventory',
+      parts.map((part) => removeCommand(part.id, unlockInvestment(part))),
+    ));
+    if (!returned) return;
+    const stock = this.inventory();
+    for (const part of parts) stock[part.defId] = (stock[part.defId] ?? 0) + 1;
+    this.persistProfile();
+    this.selected.clear();
+    this.refresh();
+    const blocks = `${parts.length} block${parts.length === 1 ? '' : 's'}`;
+    this.ui.setStatus(
+      refund > 0
+        ? `Returned ${blocks} to inventory — unlocks refunded +$${refund}`
+        : `Returned ${blocks} to inventory`,
+    );
+  }
+
+  private deleteSelected(): void {
+    const parts = this.removableSelection("Truck Heart can't be deleted");
+    if (parts.length === 0) return;
     const refund = parts.reduce((total, part) => total + sellRefund(part), 0);
     const sold = this.exec(batchCommand(
       'sell selection',
@@ -1029,43 +1052,6 @@ export class EditorMode {
     this.refreshProfile();
     this.ui.setStatus(`Vehicle fully repaired (-$${plan.totalCost})`);
     return true;
-  }
-
-  private buyTurretModule(
-    partId: string,
-    module: TurretModule,
-  ): boolean {
-    const part = getPart(this.bp, partId);
-    if (!part || part.defId !== 'turret') {
-      this.deny(`Unknown turret: ${partId}`);
-      return false;
-    }
-    const state = turretModuleEconomy(
-      part.config,
-      this.profile.money,
-      this.profile,
-    )[module];
-    if (!state.unlocked) {
-      this.deny('Clear wave 10 or kill a Phone Addict to unlock EMP');
-      return false;
-    }
-    const purchase = nextTurretModulePurchase(part.config, module);
-    if (purchase === null) {
-      const displayName = module === 'emp' ? 'EMP' : 'Piercing';
-      this.deny(`${displayName} is already at maximum level`);
-      return false;
-    }
-    const bought = this.exec(
-      updateConfigCommand(part.id, purchase.config, -purchase.price),
-    );
-    if (bought) {
-      this.selectOnly(part.id);
-      const displayName = module === 'emp' ? 'EMP' : 'Piercing';
-      this.ui.setStatus(
-        `${displayName} upgraded to level ${purchase.targetLevel} (-$${purchase.price})`,
-      );
-    }
-    return bought;
   }
 
   private sellPart(partId: string): boolean {
@@ -1566,10 +1552,17 @@ export class EditorMode {
     const assignment = resolveAbilityLoadout(candidates).find(
       (slot) => slot.partId === partId,
     );
+    const part = getPart(this.bp, partId);
+    const ability = part ? getPartDef(part.defId).ability : undefined;
+    const locked =
+      ability !== undefined &&
+      !abilityUnlocked(ability, part?.config.level ?? 1);
     return {
       key: assignment?.key ?? null,
       candidates: candidates.length,
       capacity: MAX_ABILITY_SLOTS,
+      lockedUntilLevel:
+        locked && ability !== undefined ? abilityUnlockLevel(ability) : null,
     };
   }
 
@@ -1595,6 +1588,7 @@ export class EditorMode {
   }
 
   private refreshSelectionUI(): void {
+    this.updateSelectionTipAnchor();
     const first = [...this.selected][0];
     if (!first) {
       this.ui.setSelectedPart(null);
@@ -1624,16 +1618,33 @@ export class EditorMode {
       sellRefund: selectionRefund,
       repairCost: repair?.cost ?? null,
       canRepair: repair?.canRepair ?? false,
-      turretModules:
-        def.id === 'turret'
-          ? turretModuleEconomy(part.config, this.profile.money, this.profile)
-          : undefined,
       upgradePreview: previewUpgradeMetrics(this.bp, part.id) ?? undefined,
     }, part.config, def.wheel
       ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
       : undefined,
       def.ability ? this.abilitySlotStatus(part.id) : undefined);
     this.refreshOverlays();
+  }
+
+  /**
+   * Park the shortcut card over the centre of the selection, lifted clear of
+   * the blocks so it never covers the thing it is describing.
+   */
+  private updateSelectionTipAnchor(): void {
+    const centres = [...this.selected]
+      .map((id) => getPart(this.bp, id))
+      .filter((part): part is PlacedPart => part !== undefined)
+      .map((part) => cellCentreM(part.pos));
+    if (centres.length === 0) {
+      this.selectionTipAnchor = null;
+      return;
+    }
+    const anchor = this.selectionTipAnchor ?? new THREE.Vector3();
+    anchor.set(0, 0, 0);
+    for (const centre of centres) anchor.add(new THREE.Vector3(centre.x, centre.y, centre.z));
+    anchor.divideScalar(centres.length);
+    anchor.y += CELL_SIZE * 0.6;
+    this.selectionTipAnchor = anchor;
   }
 
   // ---------- pointer/keyboard ----------
@@ -1706,6 +1717,9 @@ export class EditorMode {
           this.ghost.orient = this.nextAllowedOrient(this.ghost.defId, this.ghost.orient, 'x');
           this.refreshGhostAtLastPointer();
         } else this.rotateSelected('x');
+        break;
+      case 'm':
+        this.returnSelectedToInventory();
         break;
       case 'delete':
       case 'backspace':
@@ -1826,13 +1840,7 @@ export class EditorMode {
     const plan = this.currentRepairPlan();
     const nextWave = (this.runContext?.wave ?? 0) + 1;
     const threatNotice = threatWarningsForWave(nextWave).join(' ');
-    const nextWaveNotice =
-      threatNotice ||
-      (this.runContext !== undefined &&
-      nextWave === 9 &&
-      !isEmpUnlocked(this.profile)
-        ? 'EMP unlocks after clearing Wave 9.'
-        : undefined);
+    const nextWaveNotice = threatNotice || undefined;
     this.ui.setRunContext(
       this.runContext?.wave,
       this.runSummary,

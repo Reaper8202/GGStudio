@@ -176,6 +176,44 @@ describe('VfxSystem emitters', () => {
     vfx.dispose();
   });
 
+  it('throws more fire from an overcharged nozzle than a stock one', () => {
+    const stock = system();
+    const hell = system();
+    stock.vfx.flameJet({ x: 0, y: 1, z: 0 }, { x: 0, y: 1, z: 7 });
+    hell.vfx.flameJet({ x: 0, y: 1, z: 0 }, { x: 0, y: 1, z: 7 }, true);
+    expect(hell.vfx.particleCount).toBeGreaterThan(stock.vfx.particleCount);
+    stock.vfx.dispose();
+    hell.vfx.dispose();
+  });
+
+  it('ignores a zero-length hellfire ray too', () => {
+    const { vfx } = system();
+    vfx.flameJet({ x: 2, y: 1, z: 2 }, { x: 2, y: 1, z: 2 }, true);
+    expect(vfx.particleCount).toBe(0);
+    vfx.dispose();
+  });
+
+  it('gives the hellfire muzzle and impact more presence than the stock ones', () => {
+    const stock = system();
+    const hell = system();
+    stock.vfx.muzzleFlash({ x: 0, y: 1, z: 0 }, { x: 0, y: 1, z: 7 }, 'flame');
+    hell.vfx.muzzleFlash({ x: 0, y: 1, z: 0 }, { x: 0, y: 1, z: 7 }, 'hellfire');
+    expect(hell.vfx.particleCount).toBeGreaterThan(stock.vfx.particleCount);
+
+    const stockBurn = system();
+    const hellBurn = system();
+    stockBurn.vfx.bulletImpact(0, 1, 3, 0, 0, 1, 'burn');
+    hellBurn.vfx.bulletImpact(0, 1, 3, 0, 0, 1, 'hellburn');
+    expect(hellBurn.vfx.particleCount).toBeGreaterThan(
+      stockBurn.vfx.particleCount,
+    );
+
+    stock.vfx.dispose();
+    hell.vfx.dispose();
+    stockBurn.vfx.dispose();
+    hellBurn.vfx.dispose();
+  });
+
   it('plays a distinct nozzle burst for the flamethrower muzzle', () => {
     const { vfx } = system();
     vfx.muzzleFlash({ x: 0, y: 1, z: 0 }, { x: 0, y: 1, z: 7 }, 'flame');
@@ -304,6 +342,12 @@ describe('shot appearance rules', () => {
     expect(muzzleStyleForShot(shot({ damageType: 'aoe', damage: 9 }))).toBe(
       'flame',
     );
+    // The same nozzle, overcharged by Hellfire, gets its own hotter muzzle.
+    expect(
+      muzzleStyleForShot(
+        shot({ damageType: 'aoe', damage: 21, overcharged: true }),
+      ),
+    ).toBe('hellfire');
     expect(
       muzzleStyleForShot(
         shot({ damage: 6, damageType: 'projectile', slowFactor: 0.5 }),
@@ -329,6 +373,16 @@ describe('shot appearance rules', () => {
       'burn',
     );
     expect(impactKindForShot(flame, false)).toBeNull();
+
+    // An overcharged ray lands as the hotter burn wherever it lands at all.
+    const hell = shot({ damageType: 'aoe', damage: 50, overcharged: true });
+    expect(impactKindForShot({ ...hell, hitZombieHandle: 7 }, false)).toBe(
+      'hellburn',
+    );
+    expect(impactKindForShot({ ...hell, hitSurface: true }, false)).toBe(
+      'hellburn',
+    );
+    expect(impactKindForShot(hell, false)).toBeNull();
   });
 
   it('classifies what the shot terminated against', () => {

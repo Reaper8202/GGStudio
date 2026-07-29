@@ -14,7 +14,6 @@ import {
   rotateVec,
 } from './grid.ts';
 import { getPartDef } from './parts.ts';
-import { TURRET_MODULE_MAX_LEVEL } from './turretModules.ts';
 import { BENCHED_ABILITY_SLOT, MAX_ABILITY_SLOTS } from './abilities.ts';
 
 export const CURRENT_SCHEMA_VERSION = BLUEPRINT_SCHEMA_VERSION;
@@ -213,22 +212,6 @@ function validateConfig(
       throw new BlueprintFormatError(`${path}.level must be an integer >= 1`);
     }
     sanitized.level = Math.min(level, def.upgrade?.maxLevel ?? 1);
-  }
-  for (const key of ['empLevel', 'piercingLevel'] as const) {
-    const moduleLevel = config[key];
-    if (moduleLevel === undefined) continue;
-    if (typeof moduleLevel !== 'number' || !Number.isInteger(moduleLevel)) {
-      throw new BlueprintFormatError(
-        `${path}.${key} must be an integer between 0 and ${TURRET_MODULE_MAX_LEVEL}`,
-      );
-    }
-    const clampedLevel = Math.min(
-      TURRET_MODULE_MAX_LEVEL,
-      Math.max(0, moduleLevel),
-    );
-    if (def.id === 'turret' && clampedLevel > 0) {
-      sanitized[key] = clampedLevel;
-    }
   }
   for (const key of [
     'driven',

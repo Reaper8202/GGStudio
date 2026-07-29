@@ -111,6 +111,89 @@ body,
   font: var(--ui-text-12)/1.5 var(--ui-font-body);
 }
 
+.title-map-panel__heading {
+  margin-bottom: 18px;
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+.title-map-panel__heading {
+  margin-bottom: 18px;
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+.title-maps {
+  display: grid;
+  gap: 6px;
+  width: min(420px, 100%);
+  margin: 0 auto 22px;
+}
+
+/* Each row carries its difficulty as one accent colour, easy through brutal. */
+.title-map {
+  --map-accent: var(--ui-signal);
+
+  display: grid;
+  grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-edge);
+  border-left: 4px solid var(--map-accent);
+  background: var(--ui-surface-2);
+  box-shadow: inset 0 -3px 0 var(--ui-black);
+  text-align: left;
+}
+
+.title-map--hard {
+  --map-accent: var(--ui-bone);
+}
+
+.title-map--brutal {
+  --map-accent: var(--ui-danger);
+}
+
+.title-map:hover {
+  background: var(--ui-surface-3);
+}
+
+.title-map--selected {
+  border-color: var(--map-accent);
+  background: var(--ui-surface-3);
+}
+
+.title-map__head {
+  display: grid;
+  gap: 3px;
+}
+
+.title-map__name {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-16)/1 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.title-map__difficulty {
+  color: var(--map-accent);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.title-map__handling {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1.35 var(--ui-font-body);
+}
+
+.title-map--selected .title-map__handling {
+  color: var(--ui-text);
+}
+
 .title-actions {
   display: grid;
   gap: 10px;
@@ -140,6 +223,173 @@ body,
   justify-content: center;
   gap: 8px;
   margin-top: 12px;
+}
+
+.title-leaderboard-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(4 5 4 / 0.84);
+}
+
+.title-leaderboard-dialog {
+  display: grid;
+  width: min(700px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  /* The board's table sets a min-width so its columns stay legible. Without an
+     explicit column track the grid sizes to that width and stretches every
+     other row (the actions button) past the viewport, where overflow clips it
+     out of reach. Pin the column to the dialog and let the board scroll. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  padding: 24px;
+  overflow: hidden;
+  background: var(--panel-bg-strong);
+  box-shadow:
+    12px 14px 0 rgb(0 0 0 / 0.52),
+    inset 3px 0 0 var(--ui-signal-dark);
+  text-align: left;
+}
+
+.title-leaderboard-dialog h2 {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.title-leaderboard-dialog > p {
+  margin-top: 7px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1.45 var(--ui-font-body);
+}
+
+.title-leaderboard__board {
+  min-width: 0;
+  min-height: 0;
+  margin-top: 18px;
+}
+
+.title-leaderboard__board .leaderboard {
+  max-height: min(52vh, 420px);
+  overflow: auto;
+}
+
+.title-leaderboard__board .leaderboard table {
+  min-width: 560px;
+}
+
+.title-leaderboard__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.title-leaderboard__actions button {
+  min-width: 150px;
+}
+
+.title-utility-rail {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 110;
+  display: flex;
+  gap: 6px;
+}
+
+.title-icon-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  min-width: 0;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--ui-edge);
+  background: rgb(12 15 12 / 0.86);
+  box-shadow:
+    3px 4px 0 rgb(0 0 0 / 0.42),
+    inset 0 -3px 0 var(--ui-black);
+  color: #fff;
+}
+
+.title-icon-button:hover {
+  border-color: var(--ui-signal);
+  background: var(--ui-signal-dark);
+  color: #fff;
+}
+
+.title-icon-button__glyph {
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+
+.title-settings-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(4 5 4 / 0.84);
+}
+
+.title-settings-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  background: var(--panel-bg-strong);
+  box-shadow:
+    12px 14px 0 rgb(0 0 0 / 0.52),
+    inset 3px 0 0 var(--ui-signal-dark);
+  text-align: left;
+}
+
+.title-settings-dialog h2 {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.title-settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ui-edge);
+}
+
+.title-settings__label {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1 var(--ui-font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.title-settings__toggle {
+  min-width: 130px;
+}
+
+.title-settings__toggle[aria-pressed='true'] {
+  border-color: var(--ui-signal);
+  background: var(--ui-signal-dark);
+  color: var(--ui-text);
+}
+
+.title-settings__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.title-settings__actions button {
+  min-width: 150px;
 }
 
 button.danger {
@@ -236,6 +486,178 @@ canvas.viewport {
   height: 4px;
   border-radius: 50%;
   background: var(--accent-orange-light);
+}
+
+.scope-cursor__hit-marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.scope-cursor__hit-chevron {
+  position: absolute;
+  box-sizing: border-box;
+  width: var(--scope-hit-size, 8px);
+  height: var(--scope-hit-size, 8px);
+  opacity: 0;
+  border-color: var(--scope-hit-color, var(--ui-signal-strong));
+  border-style: solid;
+  border-width: 2px;
+}
+
+.scope-cursor__hit-chevron--nw {
+  border-right: 0;
+  border-bottom: 0;
+  transform: translate(
+    calc(0px - var(--scope-hit-start, 9px)),
+    calc(0px - var(--scope-hit-start, 9px))
+  );
+}
+
+.scope-cursor__hit-chevron--ne {
+  border-bottom: 0;
+  border-left: 0;
+  transform: translate(
+    var(--scope-hit-start, 9px),
+    calc(0px - var(--scope-hit-start, 9px))
+  );
+}
+
+.scope-cursor__hit-chevron--se {
+  border-top: 0;
+  border-left: 0;
+  transform: translate(
+    var(--scope-hit-start, 9px),
+    var(--scope-hit-start, 9px)
+  );
+}
+
+.scope-cursor__hit-chevron--sw {
+  border-top: 0;
+  border-right: 0;
+  transform: translate(
+    calc(0px - var(--scope-hit-start, 9px)),
+    var(--scope-hit-start, 9px)
+  );
+}
+
+.scope-cursor--hit {
+  --scope-hit-color: var(--ui-signal-strong);
+  --scope-hit-duration: 180ms;
+  --scope-hit-size: 8px;
+  --scope-hit-start: 9px;
+  --scope-hit-end: 16px;
+}
+
+.scope-cursor--kill {
+  --scope-hit-color: var(--ui-danger);
+  --scope-hit-duration: 260ms;
+  --scope-hit-size: 11px;
+  --scope-hit-start: 11px;
+  --scope-hit-end: 23px;
+}
+
+.scope-cursor--hit .scope-cursor__hit-chevron--nw,
+.scope-cursor--kill .scope-cursor__hit-chevron--nw {
+  animation: scope-cursor-hit-nw var(--scope-hit-duration) ease-out both;
+}
+
+.scope-cursor--hit .scope-cursor__hit-chevron--ne,
+.scope-cursor--kill .scope-cursor__hit-chevron--ne {
+  animation: scope-cursor-hit-ne var(--scope-hit-duration) ease-out both;
+}
+
+.scope-cursor--hit .scope-cursor__hit-chevron--se,
+.scope-cursor--kill .scope-cursor__hit-chevron--se {
+  animation: scope-cursor-hit-se var(--scope-hit-duration) ease-out both;
+}
+
+.scope-cursor--hit .scope-cursor__hit-chevron--sw,
+.scope-cursor--kill .scope-cursor__hit-chevron--sw {
+  animation: scope-cursor-hit-sw var(--scope-hit-duration) ease-out both;
+}
+
+@keyframes scope-cursor-hit-nw {
+  from {
+    opacity: 1;
+    transform: translate(
+      calc(0px - var(--scope-hit-start)),
+      calc(0px - var(--scope-hit-start))
+    );
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(
+      calc(0px - var(--scope-hit-end)),
+      calc(0px - var(--scope-hit-end))
+    );
+  }
+}
+
+@keyframes scope-cursor-hit-ne {
+  from {
+    opacity: 1;
+    transform: translate(
+      var(--scope-hit-start),
+      calc(0px - var(--scope-hit-start))
+    );
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(
+      var(--scope-hit-end),
+      calc(0px - var(--scope-hit-end))
+    );
+  }
+}
+
+@keyframes scope-cursor-hit-se {
+  from {
+    opacity: 1;
+    transform: translate(var(--scope-hit-start), var(--scope-hit-start));
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(var(--scope-hit-end), var(--scope-hit-end));
+  }
+}
+
+@keyframes scope-cursor-hit-sw {
+  from {
+    opacity: 1;
+    transform: translate(
+      calc(0px - var(--scope-hit-start)),
+      var(--scope-hit-start)
+    );
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(
+      calc(0px - var(--scope-hit-end)),
+      var(--scope-hit-end)
+    );
+  }
+}
+
+@keyframes scope-cursor-hit-opacity {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scope-cursor.scope-cursor--hit .scope-cursor__hit-chevron,
+  .scope-cursor.scope-cursor--kill .scope-cursor__hit-chevron {
+    animation: scope-cursor-hit-opacity var(--scope-hit-duration) linear both;
+  }
 }
 
 .topbar {
@@ -783,19 +1205,6 @@ button:disabled {
 
 .ui-layer.tutorial-active .selected-toolbar {
   bottom: 180px;
-}
-
-.paint-swatches {
-  display: flex;
-  gap: 3px;
-}
-
-.paint-swatch {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 2px solid var(--ui-edge);
-  border-radius: 0;
 }
 
 .ready {
@@ -1797,14 +2206,6 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.selected-part__title span {
-  flex: 0 0 auto;
-  padding: 3px 6px;
-  background: var(--ui-recess);
-  color: var(--ui-signal);
-  font: var(--ui-text-10)/1 var(--ui-font-body);
-}
-
 .selected-part__description {
   margin: 8px 0 14px;
   color: var(--ui-text-muted);
@@ -2044,26 +2445,6 @@ button:disabled {
   accent-color: var(--ui-signal);
 }
 
-.selected-part__paint {
-  display: grid;
-  gap: 7px;
-  margin-top: 14px;
-  color: var(--ui-text-muted);
-  font-size: var(--ui-text-11);
-  text-transform: uppercase;
-}
-
-.selected-part__paint .paint-swatches {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 3px;
-}
-
-.selected-part__paint .paint-swatch {
-  width: 100%;
-  height: 24px;
-}
-
 .selected-part__modules {
   display: grid;
   gap: 4px;
@@ -2098,19 +2479,251 @@ button:disabled {
   border-top: 1px solid var(--ui-edge);
 }
 
-.selected-part__upgrade-preview {
+/* Every action carries a glyph so the row reads without being parsed. */
+.selected-part__turn,
+.selected-part__stow,
+.selected-part__sell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+}
+
+.selected-part__action-icon {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.selected-part__action-glyph {
+  width: 16px;
+  height: 16px;
+}
+
+.selected-part__action-label {
+  font-family: var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+/*
+ * Selling is the one destructive move in the inspector and the one players
+ * hunt for, so it takes the full row and a bone/rust treatment that separates
+ * it from the neutral controls above.
+ */
+.selected-part__sell {
+  grid-column: 1 / -1;
+  border-color: var(--ui-rust);
+  background: var(--ui-rust-dark);
+  color: var(--ui-bone);
+  box-shadow: inset 0 -3px 0 var(--ui-black);
+}
+
+.selected-part__sell:hover {
+  border-color: var(--ui-bone);
+  background: var(--ui-rust);
+  color: #f2e6c2;
+}
+
+.selected-part__action-figure {
+  color: var(--ui-bone);
+  font: var(--ui-text-12)/1 var(--ui-font-display);
+}
+
+.selected-part__sell:hover .selected-part__action-figure {
+  color: #f2e6c2;
+}
+
+/*
+ * Shortcut card pinned above the selected block. `left`/`top` are written by
+ * EditorMode each frame; the transform lifts the card clear of the selection.
+ */
+.selection-tip {
+  position: absolute;
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  transform: translate(-50%, calc(-100% - 12px));
+  border: 1px solid var(--ui-edge);
+  background: rgb(8 10 8 / 0.94);
+  box-shadow: 4px 5px 0 rgb(0 0 0 / 0.4);
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.selection-tip__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.selection-tip kbd {
+  min-width: 16px;
+  padding: 2px 4px;
+  border: 1px solid var(--ui-signal-dark);
+  background: var(--ui-surface-3);
+  color: var(--ui-bone);
+  font: var(--ui-text-10)/1 var(--ui-font-display);
+  text-align: center;
+}
+
+/* Star rating: one star per unlock bought, five slots always drawn. */
+.selected-part__rating {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.selected-part__stars {
+  display: flex;
+  gap: 2px;
+  font: var(--ui-text-16)/1 var(--ui-font-display);
+}
+
+.selected-part__stars .star {
+  color: var(--ui-text-faint);
+}
+
+.selected-part__stars .star.is-earned {
+  color: var(--ui-bone);
+  text-shadow: 0 0 6px rgb(183 168 115 / 45%);
+}
+
+.selected-part__rating-count {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.06em;
+}
+
+/* The unlock chain: what this part can still become, and what it costs. */
+.selected-part__upgrades {
   display: grid;
-  gap: 0;
+  gap: 8px;
   margin-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--ui-edge);
 }
 
-.selected-part__upgrade-preview-title {
-  padding: 10px 0 6px;
+.selected-part__upgrades-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   color: var(--ui-signal);
   font: var(--ui-text-10)/1 var(--ui-font-body);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.selected-part__upgrades-title span:last-child {
+  color: var(--ui-text-muted);
+}
+
+/* The one-step lookahead row under the buy button. */
+.upgrade-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border-left: 2px solid var(--ui-edge);
+  background: var(--ui-recess);
+}
+
+.upgrade-step__icon {
+  color: var(--ui-text-faint);
+  font: var(--ui-text-14)/1 var(--ui-font-display);
+  text-align: center;
+}
+
+.upgrade-step__text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.upgrade-step__text strong {
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1.2 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.upgrade-step__text span {
+  overflow: hidden;
+  color: var(--ui-text-faint);
+  font: 9px/1.3 var(--ui-font-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upgrade-step__status {
+  color: var(--ui-text-faint);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  white-space: nowrap;
+}
+
+/* The buy button: icon, what it bolts on, what it does, what it costs. */
+.upgrade-unlock {
+  display: grid;
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  padding: 8px 10px;
+  border: 1px solid var(--ui-edge);
+  background: var(--accent-green);
+  box-shadow: inset 0 -2px 0 var(--ui-black);
+  color: #e3e8cf;
+  text-align: left;
+}
+
+.upgrade-unlock:hover:not(:disabled) {
+  background: #56623a;
+}
+
+.upgrade-unlock__icon {
+  font: var(--ui-text-20)/1 var(--ui-font-display);
+  text-align: center;
+}
+
+.upgrade-unlock__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.upgrade-unlock__text strong {
+  font: var(--ui-text-12)/1.2 var(--ui-font-display);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.upgrade-unlock__text span {
+  color: #c3cbab;
+  font: 9px/1.35 var(--ui-font-body);
+}
+
+.upgrade-unlock__cost {
+  font: var(--ui-text-14)/1 var(--ui-font-display);
+}
+
+.selected-part__upgrades-maxed {
+  margin: 0;
+  color: var(--ui-bone);
+  font: var(--ui-text-10)/1.4 var(--ui-font-body);
+}
+
+.selected-part__upgrade-preview {
+  display: grid;
+  gap: 0;
 }
 
 .selected-part__upgrade-preview-row {
@@ -2324,6 +2937,20 @@ button:disabled {
 }
 
 @media (max-width: 760px) {
+  .topbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .topbar > * {
+    flex: 0 0 auto;
+  }
+
+  .btn-hero-first {
+    margin-left: 0;
+  }
+
   .garage-dock {
     top: 112px;
     bottom: 70px;
@@ -2346,7 +2973,13 @@ button:disabled {
     display: none;
   }
 
-  .part-btn small:not(.part-price, .part-price-breakdown, .part-unlock-milestone, .inventory-count) {
+  .part-btn
+    small:not(
+      .part-price,
+      .part-price-breakdown,
+      .part-unlock-milestone,
+      .inventory-count
+    ) {
     display: none;
   }
 
@@ -2396,6 +3029,14 @@ button:disabled {
   .hotbar-list .hotbar-slot .inventory-count,
   .hotbar-slot__index {
     font-size: 8px !important;
+  }
+
+  .title-leaderboard-overlay {
+    padding: 16px;
+  }
+
+  .title-leaderboard-dialog {
+    width: 100%;
   }
 
   .garage-status {
@@ -2955,11 +3596,24 @@ button:disabled {
   font-size: var(--ui-text-14);
 }
 
-.survival-stuck-prompt {
+/*
+ * Driver prompts: the offers the game makes mid-drive, each one a key. They
+ * share a card and a row so a second offer appears beside the first instead of
+ * on top of it, and the pair stays centred whichever of them is up.
+ */
+.survival-prompts {
   position: absolute;
   bottom: 18%;
   left: 50%;
   z-index: 18;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.survival-prompt {
   display: none;
   grid-template-columns: 42px minmax(0, 1fr);
   align-items: center;
@@ -2970,16 +3624,15 @@ button:disabled {
   box-shadow:
     7px 8px 0 rgb(0 0 0 / 0.45),
     inset 3px 0 0 var(--ui-rust);
-  pointer-events: none;
-  transform: translateX(-50%);
+  text-align: left;
 }
 
-.survival-stuck-prompt.is-visible {
+.survival-prompt.is-visible {
   display: grid;
-  animation: stuck-prompt-in 140ms steps(3, end);
+  animation: prompt-in 140ms steps(3, end);
 }
 
-.survival-stuck-prompt__icon {
+.survival-prompt__icon {
   position: relative;
   display: block;
   width: 42px;
@@ -2987,7 +3640,36 @@ button:disabled {
   background: var(--ui-recess);
 }
 
-.survival-stuck-prompt__icon::before {
+.survival-prompt__copy,
+.survival-prompt strong,
+.survival-prompt__copy > span {
+  display: block;
+}
+
+.survival-prompt strong,
+.survival-prompt__copy > span {
+  text-transform: uppercase;
+}
+
+.survival-prompt strong {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-14)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+.survival-prompt__copy > span {
+  margin-top: 5px;
+  color: var(--ui-signal-strong);
+  font: var(--ui-text-11)/1 var(--ui-font-body);
+  /* The button base sets tracking; both cards read the same without it. */
+  letter-spacing: normal;
+}
+
+.survival-stuck-prompt {
+  pointer-events: none;
+}
+
+.survival-stuck-prompt .survival-prompt__icon::before {
   position: absolute;
   top: 7px;
   left: 50%;
@@ -2999,7 +3681,7 @@ button:disabled {
   transform: translateX(-50%) rotate(45deg);
 }
 
-.survival-stuck-prompt__icon::after {
+.survival-stuck-prompt .survival-prompt__icon::after {
   position: absolute;
   right: 8px;
   bottom: 8px;
@@ -3011,28 +3693,106 @@ button:disabled {
   content: '';
 }
 
-.survival-stuck-prompt strong,
-.survival-stuck-prompt div > span {
-  display: block;
-  text-transform: uppercase;
-}
-
-.survival-stuck-prompt strong {
-  color: var(--ui-text);
-  font: 400 var(--ui-text-14)/1 var(--ui-font-display);
-  letter-spacing: 0.06em;
-}
-
-.survival-stuck-prompt div > span {
-  margin-top: 5px;
-  color: var(--ui-signal-strong);
-  font: var(--ui-text-11)/1 var(--ui-font-body);
-}
-
-@keyframes stuck-prompt-in {
+@keyframes prompt-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 10px);
+    transform: translateY(10px);
+  }
+}
+
+/*
+ * Scuttle charge (K): the same driver prompt as the jump, in the danger red the
+ * HUD otherwise saves for a failing vehicle — and clickable, because it is an
+ * offer the player takes rather than a status they read.
+ */
+.survival-scuttle {
+  box-shadow:
+    7px 8px 0 rgb(0 0 0 / 0.45),
+    inset 3px 0 0 var(--ui-danger);
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.survival-scuttle:hover,
+.survival-scuttle:focus-visible {
+  background: var(--ui-danger-dark);
+}
+
+.survival-scuttle strong {
+  color: var(--ui-danger);
+}
+
+.survival-scuttle .survival-prompt__copy > span {
+  color: var(--ui-bone);
+}
+
+/* Hazard chevrons: the charge, ready to go. */
+.survival-scuttle .survival-prompt__icon::before {
+  position: absolute;
+  inset: 6px;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--ui-danger) 0 5px,
+    transparent 5px 10px
+  );
+  content: '';
+}
+
+.survival-scuttle .survival-prompt__icon::after {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  bottom: 15px;
+  left: 15px;
+  background: var(--ui-danger);
+  content: '';
+  animation: scuttle-live 0.9s steps(2, end) infinite;
+}
+
+@keyframes scuttle-live {
+  50% {
+    background: var(--ui-bone);
+  }
+}
+
+/*
+ * The verdict, held on screen for the length of the blast: the charge decided
+ * the run the instant it went off, and this says which way before the card
+ * that follows does.
+ */
+.survival-scuttle-banner {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  z-index: 19;
+  padding: 10px 20px;
+  border: 1px solid var(--ui-danger);
+  background: var(--panel-bg-strong);
+  box-shadow: 7px 8px 0 rgb(0 0 0 / 0.45);
+  color: var(--ui-danger);
+  font: 400 var(--ui-text-16)/1.2 var(--ui-font-display);
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  text-align: center;
+  text-transform: uppercase;
+  transform: translateX(-50%);
+  animation: scuttle-banner-in 160ms steps(3, end);
+}
+
+.survival-scuttle-banner[hidden] {
+  display: none;
+}
+
+.survival-scuttle-banner.is-clear {
+  border-color: var(--ui-signal-strong);
+  color: var(--ui-signal-strong);
+}
+
+@keyframes scuttle-banner-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
   }
 }
 
@@ -3319,6 +4079,224 @@ button:disabled {
   }
 }
 
+.survival-gameover {
+  top: 50% !important;
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--panel-bg-strong);
+  box-shadow:
+    10px 12px 0 rgb(0 0 0 / 0.52),
+    inset 3px 0 0 var(--ui-rust);
+}
+
+.survival-gameover h2 {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-28)/1 var(--ui-font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.survival-gameover__best {
+  width: max-content;
+  margin: 10px auto 0;
+  padding: 4px 9px;
+  border: 1px solid var(--ui-signal-dark);
+  background: #1b2115;
+  color: var(--ui-signal-strong);
+  font: 400 var(--ui-text-12)/1 var(--ui-font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.survival-gameover__score-label {
+  margin-top: 17px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.survival-gameover__score {
+  margin-top: 4px;
+  color: var(--ui-bone);
+  font: 400 clamp(3.25rem, 11vw, 5.25rem)/0.82 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  text-shadow: 4px 4px 0 var(--ui-black);
+}
+
+.survival-gameover__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 22px;
+  background: var(--ui-edge);
+  border: 1px solid var(--ui-edge);
+  text-align: left;
+}
+
+.survival-gameover__stats > div {
+  display: grid;
+  gap: 5px;
+  padding: 11px 13px;
+  background: var(--ui-recess);
+}
+
+.survival-gameover__stats span {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.survival-gameover__stats strong {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-20)/1 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.survival-gameover__board {
+  margin-top: 16px;
+  text-align: left;
+}
+
+.survival-gameover__reset {
+  margin-top: 16px;
+  padding: 12px 13px;
+  border: 1px solid var(--ui-danger-dark);
+  background: rgb(79 37 34 / 0.38);
+  box-shadow: inset 4px 0 0 var(--ui-danger);
+  color: #d9c5bf;
+  font: 700 var(--ui-text-12)/1.5 var(--ui-font-body);
+  text-align: left;
+}
+
+.survival-gameover__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.survival-gameover__actions button {
+  min-width: 190px;
+  min-height: 46px;
+  padding-inline: 18px;
+  font-size: var(--ui-text-16);
+}
+
+.leaderboard {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-recess);
+}
+
+.leaderboard table {
+  width: 100%;
+  /* Six columns of tabular numbers; below this the wrapper scrolls instead
+     of crushing the biome names. */
+  min-width: 470px;
+  border-collapse: collapse;
+  color: var(--ui-text);
+  font-family: var(--ui-font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard th,
+.leaderboard td {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--ui-edge-soft);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.leaderboard thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ui-surface-2);
+  color: var(--ui-text-muted);
+  font: 400 var(--ui-text-10)/1 var(--ui-font-display);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.leaderboard th:first-child {
+  text-align: left;
+}
+
+.leaderboard tbody th:first-child {
+  position: relative;
+}
+
+.leaderboard tbody th {
+  color: var(--ui-text-muted);
+  font-weight: 700;
+}
+
+.leaderboard tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.leaderboard tr.is-current-run > * {
+  border-top: 1px solid var(--ui-signal);
+  border-bottom: 1px solid var(--ui-signal);
+  background: #20261a;
+  font-weight: 900;
+}
+
+.leaderboard tr.is-current-run > *:first-child {
+  box-shadow: inset 4px 0 0 var(--ui-signal);
+}
+
+.leaderboard tr.is-current-run > th:first-child::after {
+  margin-left: 7px;
+  padding: 2px 4px;
+  background: var(--ui-signal);
+  color: var(--ui-black);
+  content: 'YOU';
+  font: 400 9px/1 var(--ui-font-display);
+  letter-spacing: 0.04em;
+}
+
+.leaderboard__time {
+  color: var(--ui-text-muted);
+}
+
+.leaderboard tr.is-current-run .leaderboard__time {
+  color: var(--ui-text);
+}
+
+/* Each arena carries its own colour so runs are sortable by eye. */
+.leaderboard__biome {
+  color: var(--ui-text-faint);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.leaderboard__biome--graveyard {
+  color: var(--ui-biome-graveyard);
+}
+
+.leaderboard__biome--snowfield {
+  color: var(--ui-biome-snowfield);
+}
+
+.leaderboard__biome--desert {
+  color: var(--ui-biome-desert);
+}
+
+.leaderboard__empty {
+  padding: 18px;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-11)/1.5 var(--ui-font-body);
+  text-align: center;
+}
+
 .survival-victory {
   width: min(620px, calc(100vw - 32px));
   max-height: min(760px, calc(100vh - 32px));
@@ -3410,6 +4388,75 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
+  .title-screen {
+    place-items: start center;
+    padding: 8px;
+    overflow-y: auto;
+  }
+
+  .title-panel {
+    width: 100%;
+    padding: 20px 16px;
+  }
+
+  .title-subtitle {
+    margin: 10px 0 16px;
+  }
+
+  .title-actions {
+    gap: 6px;
+  }
+
+  .title-action {
+    min-height: 44px;
+    font-size: var(--ui-text-16);
+  }
+
+  .title-maps {
+    margin-bottom: 14px;
+  }
+
+  .title-map {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+    padding: 8px 10px;
+  }
+
+  .title-utility-rail {
+    /* The panel scrolls on a short screen, so the rail rides with the page
+       instead of pinning over the actions the player is reaching for. */
+    position: static;
+    justify-content: center;
+    margin: 12px auto 0;
+  }
+
+  .title-leaderboard-overlay,
+  .title-settings-overlay {
+    position: fixed;
+    padding: 8px;
+  }
+
+  .title-settings-dialog {
+    padding: 18px;
+  }
+
+  .title-settings__actions button {
+    width: 100%;
+  }
+
+  .title-leaderboard-dialog {
+    max-height: calc(100vh - 16px);
+    padding: 18px;
+  }
+
+  .title-leaderboard__actions {
+    margin-top: 12px;
+  }
+
+  .title-leaderboard__actions button {
+    width: 100%;
+  }
+
   .run-banner.run-active {
     grid-template-columns: 1fr;
   }
@@ -3428,7 +4475,10 @@ button:disabled {
   }
 
   .survival-settings-button {
-    top: 64px;
+    /* The wave timeline is centred and spans nearly the full width on a phone,
+       so there is no room beside it — the button clears it vertically instead
+       of sitting on top of the last wave tile. */
+    top: 122px;
     right: 8px;
   }
 
@@ -3467,6 +4517,29 @@ button:disabled {
 
   .survival-earned {
     padding-top: 7px;
+  }
+
+  .survival-gameover {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    padding: 18px !important;
+  }
+
+  .survival-gameover__stats {
+    margin-top: 18px;
+  }
+
+  .survival-gameover__reset {
+    font-size: var(--ui-text-11);
+  }
+
+  .survival-gameover__actions button {
+    width: 100%;
+  }
+
+  .leaderboard th,
+  .leaderboard td {
+    padding: 8px 9px;
   }
 }
 

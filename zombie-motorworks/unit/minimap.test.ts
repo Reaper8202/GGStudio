@@ -23,7 +23,7 @@ function mineMarkerLineTo(
   const y = point.y.toFixed(2);
   return `lineTo:${x},${y}`;
 }
-import type { MinimapFeature } from '../src/survival/Graveyard.ts';
+import type { MinimapFeature } from '../src/survival/arena/Arena.ts';
 
 const BOUNDS: MinimapBounds = {
   minX: -80,

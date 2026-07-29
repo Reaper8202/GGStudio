@@ -12,13 +12,18 @@ import type {
   Vec3,
   VehicleBlueprint,
 } from '../core/types.ts';
+import {
+  NEUTRAL_ENVIRONMENT,
+  type EnvironmentModifiers,
+} from '../core/biomes.ts';
+import type { SurfaceKind } from '../core/surfaces.ts';
 import type { AssembledVehicle, GetDef, RuntimeWheel } from './assembler.ts';
 import { assembleVehicle } from './assembler.ts';
 import type { AckermannGeometry, WheelTelemetry } from './wheels.ts';
 import { MIRROR_PLANE_X_M, computeAckermann, stepWheels } from './wheels.ts';
 import type { EngineOutput, GearboxState } from './drivetrain.ts';
 import { distributeTorque, engineStep, updateGearbox } from './drivetrain.ts';
-import type { RuntimeWeapon, TracerShot } from './weapons.ts';
+import type { RuntimeWeapon, TracerShot, WeaponAimInput } from './weapons.ts';
 import { createWeapon, overchargeWeapon, stepWeapons } from './weapons.ts';
 import {
   applyDirectDamage as damagePart,
@@ -26,7 +31,6 @@ import {
   resolveStructure,
   type DetachedIsland,
 } from './damage.ts';
-import type { SurfaceKind } from './surfaces.ts';
 import { rotateByQuat } from './vec.ts';
 import {
   VEHICLE_PERFORMANCE_REFERENCE_MASS_KG,
@@ -42,12 +46,17 @@ export interface VehicleControls {
   fire: boolean;
   aimYawWorld: number; // rad
   /**
-   * World point the player is aiming at. Manual turrets pitch onto it so they
-   * shoot exactly where the cursor is, rather than firing flat along the yaw.
+   * World point the player is aiming at. Turrets pitch onto it so they shoot
+   * exactly where the cursor is, rather than firing flat along the yaw.
    */
   aimPoint?: Vec3;
+  /**
+   * True while the player is aiming at the world themselves. Every weapon then
+   * abandons the target auto-aim found for it and converges on `aimPoint`.
+   */
+  manualAim?: boolean;
   /** Per-placed-weapon overrides; absent entries retain the global aim/fire. */
-  weaponAim?: ReadonlyMap<string, { aimYawWorld: number; fire: boolean }>;
+  weaponAim?: ReadonlyMap<string, WeaponAimInput>;
 }
 
 export const AUTO_HOLD_SPEED = 1.5; // m/s
@@ -207,6 +216,7 @@ export class RuntimeVehicle {
   private fuelCapacity = 0;
   /** Seconds of remaining shield invulnerability; >0 blocks all damage. */
   private invulnTimer = 0;
+  private environment = NEUTRAL_ENVIRONMENT;
   /** Seconds of remaining overdrive torque surge; 0 when not boosting. */
   private overdriveTimer = 0;
   /** Drive-torque multiplier applied while `overdriveTimer` runs. */
@@ -227,6 +237,7 @@ export class RuntimeVehicle {
     groundedCount: 0,
     meanDrivenOmega: 0,
     overloadedWheels: [],
+    contacts: [],
   };
   private lastShots: TracerShot[] = [];
   private lastRpm = 0;
@@ -276,8 +287,16 @@ export class RuntimeVehicle {
     return v.x * fwd.x + v.y * fwd.y + v.z * fwd.z;
   }
 
+  /** Dev-tuner god mode: when true, all incoming part damage is ignored. */
+  invulnerable = false;
+
+  /** True when damage is ignored, from either the shield bubble or god mode. */
+  private get damageBlocked(): boolean {
+    return this.invulnerable || this.invulnTimer > 0;
+  }
+
   applyDirectDamage(partId: string, amount: number): void {
-    if (this.invulnTimer > 0) return;
+    if (this.damageBlocked) return;
     damagePart(this.assembled, partId, amount);
   }
 
@@ -358,6 +377,33 @@ export class RuntimeVehicle {
     if (weapon === undefined) return false;
     overchargeWeapon(weapon, seconds, multipliers);
     return true;
+  }
+
+  /**
+   * Phase ability: pick the chassis up and set it down `dx`/`dz` metres away,
+   * with `liftM` of clearance so it settles onto whatever it landed over rather
+   * than starting the step buried in it. Nothing is swept along the way — that
+   * is what makes the blink pass through zombies, wrecks, and scenery — so the
+   * caller owns clipping the trip to the arena wall.
+   *
+   * Momentum is kept: a blink is a reposition, not a stop, and killing the
+   * velocity would turn every escape into a standing start. Suspension contacts
+   * are dropped because they describe ground the rig is no longer over; leaving
+   * them would push the first step's spring force against a stale surface.
+   */
+  phaseShift(dx: number, dz: number, liftM = 0): void {
+    const body = this.assembled.body;
+    const position = body.translation();
+    body.setTranslation(
+      { x: position.x + dx, y: position.y + liftM, z: position.z + dz },
+      true,
+    );
+    for (const wheel of this.assembled.wheels) {
+      wheel.grounded = false;
+      wheel.contactPointW = null;
+      wheel.compression = 0;
+      wheel.loadN = 0;
+    }
   }
 
   /** True while any weapon on the rig is running a Hellfire overcharge. */
@@ -466,11 +512,39 @@ export class RuntimeVehicle {
     return this.finishStep();
   }
 
+  /**
+   * Scuttle the rig: every part goes at once, root included, so `isDestroyed`
+   * is true from the next check onward. Nothing is left attached, so no island
+   * can survive the split — the returned array is empty in practice and is
+   * handed back only so callers can treat this like any other structural event.
+   *
+   * The body outlives its colliders here. The caller owns what happens next
+   * (the mode holds the frame for the blast, then leaves), so the body is
+   * frozen in place rather than dropped through a world it can no longer touch.
+   */
+  scuttle(): DetachedIsland[] {
+    // Debris that already broke off is left where it lies: the charge is on the
+    // rig, and wreckage scattered across the arena is not on it any more.
+    for (const [, part] of this.assembled.parts) {
+      if (part.alive && !part.detached) part.health = 0;
+    }
+    for (const connection of this.assembled.connections) connection.health = 0;
+    const islands = this.finishStep();
+    const body = this.assembled.body;
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    body.setGravityScale(0, true);
+    return islands;
+  }
+
   preStep(
     dt: number,
     controls: VehicleControls,
     surfaceOf: (colliderHandle: number) => SurfaceKind,
+    env: EnvironmentModifiers = NEUTRAL_ENVIRONMENT,
   ): void {
+    this.environment = env;
+    this.updateTopSpeedCap();
     if (this.invulnTimer > 0) {
       this.invulnTimer = Math.max(0, this.invulnTimer - dt);
     }
@@ -539,7 +613,7 @@ export class RuntimeVehicle {
         drivenWheels.length > 0
           ? (reversing ? -1 : 1) * out.wheelTorqueTotal
           : 0;
-      this.fuel = Math.max(0, this.fuel - out.fuelUsed);
+      this.fuel = Math.max(0, this.fuel - out.fuelUsed * env.fuelBurnMul);
       rpmDisplay = Math.max(rpmDisplay, out.rpm);
     }
     this.lastRpm = rpmDisplay;
@@ -548,8 +622,9 @@ export class RuntimeVehicle {
     const mass = Math.max(1, body.mass());
     const massPerformance = vehicleMassPerformanceFactor(mass);
     totalTorque *= massPerformance;
-    // Overdrive rides on top of the mass penalty, so the surge is worth most
-    // to the heavy rigs the penalty hurts.
+    totalTorque *= env.engineOutputMul;
+    // Overdrive rides on top of the mass and biome penalties, so the surge is
+    // worth most to the heavy rigs and hostile ground the penalties hurt.
     if (this.overdriveTimer > 0) totalTorque *= this.overdriveMultiplier;
 
     const torques = distributeTorque(
@@ -567,7 +642,7 @@ export class RuntimeVehicle {
       this.assembled.body,
       this.assembled.wheels,
       this.geom,
-      { throttle, brake, steer, driveTorques },
+      { throttle, brake, steer, driveTorques, env },
       dt,
       surfaceOf,
     );
@@ -583,7 +658,11 @@ export class RuntimeVehicle {
       {
         fire: controls.fire,
         aimYawWorld: controls.aimYawWorld,
+        // Carried through so an overriding player aims in three dimensions:
+        // turrets pitch onto the cursor point instead of firing flat.
+        aimPoint: controls.aimPoint,
         weaponAim: controls.weaponAim,
+        manualOverride: controls.manualAim,
       },
       dt,
     );
@@ -610,6 +689,7 @@ export class RuntimeVehicle {
       groundedCount: 0,
       meanDrivenOmega: 0,
       overloadedWheels: [],
+      contacts: [],
     };
     for (const engine of this.engines) {
       engine.rpm = engine.def.idleRpm;
@@ -785,7 +865,7 @@ export class RuntimeVehicle {
       horizontalSpeed * horizontalSpeed * AERO_DRAG_COEFFICIENT;
     const dragDeltaVelocity = Math.min(
       horizontalSpeed,
-      (heavyBuildDrag + aeroDrag) * dt,
+      (heavyBuildDrag + aeroDrag) * this.environment.dragMul * dt,
     );
 
     this.stabilityImpulse.x =
@@ -813,6 +893,7 @@ export class RuntimeVehicle {
     // otherwise it counters the desired lateral motion and scrubs speed.
     const correctionRate =
       LATERAL_STABILITY_RATE_PER_S *
+      this.environment.stabilityAssistMul *
       (1 - Math.abs(steerInput) * 0.65);
     const lateralDeltaVelocity = clampNumber(
       -lateralSpeed * correctionRate * dt,
@@ -844,7 +925,7 @@ export class RuntimeVehicle {
   onContactForce(colliderHandle: number, forceMagnitude: number): void {
     // The bubble blocks self-damage from impacts; the vehicle still crushes
     // zombies (that runs through ZombieSystem, not this path).
-    if (this.invulnTimer > 0) return;
+    if (this.damageBlocked) return;
     applyImpactDamage(
       this.assembled,
       this.colliderToPart,
@@ -892,11 +973,12 @@ export class RuntimeVehicle {
       if (!p.alive || p.detached) continue;
       enginePowerKw += p.def.engine?.maxPowerKw ?? 0;
     }
-    this.topSpeedCap = clampNumber(
-      BASE_TOP_SPEED_MPS + TOP_SPEED_PER_KW * enginePowerKw,
-      BASE_TOP_SPEED_MPS,
-      HARD_MAX_SPEED_MPS,
-    );
+    this.topSpeedCap =
+      clampNumber(
+        BASE_TOP_SPEED_MPS + TOP_SPEED_PER_KW * enginePowerKw,
+        BASE_TOP_SPEED_MPS,
+        HARD_MAX_SPEED_MPS,
+      ) * this.environment.topSpeedMul;
   }
 
   /**
@@ -913,6 +995,11 @@ export class RuntimeVehicle {
       this.fuel + this.fuelCapacity * fraction,
     );
     return this.fuel - before;
+  }
+
+  /** Litres still in the tanks, for callers that need it every frame. */
+  get fuelLitres(): number {
+    return this.fuel;
   }
 
   /** Test/debug seam: set current onboard fuel directly (clamped to capacity). */

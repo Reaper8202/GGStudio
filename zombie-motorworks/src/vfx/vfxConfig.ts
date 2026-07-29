@@ -39,7 +39,7 @@ export const VFX_PALETTE = {
    * turquoise glow anywhere on screen means "cold" and nothing else.
    */
   ice: 0x40e0d0,
-  /** Near-white rime at the heart of a freeze. */
+  /** Near-white rime at the heart of a freeze, and of a sniper crack. */
   frost: 0xd9fff9,
   iceDeep: 0x0f5f6b,
   /** Matches the phone-addict shield bubble. */

@@ -71,6 +71,28 @@ export function cellCentreM(cell: Vec3i): Vec3 {
 }
 
 /**
+ * Middle of the cells a placed part reserves, in vehicle-local metres. A
+ * single-cell part lands on its cell centre; a multi-cell part (the Heavy
+ * Cannon's 2x2 barbette) lands in the middle of its pad, which is where its
+ * hardware is modelled and where its shots come from.
+ */
+export function footprintCentreM(
+  def: PartDefinition,
+  placed: Pick<PlacedPart, 'pos' | 'orient'>,
+): Vec3 {
+  if (def.cells.length === 0) return cellCentreM(placed.pos);
+  const sum = { x: 0, y: 0, z: 0 };
+  for (const local of def.cells) {
+    const centre = cellCentreM(addVec(placed.pos, rotateVec(placed.orient, local)));
+    sum.x += centre.x;
+    sum.y += centre.y;
+    sum.z += centre.z;
+  }
+  const n = def.cells.length;
+  return { x: sum.x / n, y: sum.y / n, z: sum.z / n };
+}
+
+/**
  * Per-cell masses of a placed part. Face-mounted parts (empty footprint,
  * e.g. armour panels) act at their host cell centre offset half a cell
  * toward the covered face; callers pass that face's world vector, or omit

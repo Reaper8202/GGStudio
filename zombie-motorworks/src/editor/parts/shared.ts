@@ -32,8 +32,15 @@ const COLORS: Record<string, number> = {
   'ice-cannon': 0x4db8e0,
   'shield-generator': 0x2f7bd6,
   'pulse-emitter': 0x7a53c8,
-  'nitro-injector': 0x2fa86a,
+  // Bare bottle metal with a green tint left in it: the injector's colour is
+  // the charge decal and the armed light, not the tanks (see `parts/mobility.ts`).
+  'nitro-injector': 0x76837c,
+  // Chrome, not cyan: the phase drive's colour lives in the lit gaps between
+  // its vertebrae, so the body itself stays grey (see `parts/mobility.ts`).
+  'phase-drive': 0x939ca6,
   'barrel-drum': 0x7d5a3a,
+  // Plant yellow: the one part on the rig that is site machinery, not scrap.
+  'dozer-blade': 0xc9a227,
   'spike-ram': 0x8a8f98,
   sawblade: 0x5c6570,
   'sniper-light': 0x33404f,

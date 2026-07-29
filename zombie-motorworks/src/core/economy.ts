@@ -1,6 +1,6 @@
+import type { BiomeId } from './biomes.ts';
 import { getPartDef } from './parts.ts';
 import { STARTER_UNLOCKS } from './profile.ts';
-import { turretModuleInvestment } from './turretModules.ts';
 import { getEffectiveDef, upgradePrice } from './upgrades.ts';
 import type { PartDefinition, PlacedPart } from './types.ts';
 
@@ -8,6 +8,10 @@ import type { PartDefinition, PlacedPart } from './types.ts';
 export interface RunState {
   wave: number;
   partHp?: Record<string, number>;
+  biomeId?: BiomeId;
+  seed?: number;
+  /** Arena seconds accumulated across every wave of the run so far. */
+  elapsedSeconds?: number;
 }
 
 /** Cost to restore one part to its effective maximum HP. */
@@ -92,19 +96,30 @@ function placedLevel(placed: PlacedPart): number {
 /** Total purchase price already paid for a placed part and its upgrades. */
 export function partInvestment(placed: PlacedPart): number {
   const def = getEffectiveDef(placed);
-  const moduleInvestment = turretModuleInvestment(placed);
-  if (def.upgrade === undefined) return def.cost + moduleInvestment;
+  if (def.upgrade === undefined) return def.cost;
 
   let investment = def.cost;
   for (let level = 2; level <= placedLevel(placed); level += 1) {
     const price = upgradePrice(def, level);
     if (price !== undefined) investment += price;
   }
-  return investment + moduleInvestment;
+  return investment;
 }
 
 export function sellRefund(placed: PlacedPart): number {
   return Math.floor(partInvestment(placed) * 0.5);
+}
+
+/**
+ * Money sunk into a placed part's unlocks, above the base block price.
+ *
+ * Inventory stock is counted per block type and carries no level, so pulling a
+ * part off the rig hands back a base block. This is what has to be refunded in
+ * full for that move to cost the player nothing — unlike a sale, they keep the
+ * block, so the unlocks are un-bought rather than sold at a loss.
+ */
+export function unlockInvestment(placed: PlacedPart): number {
+  return Math.max(0, partInvestment(placed) - getEffectiveDef(placed).cost);
 }
 
 export function placeCost(defId: string): number {

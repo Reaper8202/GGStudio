@@ -44,7 +44,11 @@ function appWithDamagedCheckpoint(
     blueprint,
     partHp: { ...partHp },
     kills: 0,
+    biomeId: 'graveyard',
+    seed: 1234,
+    score: 0,
     bankedEarnings: 0,
+    elapsedSeconds: 0,
   };
   const profile = defaultProfile();
   profile.money = money;

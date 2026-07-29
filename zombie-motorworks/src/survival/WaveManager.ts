@@ -1,9 +1,12 @@
 import type { ZombieSystem } from './zombies/ZombieSystem.ts';
 import type { ZombieKind } from './zombies/Zombie.ts';
+import { devTuning } from './devtuning/DevTuning.ts';
+import type { CompositionCurve } from './devtuning/DevTuning.ts';
 
-const HORDE_SIZE_MIN = 8;
-const HORDE_SIZE_MAX = 14;
 const HORDE_RETRY_SECONDS = 0.5;
+/** Sentinel: while horde interval sits at this shipped default, keep the
+ * per-wave tiering below; any other value is treated as a flat dev override. */
+const DEFAULT_HORDE_INTERVAL = 1.45;
 
 export interface WaveManagerCallbacks {
   onRemainingChanged(remaining: number): void;
@@ -17,16 +20,44 @@ export interface WaveComposition {
   'phone-addict': number;
 }
 
+/** Resolve one kind's count from its composition curve, honouring a dev pin. */
+function countFromCurve(
+  curve: CompositionCurve,
+  override: number | null,
+  safeWave: number,
+): number {
+  if (override !== null) return Math.max(0, Math.floor(override));
+  if (safeWave < curve.startWave) return 0;
+  const steps = Math.floor((safeWave - curve.startWave) / Math.max(1, curve.every));
+  return Math.min(curve.base + curve.perStep * steps, curve.cap);
+}
+
 /** Normals remain the overwhelming majority while specialists unlock slowly. */
 export function zombieCompositionForWave(wave: number): WaveComposition {
   const safeWave = safeWaveNumber(wave);
+  const { composition } = devTuning.wave;
+  const { types } = devTuning;
   return {
-    walker: Math.min(10 + safeWave * 3, 70),
-    thrower:
-      safeWave >= 3 ? Math.min(1 + Math.floor((safeWave - 3) / 2), 10) : 0,
-    worker: safeWave >= 7 ? Math.min(1 + Math.floor((safeWave - 7) / 3), 6) : 0,
-    'phone-addict':
-      safeWave >= 10 ? Math.min(1 + Math.floor((safeWave - 10) / 4), 6) : 0,
+    walker: countFromCurve(
+      composition.walker,
+      types.walker.countOverride,
+      safeWave,
+    ),
+    thrower: countFromCurve(
+      composition.thrower,
+      types.thrower.countOverride,
+      safeWave,
+    ),
+    worker: countFromCurve(
+      composition.worker,
+      types.worker.countOverride,
+      safeWave,
+    ),
+    'phone-addict': countFromCurve(
+      composition['phone-addict'],
+      types['phone-addict'].countOverride,
+      safeWave,
+    ),
   };
 }
 
@@ -39,22 +70,26 @@ export function zombieCountForWave(wave: number): number {
 
 export function maxActiveZombiesForWave(wave: number): number {
   const safeWave = safeWaveNumber(wave);
-  return Math.min(24 + safeWave * 2, 48);
+  const { maxActiveBase, maxActivePerWave, maxActiveCap } = devTuning.wave;
+  return Math.min(maxActiveBase + safeWave * maxActivePerWave, maxActiveCap);
 }
 
 export function healthMultiplierForWave(wave: number): number {
   const safeWave = safeWaveNumber(wave);
-  return Math.min(1 + 0.06 * (safeWave - 1), 2.2);
+  const { perWave, cap } = devTuning.wave.health;
+  return Math.min(1 + perWave * (safeWave - 1), cap);
 }
 
 export function speedMultiplierForWave(wave: number): number {
   const safeWave = safeWaveNumber(wave);
-  return Math.min(1 + 0.025 * (safeWave - 1), 1.45);
+  const { perWave, cap } = devTuning.wave.speed;
+  return Math.min(1 + perWave * (safeWave - 1), cap);
 }
 
 export function attackDamageMultiplierForWave(wave: number): number {
   const safeWave = safeWaveNumber(wave);
-  return Math.min(1 + 0.06 * (safeWave - 1), 2);
+  const { perWave, cap } = devTuning.wave.damage;
+  return Math.min(1 + perWave * (safeWave - 1), cap);
 }
 
 export function waveRewardForWave(wave: number): number {
@@ -63,6 +98,9 @@ export function waveRewardForWave(wave: number): number {
 
 export function hordeIntervalForWave(wave: number): number {
   const safeWave = safeWaveNumber(wave);
+  const tuned = devTuning.wave.hordeInterval;
+  // A dev-set interval overrides the tiering; the shipped default keeps it.
+  if (Math.abs(tuned - DEFAULT_HORDE_INTERVAL) > 1e-6) return Math.max(0.1, tuned);
   // Later waves spawn more often so pressure comes from tempo instead of health.
   if (safeWave >= 13) return 1.05;
   if (safeWave >= 6) return 1.25;
@@ -74,10 +112,9 @@ function safeWaveNumber(wave: number): number {
 }
 
 function hordeSizeForWave(): number {
-  return (
-    HORDE_SIZE_MIN +
-    Math.floor(Math.random() * (HORDE_SIZE_MAX - HORDE_SIZE_MIN + 1))
-  );
+  const min = Math.max(1, Math.floor(devTuning.wave.hordeSizeMin));
+  const max = Math.max(min, Math.floor(devTuning.wave.hordeSizeMax));
+  return min + Math.floor(Math.random() * (max - min + 1));
 }
 
 function spawnOrderForWave(wave: number): ZombieKind[] {
@@ -111,6 +148,7 @@ export class WaveManager {
   private waveNumber = 0;
   private waveDone = true;
   private lastEmittedRemaining = -1;
+  private spawnPaused = false;
 
   constructor(
     private readonly zombies: ZombieSystem,
@@ -151,10 +189,15 @@ export class WaveManager {
     this.emitRemaining();
   }
 
+  /** Dev-tuner "freeze spawns": pauses new hordes; living zombies persist. */
+  setSpawnPaused(paused: boolean): void {
+    this.spawnPaused = paused;
+  }
+
   fixedUpdate(dt: number): void {
     if (this.waveDone) return;
 
-    if (this.spawnQueueIndex < this.spawnOrder.length) {
+    if (!this.spawnPaused && this.spawnQueueIndex < this.spawnOrder.length) {
       this.spawnTimer -= Math.max(0, dt);
       if (this.spawnTimer <= 0) this.trySpawnHorde();
     }

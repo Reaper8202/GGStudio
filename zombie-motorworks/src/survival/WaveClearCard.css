@@ -1,0 +1,714 @@
+.wave-clear {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  place-items: center;
+  padding: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ui-black) 82%, transparent);
+  color: var(--ui-text);
+  font-family: var(--ui-font-body);
+}
+
+.wave-clear[hidden] {
+  display: none;
+}
+
+.wave-clear--visible {
+  animation: wave-clear-backdrop-in 180ms linear both;
+}
+
+.wave-clear__card {
+  position: relative;
+  display: flex;
+  width: min(560px, calc(100vw - 24px));
+  max-width: 100%;
+  max-height: calc(100vh - 24px);
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ui-edge);
+  border-radius: 0;
+  background: var(--ui-ink);
+  box-shadow:
+    7px 8px 0 rgb(0 0 0 / 0.45),
+    inset 3px 0 0 var(--ui-signal);
+}
+
+.wave-clear--visible .wave-clear__card {
+  animation: wave-clear-card-in 360ms cubic-bezier(0.2, 0.85, 0.28, 1.15) both;
+}
+
+.wave-clear__card::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 3px,
+    rgb(0 0 0 / 0.13) 3px 4px
+  );
+  content: '';
+  opacity: 0.34;
+  pointer-events: none;
+}
+
+.wave-clear__card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.wave-clear__header {
+  flex: 0 0 auto;
+  padding: 16px 18px 13px;
+  border-bottom: 1px solid var(--ui-edge);
+  box-shadow: inset 0 -2px 0 var(--ui-signal-dark);
+}
+
+.wave-clear__eyebrow {
+  margin-bottom: 5px;
+  color: var(--ui-text-muted);
+  font: 400 10px/1 var(--ui-font-display);
+  letter-spacing: 0.12em;
+}
+
+.wave-clear__title {
+  margin: 0;
+  color: var(--ui-signal-strong);
+  font: 400 clamp(25px, 7vw, 36px) / 1 var(--ui-font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 3px 3px 0 var(--ui-signal-dark);
+}
+
+.wave-clear__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  gap: 12px;
+  flex: 1 1 auto;
+  padding: 14px 18px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.wave-clear__body > * {
+  min-width: 0;
+}
+
+.wave-clear__money {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  overflow: hidden;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-recess);
+  box-shadow: inset 3px 0 0 var(--ui-bone);
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.wave-clear__money--visible {
+  animation: wave-clear-row-in 180ms steps(4, end) both;
+}
+
+.wave-clear__money-labels {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.wave-clear__money-label {
+  color: var(--ui-text-muted);
+  font: 400 12px/1 var(--ui-font-display);
+  letter-spacing: 0.08em;
+}
+
+.wave-clear__money-note {
+  color: var(--ui-signal);
+  font: 400 9px/1.2 var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+.wave-clear__money-note[hidden] {
+  display: none;
+}
+
+.wave-clear__money-counter {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  color: var(--ui-bone);
+  font: 400 26px/1 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 2px 2px 0 var(--ui-edge);
+  transform-origin: center;
+}
+
+.wave-clear__money-counter--bump-a {
+  animation: wave-clear-money-bump-a 130ms steps(3, end);
+}
+
+.wave-clear__money-counter--bump-b {
+  animation: wave-clear-money-bump-b 130ms steps(3, end);
+}
+
+.wave-clear__money-prefix {
+  margin-right: 2px;
+  color: var(--ui-signal);
+  font-size: 0.65em;
+}
+
+.wave-clear__coins {
+  position: absolute;
+  inset: 0 12px 0 auto;
+  z-index: 3;
+  width: 1px;
+  pointer-events: none;
+}
+
+.wave-clear__coin {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  display: block;
+  width: 18px;
+  height: 18px;
+  color: var(--ui-bone);
+  font: 16px/18px var(--ui-font-body);
+  filter: saturate(0.65);
+  opacity: 0;
+  animation: wave-clear-coin-flight 320ms cubic-bezier(0.3, 0.55, 0.5, 1)
+    var(--wave-clear-coin-delay) both;
+}
+
+.wave-clear__stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-recess);
+}
+
+.wave-clear__stat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  min-width: 0;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--ui-edge-soft);
+  opacity: 0;
+  transform: translateX(-12px);
+}
+
+.wave-clear__stat-row:last-child {
+  border-bottom: 0;
+}
+
+.wave-clear__stat-row--visible {
+  animation: wave-clear-stat-in 180ms steps(4, end) both;
+}
+
+.wave-clear__stat-label {
+  min-width: 0;
+  color: var(--ui-text-muted);
+  font: 400 11px/1.2 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wave-clear__stat-value {
+  min-width: 0;
+  max-width: min(300px, 52vw);
+  overflow-wrap: anywhere;
+  color: var(--ui-text);
+  font: 400 14px/1.25 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.wave-clear__stat-row:last-child .wave-clear__stat-value {
+  color: var(--ui-bone);
+}
+
+.wave-clear__badges,
+.wave-clear__preview,
+.wave-clear__warnings {
+  min-width: 0;
+}
+
+.wave-clear__badges[hidden],
+.wave-clear__warnings[hidden] {
+  display: none;
+}
+
+.wave-clear__section-title {
+  margin: 0 0 7px;
+  color: var(--ui-signal);
+  font: 400 12px/1 var(--ui-font-display);
+  letter-spacing: 0.09em;
+}
+
+.wave-clear__badges-header {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wave-clear__badges-header .wave-clear__section-title {
+  margin-bottom: 7px;
+}
+
+.wave-clear__badges-bonus {
+  color: var(--ui-bone);
+  font: 400 12px/1 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.wave-clear__badges-bonus[hidden] {
+  display: none;
+}
+
+.wave-clear__badge-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+  gap: 7px;
+}
+
+.wave-clear__badge {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 52px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  overflow: hidden;
+  border: 1px solid var(--ui-signal-dark);
+  background: var(--ui-surface-1);
+  opacity: 0;
+  transform: scale(1.6) rotate(-9deg);
+  transform-origin: 45% 50%;
+}
+
+.wave-clear__badge > * {
+  position: relative;
+  z-index: 1;
+}
+
+.wave-clear__badge--rare {
+  border-color: var(--ui-signal-strong);
+  box-shadow: inset 3px 0 0 var(--ui-signal-dark);
+}
+
+.wave-clear__badge--epic {
+  border-color: var(--ui-bone);
+  box-shadow: inset 3px 0 0 var(--ui-bone);
+}
+
+.wave-clear__badge--epic::after {
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: -15%;
+  z-index: 0;
+  width: 8%;
+  background: var(--ui-bone);
+  content: '';
+  opacity: 0.12;
+  transform: translateX(0);
+}
+
+.wave-clear__badge--epic.wave-clear__badge--stamped::after {
+  animation: wave-clear-epic-shimmer 2.4s steps(12, end) 700ms infinite;
+}
+
+.wave-clear__badge--new {
+  box-shadow:
+    inset 3px 0 0 var(--ui-bone),
+    3px 3px 0 var(--ui-signal-dark);
+}
+
+.wave-clear__badge--stamped {
+  animation: wave-clear-badge-stamp 380ms cubic-bezier(0.18, 0.75, 0.22, 1.15)
+    both;
+}
+
+.wave-clear__badge-icon {
+  font: 24px/1 var(--ui-font-body);
+  filter: saturate(0.72);
+}
+
+.wave-clear__badge-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wave-clear__badge-name {
+  overflow: hidden;
+  color: var(--ui-text);
+  font: 400 12px/1 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wave-clear__badge-description {
+  color: var(--ui-text-muted);
+  font: 10px/1.3 var(--ui-font-body);
+}
+
+.wave-clear__badge-payout {
+  align-self: center;
+  color: var(--ui-bone);
+  font: 400 12px/1 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Keeps the payout clear of the NEW flag pinned to the same corner. */
+.wave-clear__badge--new .wave-clear__badge-payout {
+  align-self: end;
+}
+
+.wave-clear__badge-new {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  padding: 2px 4px;
+  background: var(--ui-bone);
+  color: var(--ui-black);
+  font: 400 9px/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+.wave-clear__preview {
+  padding: 10px 11px;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-surface-1);
+  box-shadow: inset 3px 0 0 var(--ui-rust);
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.wave-clear__preview--visible {
+  animation: wave-clear-row-in 220ms steps(5, end) both;
+}
+
+.wave-clear__preview-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ui-text);
+  font: 400 13px/1.4 var(--ui-font-display);
+}
+
+.wave-clear__warnings {
+  padding: 9px 11px;
+  border: 1px solid var(--ui-danger);
+  background: var(--ui-danger-dark);
+  box-shadow: inset 3px 0 0 var(--ui-rust);
+  color: var(--ui-rust);
+  font: 400 12px/1.35 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  opacity: 0;
+  transform: translateY(8px);
+  text-transform: uppercase;
+}
+
+.wave-clear__warnings--visible {
+  animation: wave-clear-row-in 220ms steps(5, end) both;
+}
+
+.wave-clear__actions {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--ui-edge);
+  background: var(--ui-surface-1);
+}
+
+.wave-clear__button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 42px;
+  flex: 1 1 150px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  padding: 7px 10px;
+  border: 1px solid var(--ui-edge);
+  border-radius: 0;
+  background: var(--ui-surface-3);
+  box-shadow: inset 0 -3px 0 var(--ui-black);
+  color: var(--ui-text);
+  font: 400 14px/1 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.wave-clear__button:hover:not(:disabled) {
+  color: var(--ui-signal-strong);
+  background: var(--ui-surface-2);
+}
+
+.wave-clear__button:active:not(:disabled) {
+  box-shadow: inset 0 2px 0 var(--ui-black);
+  transform: translateY(1px);
+}
+
+.wave-clear__button--primary {
+  background: var(--ui-signal-dark);
+  color: var(--ui-text);
+}
+
+.wave-clear__button--primary:hover:not(:disabled) {
+  background: var(--ui-signal);
+  color: var(--ui-black);
+}
+
+.wave-clear__button:disabled {
+  background: var(--ui-surface-1);
+  color: var(--ui-text-faint);
+  cursor: not-allowed;
+}
+
+.wave-clear__button-price {
+  color: var(--ui-bone);
+  font-variant-numeric: tabular-nums;
+}
+
+.wave-clear--complete .wave-clear__money,
+.wave-clear--complete .wave-clear__stat-row,
+.wave-clear--complete .wave-clear__badge,
+.wave-clear--complete .wave-clear__preview,
+.wave-clear--complete .wave-clear__warnings {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+.wave-clear.wave-clear--complete,
+.wave-clear--complete .wave-clear__card {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes wave-clear-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes wave-clear-card-in {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+
+  72% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.015);
+  }
+
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wave-clear-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wave-clear-stat-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wave-clear-coin-flight {
+  0% {
+    opacity: 0;
+    transform: translate(
+        var(--wave-clear-coin-start-x),
+        calc(-50% + var(--wave-clear-coin-start-y))
+      )
+      scale(0.7) rotate(-12deg);
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  62% {
+    opacity: 1;
+    transform: translate(
+        var(--wave-clear-coin-mid-x),
+        calc(-50% + var(--wave-clear-coin-arc-y))
+      )
+      scale(1) rotate(10deg);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(0, -50%) scale(0.55) rotate(0);
+  }
+}
+
+@keyframes wave-clear-money-bump-a {
+  50% {
+    transform: scale(1.12);
+    color: var(--ui-signal-strong);
+  }
+}
+
+@keyframes wave-clear-money-bump-b {
+  50% {
+    transform: scale(1.12);
+    color: var(--ui-signal-strong);
+  }
+}
+
+@keyframes wave-clear-badge-stamp {
+  0% {
+    opacity: 0;
+    transform: scale(1.6) rotate(-9deg);
+  }
+
+  62% {
+    opacity: 1;
+    transform: scale(0.93) rotate(2deg);
+  }
+
+  82% {
+    opacity: 1;
+    transform: scale(1.04) rotate(-1deg);
+  }
+
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wave-clear-epic-shimmer {
+  0%,
+  72% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(1500%);
+  }
+}
+
+@media (max-width: 520px) {
+  .wave-clear__header {
+    padding: 13px 13px 11px;
+  }
+
+  .wave-clear__body {
+    gap: 9px;
+    padding: 10px 13px;
+  }
+
+  .wave-clear__actions {
+    padding: 10px 13px 12px;
+  }
+
+  .wave-clear__badge-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wave-clear__badge-description {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .wave-clear__actions {
+    flex-direction: column;
+  }
+
+  .wave-clear__button {
+    min-height: 40px;
+    flex: 1 1 auto;
+    padding-inline: 6px;
+    font-size: 12px;
+  }
+
+  .wave-clear__stat-value {
+    max-width: 48vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-clear,
+  .wave-clear__card,
+  .wave-clear__money,
+  .wave-clear__stat-row,
+  .wave-clear__badge,
+  .wave-clear__preview,
+  .wave-clear__warnings,
+  .wave-clear__money-counter {
+    animation: none !important;
+    opacity: 1;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .wave-clear__coin {
+    display: none;
+    animation: none !important;
+  }
+
+  .wave-clear__badge--epic::after {
+    animation: none !important;
+    transform: none !important;
+  }
+}

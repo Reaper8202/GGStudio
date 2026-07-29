@@ -117,7 +117,11 @@ export type DamageType = 'projectile' | 'hitscan' | 'aoe';
 
 export interface WeaponDefinition {
   mountType: WeaponMountType;
-  /** Auto weapons acquire targets; manual weapons follow player aim input. */
+  /**
+   * Auto weapons acquire their own targets in range; manual weapons only ever
+   * follow the player's aim input. Either way a held trigger overrides every
+   * weapon onto the player's cursor point.
+   */
   aimMode: 'auto' | 'manual';
   /** Horizontal firing arc in degrees (centered on part forward; 360 for turrets). */
   arcDeg: number;
@@ -200,14 +204,25 @@ export interface AbilityDefinition {
    * 'freeze' flash-freezes the nearest zombies in place; 'shield' wraps the
    * vehicle in a bubble granting temporary invulnerability; 'pulse' slams out
    * a damaging ring of force; 'overdrive' floods the drivetrain with torque;
-   * 'hellfire' overcharges the part's own flame nozzle.
+   * 'hellfire' overcharges the part's own flame nozzle; 'phase' blinks the rig
+   * forward through whatever is in the way.
    */
-  kind: 'freeze' | 'shield' | 'pulse' | 'overdrive' | 'hellfire';
+  kind: 'freeze' | 'shield' | 'pulse' | 'overdrive' | 'hellfire' | 'phase';
+  /**
+   * Upgrade level the host part must reach before the ability reaches the bar
+   * at all; 1 (the default) means it ships with the part. Set above 1 for an
+   * ability riding on a part that is already useful on its own — the nozzle is
+   * bought for its flame, and Hellfire is what the upgrade chain leads to.
+   */
+  unlockLevel?: number;
   /** Seconds between activations (fixed across levels). */
   cooldownSeconds: number;
   /** Effect duration in seconds at level 1 (grows with upgrade level). */
   baseDurationSeconds: number;
-  /** Freeze/pulse: metres from the vehicle the effect reaches. */
+  /**
+   * Freeze/pulse: metres from the vehicle the effect reaches. Phase: metres the
+   * blink covers at level 1 (grows with upgrade level).
+   */
   rangeM?: number;
   /** Freeze only: zombies frozen at level 1 (grows with upgrade level). */
   baseTargets?: number;
@@ -248,7 +263,35 @@ export interface MeleeDefinition {
   /** Damage per contact hit; cadence is the zombie impact cooldown. */
   damage: number;
   /** Mesh treatment; default 'drum' (toothed grinder roller). */
-  visual?: 'drum' | 'spikes' | 'blade';
+  visual?: 'drum' | 'spikes' | 'blade' | 'plow';
+  /** Present on blades that scoop zombies up instead of throwing them off. */
+  plow?: PlowDefinition;
+}
+
+/**
+ * A bulldozer blade. Instead of knocking a zombie clear, the blade takes hold
+ * of everything in front of it and carries it along, and the pile only pays for
+ * it when the rig drives that pile into something solid.
+ *
+ * The blade therefore suppresses the ordinary ram: a zombie riding it takes
+ * `MeleeDefinition.damage` per contact tick and nothing else, however fast the
+ * rig is going. All the damage is in the slam.
+ */
+export interface PlowDefinition {
+  /** Half the width of the catch zone in front of the blade, metres. */
+  halfWidthM: number;
+  /** How far ahead of the blade a zombie is still caught, metres. */
+  reachM: number;
+  /** Most zombies one blade carries; the overflow is rammed normally. */
+  capacity: number;
+  /** Damage each carried zombie takes in a slam at the minimum speed. */
+  crushDamage: number;
+  /** Extra crush damage per m/s of closing speed above the minimum. */
+  crushDamagePerSpeed: number;
+  /** Below this closing speed the blade only shoves; nothing is crushed. */
+  minCrushSpeedMps: number;
+  /** Share of the crush each *other* body in the pile adds (pile-on). */
+  pileBonus: number;
 }
 
 export interface ArmourDefinition {
@@ -296,6 +339,13 @@ export interface PartDefinition {
   unlockCost?: number;
   /** Multiplier on the strength of structural connections into this part. */
   reinforcement: number;
+  /**
+   * Fraction of a ram impact this part shrugs off, 0..1 — 0 (the default)
+   * feels every collision in full, 0.75 takes a quarter of it. For hardware
+   * built to be driven into things: a plough blade that loses its own health
+   * ramming a wall is a blade the player learns not to use as one.
+   */
+  impactResistance?: number;
   /** Only one instance allowed per vehicle (root chassis). */
   unique?: boolean;
   /** True for the root chassis that anchors connectivity. */
@@ -327,10 +377,6 @@ export type PaintColor = keyof typeof PAINT_COLORS;
 export interface PartConfig {
   /** Upgrade level; omitted means the catalog base level (1). */
   level?: number;
-  /** Zombie Blaster EMP module level, 0..3. Independent of `level`. */
-  empLevel?: number;
-  /** Zombie Blaster piercing module level, 0..3. Independent of `level`. */
-  piercingLevel?: number;
   driven?: boolean;
   steering?: boolean;
   /** Invert steering direction (rear-steer axles). */
