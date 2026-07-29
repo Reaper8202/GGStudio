@@ -1,9 +1,11 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import type { DamageType } from '../../core/types.ts';
+import type { DamageType, MeleeDefinition } from '../../core/types.ts';
 import { empShieldLeak } from '../../core/turretModules.ts';
 import type { RuntimePart } from '../../runtime/assembler.ts';
 import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
+import { vehicleImpactMassFactor } from '../../core/mass.ts';
+import type { MeleeVfxKind, VfxSystem } from '../../vfx/VfxSystem.ts';
 import {
   Zombie,
   ZombieState,
@@ -53,6 +55,38 @@ interface VehiclePartAnchor {
 
 export type ZombieHitResult = 'miss' | 'shielded' | 'damaged' | 'killed';
 
+/**
+ * Pack integer grid coordinates into one number for the separation buckets.
+ * The graveyard is a few hundred metres across, so 16 bits a side is ample
+ * and keeps the key a small integer rather than a string.
+ */
+function packCell(cellX: number, cellZ: number): number {
+  return ((cellX + 0x8000) << 16) | ((cellZ + 0x8000) & 0xffff);
+}
+
+function separationCellKey(x: number, z: number): number {
+  return packCell(
+    Math.floor(x / SEPARATION_RADIUS),
+    Math.floor(z / SEPARATION_RADIUS),
+  );
+}
+
+/**
+ * Beyond this distance from the chassis a zombie is walking, not fighting, so
+ * it re-picks which part to head for only every few steps instead of scanning
+ * the whole rig every step. Comfortably outside any attack or contact range.
+ */
+const FULL_TARGET_SCAN_RANGE_M = 14;
+/** How often a distant zombie re-scans, in fixed steps (staggered by index). */
+const DISTANT_TARGET_RESCAN_STEPS = 8;
+
+/** Contact effect for a touched part: its melee visual, or a bare ram. */
+function meleeVfxKindFor(visual: string | undefined): MeleeVfxKind {
+  if (visual === 'blade') return 'blade';
+  if (visual === 'spikes') return 'spikes';
+  return 'drum';
+}
+
 /** Pooled zombie AI, handle routing, vehicle contacts, and spawn selection. */
 export class ZombieSystem {
   private readonly pool: Zombie[] = [];
@@ -61,14 +95,24 @@ export class ZombieSystem {
   private readonly aliveTargets: Zombie[] = [];
   private readonly separationX = new Float32Array(ZOMBIE_POOL_SIZE);
   private readonly separationZ = new Float32Array(ZOMBIE_POOL_SIZE);
+  /** Reused cell buckets for crowd separation; see applySeparation. */
+  private readonly separationBuckets = new Map<number, Zombie[]>();
   private readonly watchdogX = new Float32Array(ZOMBIE_POOL_SIZE);
   private readonly watchdogZ = new Float32Array(ZOMBIE_POOL_SIZE);
   private readonly watchdogTimer = new Float32Array(ZOMBIE_POOL_SIZE);
   private readonly vehicleAnchors: VehiclePartAnchor[] = [];
+  /** Anchor lookup for the staggered far-field targeting path. */
+  private readonly anchorByPartId = new Map<string, VehiclePartAnchor>();
+  /** Chassis origin this step, for the cheap near/far targeting test. */
+  private vehicleCentreX = 0;
+  private vehicleCentreZ = 0;
+  /** Fixed steps run, used to stagger distant-zombie re-targeting. */
+  private stepCounter = 0;
   private readonly spawnCandidateIndices: Int16Array;
   private readonly spawnCandidateDistances: Float32Array;
   private readonly spawnScratch = new THREE.Vector3();
   private readonly swarmForce = { x: 0, y: 0, z: 0 };
+  private readonly blastDirection = { x: 0, y: 0, z: 0 };
   private readonly fallbackGeometry: THREE.CapsuleGeometry;
   private readonly projectiles: ThrowerProjectiles;
   private readonly landmines: Landmines;
@@ -110,6 +154,7 @@ export class ZombieSystem {
     }
     if (!detonated) return false;
 
+    this.vfx?.explosion(x, y, z, LANDMINE_BLAST_RADIUS * 0.5);
     const blastRadiusSq = LANDMINE_BLAST_RADIUS * LANDMINE_BLAST_RADIUS;
     for (const anchor of this.vehicleAnchors) {
       if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
@@ -137,6 +182,8 @@ export class ZombieSystem {
     private readonly spawnPoints: readonly THREE.Vector3[],
     private readonly vehicle: RuntimeVehicle,
     onKilled: ZombieKilledCallback,
+    /** Optional so headless tests can drive the system without a scene budget. */
+    private readonly vfx: VfxSystem | null = null,
   ) {
     this.fallbackGeometry = new THREE.CapsuleGeometry(
       ZOMBIE_RADIUS,
@@ -161,6 +208,7 @@ export class ZombieSystem {
         poolKinds[i],
         this.fallbackGeometry,
         onKilled,
+        vfx,
       );
       zombie.onThrow = (thrower) => this.launchProjectileFrom(thrower);
       zombie.onPlantMine = (worker) =>
@@ -283,6 +331,7 @@ export class ZombieSystem {
   /** Advance AI and forces before the owning mode calls world.step(). */
   step(dt: number): void {
     if (this.disposed || dt <= 0) return;
+    this.stepCounter++;
     this.updateVehicleAnchors();
     this.activeScratch.length = 0;
     for (const zombie of this.pool) {
@@ -564,6 +613,49 @@ export class ZombieSystem {
     return killed ? 'killed' : 'damaged';
   }
 
+  /**
+   * Explosive blast at a world point: every targetable zombie inside `radiusM`
+   * takes `centreDamage` scaled linearly down to nothing at the rim. Returns
+   * how many were hit.
+   *
+   * Blast damage is `aoe`, so — like flame — it washes around the phone
+   * addict's bubble instead of being absorbed by it. A zombie the shell hit
+   * directly can be excluded via `skipHandle` so it is not damaged twice.
+   */
+  explodeAt(
+    x: number,
+    y: number,
+    z: number,
+    radiusM: number,
+    centreDamage: number,
+    skipHandle: number | null = null,
+  ): number {
+    if (this.disposed || radiusM <= 0 || centreDamage <= 0) return 0;
+    const radiusSq = radiusM * radiusM;
+    let hit = 0;
+    let killedAny = false;
+    for (const zombie of this.aliveTargets) {
+      if (skipHandle !== null && zombie.collider.handle === skipHandle) continue;
+      const dx = zombie.position.x - x;
+      const dy = zombie.position.y - y;
+      const dz = zombie.position.z - z;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq > radiusSq) continue;
+      const falloff = 1 - Math.sqrt(distanceSq) / radiusM;
+      const damage = centreDamage * falloff;
+      if (damage <= 0) continue;
+      hit++;
+      // Push survivors away from the blast so the explosion reads physically.
+      const distance = Math.sqrt(distanceSq) || 1;
+      this.blastDirection.x = dx / distance;
+      this.blastDirection.y = 0;
+      this.blastDirection.z = dz / distance;
+      if (zombie.takeDamage(damage, this.blastDirection)) killedAny = true;
+    }
+    if (killedAny) this.rebuildAliveTargets();
+    return hit;
+  }
+
   /** Debug seam: kill every active slot, including zombies still spawning. */
   forceKillAll(): number {
     if (this.disposed) return 0;
@@ -599,6 +691,8 @@ export class ZombieSystem {
     this.activeScratch.length = 0;
     this.aliveTargets.length = 0;
     this.vehicleAnchors.length = 0;
+    this.anchorByPartId.clear();
+    this.separationBuckets.clear();
     this.fallbackGeometry.dispose();
   }
 
@@ -614,7 +708,7 @@ export class ZombieSystem {
         localY += centre.y;
         localZ += centre.z;
       }
-      this.vehicleAnchors.push({
+      const anchor: VehiclePartAnchor = {
         partId,
         part,
         localX: localX / count,
@@ -623,13 +717,17 @@ export class ZombieSystem {
         worldX: 0,
         worldY: 0,
         worldZ: 0,
-      });
+      };
+      this.vehicleAnchors.push(anchor);
+      this.anchorByPartId.set(partId, anchor);
     }
   }
 
   /** Transform every attached part centroid once, not once per zombie. */
   private updateVehicleAnchors(): void {
     const position = this.vehicle.body.translation();
+    this.vehicleCentreX = position.x;
+    this.vehicleCentreZ = position.z;
     const rotation = this.vehicle.body.rotation();
     const qx = rotation.x;
     const qy = rotation.y;
@@ -649,7 +747,51 @@ export class ZombieSystem {
     }
   }
 
+  /**
+   * Point a zombie at the nearest live part. Scanning every anchor for every
+   * zombie every step is the rig-size × horde-size product, and the far half
+   * of the horde is only using the answer to walk in roughly the right
+   * direction. Zombies outside {@link FULL_TARGET_SCAN_RANGE_M} therefore keep
+   * the part they already chose — its world position is still refreshed every
+   * step, so they track the moving vehicle exactly — and re-scan on a stagger.
+   * Anything close enough to touch the rig scans in full, every step.
+   */
   private findNearestVehiclePart(zombie: Zombie): void {
+    const target = zombie.vehicleTarget;
+    if (target.partId !== null && !this.isNearVehicle(zombie)) {
+      const anchor = this.anchorByPartId.get(target.partId);
+      const stale =
+        (this.stepCounter + zombie.index) % DISTANT_TARGET_RESCAN_STEPS === 0;
+      if (
+        !stale &&
+        anchor !== undefined &&
+        anchor.part.alive &&
+        !anchor.part.detached &&
+        anchor.part.health > 0
+      ) {
+        target.x = anchor.worldX;
+        target.y = anchor.worldY;
+        target.z = anchor.worldZ;
+        const dx = anchor.worldX - zombie.position.x;
+        const dy = anchor.worldY - zombie.position.y;
+        const dz = anchor.worldZ - zombie.position.z;
+        target.distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        return;
+      }
+    }
+    this.scanNearestVehiclePart(zombie);
+  }
+
+  /** Rough distance test against the chassis origin, one check per zombie. */
+  private isNearVehicle(zombie: Zombie): boolean {
+    const dx = this.vehicleCentreX - zombie.position.x;
+    const dz = this.vehicleCentreZ - zombie.position.z;
+    return (
+      dx * dx + dz * dz <= FULL_TARGET_SCAN_RANGE_M * FULL_TARGET_SCAN_RANGE_M
+    );
+  }
+
+  private scanNearestVehiclePart(zombie: Zombie): void {
     const target = zombie.vehicleTarget;
     let nearestDistanceSq = Infinity;
     target.partId = null;
@@ -692,28 +834,62 @@ export class ZombieSystem {
     if (target.zombie !== null) target.distance = Math.sqrt(nearestDistanceSq);
   }
 
+  /**
+   * Crowd separation over a uniform hash grid rather than every pair.
+   *
+   * Zombies only push each other inside SEPARATION_RADIUS, so bucketing them
+   * into cells of exactly that size means a zombie can only be pushed by the
+   * nine cells around it. A packed horde used to cost one distance check per
+   * pair — quadratic in the horde size, and the horde is what grows every
+   * wave. The result is identical: the same pairs are found, in the same
+   * order, with the same forces.
+   */
   private applySeparation(active: readonly Zombie[]): void {
     this.separationX.fill(0);
     this.separationZ.fill(0);
     const radiusSq = SEPARATION_RADIUS * SEPARATION_RADIUS;
+    if (active.length < 2) return;
 
-    for (let i = 0; i < active.length; i++) {
-      const first = active[i];
-      for (let j = i + 1; j < active.length; j++) {
-        const second = active[j];
-        const dx = first.position.x - second.position.x;
-        const dz = first.position.z - second.position.z;
-        const distanceSq = dx * dx + dz * dz;
-        if (distanceSq >= radiusSq || distanceSq < 1e-6) continue;
+    // Bucket by cell. Cells are keyed by their integer grid coordinates
+    // packed into one number, so the map stays allocation-free per entry.
+    const buckets = this.separationBuckets;
+    for (const list of buckets.values()) list.length = 0;
+    for (const zombie of active) {
+      const key = separationCellKey(zombie.position.x, zombie.position.z);
+      let bucket = buckets.get(key);
+      if (bucket === undefined) {
+        bucket = [];
+        buckets.set(key, bucket);
+      }
+      bucket.push(zombie);
+    }
 
-        const distance = Math.sqrt(distanceSq);
-        const strength = (SEPARATION_RADIUS - distance) * SEPARATION_STRENGTH;
-        const pushX = (dx / distance) * strength;
-        const pushZ = (dz / distance) * strength;
-        this.separationX[first.index] += pushX;
-        this.separationZ[first.index] += pushZ;
-        this.separationX[second.index] -= pushX;
-        this.separationZ[second.index] -= pushZ;
+    for (const zombie of active) {
+      const cellX = Math.floor(zombie.position.x / SEPARATION_RADIUS);
+      const cellZ = Math.floor(zombie.position.z / SEPARATION_RADIUS);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          const bucket = buckets.get(packCell(cellX + ox, cellZ + oz));
+          if (bucket === undefined) continue;
+          for (const other of bucket) {
+            // Each unordered pair is handled once, by the lower index.
+            if (other.index <= zombie.index) continue;
+            const dx = zombie.position.x - other.position.x;
+            const dz = zombie.position.z - other.position.z;
+            const distanceSq = dx * dx + dz * dz;
+            if (distanceSq >= radiusSq || distanceSq < 1e-6) continue;
+
+            const distance = Math.sqrt(distanceSq);
+            const strength =
+              (SEPARATION_RADIUS - distance) * SEPARATION_STRENGTH;
+            const pushX = (dx / distance) * strength;
+            const pushZ = (dz / distance) * strength;
+            this.separationX[zombie.index] += pushX;
+            this.separationZ[zombie.index] += pushZ;
+            this.separationX[other.index] -= pushX;
+            this.separationZ[other.index] -= pushZ;
+          }
+        }
       }
     }
   }
@@ -725,6 +901,9 @@ export class ZombieSystem {
     this.vehicle.body.resetForces(false);
     const velocity = this.vehicle.body.linvel();
     const vehicleSpeed = Math.hypot(velocity.x, velocity.y, velocity.z);
+    // Heavier builds ram harder, lighter ones softer; the speed side of the
+    // formula below is unchanged.
+    const massFactor = vehicleImpactMassFactor(this.vehicle.body.mass());
     let contacts = 0;
 
     for (const zombie of active) {
@@ -757,13 +936,17 @@ export class ZombieSystem {
         vehicleSpeed >= LETHAL_IMPACT_SPEED
           ? Number.MAX_SAFE_INTEGER
           : vehicleSpeed >= MIN_IMPACT_SPEED
-            ? vehicleSpeed * IMPACT_DAMAGE_PER_SPEED
+            ? vehicleSpeed * IMPACT_DAMAGE_PER_SPEED * massFactor
             : 0;
-      zombie.applyVehicleImpact(
+      const landed = zombie.applyVehicleImpact(
         Math.max(impactDamage, melee?.damage ?? 0),
         awayX,
         awayZ,
       );
+      // The per-zombie impact cooldown inside applyVehicleImpact is also what
+      // paces the shred bursts: a drum touching a packed horde emits once per
+      // zombie per cooldown, never once per fixed step.
+      if (landed !== 'ignored') this.emitShredVfx(zombie, melee, awayX, awayZ, vehicleSpeed);
     }
 
     if (contacts === 0) return;
@@ -784,6 +967,43 @@ export class ZombieSystem {
     this.swarmForce.y = 0;
     this.swarmForce.z = -(velocity.z / horizontalSpeed) * forceMagnitude;
     this.vehicle.body.addForce(this.swarmForce, true);
+  }
+
+  /**
+   * Play the contact effect for a landed hit. The weapon that was touched
+   * picks the effect — sawblade, spikes, and grinder drum each spray
+   * differently — and a part with no melee weapon plays a blunt ram.
+   */
+  private emitShredVfx(
+    zombie: Zombie,
+    melee: MeleeDefinition | undefined,
+    awayX: number,
+    awayZ: number,
+    vehicleSpeed: number,
+  ): void {
+    if (this.vfx === null) return;
+    const length = Math.hypot(awayX, awayZ) || 1;
+    const target = zombie.vehicleTarget;
+    // Halfway between the weapon and the zombie it bit into, never below the
+    // ground plane the settled splats land on.
+    const contactX = (zombie.position.x + target.x) * 0.5;
+    const contactY = Math.max(0.25, (zombie.position.y + target.y) * 0.5);
+    const contactZ = (zombie.position.z + target.z) * 0.5;
+    const kind: MeleeVfxKind =
+      melee === undefined ? 'ram' : meleeVfxKindFor(melee.visual);
+    const power =
+      melee === undefined
+        ? Math.min(1.3, 0.5 + vehicleSpeed / LETHAL_IMPACT_SPEED)
+        : Math.min(1.4, 0.55 + melee.damage / 60);
+    this.vfx.meleeShred(
+      kind,
+      contactX,
+      contactY,
+      contactZ,
+      awayX / length,
+      awayZ / length,
+      power,
+    );
   }
 
   private resetWatchdog(zombie: Zombie): void {

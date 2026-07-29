@@ -16,8 +16,17 @@ import {
 } from '../runtime/vehicle.ts';
 import { lowestPointM, GROUP_TERRAIN, GROUP_ZOMBIE } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
-import { buildPartMesh } from '../editor/meshes.ts';
+import { applyWeaponAim, buildPartMesh } from '../editor/meshes.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
+import { ScopeCursor } from '../ui/ScopeCursor.ts';
+import type { TracerShot } from '../runtime/weapons.ts';
+import { VfxSystem } from '../vfx/VfxSystem.ts';
+import {
+  impactKindForShot,
+  muzzleStyleForShot,
+  tracerStyleForShot,
+} from '../vfx/shotVfx.ts';
+import { VFX_PALETTE } from '../vfx/vfxConfig.ts';
 
 export type ScenarioName =
   | 'flat'
@@ -30,6 +39,8 @@ export type ScenarioName =
 const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
 const ZOMBIE_GROUPS = (GROUP_ZOMBIE << 16) | 0xffff;
 const FIXED_DT = 1 / 60;
+/** Chamber dummies are plain boxes; their gibs borrow the walker body green. */
+const CHAMBER_ZOMBIE_TINT = 0x4c6b3f;
 
 interface Zombie {
   body: RAPIER.RigidBody;
@@ -49,6 +60,8 @@ export class ChamberMode {
   private islandGroups = new Map<number, THREE.Group>();
   private surfaceByCollider = new Map<number, SurfaceKind>();
   private zombies: Zombie[] = [];
+  /** Recreated with the world: `resetWorld` clears and disposes the whole scene. */
+  private vfx!: VfxSystem;
   private tracers: { line: THREE.Line; ttl: number }[] = [];
   private scenario: ScenarioName = 'flat';
   private controls: VehicleControls = { throttle: 0, brake: 0, steer: 0, fire: false, aimYawWorld: 0 };
@@ -60,6 +73,7 @@ export class ChamberMode {
   private banner!: HTMLDivElement;
   private failTimers = { flipped: 0, noTraction: 0, airborne: 0 };
   private ui!: HTMLDivElement;
+  private scopeCursor!: ScopeCursor;
   private disposed = false;
   private readonly keydown = (e: KeyboardEvent) => {
     this.keys.add(e.key.toLowerCase());
@@ -94,6 +108,9 @@ export class ChamberMode {
   private resetWorld(): void {
     if (this.eventQueue) this.eventQueue.free();
     if (this.world) this.world.free();
+    // Detach the VFX layers before the sweep so their pooled geometry and
+    // materials are disposed once, by their owner.
+    this.vfx?.dispose();
     disposeSceneAssets(this.scene);
     this.tracers.length = 0;
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
@@ -109,6 +126,7 @@ export class ChamberMode {
     dir.position.set(20, 30, 10);
     this.scene.add(dir);
 
+    this.vfx = new VfxSystem(this.scene);
     this.buildTerrain();
     this.spawnVehicle();
   }
@@ -288,6 +306,8 @@ export class ChamberMode {
     this.renderer.domElement.addEventListener('pointermove', this.onAim);
     this.renderer.domElement.addEventListener('pointerdown', this.onFireDown);
     this.renderer.domElement.addEventListener('pointerup', this.onFireUp);
+
+    this.scopeCursor = new ScopeCursor(this.ui, this.renderer.domElement);
   }
 
   private onAim = (e: PointerEvent): void => {
@@ -334,6 +354,8 @@ export class ChamberMode {
       this.stepPhysics();
     }
     this.syncView(frameDt);
+    this.vfx.setViewpoint(this.camera.position);
+    this.vfx.update(frameDt);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -386,17 +408,57 @@ export class ChamberMode {
 
     // Weapon hits on zombies.
     for (const shot of this.vehicle.telemetry().shotsThisStep) {
+      this.emitShotVfx(shot);
       if (shot.hitZombieHandle === null) continue;
       for (const z of this.zombies) {
         if (!z.alive) continue;
         for (let i = 0; i < z.body.numColliders(); i++) {
           if (z.body.collider(i).handle === shot.hitZombieHandle) {
             z.health -= 12;
-            if (z.health <= 0) z.alive = false;
+            if (z.health <= 0) {
+              z.alive = false;
+              const p = z.body.translation();
+              this.vfx.zombieGib(p.x, p.y, p.z, CHAMBER_ZOMBIE_TINT);
+            }
           }
         }
       }
     }
+  }
+
+  /**
+   * Same gun feedback the graveyard plays, so a weapon looks in the test
+   * chamber exactly as it will in a wave. Chamber dummies are never shielded.
+   */
+  private emitShotVfx(shot: TracerShot): void {
+    this.vfx.muzzleFlash(shot.from, shot.to, muzzleStyleForShot(shot));
+    if (shot.damageType === 'aoe') {
+      this.vfx.flameJet(shot.from, shot.to, shot.overcharged);
+    }
+    // Explosive shells detonate here too. The chamber has no splash damage
+    // model, but the blast has to look identical to the graveyard or the test
+    // drive misrepresents the weapon.
+    if (shot.splashRadiusM > 0) {
+      this.vfx.shellBurst(shot.to.x, shot.to.y, shot.to.z, shot.splashRadiusM);
+    }
+    const impact = impactKindForShot(shot, false);
+    if (impact === null) return;
+    let dirX = shot.to.x - shot.from.x;
+    let dirY = shot.to.y - shot.from.y;
+    let dirZ = shot.to.z - shot.from.z;
+    const length = Math.hypot(dirX, dirY, dirZ) || 1;
+    dirX /= length;
+    dirY /= length;
+    dirZ /= length;
+    this.vfx.bulletImpact(
+      shot.to.x,
+      shot.to.y,
+      shot.to.z,
+      dirX,
+      dirY,
+      dirZ,
+      impact,
+    );
   }
 
   private stepZombies(): void {
@@ -436,6 +498,13 @@ export class ChamberMode {
         const wm = this.wheelMeshes.get(id);
         if (wm) wm.visible = false;
       }
+    }
+
+    // Turn each gun to where it is actually shooting.
+    for (const weapon of this.vehicle.weaponStates()) {
+      const mesh = this.vehicleGroup.getObjectByName(`part:${weapon.partId}`);
+      if (mesh)
+        applyWeaponAim(mesh, weapon.forwardLocal, weapon.yaw, weapon.pitch);
     }
 
     // Wheels: world-space position with suspension travel + spin.
@@ -480,7 +549,10 @@ export class ChamberMode {
         new THREE.Vector3(shot.from.x, shot.from.y, shot.from.z),
         new THREE.Vector3(shot.to.x, shot.to.y, shot.to.z),
       ]);
-      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffd76e }));
+      // Cryo fire draws turquoise, matching survival's Ice Cannon ray.
+      const color =
+        tracerStyleForShot(shot) === 'ice' ? VFX_PALETTE.ice : 0xffd76e;
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color }));
       this.scene.add(line);
       this.tracers.push({ line, ttl: 0.08 });
     }
@@ -551,6 +623,8 @@ export class ChamberMode {
     this.renderer.domElement.removeEventListener('pointermove', this.onAim);
     this.renderer.domElement.removeEventListener('pointerdown', this.onFireDown);
     this.renderer.domElement.removeEventListener('pointerup', this.onFireUp);
+    this.scopeCursor.dispose();
+    this.vfx?.dispose();
     this.vehicle?.dispose();
     this.eventQueue?.free();
     this.world?.free();

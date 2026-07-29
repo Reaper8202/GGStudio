@@ -6,13 +6,22 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import {
+  ABILITY_KIND_META,
+  ABILITY_SLOT_KEYS,
   effectiveCharm,
   effectiveFreeze,
+  effectiveHellfire,
   effectiveNitro,
+  effectiveOverdrive,
+  effectivePulse,
   effectiveRocket,
   effectiveShield,
   effectiveThump,
   effectiveZap,
+  MAX_ABILITY_SLOTS,
+  resolveAbilityLoadout,
+  type AbilityCandidate,
+  type AbilitySlotAssignment,
 } from '../core/abilities.ts';
 import type { RunState } from '../core/economy.ts';
 import { getPartDef } from '../core/parts.ts';
@@ -23,7 +32,7 @@ import {
 } from '../core/turretModules.ts';
 import type { Vec3, VehicleBlueprint } from '../core/types.ts';
 import type { RuntimePart } from '../runtime/assembler.ts';
-import { buildPartMesh } from '../editor/meshes.ts';
+import { applyWeaponAim, buildPartMesh } from '../editor/meshes.ts';
 import { GROUP_TERRAIN, lowestPointM } from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../runtime/surfaces.ts';
 import {
@@ -34,6 +43,21 @@ import {
 import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
+import { AbilityBar, type AbilitySlotView } from '../ui/AbilityBar.ts';
+import { ScopeCursor } from '../ui/ScopeCursor.ts';
+import { VfxSystem } from '../vfx/VfxSystem.ts';
+import { WarningHud } from './WarningHud.ts';
+import {
+  activeVehicleWarnings,
+  HULL_CRITICAL_PCT,
+  type VehicleWarning,
+} from './vehicleWarnings.ts';
+import {
+  impactKindForShot,
+  muzzleStyleForShot,
+  tracerStyleForShot,
+} from '../vfx/shotVfx.ts';
+import { VFX_PALETTE } from '../vfx/vfxConfig.ts';
 import { FuelPickups } from './FuelPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
@@ -49,6 +73,8 @@ import {
   BASE_ZOMBIE_STATS,
   LETHAL_IMPACT_SPEED,
   MIN_IMPACT_SPEED,
+  ZOMBIE_HALF_HEIGHT,
+  ZOMBIE_RADIUS,
 } from './zombies/zombieConfig.ts';
 import type { ZombieKind } from './zombies/Zombie.ts';
 
@@ -62,6 +88,10 @@ const TRACER_POOL_SIZE = 32;
 const STUCK_PROMPT_SECONDS = 1.6;
 const RECOVERY_COOLDOWN_SECONDS = 2.25;
 const RECOVERY_SETTLE_SECONDS = 0.42;
+/** How often the alert stack is re-derived from vehicle state. */
+const WARNING_REFRESH_INTERVAL_SECONDS = 0.25;
+/** Distance at which a blast stops shaking the camera at all, m. */
+const CAMERA_SHAKE_FALLOFF_M = 26;
 
 export interface SurvivalCallbacks {
   profileMoney(): number;
@@ -235,10 +265,6 @@ interface SurvivalUi {
   integrityFill: HTMLSpanElement;
   fuelValue: HTMLSpanElement;
   fuelFill: HTMLSpanElement;
-  abilityRoot: HTMLDivElement;
-  abilityLabel: HTMLSpanElement;
-  abilityFill: HTMLSpanElement;
-  abilityValue: HTMLDivElement;
   waveValue: HTMLSpanElement;
   remainingValue: HTMLSpanElement;
   bossHud: HTMLElement;
@@ -294,6 +320,8 @@ export class SurvivalMode {
   private readonly surfaceByCollider = new Map<number, SurfaceKind>();
   private readonly graveyard: Graveyard;
   private readonly vehicle: RuntimeVehicle;
+  /** Pooled voxel particle layers shared by every effect in this mode. */
+  private readonly vfx: VfxSystem;
   private readonly zombies: ZombieSystem;
   private readonly autoAim: AutoAim;
   private readonly fuelPickups: FuelPickups;
@@ -316,11 +344,6 @@ export class SurvivalMode {
   private readonly tracerMaterial = new THREE.LineBasicMaterial({
     color: 0xffd76e,
   });
-  private readonly flameTracerMaterial = new THREE.LineBasicMaterial({
-    color: 0xff6b2b,
-    transparent: true,
-    opacity: 0.85,
-  });
   private readonly pierceTracerMaterial = new THREE.LineBasicMaterial({
     color: 0xffd76e,
     transparent: true,
@@ -329,17 +352,48 @@ export class SurvivalMode {
   private readonly electricTracerMaterial = new THREE.LineBasicMaterial({
     color: 0x33aaff,
   });
+  /** Cryo fire draws in the Ice Cannon's turquoise instead of tracer gold. */
+  private readonly iceTracerMaterial = new THREE.LineBasicMaterial({
+    color: VFX_PALETTE.ice,
+  });
+  private readonly icePierceTracerMaterial = new THREE.LineBasicMaterial({
+    color: VFX_PALETTE.ice,
+    transparent: true,
+    opacity: 0.35,
+  });
   private readonly wheelSteerQuaternion = new THREE.Quaternion();
   private readonly wheelSteerAxis = new THREE.Vector3(0, 1, 0);
   private readonly pointerNdc = new THREE.Vector2();
   private readonly aimRaycaster = new THREE.Raycaster();
-  private readonly aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  /**
+   * Cursor unprojection plane. Sat at zombie centre height rather than on the
+   * ground: manual turrets now shoot at this exact point, and the player aims
+   * at a zombie's body, not at the patch of dirt behind its feet.
+   */
+  private readonly aimPlane = new THREE.Plane(
+    new THREE.Vector3(0, 1, 0),
+    -(ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS),
+  );
   private readonly aimPoint = new THREE.Vector3();
   private readonly shotDirection = new THREE.Vector3();
   private readonly stoppedVelocity = { x: 0, y: 0, z: 0 };
   private readonly minimapForward = new THREE.Vector3();
+  /** Scratch heading for ability effects that fire along the rig's forward axis. */
+  private readonly abilityForward = new THREE.Vector3();
+  private readonly abilityQuaternion = new THREE.Quaternion();
   private readonly ui: HTMLDivElement;
   private readonly minimap: Minimap;
+  private readonly scopeCursor: ScopeCursor;
+  /** Damage vignette plus the stacked red/amber alert chips. */
+  private readonly warningHud: WarningHud;
+  /**
+   * Sum of live attached part health at the end of the previous fixed step.
+   * Diffing it is how the HUD learns the vehicle was hurt, whatever the
+   * source — zombie bites, thrown debris, mines, or a bad collision.
+   */
+  private lastLiveHealth = -1;
+  private warningRefreshSeconds = 0;
+  private lastWarnings: VehicleWarning[] = [];
   private readonly speedValue: HTMLSpanElement;
   private readonly speedTrack: HTMLDivElement;
   private readonly speedSafeLabel: HTMLSpanElement;
@@ -350,11 +404,9 @@ export class SurvivalMode {
   private readonly fuelValue: HTMLSpanElement;
   private readonly fuelFill: HTMLSpanElement;
   private lastHudFuel = -1;
-  private readonly abilityRoot: HTMLDivElement;
-  private readonly abilityLabel: HTMLSpanElement;
-  private readonly abilityFill: HTMLSpanElement;
-  private readonly abilityValue: HTMLDivElement;
-  /** Translucent blue bubble shown while the Shield Generator is active. */
+  /** Centre-screen bar of special abilities, one box per special. */
+  private readonly abilityBar: AbilityBar;
+  /** Translucent blue bubble shown while the shield special is active. */
   private shieldBubble: THREE.Mesh | null = null;
   private shieldBubbleMaterial: THREE.MeshBasicMaterial | null = null;
   private shieldBubblePhase = 0;
@@ -457,12 +509,26 @@ export class SurvivalMode {
   private recoveryCooldown = 0;
   private recoverySettleSeconds = 0;
   private recoveryRequested = false;
-  private abilityRequested = false;
-  private abilityCooldown = 0;
-  private lastHudAbilityCooldown = -1;
-  private lastHudAbilityName = '';
   private lastHudBossName = '';
   private lastHudBossPct = -1;
+  /** Ability slots pressed since the last fixed step, drained by updateAbility. */
+  private readonly abilityRequests = new Set<number>();
+  /**
+   * Seconds left on each ability's cooldown, keyed by the placed part backing
+   * it. Keyed by part rather than by slot so a cooldown follows its emitter:
+   * losing one ability part mid-wave must not hand another a free recharge.
+   */
+  private readonly abilityCooldowns = new Map<string, number>();
+  /** Ability parts filling the bar right now, rebuilt from the live rig. */
+  private abilityLoadout: AbilitySlotAssignment[] = [];
+  /** Scratch buffers refilled in place each frame, so the HUD never allocates. */
+  private readonly abilityCandidates: AbilityCandidate[] = [];
+  private readonly abilitySlotViews: (AbilitySlotView | undefined)[] =
+    ABILITY_SLOT_KEYS.map(() => undefined);
+  /** Loadout the slot views were built from; see abilityLoadoutSignature. */
+  private abilitySlotViewSignature = '';
+  /** Whether the shield bubble was up last frame, for its raise/drop effects. */
+  private shieldWasUp = false;
   private debugProgressionSuppressed = false;
   private readonly recoveryImpulse = { x: 0, y: 0, z: 0 };
   private readonly recoveryTranslation = { x: 0, y: 0, z: 0 };
@@ -491,8 +557,11 @@ export class SurvivalMode {
       event.preventDefault();
       return;
     }
-    if (key === 'q') {
-      if (!event.repeat) this.abilityRequested = true;
+    const abilitySlot = ABILITY_SLOT_KEYS.indexOf(
+      key as (typeof ABILITY_SLOT_KEYS)[number],
+    );
+    if (abilitySlot >= 0) {
+      if (!event.repeat) this.requestAbility(abilitySlot);
       event.preventDefault();
       return;
     }
@@ -532,6 +601,9 @@ export class SurvivalMode {
       this.vehicle,
       this.graveyard.bounds,
     );
+    // Added before the zombie visuals are captured below, so the two VFX
+    // layers stay parented to the scene rather than to the zombie root.
+    this.vfx = new VfxSystem(this.scene);
     const firstZombieVisualIndex = this.scene.children.length;
     this.zombies = new ZombieSystem(
       this.world,
@@ -539,6 +611,7 @@ export class SurvivalMode {
       this.graveyard.spawnPoints,
       this.vehicle,
       (reward, kind) => this.handleZombieKilled(reward, kind),
+      this.vfx,
     );
     const zombieVisuals = this.scene.children.slice(firstZombieVisualIndex);
     this.zombieVisualRoot.name = 'zombie-system-visuals';
@@ -569,10 +642,6 @@ export class SurvivalMode {
     this.integrityFill = builtUi.integrityFill;
     this.fuelValue = builtUi.fuelValue;
     this.fuelFill = builtUi.fuelFill;
-    this.abilityRoot = builtUi.abilityRoot;
-    this.abilityLabel = builtUi.abilityLabel;
-    this.abilityFill = builtUi.abilityFill;
-    this.abilityValue = builtUi.abilityValue;
     this.waveValue = builtUi.waveValue;
     this.remainingValue = builtUi.remainingValue;
     this.bossHud = builtUi.bossHud;
@@ -616,6 +685,11 @@ export class SurvivalMode {
         ],
         ready: this.graveyard.whenReady(),
       },
+    );
+    this.scopeCursor = new ScopeCursor(this.ui, this.renderer.domElement);
+    this.warningHud = new WarningHud(this.ui);
+    this.abilityBar = new AbilityBar(this.ui, MAX_ABILITY_SLOTS, (slot) =>
+      this.requestAbility(slot),
     );
 
     if (Number.isFinite(run.kills) && (run.kills ?? 0) >= 0) {
@@ -823,28 +897,8 @@ export class SurvivalMode {
     fuelFill.className = 'survival-fuel__fill';
     fuelTrack.appendChild(fuelFill);
     fuel.append(fuelHeader, fuelTrack);
-    // Ability chip — hidden until an ability part is equipped. Shows the active
-    // ability's name, the Q keybind, and the cooldown. The label is updated at
-    // runtime to whichever ability the player bound to Q in the garage.
-    const ability = document.createElement('div');
-    ability.className = 'survival-ability';
-    ability.hidden = true;
-    const abilityHeader = document.createElement('div');
-    const abilityLabel = document.createElement('span');
-    abilityLabel.textContent = 'Ability';
-    const abilityKey = document.createElement('span');
-    abilityKey.className = 'survival-ability__key';
-    abilityKey.textContent = 'Q';
-    abilityHeader.append(abilityLabel, abilityKey);
-    const abilityTrack = document.createElement('div');
-    abilityTrack.className = 'survival-ability__track';
-    const abilityFill = document.createElement('span');
-    abilityFill.className = 'survival-ability__fill';
-    abilityTrack.appendChild(abilityFill);
-    const abilityValue = document.createElement('div');
-    abilityValue.className = 'survival-ability__status';
-    abilityValue.textContent = 'Ready';
-    ability.append(abilityHeader, abilityTrack, abilityValue);
+    // Specials live in their own centre-screen bar (see AbilityBar), not in
+    // this corner panel — the driver reads them mid-fight, eyes on the road.
     const moneyRow = document.createElement('div');
     moneyRow.className = 'survival-earned';
     const moneyLabel = document.createElement('span');
@@ -857,7 +911,7 @@ export class SurvivalMode {
     pendingMoneyLabel.textContent = 'Pending';
     const pendingMoneyValue = document.createElement('span');
     pendingMoneyRow.append(pendingMoneyLabel, pendingMoneyValue);
-    hud.append(speedRow, health, fuel, ability, moneyRow, pendingMoneyRow);
+    hud.append(speedRow, health, fuel, moneyRow, pendingMoneyRow);
     root.appendChild(hud);
 
     const stuckPrompt = document.createElement('div');
@@ -1059,10 +1113,6 @@ export class SurvivalMode {
       integrityFill,
       fuelValue,
       fuelFill,
-      abilityRoot: ability,
-      abilityLabel,
-      abilityFill,
-      abilityValue,
       waveValue,
       remainingValue,
       bossHud,
@@ -1194,6 +1244,8 @@ export class SurvivalMode {
       this.aimPoint.x - position.x,
       this.aimPoint.z - position.z,
     );
+    // Manual turrets fire at this point, so the barrel and the shot agree.
+    this.controls.aimPoint = this.aimPoint;
   };
 
   private readonly onFireDown = (event: PointerEvent): void => {
@@ -1279,31 +1331,15 @@ export class SurvivalMode {
     const shots = this.vehicle.shotsThisStep();
     for (const shot of shots) {
       this.showTracer(shot);
-      // Splash weapons (Missile Launcher) detonate an AoE at the impact point,
-      // whether or not the direct ray struck a zombie (rockets explode on the
-      // ground too). The directly-hit zombie, if any, still takes its hit below.
-      if (shot.splashRadiusM > 0 && shot.splashDamage > 0) {
-        this.zombies.damageWithin(
-          { x: shot.to.x, z: shot.to.z },
-          shot.splashRadiusM,
-          shot.splashDamage,
-        );
-        this.spawnExplosion(
-          shot.to.x,
-          shot.to.y,
-          shot.to.z,
-          shot.splashRadiusM,
-          0xff7a33,
-          0.3,
-        );
-      }
-      if (shot.hitZombieHandle === null) continue;
       this.shotDirection.set(
         shot.to.x - shot.from.x,
         shot.to.y - shot.from.y,
         shot.to.z - shot.from.z,
       );
       if (this.shotDirection.lengthSq() > 1e-8) this.shotDirection.normalize();
+      this.emitShotVfx(shot);
+      this.detonateShell(shot);
+      if (shot.hitZombieHandle === null) continue;
       const pierceContinues = applyZombieShot(
         this.zombies,
         shot,
@@ -1313,14 +1349,75 @@ export class SurvivalMode {
         this.showTracerSegment(
           shot.to,
           shot.pierceTo,
-          this.pierceTracerMaterial,
+          tracerStyleForShot(shot) === 'ice'
+            ? this.icePierceTracerMaterial
+            : this.pierceTracerMaterial,
           0.06,
         );
       }
     }
 
     this.attachNewIslands(this.vehicle.finishStep());
+    this.trackDamageTaken();
     this.queueCompletedStepTransition();
+  }
+
+  /**
+   * Explosive shells (Heavy Cannon): damage everything around the point of
+   * impact, then play the blast and kick the camera. The zombie the shell hit
+   * directly is excluded — `applyZombieShot` already charges it full damage,
+   * and the splash is what the *rest* of the crowd takes.
+   *
+   * A miss still detonates: shells that land in dirt are the whole point of an
+   * area weapon, and rewarding a near miss is what makes it feel heavy.
+   */
+  private detonateShell(shot: TracerShot): void {
+    if (shot.splashRadiusM <= 0 || shot.splashDamage <= 0) return;
+    this.zombies.explodeAt(
+      shot.to.x,
+      shot.to.y,
+      shot.to.z,
+      shot.splashRadiusM,
+      shot.splashDamage,
+      shot.hitZombieHandle,
+    );
+    this.vfx.shellBurst(shot.to.x, shot.to.y, shot.to.z, shot.splashRadiusM);
+    this.shakeCameraAt(shot.to.x, shot.to.z, 0.9);
+  }
+
+  /**
+   * Kick the camera for a blast at a world point, falling off with distance so
+   * a shell across the graveyard registers without rattling the screen.
+   */
+  private shakeCameraAt(x: number, z: number, strength: number): void {
+    const position = this.vehicle.body.translation();
+    const distance = Math.hypot(x - position.x, z - position.z);
+    const falloff = Math.max(0, 1 - distance / CAMERA_SHAKE_FALLOFF_M);
+    if (falloff <= 0) return;
+    this.followCamera.addShake(strength * falloff * falloff);
+  }
+
+  /**
+   * Total health of every part still attached and alive. Losing a part drops
+   * this by whatever health it had left, which is exactly the "that hurt"
+   * signal the vignette wants.
+   */
+  private liveVehicleHealth(): number {
+    let total = 0;
+    for (const part of this.vehicle.assembled.parts.values()) {
+      if (!part.alive || part.detached) continue;
+      total += Math.max(0, part.health);
+    }
+    return total;
+  }
+
+  /** Feed this step's health loss to the damage vignette. */
+  private trackDamageTaken(): void {
+    const health = this.liveVehicleHealth();
+    if (this.lastLiveHealth >= 0 && health < this.lastLiveHealth) {
+      this.warningHud.reportDamage(this.lastLiveHealth - health);
+    }
+    this.lastLiveHealth = health;
   }
 
   private updateRecoveryAssist(dt: number): void {
@@ -1483,6 +1580,9 @@ export class SurvivalMode {
     this.stuckSeconds = 0;
     this.recoverySettleSeconds = 0;
     this.recoveryRequested = false;
+    // Each wave is its own fight: abilities come back charged for it.
+    this.abilityCooldowns.clear();
+    this.abilityRequests.clear();
     this.stuckPrompt.classList.remove('is-visible');
     this.victoryOverlay.style.display = 'none';
     this.countdownOverlay.style.display = 'block';
@@ -1503,6 +1603,12 @@ export class SurvivalMode {
     this.waveStartKills = this.kills;
     this.waveMoneyEarned = 0;
     this.waveElapsedSeconds = 0;
+    // A fresh wave starts on clean ground rather than inheriting the last
+    // wave's airborne gibs and settled splats.
+    this.vfx.reset();
+    // Re-baseline damage tracking: carried-over wave damage is not a new hit.
+    this.lastLiveHealth = -1;
+    this.warningRefreshSeconds = 0;
   }
 
   private handleZombieKilled(
@@ -1710,6 +1816,13 @@ export class SurvivalMode {
       if (wheelMesh) wheelMesh.visible = false;
     }
 
+    // Turn each gun to where it is actually shooting.
+    for (const weapon of this.vehicle.weaponStates()) {
+      const mesh = this.vehicleGroup.getObjectByName(`part:${weapon.partId}`);
+      if (mesh)
+        applyWeaponAim(mesh, weapon.forwardLocal, weapon.yaw, weapon.pitch);
+    }
+
     for (const wheel of this.vehicle.wheels()) {
       const mesh = this.wheelMeshes.get(wheel.partId);
       if (!mesh || wheel.broken) continue;
@@ -1756,7 +1869,14 @@ export class SurvivalMode {
     this.syncExplosions(frameDt);
     this.syncNitroFlames(frameDt);
     this.syncThumpRing(frameDt);
+    this.syncOverdriveTrail();
     this.syncTracers(frameDt);
+    // Camera-relative LOD, so a firefight across the graveyard costs less than
+    // the same firefight under the player's nose.
+    this.vfx.setViewpoint(this.camera.position);
+    this.vfx.update(frameDt);
+    this.warningHud.update(frameDt);
+    this.syncWarnings(frameDt);
     this.syncMineWarningHud(frameDt);
     this.followCamera.update(frameDt);
     this.graveyard.follow(this.vehicleGroup);
@@ -1789,46 +1909,85 @@ export class SurvivalMode {
   }
 
   /**
-   * The single ability part bound to Q. Among attached-alive parts with an
-   * ability, prefer the one the player flagged in the garage
-   * (config.activeAbility); otherwise fall back to the first one found.
+   * Rebuild the ability bar's loadout from the rig as it stands right now.
+   * Only attached, living parts count, so an ability disappears the moment a
+   * zombie tears its emitter off — and comes back if the part is repaired.
    */
-  private resolveActiveAbilityPart(): RuntimePart | null {
-    let fallback: RuntimePart | null = null;
+  private refreshAbilityLoadout(): void {
+    this.abilityCandidates.length = 0;
     for (const part of this.vehicle.assembled.parts.values()) {
-      if (part.def.ability === undefined) continue;
+      const ability = part.def.ability;
+      if (ability === undefined) continue;
       if (!this.isAttachedAlivePart(part)) continue;
-      if (part.placed.config.activeAbility === true) return part;
-      fallback ??= part;
+      this.abilityCandidates.push({
+        partId: part.placed.id,
+        partName: part.def.name,
+        ability,
+        level: part.placed.config.level ?? 1,
+        preferred: part.placed.config.activeAbility === true,
+        slot: part.placed.config.abilitySlot,
+      });
     }
-    return fallback;
+    this.abilityLoadout = resolveAbilityLoadout(this.abilityCandidates);
   }
 
-  /** Tick the ability cooldown and, on a Q press, discharge the active ability. */
-  private updateAbility(): void {
-    if (this.abilityCooldown > 0) {
-      this.abilityCooldown = Math.max(0, this.abilityCooldown - FIXED_DT);
-    }
-    const requested = this.abilityRequested;
-    this.abilityRequested = false;
-    const part = this.resolveActiveAbilityPart();
-    const ability = part?.def.ability;
-    if (!requested || ability === undefined || this.abilityCooldown > 0) return;
+  /** Queue an ability slot, from either its keybind or a click on its box. */
+  private requestAbility(slot: number): void {
+    if (this.phase !== 'active' || this.settingsOpen) return;
+    this.abilityRequests.add(slot);
+  }
 
-    const level = part?.placed.config.level ?? 1;
+  /** Tick every ability's cooldown and discharge the ones pressed this step. */
+  private updateAbility(): void {
+    for (const [partId, remaining] of this.abilityCooldowns) {
+      if (remaining <= FIXED_DT) this.abilityCooldowns.delete(partId);
+      else this.abilityCooldowns.set(partId, remaining - FIXED_DT);
+    }
+    this.refreshAbilityLoadout();
+    if (this.abilityRequests.size === 0) return;
+
+    for (const assignment of this.abilityLoadout) {
+      if (!this.abilityRequests.delete(assignment.slot)) continue;
+      if ((this.abilityCooldowns.get(assignment.partId) ?? 0) > 0) continue;
+      this.abilityCooldowns.set(
+        assignment.partId,
+        this.fireAbility(assignment),
+      );
+    }
+    // Anything left asked for an empty slot; drop it rather than let it fire
+    // the moment an ability part is bolted on.
+    this.abilityRequests.clear();
+  }
+
+  /**
+   * Apply one ability's effect at the vehicle's current position and return
+   * the cooldown it starts.
+   */
+  private fireAbility(assignment: AbilitySlotAssignment): number {
+    const { ability, level } = assignment;
+    const pos = this.vehicle.body.translation();
+    if (ability.kind === 'shield') {
+      const shield = effectiveShield(ability, level);
+      this.vehicle.grantInvulnerability(shield.durationSeconds);
+      // The bubble itself is raised by syncShieldBubble, which also plays the
+      // skin-forming burst off this state change.
+      return shield.cooldownSeconds;
+    }
     if (ability.kind === 'freeze') {
       const freeze = effectiveFreeze(ability, level);
-      const pos = this.vehicle.body.translation();
       this.zombies.freezeNearest(
         { x: pos.x, z: pos.z },
         freeze.targets,
         freeze.rangeM,
         freeze.durationSeconds,
       );
-      this.abilityCooldown = freeze.cooldownSeconds;
-    } else if (ability.kind === 'zap') {
+      // Cold front off the chassis, out to the exact catch radius. Each zombie
+      // it catches plays its own encasing burst from inside the zombie pool.
+      this.vfx.freezeBurst(pos.x, pos.y, pos.z, freeze.rangeM);
+      return freeze.cooldownSeconds;
+    }
+    if (ability.kind === 'zap') {
       const zap = effectiveZap(ability, level);
-      const pos = this.vehicle.body.translation();
       // Blast centred on the vehicle, matching the Shield Bubble's radius.
       this.zombies.damageWithin(
         { x: pos.x, z: pos.z },
@@ -1836,10 +1995,10 @@ export class SurvivalMode {
         zap.damage,
       );
       this.spawnZapBlast();
-      this.abilityCooldown = zap.cooldownSeconds;
-    } else if (ability.kind === 'charm') {
+      return zap.cooldownSeconds;
+    }
+    if (ability.kind === 'charm') {
       const charm = effectiveCharm(ability, level);
-      const pos = this.vehicle.body.translation();
       this.zombies.charmNearest(
         { x: pos.x, z: pos.z },
         charm.targets,
@@ -1847,10 +2006,10 @@ export class SurvivalMode {
         charm.durationSeconds,
       );
       this.spawnCharmPulse(charm.rangeM);
-      this.abilityCooldown = charm.cooldownSeconds;
-    } else if (ability.kind === 'rocket') {
+      return charm.cooldownSeconds;
+    }
+    if (ability.kind === 'rocket') {
       const rocket = effectiveRocket(ability, level);
-      const pos = this.vehicle.body.translation();
       // Land the rocket on the thickest cluster in range; if the field is empty
       // fire straight ahead so the ability still feels responsive.
       const impact =
@@ -1860,17 +2019,25 @@ export class SurvivalMode {
           rocket.radiusM,
         ) ?? this.forwardGroundPoint(SurvivalMode.ROCKET_SEEK_RANGE_M);
       this.zombies.damageWithin(impact, rocket.radiusM, rocket.damage);
-      this.spawnExplosion(impact.x, pos.y, impact.z, rocket.radiusM, 0xffb020, 0.5);
-      this.abilityCooldown = rocket.cooldownSeconds;
-    } else if (ability.kind === 'nitro') {
+      this.spawnExplosion(
+        impact.x,
+        pos.y,
+        impact.z,
+        rocket.radiusM,
+        0xffb020,
+        0.5,
+      );
+      return rocket.cooldownSeconds;
+    }
+    if (ability.kind === 'nitro') {
       const nitro = effectiveNitro(ability, level);
       // The vehicle owns the boost timer; the blue-flame exhaust simply reads
       // `isNitroActive` each frame, so it lights up for exactly the duration.
       this.vehicle.engageNitro(nitro.speedMultiplier, nitro.durationSeconds);
-      this.abilityCooldown = nitro.cooldownSeconds;
-    } else if (ability.kind === 'thump') {
+      return nitro.cooldownSeconds;
+    }
+    if (ability.kind === 'thump') {
       const thump = effectiveThump(ability, level);
-      const pos = this.vehicle.body.translation();
       // Shove every zombie in a moderate circle straight away from the chassis.
       this.zombies.knockbackWithin(
         { x: pos.x, z: pos.z },
@@ -1878,12 +2045,54 @@ export class SurvivalMode {
         thump.knockbackSpeed,
       );
       this.spawnThumpRing(thump.radiusM);
-      this.abilityCooldown = thump.cooldownSeconds;
-    } else {
-      const shield = effectiveShield(ability, level);
-      this.vehicle.grantInvulnerability(shield.durationSeconds);
-      this.abilityCooldown = shield.cooldownSeconds;
+      return thump.cooldownSeconds;
     }
+    if (ability.kind === 'pulse') {
+      const pulse = effectivePulse(ability, level);
+      // explodeAt already pushes survivors away from the centre, which is the
+      // whole point of the ring.
+      this.zombies.explodeAt(pos.x, pos.y, pos.z, pulse.radiusM, pulse.damage);
+      this.vfx.pulseRing(pos.x, pos.y, pos.z, pulse.radiusM);
+      return pulse.cooldownSeconds;
+    }
+    if (ability.kind === 'hellfire') {
+      const hellfire = effectiveHellfire(ability, level);
+      // The overcharge rides on the nozzle that fired it, so a rig with two
+      // flamethrowers lights each one from its own slot. The flame itself is
+      // the feedback: it starts on the next weapon step and comes out visibly
+      // longer and wider.
+      const lit = this.vehicle.grantHellfire(
+        assignment.partId,
+        hellfire.durationSeconds,
+        hellfire,
+      );
+      // A part with no weapon has nothing to overcharge — don't burn the
+      // cooldown on a no-op.
+      return lit ? hellfire.cooldownSeconds : 0;
+    }
+    const overdrive = effectiveOverdrive(ability, level);
+    this.vehicle.grantOverdrive(
+      overdrive.durationSeconds,
+      overdrive.torqueMultiplier,
+      overdrive.topSpeedMultiplier,
+      overdrive.thrustAccel,
+    );
+    const rotation = this.vehicle.body.rotation();
+    this.abilityQuaternion.set(
+      rotation.x,
+      rotation.y,
+      rotation.z,
+      rotation.w,
+    );
+    this.abilityForward.set(0, 0, 1).applyQuaternion(this.abilityQuaternion);
+    this.vfx.overdriveBurst(
+      pos.x,
+      pos.y,
+      pos.z,
+      this.abilityForward.x,
+      this.abilityForward.z,
+    );
+    return overdrive.cooldownSeconds;
   }
 
   private isAttachedAlivePart(part: RuntimePart): boolean {
@@ -1940,32 +2149,51 @@ export class SurvivalMode {
         : '';
   }
 
-  /** Show the active-ability chip with its cooldown only while one is equipped. */
+  /**
+   * Refresh the ability boxes from the live loadout. The bar is a
+   * fighting-phase HUD: it shows from the pre-wave countdown through the wave
+   * itself and hides once the run is over, so it never sits on top of the
+   * victory or game-over panels. A rig with no ability parts shows no boxes.
+   */
   private syncAbilityHud(): void {
-    const part = this.resolveActiveAbilityPart();
-    const ability = part?.def.ability;
-    if (ability === undefined || part === null) {
-      if (!this.abilityRoot.hidden) this.abilityRoot.hidden = true;
-      this.lastHudAbilityCooldown = -1;
-      this.lastHudAbilityName = '';
-      return;
+    // While a wave is running the fixed step already refreshes the loadout
+    // every step; outside one nothing else does, so the HUD keeps it current.
+    if (this.phase !== 'active') this.refreshAbilityLoadout();
+    this.abilityBar.setVisible(
+      (this.phase === 'countdown' || this.phase === 'active') &&
+        this.abilityLoadout.length > 0,
+    );
+    // The loadout only changes when a part is fitted, lost, or repaired, and
+    // the labels only change with it — so the views (and the strings in them)
+    // are rebuilt on that signature, not every frame. Cooldowns are the one
+    // thing that moves continuously, so only those are written per frame.
+    const signature = this.abilityLoadoutSignature();
+    if (signature !== this.abilitySlotViewSignature) {
+      this.abilitySlotViewSignature = signature;
+      // Indexed by slot, not packed: the player can leave box E empty and
+      // still have an ability bound to R.
+      this.abilitySlotViews.fill(undefined);
+      for (const assignment of this.abilityLoadout) {
+        const meta = ABILITY_KIND_META[assignment.ability.kind];
+        const keyLabel = assignment.key.toUpperCase();
+        this.abilitySlotViews[assignment.slot] = {
+          partId: assignment.partId,
+          keyLabel,
+          glyph: meta.glyph,
+          name: meta.label,
+          detail: abilityDetail(assignment),
+          tooltip: `${meta.label} (${keyLabel}) — ${meta.blurb} [${assignment.partName}]`,
+          cooldownSeconds: assignment.ability.cooldownSeconds,
+          remainingSeconds: 0,
+        };
+      }
     }
-    if (this.abilityRoot.hidden) this.abilityRoot.hidden = false;
-    if (part.def.name !== this.lastHudAbilityName) {
-      this.lastHudAbilityName = part.def.name;
-      this.abilityLabel.textContent = part.def.name;
+    for (const assignment of this.abilityLoadout) {
+      const view = this.abilitySlotViews[assignment.slot];
+      if (view === undefined) continue;
+      view.remainingSeconds = this.abilityCooldowns.get(assignment.partId) ?? 0;
     }
-
-    const remaining = Math.ceil(this.abilityCooldown);
-    if (remaining === this.lastHudAbilityCooldown) return;
-    this.lastHudAbilityCooldown = remaining;
-    const ready = this.abilityCooldown <= 0;
-    const pct = ready
-      ? 100
-      : 100 * (1 - this.abilityCooldown / ability.cooldownSeconds);
-    this.abilityValue.textContent = ready ? 'Ready — press Q' : `${remaining}s`;
-    this.abilityFill.style.width = `${pct}%`;
-    this.abilityRoot.classList.toggle('is-ready', ready);
+    this.abilityBar.render(this.abilitySlotViews);
   }
 
   /**
@@ -2002,12 +2230,51 @@ export class SurvivalMode {
   }
 
   /**
-   * Show a bright blue bubble around the vehicle while the Shield Generator's
+   * Cheap identity for the current loadout: which part is in which box, and at
+   * what upgrade level. Changes exactly when the bar's labels need rewriting.
+   */
+  private abilityLoadoutSignature(): string {
+    let signature = '';
+    for (const assignment of this.abilityLoadout) {
+      signature += `${assignment.slot}:${assignment.partId}:${assignment.level}|`;
+    }
+    return signature;
+  }
+
+  /** Exhaust trail behind the rig for as long as an overdrive surge runs. */
+  private syncOverdriveTrail(): void {
+    if (!this.vehicle.isOverdriving) return;
+    const pos = this.vehicle.body.translation();
+    const rotation = this.vehicle.body.rotation();
+    this.abilityQuaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    this.abilityForward.set(0, 0, 1).applyQuaternion(this.abilityQuaternion);
+    this.vfx.overdriveTrail(
+      pos.x,
+      pos.y,
+      pos.z,
+      this.abilityForward.x,
+      this.abilityForward.z,
+    );
+  }
+
+  /**
+   * Show a bright blue bubble around the vehicle while the shield special's
    * invulnerability is active. The mesh is a child of the vehicle group, so it
    * follows the chassis automatically; opacity pulses gently for a live feel.
    */
   private syncShieldBubble(frameDt: number): void {
     const active = this.vehicle.isInvulnerable;
+    if (active !== this.shieldWasUp) {
+      this.shieldWasUp = active;
+      const pos = this.vehicle.body.translation();
+      // The skin forms on the way up and lets go on the way down, so both ends
+      // of the ability read without watching the timer.
+      if (active) {
+        this.vfx.shieldRaise(pos.x, pos.y, pos.z, SHIELD_BUBBLE_RADIUS_M);
+      } else {
+        this.vfx.shieldCollapse(pos.x, pos.y, pos.z, SHIELD_BUBBLE_RADIUS_M);
+      }
+    }
     if (!active) {
       if (this.shieldBubble && this.shieldBubble.visible) {
         this.shieldBubble.visible = false;
@@ -2293,6 +2560,64 @@ export class SurvivalMode {
     }
   }
 
+  /**
+   * Re-evaluate the alert stack a few times a second. The inputs move slowly
+   * compared with the frame rate, and the evaluation walks every part and
+   * wheel, so there is nothing to gain from doing it per frame.
+   */
+  private syncWarnings(frameDt: number): void {
+    this.warningRefreshSeconds -= frameDt;
+    if (this.warningRefreshSeconds > 0) return;
+    this.warningRefreshSeconds = WARNING_REFRESH_INTERVAL_SECONDS;
+
+    if (this.phase !== 'active') {
+      if (this.lastWarnings.length > 0) {
+        this.lastWarnings = [];
+        this.warningHud.setWarnings(this.lastWarnings);
+      }
+      this.warningHud.setCritical(false);
+      return;
+    }
+
+    const telemetry = this.vehicle.telemetry();
+    const integrityPct = this.vehicle.integrityPct();
+    const wheels = this.vehicle.wheels().map((wheel) => {
+      const part = this.vehicle.assembled.parts.get(wheel.partId);
+      const maxHealth = part?.def.health ?? 0;
+      return {
+        healthFraction:
+          part === undefined || maxHealth <= 0
+            ? 0
+            : Math.max(0, part.health) / maxHealth,
+        broken: wheel.broken || part === undefined || !part.alive,
+      };
+    });
+
+    let weaponCount = 0;
+    let liveWeaponCount = 0;
+    let liveEngineCount = 0;
+    for (const part of this.vehicle.assembled.parts.values()) {
+      const live = this.isAttachedAlivePart(part);
+      if (part.def.weapon !== undefined || part.def.melee !== undefined) {
+        weaponCount++;
+        if (live) liveWeaponCount++;
+      }
+      if (part.def.engine !== undefined && live) liveEngineCount++;
+    }
+
+    this.lastWarnings = activeVehicleWarnings({
+      integrityPct,
+      wheels,
+      fuel: telemetry.fuel,
+      fuelCapacity: telemetry.fuelCapacity,
+      liveEngineCount,
+      weaponCount,
+      liveWeaponCount,
+    });
+    this.warningHud.setWarnings(this.lastWarnings);
+    this.warningHud.setCritical(integrityPct <= HULL_CRITICAL_PCT);
+  }
+
   private syncHud(): void {
     const telemetry = this.vehicle.telemetry();
     const speed = Math.round(telemetry.speedKmh);
@@ -2410,6 +2735,33 @@ export class SurvivalMode {
           : 'safe';
   }
 
+  /**
+   * Gun feedback for one fired ray: the muzzle event, the body of the shot for
+   * flame cones, and whatever the round terminated against. `shotDirection`
+   * must already hold the normalised travel direction for this shot.
+   */
+  private emitShotVfx(shot: TracerShot): void {
+    this.vfx.muzzleFlash(shot.from, shot.to, muzzleStyleForShot(shot));
+    if (shot.damageType === 'aoe') {
+      this.vfx.flameJet(shot.from, shot.to, shot.overcharged);
+    }
+
+    const shielded =
+      shot.hitZombieHandle !== null &&
+      this.zombies.isShieldedTarget(shot.hitZombieHandle);
+    const impact = impactKindForShot(shot, shielded);
+    if (impact === null) return;
+    this.vfx.bulletImpact(
+      shot.to.x,
+      shot.to.y,
+      shot.to.z,
+      this.shotDirection.x,
+      this.shotDirection.y,
+      this.shotDirection.z,
+      impact,
+    );
+  }
+
   private syncTracers(frameDt: number): void {
     for (const tracer of this.tracers) {
       if (!tracer.line.visible) continue;
@@ -2421,13 +2773,15 @@ export class SurvivalMode {
   }
 
   private showTracer(shot: TracerShot): void {
-    const flame = shot.damageType === 'aoe';
-    const material = flame
-      ? this.flameTracerMaterial
-      : shot.tracerStyle === 'electric'
-        ? this.electricTracerMaterial
-        : this.tracerMaterial;
-    this.showTracerSegment(shot.from, shot.to, material, flame ? 0.18 : 0.08);
+    const style = tracerStyleForShot(shot);
+    if (style === null) return;
+    const material =
+      style === 'ice'
+        ? this.iceTracerMaterial
+        : style === 'electric'
+          ? this.electricTracerMaterial
+          : this.tracerMaterial;
+    this.showTracerSegment(shot.from, shot.to, material, 0.08);
   }
 
   private showTracerSegment(
@@ -2627,23 +2981,59 @@ export class SurvivalMode {
     );
     this.fuelPickups.dispose();
     this.zombies.dispose();
+    this.vfx.dispose();
     this.graveyard.dispose();
     this.vehicle.dispose();
     this.eventQueue.free();
     this.world.free();
     this.minimap.dispose();
+    this.scopeCursor.dispose();
+    this.warningHud.dispose();
+    this.abilityBar.dispose();
     this.ui.remove();
     disposeObject(this.scene);
     this.scene.clear();
     this.tracerMaterial.dispose();
-    this.flameTracerMaterial.dispose();
     this.pierceTracerMaterial.dispose();
+    this.iceTracerMaterial.dispose();
+    this.icePierceTracerMaterial.dispose();
     this.wheelMeshes.clear();
     this.wheelSpin.clear();
     this.islandGroups.clear();
     this.surfaceByCollider.clear();
     this.tracers.length = 0;
   }
+}
+
+/**
+ * The line under an ability's name in the HUD bar: what one activation buys at
+ * the backing part's current upgrade level.
+ */
+function abilityDetail(assignment: AbilitySlotAssignment): string {
+  const { ability, level } = assignment;
+  if (ability.kind === 'shield') {
+    const shield = effectiveShield(ability, level);
+    return `${trimSeconds(shield.durationSeconds)}s immune`;
+  }
+  if (ability.kind === 'freeze') {
+    const freeze = effectiveFreeze(ability, level);
+    return `${freeze.targets} × ${trimSeconds(freeze.durationSeconds)}s`;
+  }
+  if (ability.kind === 'pulse') {
+    const pulse = effectivePulse(ability, level);
+    return `${Math.round(pulse.damage)} dmg · ${trimSeconds(pulse.radiusM)}m`;
+  }
+  if (ability.kind === 'hellfire') {
+    const hellfire = effectiveHellfire(ability, level);
+    return `×${trimSeconds(hellfire.damageMultiplier)} for ${trimSeconds(hellfire.durationSeconds)}s`;
+  }
+  const overdrive = effectiveOverdrive(ability, level);
+  return `×${trimSeconds(overdrive.torqueMultiplier)} for ${trimSeconds(overdrive.durationSeconds)}s`;
+}
+
+/** One decimal at most, with no trailing ".0" — "2.5" and "4", never "4.0". */
+function trimSeconds(seconds: number): string {
+  return `${Math.round(seconds * 10) / 10}`;
 }
 
 function formatDuration(seconds: number): string {

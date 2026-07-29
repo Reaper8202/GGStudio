@@ -172,23 +172,34 @@ export interface WeaponDefinition {
    * system tracks a target and keeps the mount pointed at it, but the weapon
    * only fires while the player holds fire (left click / F) instead of firing
    * itself the instant a target is acquired. Used for slow, precious shots.
+   *
+   * Meaningless on a manual-aim weapon, which already only fires on the
+   * player's trigger.
    */
   manualFire?: boolean;
   /**
-   * Splash weapons (Missile Launcher): on impact, deal `splashDamage` to every
-   * zombie within `splashRadiusM` metres of where the shot lands, on top of the
-   * direct hit. Both set together; 0/undefined means no splash.
+   * Explosive payload (Missile Launcher). On impact, every zombie within
+   * `splashRadiusM` of the point of impact takes `splashDamage` at the centre,
+   * falling off linearly to nothing at the rim, on top of the direct hit.
+   * Blast damage is delivered as `aoe` regardless of the weapon's own
+   * `damageType`, so it washes around the phone addict's bubble the way flame
+   * does. Both fields must be set together; 0/undefined means no splash.
    */
   splashRadiusM?: number;
   splashDamage?: number;
 }
 
 /**
- * Player-triggered active ability (Ice Cannon freeze, Shield Generator bubble).
- * Unlike a WeaponDefinition these do not auto-fire or follow aim — they
- * discharge on a key press (Q) and run on their own cooldown, handled outside
- * the weapon firing loop. A part may carry both a `weapon` (normal fire) and an
- * `ability`; the player picks which single placed ability is bound to Q.
+ * Player-triggered active ability carried by a part. Unlike a
+ * WeaponDefinition these do not auto-fire or follow aim — they discharge on a
+ * key press and run on their own cooldown, handled outside the weapon firing
+ * loop. A part may carry both a `weapon` (normal fire) and an `ability`.
+ *
+ * An ability only exists while its part is bolted on and alive. Survival shows
+ * the equipped ones in the centre-screen bar (Q / E / R); when the rig carries
+ * more ability parts than the bar has slots, the player picks which ones make
+ * the cut in the garage — see `activeAbility` on PartConfig and
+ * `resolveAbilityLoadout` in core/abilities.ts.
  */
 export interface AbilityDefinition {
   /**
@@ -199,15 +210,27 @@ export interface AbilityDefinition {
    * then they revert to hostile; 'rocket' launches a large rocket that
    * detonates a high-damage blast on the thickest part of the horde; 'nitro'
    * kicks the vehicle into a temporary speed boost with a blue-flame exhaust;
-   * 'thump' slams a shockwave outward that knocks every nearby zombie back.
+   * 'thump' slams a shockwave outward that knocks every nearby zombie back;
+   * 'pulse' slams out a damaging ring of force; 'overdrive' floods the
+   * drivetrain with torque; 'hellfire' overcharges the part's own flame nozzle.
    */
-  kind: 'freeze' | 'shield' | 'zap' | 'charm' | 'rocket' | 'nitro' | 'thump';
+  kind:
+    | 'freeze'
+    | 'shield'
+    | 'zap'
+    | 'charm'
+    | 'rocket'
+    | 'nitro'
+    | 'thump'
+    | 'pulse'
+    | 'overdrive'
+    | 'hellfire';
   /** Seconds between activations (fixed across levels). */
   cooldownSeconds: number;
   /** Effect duration in seconds at level 1 (grows with upgrade level). */
   baseDurationSeconds: number;
   /**
-   * Freeze/charm only: metres from the vehicle within which zombies can be
+   * Freeze/charm/pulse: metres from the vehicle within which zombies can be
    * caught. Rocket reuses this as the blast radius of the detonation; thump
    * reuses it as the knockback radius of the shockwave.
    */
@@ -218,16 +241,47 @@ export interface AbilityDefinition {
    */
   baseTargets?: number;
   /**
-   * Zap/rocket: blast damage at level 1 (grows with upgrade level). Thump
-   * reuses this as the level-1 knockback speed in m/s (grows with level).
+   * Zap/rocket/pulse: blast damage at level 1 (grows with upgrade level).
+   * Thump reuses this as the level-1 knockback speed in m/s (grows with
+   * level).
    */
   baseDamage?: number;
+  /** Overdrive only: drive-torque multiplier at level 1 (grows with level). */
+  baseTorqueMultiplier?: number;
+  /**
+   * Overdrive only: multiplier on the vehicle's top-speed ceiling at level 1
+   * (grows with upgrade level). Without it the extra torque would only be felt
+   * below the normal cap, so a rig already flat out would feel nothing.
+   */
+  baseTopSpeedMultiplier?: number;
+  /**
+   * Overdrive only: propellant thrust in m/s^2 at level 1 (grows with upgrade
+   * level), pushed through the chassis along its heading. This is what makes
+   * nitro work with the throttle shut or the drive wheels stalled — the torque
+   * multiplier alone does nothing when the engine is not being asked for
+   * anything.
+   */
+  baseThrustAccel?: number;
+  /**
+   * Hellfire only: multiplier on the host weapon's damage at level 1 (grows
+   * with upgrade level).
+   */
+  baseDamageMultiplier?: number;
+  /**
+   * Hellfire only: multipliers on the host weapon's reach and spray cone while
+   * the overcharge runs. Fixed across levels — upgrades buy heat and duration,
+   * not a wider nozzle.
+   */
+  rangeMultiplier?: number;
+  coneMultiplier?: number;
 }
 
-/** Contact weapon (grinder drum): damages any zombie touching the part. */
+/** Contact weapon (grinder drum, spikes, sawblade): damages any zombie touching the part. */
 export interface MeleeDefinition {
   /** Damage per contact hit; cadence is the zombie impact cooldown. */
   damage: number;
+  /** Mesh treatment; default 'drum' (toothed grinder roller). */
+  visual?: 'drum' | 'spikes' | 'blade';
 }
 
 export interface ArmourDefinition {
@@ -316,11 +370,18 @@ export interface PartConfig {
   steerInverted?: boolean;
   braking?: boolean;
   /**
-   * For parts with an `ability`: this is the single ability bound to Q. Only
-   * one placed part may have it set (the garage enforces exclusivity); when
-   * none is set the first ability part is used.
+   * Legacy tick for "equip this ability": kept so blueprints saved before the
+   * garage ability panel existed still resolve the same way. New edits write
+   * `abilitySlot` instead.
    */
   activeAbility?: boolean;
+  /**
+   * For parts with an `ability`: which of the three ability-bar boxes the
+   * player dropped it into (0 → Q, 1 → E, 2 → R), or
+   * `BENCHED_ABILITY_SLOT` (-1) when they took it out of the bar. Undefined
+   * means "wherever it fits", which is how every ability starts out.
+   */
+  abilitySlot?: number;
   suspensionPreset?: SuspensionPreset;
   /** Player-chosen paint; undefined = the part's default colour. */
   paint?: PaintColor;

@@ -78,7 +78,7 @@ describe('unlimited weapons', () => {
     world.free();
   });
 
-  it('fires a manual-fire cannon only when acquisition and the player trigger agree', () => {
+  it('fires the player-aimed cannon on the trigger alone, with its blast payload', () => {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const cannonPart = part('cannon', 'cannon-heavy');
     const assembled = assembleVehicle(
@@ -90,33 +90,35 @@ describe('unlimited weapons', () => {
     );
     const cannon = createWeapon(cannonPart);
     const attached = new Set([cannon.partId]);
-    // Auto-aim reports an acquired target via the per-weapon entry's fire flag.
-    const acquired = new Map([[cannon.partId, { aimYawWorld: 0, fire: true }]]);
 
-    // Target acquired, but the player is not holding fire: the cannon holds.
+    // No target acquisition exists for a manual weapon: with the trigger up it
+    // simply holds, whatever is in front of it.
     const held = stepWeapons(
       world,
       assembled,
       [cannon],
       attached,
-      { aimYawWorld: 0, fire: false, weaponAim: acquired },
+      { aimYawWorld: 0, fire: false },
       0.1,
     );
     expect(held.shots).toHaveLength(0);
     expect(cannon.shotsFired).toBe(0);
 
     cannon.cooldown = 0;
-    // Player holds fire with a target acquired: it discharges.
+    // Trigger down: it discharges, and the shell carries its splash to the
+    // survival layer to resolve.
     const fired = stepWeapons(
       world,
       assembled,
       [cannon],
       attached,
-      { aimYawWorld: 0, fire: true, weaponAim: acquired },
+      { aimYawWorld: 0, fire: true },
       0.1,
     );
     expect(fired.shots.length).toBeGreaterThan(0);
     expect(cannon.shotsFired).toBe(1);
+    expect(fired.shots[0].splashRadiusM).toBeGreaterThan(0);
+    expect(fired.shots[0].splashDamage).toBeGreaterThan(0);
 
     world.removeRigidBody(assembled.body);
     world.free();

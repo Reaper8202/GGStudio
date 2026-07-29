@@ -15,6 +15,7 @@ import {
 } from './grid.ts';
 import { getPartDef } from './parts.ts';
 import { TURRET_MODULE_MAX_LEVEL } from './turretModules.ts';
+import { BENCHED_ABILITY_SLOT, MAX_ABILITY_SLOTS } from './abilities.ts';
 
 export const CURRENT_SCHEMA_VERSION = BLUEPRINT_SCHEMA_VERSION;
 
@@ -237,6 +238,19 @@ function validateConfig(
     'activeAbility',
   ] as const) {
     if (typeof config[key] === 'boolean') sanitized[key] = config[key];
+  }
+  // Ability-bar box: 0..2 for a slot, BENCHED_ABILITY_SLOT for benched.
+  // Anything else is dropped back to "wherever it fits" rather than rejected,
+  // so a hand-edited blueprint still loads.
+  const abilitySlot = config.abilitySlot;
+  if (
+    def.ability !== undefined &&
+    typeof abilitySlot === 'number' &&
+    Number.isInteger(abilitySlot) &&
+    abilitySlot >= BENCHED_ABILITY_SLOT &&
+    abilitySlot < MAX_ABILITY_SLOTS
+  ) {
+    sanitized.abilitySlot = abilitySlot;
   }
   if (
     typeof config.suspensionPreset === 'string' &&

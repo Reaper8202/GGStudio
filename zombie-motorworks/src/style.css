@@ -177,6 +177,67 @@ canvas.viewport {
   box-shadow: 6px 7px 0 rgb(0 0 0 / 0.32);
 }
 
+.scope-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 40;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+/* Overrides `.ui-layer > *` so the reticle never steals clicks/hover from the canvas beneath it. */
+.ui-layer > .scope-cursor {
+  pointer-events: none;
+}
+
+.scope-cursor.visible {
+  opacity: 0.9;
+}
+
+.scope-cursor__ring {
+  position: absolute;
+  left: -20px;
+  top: -20px;
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--accent-green-light);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgb(0 0 0 / 0.5);
+}
+
+.scope-cursor__line {
+  position: absolute;
+  background: var(--accent-green-light);
+  box-shadow: 0 0 4px rgb(0 0 0 / 0.5);
+}
+
+.scope-cursor__line--h {
+  left: -27px;
+  top: -0.5px;
+  width: 54px;
+  height: 1px;
+}
+
+.scope-cursor__line--v {
+  left: -0.5px;
+  top: -27px;
+  width: 1px;
+  height: 54px;
+}
+
+.scope-cursor__dot {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-orange-light);
+}
+
 .topbar {
   position: absolute;
   top: 8px;
@@ -192,6 +253,118 @@ canvas.viewport {
   border: 1px solid var(--panel-border);
   border-radius: var(--panel-radius);
   box-shadow: 5px 6px 0 rgb(0 0 0 / 0.36);
+}
+
+/* Undo/redo: a single hairline-joined pair of square glyph buttons. */
+.topbar-history {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 1px;
+}
+
+.topbar-utilities {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 1px;
+}
+
+.icon-btn {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  color: var(--ui-text-muted);
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--ui-signal-strong);
+}
+
+.icon-btn.active {
+  color: var(--ui-signal-strong);
+}
+
+.icon-btn:disabled {
+  color: var(--ui-text-faint);
+}
+
+.icon-btn__glyph {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+
+/*
+ * Build height. Promoted out of the old bottom bar so the slice control sits
+ * with the view picker it belongs to.
+ */
+.topbar-layer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-recess);
+  box-shadow: inset 2px 2px 0 var(--ui-black);
+  cursor: pointer;
+}
+
+.topbar-layer__label {
+  color: var(--ui-text-muted);
+  font-size: var(--ui-text-11);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topbar-layer__value {
+  min-width: 24px;
+  color: var(--ui-signal-strong);
+  font-family: var(--ui-font-body);
+  font-size: var(--ui-text-10);
+  text-align: right;
+}
+
+.topbar-layer__slider {
+  width: 96px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+}
+
+.topbar-layer__slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--ui-surface-3);
+  box-shadow: inset 0 1px 0 var(--ui-black);
+}
+
+.topbar-layer__slider::-moz-range-track {
+  height: 4px;
+  background: var(--ui-surface-3);
+  box-shadow: inset 0 1px 0 var(--ui-black);
+}
+
+.topbar-layer__slider::-webkit-slider-thumb {
+  width: 8px;
+  height: 14px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 0;
+  background: var(--ui-signal);
+  appearance: none;
+}
+
+.topbar-layer__slider::-moz-range-thumb {
+  width: 8px;
+  height: 14px;
+  border: 0;
+  border-radius: 0;
+  background: var(--ui-signal);
 }
 
 .money-readout {
@@ -393,24 +566,28 @@ canvas.viewport {
   color: var(--text);
 }
 
-.bottombar {
+/*
+ * Status line. With the bottom bar gone this floats just above the build bar
+ * and disappears entirely whenever there is nothing to report.
+ */
+.garage-status {
   position: absolute;
-  bottom: 8px;
-  left: 8px;
-  right: 8px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-  padding: 6px 10px;
+  bottom: 84px;
+  left: 50%;
+  z-index: 13;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 4px 12px;
+  transform: translateX(-50%);
   background: var(--panel-bg-strong);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--panel-radius);
+  box-shadow: inset 3px 0 0 var(--ui-signal-dark);
+  color: var(--text-dim);
+  font-size: var(--ui-text-12);
+  text-align: center;
+  pointer-events: none;
 }
 
-.status {
-  margin-left: auto;
-  color: var(--text-dim);
+.garage-status:empty {
+  display: none;
 }
 
 button,
@@ -532,7 +709,7 @@ button:disabled {
 }
 
 .part-btn.locked {
-  background: #101210;
+  background: #0d0f0d;
   border-color: var(--ui-edge);
   color: #858d9a;
   filter: grayscale(0.8);
@@ -564,27 +741,15 @@ button:disabled {
 }
 
 .part-btn.unaffordable {
-  background: #1a1211;
+  background: #070807;
   border-color: var(--ui-edge);
-  color: #a1959b;
-  filter: grayscale(0.45);
-  opacity: 0.78;
+  color: #55524f;
+  filter: grayscale(0.9) brightness(0.5);
+  opacity: 0.55;
 }
 
 .part-btn.unaffordable .part-price {
-  color: #d69d72 !important;
-}
-
-.erase-btn {
-  margin-top: 4px;
-  background: var(--danger);
-  border-color: var(--ui-edge);
-}
-
-.erase-btn:hover,
-.erase-btn.active {
-  background: #65302b;
-  border-color: var(--ui-edge);
+  color: #7a5342 !important;
 }
 
 .cancel-tool {
@@ -642,7 +807,7 @@ button:disabled {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 64px;
+  bottom: 116px;
   width: min(520px, 90vw);
   text-align: center;
   z-index: 15;
@@ -787,7 +952,7 @@ button:disabled {
 .garage-dock {
   position: absolute;
   top: 72px;
-  bottom: 58px;
+  bottom: 12px;
   left: 8px;
   z-index: 13;
   display: flex;
@@ -795,6 +960,269 @@ button:disabled {
   min-height: 0;
   flex-direction: column;
   gap: 6px;
+}
+
+/*
+ * Build bar: five fixed slots plus the inventory button, centred along the
+ * bottom edge. The bar itself carries no chrome — the slots are the whole
+ * design, so the rig behind them stays readable.
+ */
+.hotbar-panel {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  z-index: 14;
+  display: flex;
+  width: min(436px, calc(100% - 32px));
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  background: transparent;
+  transform: translateX(-50%);
+}
+
+.hotbar-list {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: 60px;
+  gap: 5px;
+}
+
+/*
+ * Cancel sits just off the bar's left edge, out of flow: it appears and
+ * disappears with the armed tool, and the five slots must not shift when it does.
+ */
+.hotbar-panel .cancel-tool {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 8px);
+  width: 30px;
+  height: 30px;
+  transform: translateY(-50%);
+  margin: 0;
+  border: 1px solid #3a2a22;
+  color: var(--ui-rust);
+  background: rgb(12 15 12 / 0.88);
+}
+
+.hotbar-panel .cancel-tool:hover {
+  color: var(--ui-danger);
+}
+
+/* The crate button is a sixth square: same chrome, set off by a small gap. */
+.inventory-toggle {
+  position: relative;
+  display: grid;
+  width: 60px;
+  min-height: 0;
+  height: 60px;
+  flex: 0 0 60px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #2b3128;
+  background: rgb(12 15 12 / 0.88);
+  box-shadow: inset 0 0 0 1px var(--ui-black);
+}
+
+.inventory-toggle:hover {
+  border-color: var(--ui-text-faint);
+  background: rgb(22 26 21 / 0.9);
+}
+
+.inventory-toggle__icon {
+  width: 30px;
+  height: 30px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.inventory-toggle__badge {
+  position: absolute;
+  right: 5px;
+  bottom: 3px;
+  padding: 0;
+  background: transparent;
+  color: var(--ui-signal-strong) !important;
+  font-family: var(--ui-font-body);
+  font-size: 9px !important;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.inventory-toggle.active {
+  border-color: var(--ui-signal-strong);
+  background: #1b2114;
+  box-shadow: inset 0 0 0 1px var(--ui-signal-dark);
+}
+
+/* Inventory popover: floats over the build bar, frosted so the rig stays
+   readable behind it. */
+.inventory-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  max-height: min(46vh, 420px);
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--ui-edge);
+  background: rgb(12 14 12 / 0.62);
+  box-shadow:
+    0 8px 0 rgb(0 0 0 / 0.35),
+    inset 0 0 0 1px rgb(255 255 255 / 0.04);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.inventory-popover[hidden] {
+  display: none;
+}
+
+/*
+ * Slots are scoped under `.hotbar-list` so they outrank the generic
+ * `.store-item, .inventory-item` tile rule further down the sheet, which would
+ * otherwise reimpose its own padding and square aspect ratio on them.
+ */
+.hotbar-list .hotbar-slot {
+  position: relative;
+  display: block;
+  height: 60px;
+  aspect-ratio: auto;
+  padding: 0;
+  overflow: visible;
+  border: 1px solid #2b3128;
+  background: rgb(12 15 12 / 0.88);
+  box-shadow: inset 0 0 0 1px var(--ui-black);
+}
+
+/* Hovering lifts the slot so its name chip clears the neighbouring tiles. */
+.hotbar-list .hotbar-slot:hover,
+.hotbar-list .hotbar-slot:focus-visible {
+  z-index: 2;
+}
+
+/*
+ * The tile stays art-only at rest; the block's name rises above it as a chip on
+ * hover, so the bar can be learned without opening the inventory.
+ */
+.hotbar-list .hotbar-slot__name {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  padding: 3px 7px;
+  transform: translateX(-50%);
+  border: 1px solid var(--ui-edge);
+  background: rgb(8 10 8 / 0.96);
+  color: var(--ui-text);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 90ms steps(2, end);
+}
+
+.hotbar-list .hotbar-slot__name:empty {
+  display: none;
+}
+
+.hotbar-list .hotbar-slot:hover .hotbar-slot__name,
+.hotbar-list .hotbar-slot:focus-visible .hotbar-slot__name {
+  opacity: 1;
+}
+
+.hotbar-list .hotbar-slot.is-out-of-stock .hotbar-slot__name {
+  color: var(--ui-rust);
+}
+
+.hotbar-slot__index {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  z-index: 1;
+  color: var(--ui-text-faint);
+  font-family: var(--ui-font-body);
+  font-size: 9px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/*
+ * The art fills the tile and centres itself, so the glyph sits on the tile's
+ * true centre instead of riding a text baseline or the tile's padding box.
+ */
+.hotbar-list .hotbar-slot__art {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  width: auto;
+  place-items: center;
+  pointer-events: none;
+}
+
+.hotbar-list .hotbar-slot .part-thumbnail {
+  width: 38px;
+  height: 38px;
+}
+
+.hotbar-list .hotbar-slot .inventory-count {
+  right: 5px;
+  bottom: 3px;
+  left: auto;
+  z-index: 1;
+  color: var(--ui-text-muted) !important;
+  font-size: 9px !important;
+  text-align: right;
+}
+
+.hotbar-list .hotbar-slot:hover:not(:disabled) {
+  border-color: var(--ui-text-faint);
+  background: rgb(22 26 21 / 0.9);
+}
+
+.hotbar-list .hotbar-slot.active {
+  border-color: var(--ui-signal-strong);
+  background: #1b2114;
+  box-shadow: inset 0 0 0 1px var(--ui-signal-dark);
+}
+
+.hotbar-slot.active .inventory-count {
+  color: var(--ui-signal-strong) !important;
+}
+
+/*
+ * Empty stock reads as "go buy more": the square holds, the art fades, and the
+ * count turns rust — the same colour the store uses for what you cannot buy.
+ */
+.hotbar-list .hotbar-slot.is-out-of-stock {
+  border-color: #3a2a22;
+  background: rgb(12 11 10 / 0.88);
+}
+
+.hotbar-slot.is-out-of-stock .part-thumbnail {
+  opacity: 0.28;
+}
+
+.hotbar-slot.is-out-of-stock .inventory-count {
+  color: var(--ui-rust) !important;
+}
+
+/* An unclaimed slot: same square, recessed and unlit. */
+.hotbar-list .hotbar-slot--empty {
+  border-color: #1d211c;
+  background: rgb(8 10 8 / 0.62);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.5);
+}
+
+.hotbar-list .hotbar-slot--empty .hotbar-slot__index {
+  color: #2f332c;
 }
 
 .dock-panel {
@@ -886,7 +1314,7 @@ button:disabled {
 
 .store-filters {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px;
   flex: 0 0 auto;
   padding-bottom: 5px;
@@ -894,9 +1322,11 @@ button:disabled {
 }
 
 .store-filters button {
-  min-height: 30px;
-  padding: 4px 6px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px;
   font-size: var(--ui-text-10);
+  line-height: 1.1;
   text-transform: uppercase;
 }
 
@@ -905,8 +1335,43 @@ button:disabled {
   box-shadow: inset 0 -2px 0 var(--ui-signal);
 }
 
+.store-search {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid var(--ui-edge);
+  border-radius: 0;
+  outline: 0;
+  background: var(--ui-recess);
+  box-shadow: inset 2px 2px 0 var(--ui-black);
+  color: var(--ui-text);
+  font: var(--ui-text-11)/1.2 var(--ui-font-body);
+}
+
+.store-search::placeholder {
+  color: var(--ui-text-faint);
+}
+
+.store-search:focus {
+  border-color: var(--ui-signal);
+  box-shadow:
+    inset 2px 2px 0 var(--ui-black),
+    0 0 0 1px var(--ui-signal-dark);
+}
+
 .store-list {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.store-empty {
+  margin: 18px 8px;
+  color: var(--ui-text-faint);
+  font: var(--ui-text-11)/1.4 var(--ui-font-body);
+  text-align: center;
+}
+
+.store-empty[hidden] {
+  display: none;
 }
 
 .store-item,
@@ -919,6 +1384,54 @@ button:disabled {
   overflow: hidden;
   padding: 20px 5px 17px;
   text-align: left;
+}
+
+/* Inventory grid: one square tile per owned block type. */
+.inventory-grid {
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+}
+
+.inventory-tile {
+  position: relative;
+  padding: 18px 4px 20px;
+}
+
+.inventory-tile[hidden] {
+  display: none;
+}
+
+.inventory-tile.is-slotted {
+  border-color: var(--ui-signal-strong);
+  box-shadow:
+    inset 0 0 0 2px var(--ui-signal-dark),
+    inset 2px 2px 0 var(--ui-black);
+}
+
+.inventory-tile__slot {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  padding: 0;
+  background: transparent;
+  color: var(--ui-signal-strong);
+  font-family: var(--ui-font-body);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.inventory-tile__slot[hidden] {
+  display: none;
+}
+
+.inventory-hint {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--ui-text-faint);
+  font: var(--ui-text-10)/1.2 var(--ui-font-body);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .store-item > strong,
@@ -955,10 +1468,6 @@ button:disabled {
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
   white-space: nowrap;
-}
-
-.inventory-item.is-empty {
-  display: none;
 }
 
 .inventory-count {
@@ -1085,32 +1594,132 @@ button:disabled {
   color: var(--gold);
 }
 
+/*
+ * Affordability read. A tile the player can buy right now is lit and carries a
+ * signal edge; everything they cannot buy sinks into the panel, so the shelf
+ * can be scanned without reading a single price.
+ */
+.store-item.is-affordable {
+  background: #1d2119;
+  color: var(--ui-text);
+  box-shadow: inset 3px 0 0 var(--ui-signal);
+}
+
+.store-item.is-affordable:hover:not(:disabled) {
+  background: #262b1f;
+  box-shadow: inset 3px 0 0 var(--ui-signal-strong);
+}
+
+.store-item.is-affordable > strong {
+  color: #eae6d6;
+}
+
+.store-item.is-affordable .part-description {
+  color: #9ea294;
+}
+
+.store-item.is-affordable .part-price {
+  color: var(--ui-signal-strong) !important;
+}
+
+/*
+ * Not unlocked yet: the tile is blacked out to a silhouette. The name and the
+ * unlock price are the only things left legible, because they are the only
+ * things a locked part can tell you that matters.
+ */
+.store-item.locked,
+.store-item.locked.unaffordable {
+  background: #030403;
+  border-color: #0e100e;
+  color: #383c35;
+  filter: none;
+  opacity: 1;
+  box-shadow: none;
+}
+
+.store-item.locked:hover:not(:disabled) {
+  background: #070907;
+}
+
+.store-item.locked > strong {
+  color: #4f544a;
+}
+
+.store-item.locked .part-description {
+  color: #2c2f2a;
+}
+
+.store-item.locked .part-thumbnail {
+  filter: grayscale(1) brightness(0.09);
+}
+
+.store-item.locked .part-price {
+  color: #6b6144 !important;
+}
+
+.store-item.locked .part-price-breakdown {
+  color: #3a3e36;
+}
+
+.store-item.locked .part-unlock-milestone {
+  color: #55492c;
+}
+
+/* Locked but affordable: a gold edge says the blackout can be bought off. */
+.store-item.locked.is-affordable {
+  background: #0a0906;
+  box-shadow: inset 3px 0 0 #6b5c33;
+}
+
+.store-item.locked.is-affordable > strong {
+  color: #7d7768;
+}
+
+.store-item.locked.is-affordable .part-price {
+  color: var(--gold) !important;
+}
+
+.store-item.unaffordable .part-thumbnail,
+.store-item.limit-reached .part-thumbnail {
+  opacity: 0.3;
+}
+
+/* Landing flash for a part the build bar sent the player to find. */
+.store-item.is-revealed {
+  animation: store-reveal 900ms steps(6, end) 2;
+}
+
+@keyframes store-reveal {
+  0%,
+  100% {
+    box-shadow: inset 3px 0 0 var(--ui-signal);
+  }
+
+  50% {
+    box-shadow:
+      inset 3px 0 0 var(--ui-signal-strong),
+      0 0 0 2px var(--ui-signal-strong);
+  }
+}
+
 .inventory-empty {
-  margin: auto;
-  padding: 16px;
+  grid-column: 1 / -1;
+  margin: 18px 8px;
   color: var(--ui-text-faint);
-  font: var(--ui-text-11)/1.6 var(--ui-font-body);
+  font: var(--ui-text-11)/1.4 var(--ui-font-body);
   text-align: center;
 }
 
-.inventory-tools {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding-top: 6px;
-  border-top: 1px solid var(--ui-edge);
+.inventory-empty[hidden] {
+  display: none;
 }
 
-.inventory-tools .erase-btn,
-.inventory-tools .cancel-tool {
-  margin: 0;
-}
 
 .selected-panel {
   position: absolute;
   top: 72px;
   right: 8px;
-  bottom: 58px;
+  bottom: 12px;
   z-index: 13;
   display: none;
   width: 300px;
@@ -1295,6 +1904,136 @@ button:disabled {
   margin-top: 8px;
   color: var(--ui-text-muted);
   font: var(--ui-text-10)/1 var(--ui-font-body);
+}
+
+/*
+ * Garage ability planner: the same three boxes the fight bar shows, parked
+ * bottom-right where nothing else lives. Clicking a box cycles which of the
+ * rig's abilities is loaded into it.
+ */
+.ability-loadout {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 12;
+  display: grid;
+  gap: 9px;
+  padding: 11px;
+  background: var(--panel-bg-strong);
+  box-shadow:
+    7px 8px 0 rgb(0 0 0 / 0.42),
+    inset 3px 0 0 var(--ui-signal-dark);
+}
+
+.ability-loadout > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ability-loadout h2 {
+  margin: 0;
+  color: var(--ui-text);
+  font: var(--ui-text-11)/1 var(--ui-font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ability-loadout > header span {
+  color: var(--ui-text-faint);
+  font: 9px/1 var(--ui-font-body);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ability-loadout__boxes {
+  display: flex;
+  gap: 8px;
+}
+
+.ability-loadout__slot {
+  position: relative;
+  display: grid;
+  width: 86px;
+  height: 84px;
+  align-content: center;
+  justify-items: center;
+  gap: 3px;
+  padding: 12px 5px 7px;
+  border: 1px solid var(--ui-signal-dark);
+  background: var(--ui-surface-1);
+  box-shadow: inset 0 -3px 0 var(--ui-signal-dark);
+  color: var(--ui-text);
+  cursor: pointer;
+  text-align: center;
+}
+
+.ability-loadout__slot:hover {
+  background: var(--ui-surface-2);
+}
+
+.ability-loadout__slot:active {
+  translate: 1px 1px;
+}
+
+.ability-loadout__key {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  padding: 0 5px;
+  border: 1px solid var(--ui-edge);
+  background: var(--ui-recess);
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1.3 var(--ui-font-display);
+}
+
+.ability-loadout__glyph {
+  color: var(--ui-signal-strong);
+  font: var(--ui-text-20)/1 var(--ui-font-display);
+}
+
+.ability-loadout__name {
+  font: var(--ui-text-10)/1 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ability-loadout__part {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--ui-text-muted);
+  font: 8px/1.2 var(--ui-font-body);
+  text-overflow: ellipsis;
+}
+
+.ability-loadout__slot.is-empty {
+  border-color: var(--ui-edge);
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.ability-loadout__slot.is-empty .ability-loadout__glyph,
+.ability-loadout__slot.is-empty .ability-loadout__name,
+.ability-loadout__slot.is-empty .ability-loadout__part {
+  color: var(--ui-text-faint);
+}
+
+/* Which ability-bar slot this part claims, or that it missed the cut. */
+.selected-part__ability-slot {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid var(--ui-signal-dark);
+  background: var(--ui-recess);
+  color: var(--ui-signal-strong);
+  font-family: var(--ui-font-display);
+  letter-spacing: normal;
+  white-space: nowrap;
+}
+
+.selected-part__ability-slot.is-benched {
+  border-color: var(--ui-edge);
+  color: var(--ui-text-faint);
 }
 
 .selected-part__ability input {
@@ -1587,13 +2326,13 @@ button:disabled {
 @media (max-width: 760px) {
   .garage-dock {
     top: 112px;
-    bottom: 52px;
+    bottom: 70px;
     width: 210px;
   }
 
   .selected-panel {
     top: 112px;
-    bottom: 52px;
+    bottom: 70px;
     width: 210px;
   }
 
@@ -1617,6 +2356,59 @@ button:disabled {
 
   .store-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventory-grid {
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  }
+
+  .hotbar-panel {
+    bottom: 10px;
+    width: calc(100% - 16px);
+    gap: 8px;
+  }
+
+  .hotbar-list {
+    grid-template-rows: 50px;
+    gap: 4px;
+  }
+
+  .inventory-toggle {
+    width: 50px;
+    height: 50px;
+    flex-basis: 50px;
+  }
+
+  .inventory-toggle__icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .hotbar-list .hotbar-slot {
+    height: 50px;
+  }
+
+  .hotbar-list .hotbar-slot .part-thumbnail {
+    width: 30px;
+    height: 30px;
+  }
+
+  .hotbar-list .hotbar-slot .inventory-count,
+  .hotbar-slot__index {
+    font-size: 8px !important;
+  }
+
+  .garage-status {
+    bottom: 70px;
+  }
+
+  /* The bar spans the full width down here, so the planner has to step up. */
+  .ability-loadout {
+    bottom: 70px;
+  }
+
+  .topbar-layer__slider {
+    width: 70px;
   }
 }
 
@@ -2060,57 +2852,150 @@ button:disabled {
   background: var(--ui-danger);
 }
 
-.survival-ability {
-  display: grid;
-  gap: 6px;
+/*
+ * Special-ability bar. Centred along the bottom edge — the driver HUD owns the
+ * bottom-left corner and the minimap the bottom-right, so the middle is the one
+ * spot a glance costs nothing mid-fight.
+ */
+.survival-ability-bar {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  z-index: 16;
+  display: flex;
+  gap: 10px;
+  transform: translateX(-50%);
 }
 
-.survival-ability[hidden] {
+.survival-ability-bar[hidden] {
   display: none;
 }
 
-.survival-ability > div:first-child {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  color: var(--ui-text-muted);
-  font: var(--ui-text-10)/1 var(--ui-font-body);
-  letter-spacing: 0.07em;
+.survival-ability-slot {
+  position: relative;
+  display: grid;
+  width: 96px;
+  height: 92px;
+  align-content: center;
+  justify-items: center;
+  gap: 3px;
+  overflow: hidden;
+  padding: 9px 6px 8px;
+  border: 1px solid var(--ui-edge);
+  background: var(--panel-bg-strong);
+  box-shadow:
+    6px 7px 0 rgb(0 0 0 / 0.42),
+    inset 0 -3px 0 var(--ui-signal-dark);
+  color: var(--ui-text);
+  cursor: pointer;
+  text-align: center;
+}
+
+.survival-ability-slot__glyph {
+  font: var(--ui-text-28)/1 var(--ui-font-display);
+  color: var(--ui-text-faint);
+}
+
+.survival-ability-slot__name {
+  font: var(--ui-text-11)/1 var(--ui-font-display);
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.survival-ability__key {
-  color: var(--ui-text);
-  background: var(--ui-recess);
+.survival-ability-slot__detail {
+  font: 9px/1.2 var(--ui-font-body);
+  color: var(--ui-text-muted);
+}
+
+.survival-ability-slot__key {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 1px 5px;
   border: 1px solid var(--ui-edge);
-  padding: 1px 6px;
-  font-family: var(--ui-font-display);
-  letter-spacing: normal;
-}
-
-.survival-ability__track {
-  height: 8px;
-  padding: 2px;
   background: var(--ui-recess);
-  box-shadow: inset 2px 2px 0 var(--ui-black);
+  font: var(--ui-text-10)/1.2 var(--ui-font-display);
+  color: var(--ui-text-muted);
 }
 
-.survival-ability__fill {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background: #4db8e0;
-  transition: width 100ms steps(4, end);
+/*
+ * Cooldown curtain: a full-box shade scaled from the top, so the box refills
+ * bottom-up as the ability recharges. Stepped like the other gauges to keep the
+ * chunky, low-res read.
+ */
+.survival-ability-slot__sweep {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgb(6 8 6 / 0.78);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 120ms steps(4, end);
 }
 
-.survival-ability.is-ready .survival-ability__fill {
-  background: #8fe0ff;
+.survival-ability-slot__timer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  font: var(--ui-text-28)/1 var(--ui-font-display);
+  color: var(--ui-bone);
+  pointer-events: none;
 }
 
-.survival-ability__status {
+.survival-ability-slot.is-ready {
+  border-color: var(--ui-signal-dark);
+  box-shadow:
+    6px 7px 0 rgb(0 0 0 / 0.42),
+    inset 0 -3px 0 var(--ui-signal);
+}
+
+.survival-ability-slot.is-ready .survival-ability-slot__glyph {
+  color: var(--ui-signal-strong);
+}
+
+.survival-ability-slot.is-ready .survival-ability-slot__key {
   color: var(--ui-text);
-  font: var(--ui-text-10)/1 var(--ui-font-display);
+  border-color: var(--ui-signal-dark);
+}
+
+.survival-ability-slot.is-ready:hover {
+  background: var(--ui-surface-2);
+}
+
+.survival-ability-slot.is-ready:active {
+  translate: 2px 2px;
+  box-shadow:
+    3px 4px 0 rgb(0 0 0 / 0.42),
+    inset 0 -3px 0 var(--ui-signal);
+}
+
+.survival-ability-slot.is-cooling {
+  cursor: default;
+}
+
+.survival-ability-slot.is-cooling .survival-ability-slot__name,
+.survival-ability-slot.is-cooling .survival-ability-slot__detail {
+  color: var(--ui-text-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .survival-ability-slot__sweep {
+    transition: none;
+  }
+}
+
+/* Narrow viewports: shrink the boxes rather than let them meet the HUD panels. */
+@media (max-width: 900px) {
+  .survival-ability-slot {
+    width: 74px;
+    height: 74px;
+  }
+
+  .survival-ability-slot__detail {
+    display: none;
+  }
 }
 
 .survival-earned {
@@ -2202,6 +3087,289 @@ button:disabled {
   from {
     opacity: 0;
     transform: translate(-50%, 10px);
+  }
+}
+
+/*
+ * Damage vignette. Two stacked full-bleed layers under the HUD panels: a hit
+ * flash whose opacity is driven from SurvivalMode, and a slow pulse that runs
+ * while the vehicle is close to failing. Both are pure compositor work — no
+ * post-processing pass, no per-frame layout.
+ */
+.survival-vignette {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.survival-vignette__hit,
+.survival-vignette__critical {
+  position: absolute;
+  inset: 0;
+  will-change: opacity;
+}
+
+.survival-vignette__hit {
+  display: none;
+  background:
+    radial-gradient(
+      ellipse 78% 68% at 50% 50%,
+      rgb(150 20 14 / 0) 42%,
+      rgb(150 20 14 / 0.42) 76%,
+      rgb(92 8 6 / 0.86) 100%
+    ),
+    linear-gradient(rgb(140 24 18 / 0.12), rgb(140 24 18 / 0.12));
+  opacity: 0;
+}
+
+.survival-vignette__critical {
+  background: radial-gradient(
+    ellipse 84% 74% at 50% 50%,
+    rgb(120 14 10 / 0) 50%,
+    rgb(120 14 10 / 0.3) 82%,
+    rgb(70 6 5 / 0.62) 100%
+  );
+  opacity: 0;
+}
+
+.survival-vignette__critical.is-active {
+  animation: survival-critical-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes survival-critical-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
+
+  50% {
+    opacity: 0.82;
+  }
+}
+
+/*
+ * Alert stack. Top-left is the one corner nothing else claims at any viewport
+ * width (wave HUD top-centre, driver HUD bottom-left, minimap bottom-right or
+ * top-right when narrow).
+ */
+.survival-warnings {
+  --warning-critical: #c8483c;
+  --warning-caution: #b8763a;
+
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 17;
+  display: grid;
+  width: 262px;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.survival-warning {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px 8px 8px;
+  background: var(--panel-bg-strong);
+}
+
+.survival-warning[hidden] {
+  display: none;
+}
+
+.survival-warning.is-new {
+  animation: survival-warning-in 160ms steps(3, end);
+}
+
+.survival-warning--critical {
+  color: var(--warning-critical);
+  box-shadow:
+    6px 7px 0 rgb(0 0 0 / 0.42),
+    inset 3px 0 0 var(--warning-critical);
+}
+
+.survival-warning--critical strong {
+  color: var(--warning-critical);
+}
+
+.survival-warning--caution {
+  color: var(--warning-caution);
+  box-shadow:
+    6px 7px 0 rgb(0 0 0 / 0.42),
+    inset 3px 0 0 var(--warning-caution);
+}
+
+.survival-warning--caution strong {
+  color: var(--warning-caution);
+}
+
+/* Only the red alerts blink; amber cautions stay steady so they read as
+   information rather than as an emergency. */
+.survival-warning--critical .survival-warning__icon {
+  animation: survival-warning-blink 900ms steps(2, end) infinite;
+}
+
+.survival-warning__copy {
+  min-width: 0;
+}
+
+.survival-warning strong {
+  display: block;
+  font: 400 var(--ui-text-12) / 1.1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.survival-warning__copy > span {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10) / 1.25 var(--ui-font-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Blocky CSS pictograms, drawn in the chip's own severity colour. */
+.survival-warning__icon {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 34px;
+  background: var(--ui-recess);
+}
+
+.survival-warning__icon::before,
+.survival-warning__icon::after {
+  position: absolute;
+  background: currentcolor;
+  content: '';
+}
+
+.survival-warning__icon--tire::before {
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
+  border: 4px solid currentcolor;
+  border-radius: 50%;
+  background: none;
+}
+
+.survival-warning__icon--tire::after {
+  top: 14px;
+  left: 14px;
+  width: 6px;
+  height: 6px;
+}
+
+.survival-warning__icon--hull::before {
+  top: 6px;
+  left: 7px;
+  width: 20px;
+  height: 22px;
+  clip-path: polygon(50% 0, 100% 20%, 100% 62%, 50% 100%, 0 62%, 0 20%);
+}
+
+.survival-warning__icon--hull::after {
+  top: 10px;
+  left: 16px;
+  width: 3px;
+  height: 14px;
+  background: var(--ui-recess);
+  clip-path: polygon(0 0, 100% 22%, 20% 52%, 100% 100%, 0 100%);
+}
+
+.survival-warning__icon--fuel::before {
+  top: 7px;
+  left: 8px;
+  width: 13px;
+  height: 20px;
+}
+
+.survival-warning__icon--fuel::after {
+  top: 12px;
+  left: 22px;
+  width: 5px;
+  height: 12px;
+  border-top: 3px solid currentcolor;
+  background: none;
+  border-right: 3px solid currentcolor;
+}
+
+.survival-warning__icon--engine::before {
+  top: 12px;
+  left: 6px;
+  width: 22px;
+  height: 15px;
+}
+
+.survival-warning__icon--engine::after {
+  top: 7px;
+  left: 12px;
+  width: 10px;
+  height: 5px;
+}
+
+.survival-warning__icon--weapon::before {
+  top: 15px;
+  left: 10px;
+  width: 19px;
+  height: 5px;
+}
+
+.survival-warning__icon--weapon::after {
+  top: 11px;
+  left: 5px;
+  width: 8px;
+  height: 13px;
+}
+
+@keyframes survival-warning-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+@keyframes survival-warning-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .survival-vignette__critical.is-active,
+  .survival-warning--critical .survival-warning__icon,
+  .survival-warning.is-new {
+    animation: none;
+  }
+
+  .survival-vignette__critical.is-active {
+    opacity: 0.5;
+  }
+}
+
+/*
+ * The centred wave HUD grows toward the left edge as the viewport narrows, so
+ * drop the alert stack below it rather than letting the two collide.
+ */
+@media (max-width: 900px) {
+  .survival-warnings {
+    top: 76px;
+    width: min(262px, calc(100vw - 130px));
+  }
+}
+
+@media (max-width: 560px) {
+  .survival-warnings {
+    top: 70px;
+    left: 8px;
+    width: min(230px, calc(100vw - 128px));
   }
 }
 

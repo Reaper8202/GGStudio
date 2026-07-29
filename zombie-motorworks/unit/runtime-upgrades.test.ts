@@ -10,7 +10,12 @@ import type {
 import { assembleVehicle } from '../src/runtime/assembler.ts';
 import { engineStep } from '../src/runtime/drivetrain.ts';
 import { RuntimeVehicle } from '../src/runtime/vehicle.ts';
-import { createWeapon, stepWeapons } from '../src/runtime/weapons.ts';
+import {
+  createWeapon,
+  overchargeWeapon,
+  stepWeapons,
+} from '../src/runtime/weapons.ts';
+import { effectiveHellfire } from '../src/core/abilities.ts';
 
 function part(id: string, defId: string, level = 1, x = 0): PlacedPart {
   return {
@@ -175,9 +180,10 @@ describe('hybrid weapon input', () => {
       0.1,
     );
 
-    expect(overridden.yaw).toBeCloseTo(0.32);
+    // Player-aimed turrets slew at MANUAL_TURRET_YAW_RATE (14 rad/s) over 0.1s.
+    expect(overridden.yaw).toBeCloseTo(1.4);
     expect(overridden.shotsFired).toBe(0);
-    expect(global.yaw).toBeCloseTo(-0.32);
+    expect(global.yaw).toBeCloseTo(-1.4);
     expect(global.shotsFired).toBe(1);
     expect(result.shots).toHaveLength(1);
 
@@ -234,6 +240,82 @@ describe('hybrid weapon input', () => {
       0.1,
     );
     expect(second.shots).toHaveLength(0);
+
+    world.removeRigidBody(assembled.body);
+    world.free();
+  });
+
+  it('sprays hellfire hotter, further, wider, and without the burst gap', () => {
+    const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    const flame = part('flame', 'flamethrower');
+    const assembled = assembleVehicle(
+      world,
+      blueprint([flame]),
+      getPartDef,
+      [],
+      { translation: { x: 0, y: 0, z: 0 } },
+    );
+    const weapon = createWeapon(flame);
+    const def = getPartDef('flamethrower').weapon!;
+    const hellfire = effectiveHellfire(getPartDef('flamethrower').ability!);
+    const fire = (dt: number) =>
+      stepWeapons(
+        world,
+        assembled,
+        [weapon],
+        new Set([weapon.partId]),
+        { aimYawWorld: 0, fire: false },
+        dt,
+      );
+
+    const stock = fire(0.1).shots;
+    const stockHalfCone = Math.max(
+      ...stock.map((shot) =>
+        Math.abs(Math.atan2(shot.to.x - shot.from.x, shot.to.z - shot.from.z)),
+      ),
+    );
+    const stockReach = Math.hypot(
+      stock[0].to.x - stock[0].from.x,
+      stock[0].to.z - stock[0].from.z,
+    );
+
+    overchargeWeapon(weapon, hellfire.durationSeconds, hellfire);
+    // Straight after the stock volley the nozzle is still on cooldown, so run
+    // the clock to the next tick rather than the next frame.
+    fire(1 / def.fireRate);
+    const lit = fire(1 / def.fireRate).shots;
+    expect(lit).toHaveLength(def.raysPerShot!);
+
+    const litHalfCone = Math.max(
+      ...lit.map((shot) =>
+        Math.abs(Math.atan2(shot.to.x - shot.from.x, shot.to.z - shot.from.z)),
+      ),
+    );
+    const litReach = Math.hypot(
+      lit[0].to.x - lit[0].from.x,
+      lit[0].to.z - lit[0].from.z,
+    );
+    expect(lit[0].damage).toBeCloseTo(def.damage * hellfire.damageMultiplier);
+    expect(litReach).toBeGreaterThan(stockReach);
+    expect(litHalfCone).toBeGreaterThan(stockHalfCone);
+    // Presentation reads the overcharge off the shot itself.
+    expect(lit.every((shot) => shot.overcharged)).toBe(true);
+    expect(stock.every((shot) => shot.overcharged)).toBe(false);
+
+    // Well past the burst window the stock nozzle would be waiting out its
+    // 6.6s cycle; the overcharge keeps it spraying every fire-rate tick.
+    let volleys = 0;
+    for (let i = 0; i < 12; i++) {
+      if (fire(1 / def.fireRate).shots.length > 0) volleys++;
+    }
+    expect(volleys).toBe(12);
+
+    // And it reverts the moment the overcharge lapses.
+    fire(hellfire.durationSeconds);
+    const cooled = fire(1 / def.fireRate).shots;
+    expect(weapon.overcharge).toBeNull();
+    expect(cooled[0].damage).toBeCloseTo(def.damage);
+    expect(cooled.every((shot) => shot.overcharged)).toBe(false);
 
     world.removeRigidBody(assembled.body);
     world.free();

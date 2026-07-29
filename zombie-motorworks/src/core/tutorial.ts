@@ -18,6 +18,7 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'wheel-offroad',
   'wheel-moto',
   'tread-tank',
+  'nitro-injector',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
@@ -31,7 +32,10 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'missile-launcher',
   'nitro-booster',
   'thumper',
+  'pulse-emitter',
   'barrel-drum',
+  'spike-ram',
+  'sawblade',
   'sniper-light',
   'flamethrower',
 ];
@@ -74,20 +78,36 @@ export const KID_LABELS: Record<string, PartLabel> = {
     name: 'Mine Finder',
     blurb: 'Beeps when buried mines are close by!',
   },
-  turret: { name: 'Zombie Blaster', blurb: 'Spins around to blast zombies!' },
+  turret: {
+    name: 'Zombie Blaster',
+    blurb: 'Aim with your mouse and click to blast zombies!',
+  },
   'armour-plate': { name: 'Armour Plate', blurb: 'Adds a tough layer of protection!' },
-  'cannon-heavy': { name: 'Heavy Cannon', blurb: 'A big boom for tough zombies!' },
+  'cannon-heavy': {
+    name: 'Heavy Cannon',
+    blurb: 'Click to lob a shell — it explodes and wipes out the whole crowd!',
+  },
   'ice-cannon': {
     name: 'Ice Cannon',
-    blurb: 'Shoots chilly shards that slow zombies — press Q to freeze them solid!',
+    blurb:
+      'Shoots chilly shards that slow zombies — hit its key to freeze them solid!',
   },
   'tesla-coil': {
     name: 'Tesla Coil',
-    blurb: 'Zaps zombies with blue lightning — press Q for a big lightning blast!',
+    blurb:
+      'Zaps zombies with blue lightning — hit its key for a big lightning blast!',
   },
   'barrel-drum': {
     name: 'Grinder Drum',
     blurb: 'Spinning drum that munches zombies it touches!',
+  },
+  'spike-ram': {
+    name: 'Long Spikes',
+    blurb: 'Long, sharp spikes that poke any zombie that gets close!',
+  },
+  sawblade: {
+    name: 'Sawblade',
+    blurb: 'A spinning blade that saws through zombies it grazes!',
   },
   'sniper-light': {
     name: 'Light Sniper',
@@ -99,23 +119,31 @@ export const KID_LABELS: Record<string, PartLabel> = {
   },
   'shield-generator': {
     name: 'Shield Bubble',
-    blurb: 'Press Q for a blue bubble that keeps your truck safe for a bit!',
+    blurb: 'Press its key for a blue bubble that keeps your truck safe for a bit!',
   },
   'mind-control-beam': {
     name: 'Mind Control Beam',
-    blurb: 'Press Q to make nearby zombies fight for you — until it wears off!',
+    blurb: 'Hit its key to make nearby zombies fight for you — until it wears off!',
   },
   'missile-launcher': {
     name: 'Missile Launcher',
-    blurb: 'Fires splashy rockets. Press Q for one BIG rocket on the crowd!',
+    blurb: 'Fires splashy rockets. Hit its key for one BIG rocket on the crowd!',
   },
   'nitro-booster': {
     name: 'Nitro Booster',
-    blurb: 'Press Q for a mega speed boost with blue flames out the back!',
+    blurb: 'Hit its key for a mega speed boost with blue flames out the back!',
   },
-  'thumper': {
+  thumper: {
     name: 'Thumper',
-    blurb: 'Press Q to SLAM the ground and blast nearby zombies away!',
+    blurb: 'Hit its key to SLAM the ground and blast nearby zombies away!',
+  },
+  'pulse-emitter': {
+    name: 'Push Blaster',
+    blurb: 'BOOM! Shoves every zombie around you away and hurts them too!',
+  },
+  'nitro-injector': {
+    name: 'Speed Boost',
+    blurb: 'Gives your truck a big push of go-fast for smashing through!',
   },
 };
 

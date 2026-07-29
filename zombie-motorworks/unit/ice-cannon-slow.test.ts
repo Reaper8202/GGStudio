@@ -10,6 +10,7 @@ function shot(overrides: Partial<TracerShot> = {}): TracerShot {
     from: { x: 0, y: 0, z: 0 },
     to: { x: 0, y: 0, z: 1 },
     hitZombieHandle: 1,
+    hitSurface: false,
     damage: 6,
     damageType: 'projectile',
     empLevel: 0,
@@ -20,6 +21,7 @@ function shot(overrides: Partial<TracerShot> = {}): TracerShot {
     slowDurationSeconds: 2.5,
     splashRadiusM: 0,
     splashDamage: 0,
+    overcharged: false,
     ...overrides,
   };
 }

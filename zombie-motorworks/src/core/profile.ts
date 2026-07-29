@@ -6,6 +6,11 @@ export interface PlayerProfile {
   unlockedDefIds: string[];
   /** Purchased, unplaced garage parts keyed by catalog definition id. */
   inventory?: Record<string, number>;
+  /**
+   * Block types the player put on the build bar, in slot order. Undefined
+   * means they have never curated one and it should be seeded from inventory.
+   */
+  hotbarDefIds?: string[];
   currentBlueprintName?: string;
   /** Highest wave the player has ever fully cleared. */
   highestWaveCleared?: number;
@@ -20,6 +25,8 @@ export const STARTER_UNLOCKS = [
   'engine-small',
   'fuel-tank',
   'turret',
+  'spike-ram',
+  'sawblade',
 ] as const;
 
 export const DEFAULT_MONEY = 200;
@@ -32,12 +39,9 @@ export function defaultProfile(): PlayerProfile {
     schemaVersion: 1,
     money: DEFAULT_MONEY,
     unlockedDefIds: [...STARTER_UNLOCKS],
-    inventory: {
-      'frame-box': 4,
-      'wheel-standard': 4,
-      'engine-small': 1,
-      'fuel-tank': 1,
-    },
+    // A new garage starts bare: every block is bought from the store, so the
+    // build bar starts empty too.
+    inventory: {},
   };
 }
 
@@ -50,6 +54,7 @@ function hasValidShape(value: unknown): value is {
   money: number;
   unlockedDefIds: string[];
   inventory?: Record<string, unknown>;
+  hotbarDefIds?: unknown;
   currentBlueprintName?: string;
   highestWaveCleared?: unknown;
   phoneAddictsKilled?: unknown;
@@ -104,6 +109,14 @@ export function decodeProfile(json: string | null | undefined): PlayerProfile {
       ),
     ) as Record<string, number>,
   };
+  if (Array.isArray(parsed.hotbarDefIds)) {
+    // An empty saved bar is a real choice, so it survives decoding; only a
+    // missing field falls back to seeding from inventory.
+    profile.hotbarDefIds = parsed.hotbarDefIds.filter(
+      (id): id is string =>
+        typeof id === 'string' && PART_CATALOG[id] !== undefined,
+    );
+  }
   if (parsed.currentBlueprintName !== undefined) {
     profile.currentBlueprintName = parsed.currentBlueprintName;
   }
@@ -123,6 +136,9 @@ export function encodeProfile(profile: PlayerProfile): string {
     money: profile.money,
     unlockedDefIds: profile.unlockedDefIds,
     inventory: profile.inventory ?? {},
+    ...(profile.hotbarDefIds === undefined
+      ? {}
+      : { hotbarDefIds: profile.hotbarDefIds }),
     ...(profile.currentBlueprintName === undefined
       ? {}
       : { currentBlueprintName: profile.currentBlueprintName }),

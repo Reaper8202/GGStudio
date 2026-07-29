@@ -66,6 +66,11 @@ export function effectivePartDef(
         ...base.weapon,
         damage: base.weapon.damage * (1 + 0.12 * steps),
         fireRate: base.weapon.fireRate * (1 + 0.08 * steps),
+        // Blast damage tracks direct damage; the radius stays fixed so an
+        // upgraded cannon hits harder without quietly changing its footprint.
+        ...(base.weapon.splashDamage !== undefined
+          ? { splashDamage: base.weapon.splashDamage * (1 + 0.12 * steps) }
+          : {}),
       },
     };
   }
