@@ -5,7 +5,9 @@ import type { VehicleBlueprint } from './types.ts';
 
 /** Persisted wave-start checkpoint for a survival run. */
 export interface SavedRun {
-  schemaVersion: 4;
+  schemaVersion: 5;
+  phase: 'wave' | 'build';
+  activeWave: number;
   /** Arcade score accumulated across the run. */
   score: number;
   /** Wave the player resumes at (>= 1). */
@@ -29,7 +31,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 interface RawSavedRun {
-  schemaVersion: 1 | 2 | 3 | 4;
+  schemaVersion: 1 | 2 | 3 | 4 | 5;
   score: unknown;
   wave: number;
   kills: number;
@@ -40,6 +42,8 @@ interface RawSavedRun {
   blueprint: Record<string, unknown>;
   partHp: Record<string, unknown>;
   savedAt: number;
+  phase: unknown;
+  activeWave: unknown;
 }
 
 function normalizeShape(value: unknown): RawSavedRun | null {
@@ -48,7 +52,8 @@ function normalizeShape(value: unknown): RawSavedRun | null {
     (value.schemaVersion !== 1 &&
       value.schemaVersion !== 2 &&
       value.schemaVersion !== 3 &&
-      value.schemaVersion !== 4) ||
+      value.schemaVersion !== 4 &&
+      value.schemaVersion !== 5) ||
     typeof value.wave !== 'number' ||
     typeof value.kills !== 'number' ||
     !isRecord(value.blueprint) ||
@@ -65,14 +70,16 @@ function normalizeShape(value: unknown): RawSavedRun | null {
     score: value.schemaVersion >= 3 ? value.score : 0,
     wave: value.wave,
     kills: value.kills,
-    biomeId: value.schemaVersion === 4 ? value.biomeId : undefined,
-    seed: value.schemaVersion === 4 ? value.seed : undefined,
+    biomeId: value.schemaVersion >= 4 ? value.biomeId : undefined,
+    seed: value.schemaVersion >= 4 ? value.seed : undefined,
     bankedEarnings,
     // Added after schema 4 shipped, so saves written before it simply omit it.
     elapsedSeconds: value.elapsedSeconds,
     blueprint: value.blueprint,
     partHp: value.partHp,
     savedAt: value.savedAt,
+    phase: value.schemaVersion === 5 ? value.phase : 'wave',
+    activeWave: value.schemaVersion === 5 ? value.activeWave : value.wave,
   };
 }
 
@@ -124,7 +131,15 @@ export function decodeSavedRun(json: string | null): SavedRun | null {
   ) as Record<string, number>;
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
+    phase: normalized.phase === 'build' ? 'build' : 'wave',
+    activeWave:
+      typeof normalized.activeWave === 'number' &&
+      Number.isFinite(normalized.activeWave) &&
+      Number.isInteger(normalized.activeWave) &&
+      normalized.activeWave >= 1
+        ? normalized.activeWave
+        : normalized.wave,
     score:
       typeof normalized.score === 'number' &&
       Number.isSafeInteger(normalized.score) &&
@@ -163,6 +178,8 @@ export function decodeSavedRun(json: string | null): SavedRun | null {
 export function encodeSavedRun(run: SavedRun): string {
   return JSON.stringify({
     schemaVersion: run.schemaVersion,
+    phase: run.phase,
+    activeWave: run.activeWave,
     score: run.score,
     wave: run.wave,
     kills: run.kills,

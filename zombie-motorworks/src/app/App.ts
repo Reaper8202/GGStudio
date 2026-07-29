@@ -215,9 +215,13 @@ export function recoverRunFromCheckpoint(checkpoint: RunCheckpoint): {
 export function savedRunFromCheckpoint(
   checkpoint: RunCheckpoint,
   savedAt: number,
+  phase: 'wave' | 'build' = 'wave',
+  activeWave: number = checkpoint.wave,
 ): SavedRun {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
+    phase,
+    activeWave,
     wave: checkpoint.wave,
     kills: checkpoint.kills,
     biomeId: checkpoint.biomeId,
@@ -350,7 +354,12 @@ export class App {
    */
   saveAndQuitRun(): void {
     if (this.checkpoint === null) return;
-    const savedRun = savedRunFromCheckpoint(this.checkpoint, Date.now());
+    const savedRun = savedRunFromCheckpoint(
+      this.checkpoint,
+      Date.now(),
+      'wave',
+      this.activeRun?.wave ?? this.checkpoint.wave,
+    );
     try {
       runSaveStore.save(savedRun);
     } catch {
@@ -361,6 +370,37 @@ export class App {
     this.flushProfile();
     this.survival?.dispose();
     this.survival = null;
+    this.clearSessionState();
+    this.showTitle();
+  }
+
+  /**
+   * The Build Phase twin of `saveAndQuitRun`. The Garage between waves hides
+   * the Menu button and `returnToTitle` refuses to run there, so without this
+   * the wave a player stopped on could only ever be banked from the arena.
+   */
+  saveAndQuitFromGarage(): void {
+    if (this.checkpoint === null || this.editor === null) return;
+    this.bp = this.editor.blueprint();
+    this.editor.persistGarage();
+    this.flushProfile();
+    try {
+      runSaveStore.save(
+        savedRunFromCheckpoint(
+          this.checkpoint,
+          Date.now(),
+          'build',
+          this.activeRun?.wave ?? this.checkpoint.wave,
+        ),
+      );
+    } catch {
+      this.notifySaveFailure();
+      return;
+    }
+    this.editor.dispose();
+    // `update()` has no disposed guard, so a retained editor would keep
+    // rendering its emptied scene over the title screen every frame.
+    this.editor = null;
     this.clearSessionState();
     this.showTitle();
   }
@@ -388,9 +428,16 @@ export class App {
     };
     // The resumed run keeps the map on its checkpoint; the title-screen pick
     // stays untouched so it still describes the player's next new run.
-    this.activeRun = { wave: savedRun.wave };
-    this.inBuildPhase = false;
-    this.enterSurvival(this.bp, runStateFromCheckpoint(this.checkpoint));
+    this.activeRun = { wave: savedRun.activeWave };
+    this.inBuildPhase = savedRun.phase === 'build';
+    if (this.inBuildPhase) {
+      const loaded = this.loadCurrentBlueprint();
+      this.bp =
+        loaded.kind === 'loaded' ? loaded.blueprint : savedRun.blueprint;
+      this.openEditor();
+    } else {
+      this.enterSurvival(this.bp, runStateFromCheckpoint(this.checkpoint));
+    }
     return true;
   }
 
@@ -421,6 +468,7 @@ export class App {
         profile: this.profile,
         persistProfile: () => this.saveProfileOrThrow(),
         onMenu: () => this.returnToTitle(),
+        onSaveAndQuit: () => this.saveAndQuitFromGarage(),
         runContext:
           this.activeRun && this.inBuildPhase ? this.activeRun : undefined,
         runRepair:
@@ -575,6 +623,7 @@ export class App {
     this.checkpoint = createInitialRunCheckpoint(bp, biomeId);
     this.activeRun = { wave: this.checkpoint.wave };
     this.inBuildPhase = false;
+    this.persistRunCheckpoint('wave');
     this.enterSurvival(
       this.checkpoint.blueprint,
       runStateFromCheckpoint(this.checkpoint),
@@ -589,6 +638,7 @@ export class App {
     this.checkpoint = prepareCheckpointForGarageFight(this.checkpoint, bp);
     this.activeRun = { wave: this.checkpoint.wave };
     this.inBuildPhase = false;
+    this.persistRunCheckpoint('wave');
     this.enterSurvival(
       this.checkpoint.blueprint,
       runStateFromCheckpoint(this.checkpoint),
@@ -620,6 +670,7 @@ export class App {
           state.elapsedSeconds ?? 0,
         );
         this.activeRun = { wave: state.wave };
+        this.persistRunCheckpoint('wave');
       },
       onBuildPhase: (state, survivingPartIds, partHp, kills, score) =>
         this.enterBuildPhase(state, survivingPartIds, partHp, kills, score),
@@ -632,6 +683,7 @@ export class App {
           score,
           state.elapsedSeconds ?? 0,
         );
+        this.persistRunCheckpoint('wave');
       },
       onGameOver: (state, pendingMoneyDiscarded, score, kills) =>
         this.concludeRun(state, pendingMoneyDiscarded, score, kills),
@@ -706,6 +758,7 @@ export class App {
     // Persist permanent wave damage immediately; the history was intentionally
     // cleared because its pre-wave commands can reference parts that are gone.
     this.editor?.persistGarage();
+    this.persistRunCheckpoint('build');
   }
 
   /**
@@ -790,11 +843,13 @@ export class App {
       this.activeRun = { wave: this.checkpoint.wave };
       this.inBuildPhase = false;
       this.enterSurvival(this.bp, runStateFromCheckpoint(this.checkpoint));
+      this.persistRunCheckpoint('wave');
       return;
     }
     this.activeRun = { wave: run.wave };
     this.inBuildPhase = false;
     this.enterSurvival(this.bp, this.activeRun);
+    this.persistRunCheckpoint('wave');
   }
 
   /**
@@ -818,6 +873,7 @@ export class App {
     this.survival?.dispose();
     this.survival = null;
     this.openEditor();
+    this.persistRunCheckpoint('build');
   }
 
   private grantInfiniteMoney(): void {
@@ -1025,6 +1081,22 @@ export class App {
     else this.pendingEditorNotice = notice;
   }
 
+  private persistRunCheckpoint(phase: 'wave' | 'build'): void {
+    if (this.checkpoint === null) return;
+    try {
+      runSaveStore.save(
+        savedRunFromCheckpoint(
+          this.checkpoint,
+          Date.now(),
+          phase,
+          this.activeRun?.wave ?? this.checkpoint.wave,
+        ),
+      );
+    } catch {
+      this.notifySaveFailure();
+    }
+  }
+
   debugSeam(): Record<string, unknown> {
     return {
       orient: {
@@ -1046,6 +1118,7 @@ export class App {
       continueGame: () => this.title?.continueGame() ?? false,
       hasStoredRun: () => this.hasStoredRun(),
       saveAndQuitRun: () => this.saveAndQuitRun(),
+      saveAndQuitFromGarage: () => this.saveAndQuitFromGarage(),
       resumeSavedRun: () => this.resumeSavedRun(),
       clearRunSave: () => runSaveStore.clear(),
       getBlueprintJson: () =>

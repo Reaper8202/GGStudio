@@ -253,6 +253,7 @@ export interface EditorModeContext {
   profile: PlayerProfile;
   persistProfile(): void;
   onMenu(): void;
+  onSaveAndQuit(): void;
   notice?: string;
   runContext?: RunState;
   runRepair?: {
@@ -360,6 +361,7 @@ export class EditorMode {
         newGarageDisposalSummary(this.bp.parts, getPartDef),
       onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
       onMenu: context.onMenu,
+      onSaveAndQuit: context.onSaveAndQuit,
       onRename: (name) => {
         const pendingBefore = this.explicitRenamePending;
         this.explicitRenamePending ||= name !== this.bp.name;
