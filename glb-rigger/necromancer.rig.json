@@ -210,8 +210,16 @@
     {
       "comment": "The tome hangs forward of the left hand but nearer the coat, so distance alone splits it between armL_fore and torso. Force the whole prop onto the hand that carries it.",
       "bone": "armL_fore",
-      "min": [0.19, -0.16, 0.04],
-      "max": [0.56, 0.36, 0.52]
+      "min": [
+        0.19,
+        -0.16,
+        0.04
+      ],
+      "max": [
+        0.56,
+        0.36,
+        0.52
+      ]
     }
   ]
 }

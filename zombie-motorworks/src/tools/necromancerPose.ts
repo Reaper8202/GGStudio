@@ -132,8 +132,12 @@ export function walkPose(time: number, options: WalkOptions = {}): CharacterPose
       footL: rot(-thighL * 0.3),
       armR_upper: rot(armSwing * swing),
       armL_upper: rot(-armSwing * swing),
-      armR_fore: rot(-Math.abs(swing) * armSwing * 0.5),
-      armL_fore: rot(-Math.abs(swing) * armSwing * 0.5),
+      // Segmentation puts nearly the whole sleeve on the forearm and leaves the
+      // upper arm a sliver at the shoulder, so bending the elbow here would tear
+      // the sleeve open mid-length. Swing each arm as one rigid piece instead;
+      // the only seam is at the shoulder, buried in the coat.
+      armR_fore: rot(0),
+      armL_fore: rot(0),
     },
   };
 }
