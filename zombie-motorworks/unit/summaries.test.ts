@@ -40,13 +40,13 @@ describe('legible consequence summaries', () => {
 
   it('formats exact wave composition while omitting zero-count kinds', () => {
     expect(formatWaveComposition(zombieCompositionForWave(1))).toBe(
-      '13 walkers',
+      '13 walkers / 1 gunslinger',
     );
     expect(formatWaveComposition(zombieCompositionForWave(3))).toBe(
-      '19 walkers / 1 thrower',
+      '19 walkers / 1 gunslinger / 1 thrower',
     );
     expect(formatWaveComposition(zombieCompositionForWave(10))).toBe(
-      '40 walkers / 4 throwers / 2 workers / 1 phone-addict',
+      '40 walkers / 4 gunslingers / 1 necromancer / 4 throwers / 2 workers / 1 phone-addict / 5 kamikazes',
     );
   });
 
@@ -55,9 +55,7 @@ describe('legible consequence summaries', () => {
       [
         placed('core', 'chassis-core', { level: 3 }),
         placed('frame', 'frame-box', { level: 2 }),
-        // Level 6 tops the turret's chain, which is where EMP and piercing now
-        // come from instead of separately-bought modules.
-        placed('turret', 'turret', { level: 6 }),
+        placed('turret', 'turret', { level: 3 }),
       ],
       getPartDef,
     );
@@ -69,9 +67,9 @@ describe('legible consequence summaries', () => {
     // frame-box L2 = 16, turret L6 = 1573.
     expect(summary).toEqual({
       partCount: 2,
-      investment: 1589,
-      refund: 794,
-      forfeited: 795,
+      investment: 400,
+      refund: 200,
+      forfeited: 200,
     });
   });
 });

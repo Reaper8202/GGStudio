@@ -36,7 +36,7 @@ function sampleBlueprint() {
     defId: 'turret',
     pos: { x: 0, y: 1, z: 0 },
     orient: 0,
-    config: {},
+    config: { level: 5 },
   });
   return bp;
 }
@@ -197,6 +197,39 @@ describe('blueprint serialization', () => {
       driven: true,
       braking: false,
     });
+  });
+
+  it('drops legacy empLevel/piercingLevel module fields from old saves', () => {
+    // EMP and piercing were separately bought modules before they became
+    // unlocks on the turret's own upgrade chain (see turretModules.ts). A
+    // save from that era still carries the old keys; deserializing one today
+    // should just ignore them rather than erroring or resurrecting them —
+    // for a turret or any other part.
+    const result = deserializeBlueprint(
+      JSON.stringify({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        id: 'bp',
+        name: 'legacy modules',
+        parts: [
+          {
+            id: 'turret-old',
+            defId: 'turret',
+            pos: { x: 0, y: 0, z: 0 },
+            orient: 0,
+            config: { level: 4, empLevel: '2', piercingLevel: 99 },
+          },
+          {
+            id: 'frame',
+            defId: 'frame-box',
+            pos: { x: 2, y: 0, z: 0 },
+            orient: 0,
+            config: { empLevel: 2, piercingLevel: 3 },
+          },
+        ],
+      }),
+    );
+
+    expect(result.parts.map((part) => part.config)).toEqual([{ level: 4 }, {}]);
   });
 
   it('decodes a current turret blueprint saved before module fields existed', () => {

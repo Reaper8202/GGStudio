@@ -12,13 +12,17 @@ export const BASE_ZOMBIE_STATS = {
 /**
  * Large normal reserve plus small specialist reserves. The director requests
  * kinds explicitly, so pool makeup is gameplay balance rather than a hidden
- * spawn-order lottery.
+ * spawn-order lottery. The thrower reserve carries extra headroom because
+ * necromancer raises draw from it on top of whatever the wave itself spawns.
  */
 export const ZOMBIE_POOL_COUNTS = {
   walker: 58,
-  thrower: 14,
+  gunslinger: 10,
+  necromancer: 6,
+  thrower: 26,
   worker: 8,
   'phone-addict': 8,
+  kamikaze: 16,
 } as const;
 export const ZOMBIE_POOL_SIZE = Object.values(ZOMBIE_POOL_COUNTS).reduce(
   (total, count) => total + count,
@@ -174,7 +178,88 @@ export const THROWER_ATTACK_EXIT_MARGIN = 2;
 export const THROWER_ATTACK_INTERVAL = 2.8;
 export const THROWER_VISUAL_HEIGHT = 1; // pre-baseScale model height, m
 
-// Phone Addict: projectile-proof zombie (PhoneAddict voxel pack). A personal
+// Gunslinger: the rigged GLB character (gunslinger.rigged.glb) walking in as a
+// heavy melee zombie from wave one. It chases and swings like a walker — the
+// revolvers are decoration for now — but it is slower, tougher, and worth more.
+export const GUNSLINGER_HEALTH_MULTIPLIER = 1.8;
+export const GUNSLINGER_SPEED_MULTIPLIER = 0.8;
+export const GUNSLINGER_REWARD = 9;
+export const GUNSLINGER_VISUAL_HEIGHT = 1.6; // pre-baseScale model height, m
+/** Steps per second for its walk cycle; the rig's own stalking cadence. */
+export const GUNSLINGER_WALK_CADENCE = 1.4;
+
+// Necromancer: the rigged GLB caster (necromancer.rigged.glb). It closes to
+// summon range, stands still through a telegraphed channel, and raises a group
+// of throwers out of the ground beside it. Slow, head and shoulders taller than
+// anything else in the horde, and expensive to ignore — every second it is left
+// alive is more ranged pressure, so it is worth killing before the fire it
+// calls in.
+export const NECROMANCER_HEALTH_MULTIPLIER = 4.2;
+export const NECROMANCER_SPEED_MULTIPLIER = 0.7;
+export const NECROMANCER_REWARD = 16;
+/**
+ * Pre-baseScale model height, m. Deliberately the tallest silhouette in the
+ * horde: with no always-on ground marker, size is what identifies the caster at
+ * a distance.
+ */
+export const NECROMANCER_VISUAL_HEIGHT = 2.45;
+/** Steps per second for its walk cycle; a slower shamble than the gunslinger. */
+export const NECROMANCER_WALK_CADENCE = 1.05;
+/** Closing to this range commits it to a channel. */
+export const NECROMANCER_SUMMON_RANGE = 18;
+/** How long it stands still to raise a group. */
+export const NECROMANCER_SUMMON_SECONDS = 3.2;
+/** Rest between channels, so one caster cannot chain-summon. */
+export const NECROMANCER_SUMMON_COOLDOWN = 9;
+/** Throwers raised per completed channel. */
+export const NECROMANCER_SUMMON_COUNT = 3;
+/** Radius of the ring the raised throwers claw out of, world metres. */
+export const NECROMANCER_SUMMON_RADIUS = 2.4;
+
+// Summoning sigil: a runic circle that burns into the ground under the caster
+// for the length of a channel and nothing else. The necromancer carries no
+// always-on halo, so purple on the ground means one thing only — a raise is
+// happening right now, at that spot.
+/** Radius of the sigil at full charge, world metres. */
+export const NECROMANCER_SIGIL_RADIUS = 2.6;
+export const NECROMANCER_SIGIL_OPACITY = 0.95;
+/** Sigil rotation, rad/s; the outer and inner rings counter-turn. */
+export const NECROMANCER_SIGIL_SPIN = 0.55;
+/** Fraction of the channel the sigil takes to open to full size. */
+export const NECROMANCER_SIGIL_OPEN_FRACTION = 0.22;
+/** Seconds between motes rising off the caster mid-channel. */
+export const NECROMANCER_CHANNEL_VFX_INTERVAL = 0.16;
+
+// Kamikaze: the small rigged GLB sprinter (kamikaze.rigged.glb). Fragile and
+// far faster than anything else in the horde, it beelines the vehicle and
+// detonates the instant it closes to arm's length rather than settling into
+// the ordinary melee attack loop — one hit either way, its own or a bullet's,
+// so it lives only a few seconds once it is in view.
+export const KAMIKAZE_HEALTH_MULTIPLIER = 0.5;
+export const KAMIKAZE_SPEED_MULTIPLIER = 1.85;
+export const KAMIKAZE_REWARD = 7;
+// Height 1.0 puts a thrower at ordinary adult height once baseScale is
+// applied (see THROWER_VISUAL_HEIGHT); kamikaze sits well under that so it
+// visibly reads as small, even in a crowd of walkers.
+export const KAMIKAZE_VISUAL_HEIGHT = 0.85; // pre-baseScale model height, m
+/** Strides per second for its sprint cycle; the rig's own frantic cadence. */
+export const KAMIKAZE_RUN_CADENCE = 2.6;
+/** Closing to this range detonates it — tighter than the ordinary melee range. */
+export const KAMIKAZE_DETONATE_RANGE = 1.4;
+/** Vehicle-part blast damage at the centre, falling off to zero at the radius below. */
+export const KAMIKAZE_EXPLOSION_DAMAGE = 42;
+export const KAMIKAZE_EXPLOSION_RADIUS = 2.6;
+/** Purely visual flash-sphere radius, independent of the damage falloff above. */
+export const KAMIKAZE_EXPLOSION_VFX_RADIUS = 2;
+
+// Kamikaze warning blink: a small pulsing glow while it is sprinting, so a
+// bomber lost in a crowd of walkers still reads as "about to go off" at a
+// glance rather than only once it is already on top of the vehicle.
+export const KAMIKAZE_BLINK_RADIUS = 0.1;
+export const KAMIKAZE_BLINK_INTERVAL = 0.3; // seconds per on/off cycle
+export const KAMIKAZE_BLINK_OPACITY = 1;
+
+// Phone Addict: projectile-proof zombie (PhoneAddict voxel pck). A personal
 // bubble shield absorbs every gun hit — only flame, ramming, and grinder
 // contact hurt it.
 export const PHONE_ADDICT_HEALTH_MULTIPLIER = 1.2;

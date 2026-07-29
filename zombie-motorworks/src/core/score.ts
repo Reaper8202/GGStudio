@@ -1,12 +1,22 @@
 /** Zombie variants that award run score when killed. */
-export type ScoreZombieKind = 'walker' | 'thrower' | 'phone-addict' | 'worker';
+export type ScoreZombieKind =
+  | 'walker'
+  | 'gunslinger'
+  | 'necromancer'
+  | 'thrower'
+  | 'phone-addict'
+  | 'worker'
+  | 'kamikaze';
 
 /** Base points per kill, before the wave multiplier. */
 export const SCORE_PER_KILL: Record<ScoreZombieKind, number> = {
   walker: 10,
+  gunslinger: 20,
+  necromancer: 45,
   worker: 25,
   thrower: 30,
   'phone-addict': 20,
+  kamikaze: 15,
 };
 
 /** Points scale with wave depth so deep runs dominate the leaderboard. */

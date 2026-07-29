@@ -32,9 +32,12 @@ export interface WaveTimelineInput {
 
 /** Human-readable label per specialist kind, for tooltips and aria-labels. */
 export const THREAT_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  gunslinger: 'Gunslingers',
+  necromancer: 'Necromancers (raise throwers)',
   thrower: 'Throwers',
   worker: 'Mine layers',
   'phone-addict': 'Phone Addicts (shielded)',
+  kamikaze: 'Kamikazes (explode on contact)',
 });
 
 export type WaveIconKind = 'zombie' | 'threat' | 'boss';
