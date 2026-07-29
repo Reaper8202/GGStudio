@@ -71,13 +71,13 @@ before committing to a map.
 
 Numbers from the chamber probe (starter rig, 45 km/h entry), asphalt -> snow:
 
-| | asphalt | snow | sand |
-| --- | ---: | ---: | ---: |
-| 0-45 km/h | 2.0 s | 5.5 s | 3.75 s |
-| stopping distance | 9.5 m | 12.0 m | 6.0 m |
-| stopping time | 1.33 s | 1.87 s | 0.93 s |
-| yaw swept at full lock | 81 deg | 38 deg | 97 deg |
-| turn radius | 16 m | 35 m | 12 m |
+|                        | asphalt |   snow |   sand |
+| ---------------------- | ------: | -----: | -----: |
+| 0-45 km/h              |   2.0 s |  5.5 s | 3.75 s |
+| stopping distance      |   9.5 m | 12.0 m |  6.0 m |
+| stopping time          |  1.33 s | 1.87 s | 0.93 s |
+| yaw swept at full lock |  81 deg | 38 deg | 97 deg |
+| turn radius            |    16 m |   35 m |   12 m |
 
 Snow's dominant, unmistakable effect is that it will not turn: the same steering input
 sweeps less than half the yaw and more than doubles the radius. Braking is worse but only
@@ -94,7 +94,7 @@ Making snow braking genuinely frightening means reworking the brake model itself
 shared by every surface and every existing handling test. That is a deliberate follow-up
 for after playtest, not something to slip in during a biome pass.
 
-Sand deliberately stops *shorter* than asphalt: its rolling resistance and sinkage scrub
+Sand deliberately stops _shorter_ than asphalt: its rolling resistance and sinkage scrub
 speed. Sand is about sluggishness and bogging down under weight, not about sliding.
 
 ## Save & Quit keeps the wave (2026-07-29)

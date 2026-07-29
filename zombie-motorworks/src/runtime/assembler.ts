@@ -68,6 +68,8 @@ export interface RuntimeWheel {
   steerInverted: boolean;
   braking: boolean;
   anchorLocal: Vec3; // vehicle-local metres (cell centre)
+  /** Local offsets for suspension/contact samples across the wheel footprint. */
+  contactOffsetsLocal: Vec3[];
   mountOffset: number; // fixed distance from mount to wheel centre
   suspension: SuspensionParams; // preset-scaled
   axleLocal: Vec3; // unit, rotated by placement
@@ -231,6 +233,10 @@ export function assembleVehicle(
         steerInverted: placed.config.steerInverted ?? false,
         braking: placed.config.braking ?? true,
         anchorLocal: centre,
+        contactOffsetsLocal: def.cells.map((cell) => {
+          const rotated = rotateVec(placed.orient, cell);
+          return { x: rotated.x * CELL_SIZE, y: rotated.y * CELL_SIZE, z: rotated.z * CELL_SIZE };
+        }),
         mountOffset: w.suspension.restLength,
         suspension: suspensionScaled(
           w.suspension,

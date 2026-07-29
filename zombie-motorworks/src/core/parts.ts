@@ -313,6 +313,10 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       // rig can pivot instead of digging in.
       maxSteerAngleDeg: 0,
       skidSteer: true,
+      // Track gearing, ~61 km/h. Restores the "very slow flat-out" character
+      // that used to fall out of the belts wasting their torque on wheelspin:
+      // once that runaway was bounded a tracked rig briefly out-ran a car.
+      maxSurfaceSpeedMps: 17,
       // Raised so more of the engine's low-gear torque actually reaches the
       // ground before the per-wheel clamp bites: quicker launches.
       driveTorqueLimit: 7200,
