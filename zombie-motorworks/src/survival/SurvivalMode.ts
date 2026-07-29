@@ -257,6 +257,12 @@ export interface SurvivalCallbacks {
   /** Dismiss the game-over overlay and open the freshly reset garage. */
   onGameOverContinue(): void;
   onResetWave(run: RunState): void;
+  /**
+   * Leave the arena mid-wave and open the Garage at this wave's checkpoint.
+   * The abandoned wave restarts from that checkpoint when the player deploys
+   * again, so pending rewards are discarded exactly like a wave reset.
+   */
+  onReturnToGarage(run: RunState): void;
   onCheatInfiniteMoney(): void;
   /** Lifetime progression: a Phone Addict died, which unlocks the EMP module. */
   onPhoneAddictKilled(): void;
@@ -1233,6 +1239,22 @@ export class SurvivalMode {
     resetButton.addEventListener('click', () => this.onResetWave());
     resetSection.append(resetCopy, resetButton);
 
+    const garageSection = document.createElement('div');
+    garageSection.className = 'survival-settings__reset';
+    const garageCopy = document.createElement('div');
+    const garageTitle = document.createElement('strong');
+    garageTitle.textContent = 'Return to Garage';
+    const garageDescription = document.createElement('span');
+    garageDescription.textContent =
+      'Head back to the Garage to build and repair. This wave restarts when you deploy, and its pending rewards are discarded.';
+    garageCopy.append(garageTitle, garageDescription);
+    const garageButton = document.createElement('button');
+    garageButton.type = 'button';
+    garageButton.className = 'ui-button ui-button--medium';
+    garageButton.textContent = 'Return to Garage';
+    garageButton.addEventListener('click', () => this.onReturnToGarage());
+    garageSection.append(garageCopy, garageButton);
+
     const saveSection = document.createElement('div');
     saveSection.className = 'survival-settings__reset';
     const saveCopy = document.createElement('div');
@@ -1257,6 +1279,7 @@ export class SurvivalMode {
       settingsSoundButton,
       cheatsToggle,
       cheatActions,
+      garageSection,
       resetSection,
       saveSection,
       settingsStatus,
@@ -1361,6 +1384,18 @@ export class SurvivalMode {
     this.discardPendingWaveRewards();
     this.damageNumbers?.clear();
     this.callbacks.onResetWave(this.currentRunState());
+  }
+
+  /**
+   * Bail out of a live wave into the Garage. The wave is abandoned rather than
+   * cleared, so this rewinds to the same checkpoint "Reset Wave" uses instead
+   * of taking the cleared-wave path that advances the wave counter.
+   */
+  private onReturnToGarage(): void {
+    if (this.disposed || this.phase === 'gameOver') return;
+    this.discardPendingWaveRewards();
+    this.damageNumbers?.clear();
+    this.callbacks.onReturnToGarage(this.currentRunState());
   }
 
   private onSaveAndQuit(): void {

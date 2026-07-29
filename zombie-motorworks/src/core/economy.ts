@@ -110,6 +110,18 @@ export function sellRefund(placed: PlacedPart): number {
   return Math.floor(partInvestment(placed) * 0.5);
 }
 
+/**
+ * Money sunk into a placed part's unlocks, above the base block price.
+ *
+ * Inventory stock is counted per block type and carries no level, so pulling a
+ * part off the rig hands back a base block. This is what has to be refunded in
+ * full for that move to cost the player nothing — unlike a sale, they keep the
+ * block, so the unlocks are un-bought rather than sold at a loss.
+ */
+export function unlockInvestment(placed: PlacedPart): number {
+  return Math.max(0, partInvestment(placed) - getEffectiveDef(placed).cost);
+}
+
 export function placeCost(defId: string): number {
   return getPartDef(defId).cost;
 }

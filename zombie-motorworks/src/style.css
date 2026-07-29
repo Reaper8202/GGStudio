@@ -2479,6 +2479,97 @@ button:disabled {
   border-top: 1px solid var(--ui-edge);
 }
 
+/* Every action carries a glyph so the row reads without being parsed. */
+.selected-part__turn,
+.selected-part__stow,
+.selected-part__sell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+}
+
+.selected-part__action-icon {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.selected-part__action-glyph {
+  width: 16px;
+  height: 16px;
+}
+
+.selected-part__action-label {
+  font-family: var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+/*
+ * Selling is the one destructive move in the inspector and the one players
+ * hunt for, so it takes the full row and a bone/rust treatment that separates
+ * it from the neutral controls above.
+ */
+.selected-part__sell {
+  grid-column: 1 / -1;
+  border-color: var(--ui-rust);
+  background: var(--ui-rust-dark);
+  color: var(--ui-bone);
+  box-shadow: inset 0 -3px 0 var(--ui-black);
+}
+
+.selected-part__sell:hover {
+  border-color: var(--ui-bone);
+  background: var(--ui-rust);
+  color: #f2e6c2;
+}
+
+.selected-part__action-figure {
+  color: var(--ui-bone);
+  font: var(--ui-text-12)/1 var(--ui-font-display);
+}
+
+.selected-part__sell:hover .selected-part__action-figure {
+  color: #f2e6c2;
+}
+
+/*
+ * Shortcut card pinned above the selected block. `left`/`top` are written by
+ * EditorMode each frame; the transform lifts the card clear of the selection.
+ */
+.selection-tip {
+  position: absolute;
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  transform: translate(-50%, calc(-100% - 12px));
+  border: 1px solid var(--ui-edge);
+  background: rgb(8 10 8 / 0.94);
+  box-shadow: 4px 5px 0 rgb(0 0 0 / 0.4);
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.selection-tip__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.selection-tip kbd {
+  min-width: 16px;
+  padding: 2px 4px;
+  border: 1px solid var(--ui-signal-dark);
+  background: var(--ui-surface-3);
+  color: var(--ui-bone);
+  font: var(--ui-text-10)/1 var(--ui-font-display);
+  text-align: center;
+}
+
 /* Star rating: one star per unlock bought, five slots always drawn. */
 .selected-part__rating {
   display: flex;
