@@ -5,8 +5,8 @@
 > it end to end as routine task setup.
 
 - Source Modules: 100
-- Source lines: 39,700
-- Test files scanned: 86
+- Source lines: 39,799
+- Test files scanned: 87
 
 ## Largest Modules
 
@@ -14,18 +14,18 @@
 | --- | ---: |
 | [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 3429 |
 | [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 2487 |
-| [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 2041 |
-| [`src/editor/ui.ts`](../../src/editor/ui.ts) | 2019 |
+| [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 2043 |
+| [`src/editor/ui.ts`](../../src/editor/ui.ts) | 2026 |
 | [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) | 1410 |
 | [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 1309 |
+| [`src/app/App.ts`](../../src/app/App.ts) | 1293 |
 | [`src/editor/parts/upgradeKit.ts`](../../src/editor/parts/upgradeKit.ts) | 1221 |
-| [`src/app/App.ts`](../../src/app/App.ts) | 1220 |
 | [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 1053 |
 | [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) | 925 |
 
 ## src/app
 
-### [`src/app/App.ts`](../../src/app/App.ts) (1220 LOC)
+### [`src/app/App.ts`](../../src/app/App.ts) (1293 LOC)
 
 - Exports: `App`, `buildStarterBlueprint`, `CheckpointRunState`, `createClearedWaveCheckpoint`, `createInitialRunCheckpoint`, `fullPartHp`, `prepareCheckpointForGarageFight`, `recordPhoneAddictKilled`, `recordWaveCleared`, `recoverRunFromCheckpoint`, `resetProfileForNewGame`, `resetProfileForNewRun`, `RunCheckpoint`, `runStateFromCheckpoint`, `savedRunFromCheckpoint`
 - Imports: `src/app/TitleScreen.ts`, `src/app/crazyGamesSdk.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/app/runSaveStore.ts`, `src/chamber/ChamberMode.ts`, `src/core/analysis.ts`, `src/core/biomes.ts`, `src/core/blueprint.ts`, `src/core/commands.ts`, `src/core/economy.ts`, `src/core/grid.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/placement.ts`, `src/core/profile.ts`, `src/core/rng.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/core/upgrades.ts`, `src/editor/EditorMode.ts`, `src/editor/ui.ts`, `src/runtime/vehicle.ts`, `src/survival/SurvivalMode.ts`, `src/survival/arena/recipes/index.ts`
@@ -245,13 +245,13 @@
 - External packages: none
 - Direct tests: `unit/arena.test.ts`, `unit/rng.test.ts`
 
-### [`src/core/runSave.ts`](../../src/core/runSave.ts) (177 LOC)
+### [`src/core/runSave.ts`](../../src/core/runSave.ts) (194 LOC)
 
 - Exports: `decodeSavedRun`, `encodeSavedRun`, `SavedRun`
 - Imports: `src/core/biomes.ts`, `src/core/rng.ts`, `src/core/serialize.ts`, `src/core/types.ts`
 - Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/app/runSaveStore.ts`
 - External packages: none
-- Direct tests: `unit/biome-selection.test.ts`, `unit/run-save.test.ts`
+- Direct tests: `unit/biome-selection.test.ts`, `unit/run-resume.test.ts`, `unit/run-save.test.ts`
 
 ### [`src/core/score.ts`](../../src/core/score.ts) (39 LOC)
 
@@ -291,7 +291,7 @@
 - Imports: `src/core/partUpgrades.ts`, `src/core/types.ts`
 - Imported by: `src/runtime/weapons.ts`, `src/survival/SurvivalMode.ts`, `src/survival/zombies/ZombieSystem.ts`
 - External packages: none
-- Direct tests: `unit/landmines.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-modules.test.ts`
+- Direct tests: `unit/landmines.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-modules.test.ts`, `unit/turret-piercing.test.ts`
 
 ### [`src/core/tutorial.ts`](../../src/core/tutorial.ts) (212 LOC)
 
@@ -307,7 +307,7 @@
 - Imports: none
 - Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/chamber/ChamberMode.ts`, `src/core/abilities.ts`, `src/core/analysis.ts`, `src/core/blueprint.ts`, `src/core/commands.ts`, `src/core/economy.ts`, `src/core/grid.ts`, `src/core/mass.ts`, `src/core/partUpgrades.ts`, `src/core/parts.ts`, `src/core/placement.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/tutorial.ts`, `src/core/upgrades.ts`, `src/core/wheelLayout.ts`, `src/editor/EditorMode.ts`, `src/editor/TutorialOverlay.ts`, `src/editor/meshes.ts`, `src/editor/overlays.ts`, `src/editor/parts/armourPlate.ts`, `src/editor/parts/defence.ts`, `src/editor/parts/engine.ts`, `src/editor/parts/fuelTank.ts`, `src/editor/parts/melee.ts`, `src/editor/parts/mobility.ts`, `src/editor/parts/shared.ts`, `src/editor/parts/upgradeKit.ts`, `src/editor/parts/weapons.ts`, `src/editor/parts/wheels.ts`, `src/editor/ui.ts`, `src/runtime/assembler.ts`, `src/runtime/damage.ts`, `src/runtime/drivetrain.ts`, `src/runtime/vec.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/SurvivalMode.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/vfx/shotVfx.ts`
 - External packages: none
-- Direct tests: `unit/aim-override.test.ts`, `unit/analysis.test.ts`, `unit/app.test.ts`, `unit/blueprint.test.ts`, `unit/commands.test.ts`, `unit/economy.test.ts`, `unit/flame-cone.test.ts`, `unit/parts.test.ts`, `unit/placement.test.ts`, `unit/plow-crush.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-save.test.ts`, `unit/runtime-upgrades.test.ts`, `unit/special-abilities.test.ts`, `unit/store-flow.test.ts`, `unit/structural.test.ts`, `unit/summaries.test.ts`, `unit/tread-steering.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-piercing.test.ts`, `unit/tutorial.test.ts`, `unit/weapon-ammo.test.ts`, `unit/wheel-config.test.ts`, `unit/wheel-layout.test.ts`
+- Direct tests: `unit/aim-override.test.ts`, `unit/analysis.test.ts`, `unit/app.test.ts`, `unit/blueprint.test.ts`, `unit/commands.test.ts`, `unit/economy.test.ts`, `unit/flame-cone.test.ts`, `unit/parts.test.ts`, `unit/placement.test.ts`, `unit/plow-crush.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-resume.test.ts`, `unit/run-save.test.ts`, `unit/runtime-upgrades.test.ts`, `unit/special-abilities.test.ts`, `unit/store-flow.test.ts`, `unit/structural.test.ts`, `unit/summaries.test.ts`, `unit/tread-steering.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-piercing.test.ts`, `unit/tutorial.test.ts`, `unit/weapon-ammo.test.ts`, `unit/wheel-config.test.ts`, `unit/wheel-layout.test.ts`
 
 ### [`src/core/upgrades.ts`](../../src/core/upgrades.ts) (129 LOC)
 
@@ -335,7 +335,7 @@
 
 ## src/editor
 
-### [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) (2041 LOC)
+### [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) (2043 LOC)
 
 - Exports: `atomicStorePurchaseTotal`, `BLUEPRINT_STORAGE_KEY`, `defaultConfigForDef`, `EditorMode`, `EditorModeContext`, `EditorViewState`, `newGarageDisposalSummary`, `previewUpgradedBlueprint`, `previewUpgradeMetrics`, `UpgradeMetricsPreview`, `vehicleIntegrity`, `VehicleUpgradeMetrics`, `withAutomaticWheelConfigs`
 - Imports: `src/core/abilities.ts`, `src/core/analysis.ts`, `src/core/blueprint.ts`, `src/core/commands.ts`, `src/core/economy.ts`, `src/core/grid.ts`, `src/core/hotbar.ts`, `src/core/mass.ts`, `src/core/parts.ts`, `src/core/placement.ts`, `src/core/profile.ts`, `src/core/serialize.ts`, `src/core/structural.ts`, `src/core/tutorial.ts`, `src/core/types.ts`, `src/core/upgrades.ts`, `src/core/wheelLayout.ts`, `src/editor/TutorialOverlay.ts`, `src/editor/meshes.ts`, `src/editor/overlays.ts`, `src/editor/parts/armourPlate.ts`, `src/editor/ui.ts`, `src/survival/waveBalance.ts`
@@ -447,7 +447,7 @@
 - External packages: `three`
 - Direct tests: none
 
-### [`src/editor/ui.ts`](../../src/editor/ui.ts) (2019 LOC)
+### [`src/editor/ui.ts`](../../src/editor/ui.ts) (2026 LOC)
 
 - Exports: `AbilityLoadoutSlotView`, `AbilitySlotStatus`, `buildEditorUI`, `EditorUI`, `EditorUIHandlers`, `NewGarageDisposalSummary`, `RunRepairEconomy`, `RunSummary`, `SelectedPartEconomy`
 - Imports: `src/core/abilities.ts`, `src/core/hotbar.ts`, `src/core/partUpgrades.ts`, `src/core/tutorial.ts`, `src/core/types.ts`, `src/core/upgrades.ts`

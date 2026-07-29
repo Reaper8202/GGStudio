@@ -194,8 +194,16 @@ listeners/DOM and release mode-owned resources before another mode is created.
 - App serializes the checkpoint, never the live wave.
 - Current-wave damage, kills, pending reward, zombies, mines, projectiles, and
   elapsed time are intentionally absent.
-- Resume restores Blueprint, HP, committed kills/earnings, and wave, then starts
-  that wave from its countdown.
+- Every checkpoint commit also writes the save. Storage failure reports once and
+  play continues; it must never abort a mode transition.
+- The save carries `phase` and `activeWave`. Resume restores Blueprint, HP,
+  committed kills/earnings, and wave, then either starts that wave from its
+  countdown (`wave`) or reopens the run Garage (`build`).
+- A `build` resume prefers the persisted garage Blueprint over the checkpoint's
+  so an interrupted shopping trip survives, falling back to the checkpoint when
+  the slot is unreadable.
+- `EditorMode` exposes `onSaveAndQuit` alongside `onMenu`; the two topbar
+  buttons are mutually exclusive on run context.
 
 ## Survival Callback Ordering
 
@@ -238,7 +246,7 @@ and lifetime Phone Addict kills.
 | --- | --- | --- |
 | `scraprig.profile.v1` | Profile 1 | Normalize valid fields; otherwise use default Profile |
 | `scraprig.blueprints.v1` | map of serialized Blueprint 4 slots | Preserve bad slot; load starter and display notice |
-| `scraprig.run.v1` | Saved Run 2, migration from 1 | Return null for malformed data; ordinary Title/Garage remains usable |
+| `scraprig.run.v1` | Saved Run 5, migration from 1-4 | Return null for malformed data; ordinary Title/Garage remains usable |
 
 Storage keys are versioned separately from payload schemas. A payload migration
 does not require renaming a key when its decoder remains backward compatible.
