@@ -81,6 +81,17 @@ import {
 import type { PlayerProfile } from '../core/profile.ts';
 import { resolveHotbar, withHotbarSlot } from '../core/hotbar.ts';
 import { threatWarningsForWave } from '../survival/waveBalance.ts';
+import {
+  decodeShareCode,
+  encodeShareCode,
+  lockedDefIdsFor,
+  ShareCodeError,
+} from '../core/shareCode.ts';
+import {
+  buildShareLink,
+  extractShareCode,
+  sharedSlotName,
+} from './shareHelpers.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
@@ -390,6 +401,19 @@ export class EditorMode {
       onDeleteSelected: () => this.deleteSelected(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onCancelTool: () => this.disarmTool(),
+      onBuyMissingParts: () => {
+        // unlockPart already checks affordability, deducts, persists, and
+        // denies with its own message, so a partial run stops cleanly at the
+        // first part the player cannot afford.
+        for (const defId of this.lockedParts()) {
+          if (!this.unlockPart(defId)) break;
+        }
+        this.refreshAnalysis();
+      },
+      onCopyCode: () => this.copyShareText(encodeShareCode(this.bp), 'code'),
+      onCopyLink: () =>
+        this.copyShareText(buildShareLink(encodeShareCode(this.bp)), 'link'),
+      onImport: (input) => void this.importShareCode(input),
     });
 
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);
@@ -1790,15 +1814,127 @@ export class EditorMode {
     }
   }
 
+  /**
+   * Catalog parts this build uses that the player does not own. Deliberately
+   * filtered through `isUnlocked` rather than the raw profile list, so a part
+   * that costs nothing to unlock never reads as locked and strands an
+   * otherwise legal build on the bench.
+   */
+  private lockedParts(): string[] {
+    return lockedDefIdsFor(this.bp, this.profile.unlockedDefIds).filter(
+      (defId) => !this.isUnlocked(defId),
+    );
+  }
+
   private refreshAnalysis(): void {
     const report = analyzeVehicle(this.bp, getPartDef);
     const validation = validateBlueprint(this.bp, getPartDef);
     this.ui.setBuildSummary(report, validation.errors, report.warnings);
+    // A shared build arrives intact even when it names parts the player has
+    // not bought; those hold it off the field until they are, which keeps
+    // sharing frictionless without letting it skip progression.
+    const locked = this.lockedParts();
+    const blockedBy = validation.errors.map((e) => e.message);
+    if (locked.length > 0) {
+      blockedBy.push(
+        `Locked parts: ${locked.map((defId) => getPartDef(defId).name).join(', ')}`,
+      );
+    }
     this.ui.setTestDriveEnabled(
-      validation.errors.length === 0 && this.bp.parts.length > 0,
-      validation.errors.map((e) => e.message),
+      validation.errors.length === 0 &&
+        locked.length === 0 &&
+        this.bp.parts.length > 0,
+      blockedBy,
     );
+    this.ui.setLockedParts(locked, this.profile.money);
     this.refreshOverlays();
+  }
+
+  private copyShareText(text: string, kind: 'code' | 'link'): void {
+    const label = kind === 'code' ? 'Build code' : 'Share link';
+    // execCommand is deprecated but remains the only copy path on insecure
+    // origins and older mobile browsers, where navigator.clipboard is absent.
+    const fallback = (): boolean => {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      let ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch {
+        ok = false;
+      }
+      area.remove();
+      return ok;
+    };
+    const done = (ok: boolean): void => {
+      this.ui.setStatus(ok ? `${label} copied` : `Could not copy ${label}`);
+    };
+    const clipboard = navigator.clipboard;
+    if (!clipboard?.writeText) {
+      done(fallback());
+      return;
+    }
+    void clipboard.writeText(text).then(
+      () => done(true),
+      () => done(fallback()),
+    );
+  }
+
+  /**
+   * Load a build from a pasted code or share link. The player chooses where it
+   * lands; a decode failure never opens the dialog.
+   */
+  async importShareCode(input: string): Promise<void> {
+    if (!input.trim()) return;
+    let imported: VehicleBlueprint;
+    try {
+      imported = decodeShareCode(extractShareCode(input));
+    } catch (error) {
+      this.ui.setStatus(
+        error instanceof ShareCodeError
+          ? `Could not read that build code: ${error.message}`
+          : 'Could not read that build code',
+      );
+      return;
+    }
+    const choice = await this.ui.askShareImportTarget(imported.name);
+    if (choice === 'cancel') return;
+    // A fresh id keeps the copy distinct from the sharer's build, and the
+    // suffixed name means importing can never quietly overwrite a save slot.
+    const name =
+      choice === 'new-slot'
+        ? sharedSlotName(imported.name, Object.keys(this.slots()))
+        : this.bp.name;
+    // Zero refund, unlike New Garage: importing is free, and the outgoing
+    // build is not sold. Refunding here would hand back the value of a build
+    // that "load as new slot" leaves sitting in its own save slot.
+    const previousSelection = [...this.selected];
+    this.selected.clear();
+    if (
+      !this.exec(
+        replaceBlueprintCommand(
+          { ...imported, id: crypto.randomUUID(), name },
+          0,
+          'Import shared build',
+        ),
+      )
+    ) {
+      for (const partId of previousSelection) this.selected.add(partId);
+      this.refreshSelectionUI();
+      this.ui.setStatus('Could not import that build');
+      return;
+    }
+    const locked = this.lockedParts();
+    this.ui.setStatus(
+      locked.length > 0
+        ? `Imported "${imported.name}" — buy ${locked.length} locked part${locked.length === 1 ? '' : 's'} to drive it`
+        : `Imported "${imported.name}"`,
+    );
   }
 
   private refreshOverlays(): void {

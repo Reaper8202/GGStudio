@@ -394,6 +394,15 @@ export class App {
     return true;
   }
 
+  /**
+   * Entry point for a `?build=` share link: open the garage, then hand the code
+   * to the editor's import flow so the player still chooses where it lands.
+   */
+  async importBuildCode(code: string): Promise<void> {
+    this.openEditor();
+    await this.editor?.importShareCode(code);
+  }
+
   private openEditor(): void {
     this.disposeTitle();
     this.chamber?.dispose();
