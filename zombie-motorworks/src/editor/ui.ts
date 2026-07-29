@@ -48,6 +48,8 @@ export interface EditorUIHandlers {
   onRepairPart(partId: string): void;
   onRepairAll(): void;
   onDeleteSelected(): void;
+  /** Take the selection off the rig and back into owned stock, not for cash. */
+  onReturnSelected(): void;
   onRotateSelected(axis: 'y' | 'x'): void;
 }
 
@@ -191,6 +193,11 @@ export interface EditorUI {
   setNotice(text: string): void;
   deny(text: string): void;
   ghostTip: HTMLDivElement;
+  /**
+   * Shortcut hint pinned to the current selection in the viewport. EditorMode
+   * owns its position; `buildEditorUI` only owns its contents.
+   */
+  selectionTip: HTMLDivElement;
 }
 
 interface CollapsiblePanel {
@@ -601,6 +608,24 @@ const CANCEL_ICON_SVG =
   `<svg class="icon-btn__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
   `<path d="M5 8 8 5l11 11-3 3zM19 8 16 5 5 16l3 3z" fill="currentColor"/>` +
   `</svg>`;
+/** Price tag: the sell button's mark, so the action reads before the label. */
+const SELL_ICON_SVG =
+  `<svg class="selected-part__action-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M2 12 12 2h10v10L12 22z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>` +
+  `<path d="M16 6h3v3h-3z" fill="currentColor"/>` +
+  `</svg>`;
+/** Block dropping into an open crate: putting a part back into inventory. */
+const STOW_ICON_SVG =
+  `<svg class="selected-part__action-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M9 2h6v5h4l-7 7-7-7h4z" fill="currentColor"/>` +
+  `<path d="M3 15v7h18v-7" fill="none" stroke="currentColor" stroke-width="2.4"/>` +
+  `</svg>`;
+/** Turn arrow, paired with the sell tag so both actions carry a mark. */
+const TURN_ICON_SVG =
+  `<svg class="selected-part__action-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
+  `<path d="M12 5a7 7 0 1 0 7 7" fill="none" stroke="currentColor" stroke-width="2.4"/>` +
+  `<path d="M12 1 8 5l4 4z" fill="currentColor"/>` +
+  `</svg>`;
 
 /** Crate-of-blocks mark for the inventory button on the build bar. */
 function inventoryIcon(): HTMLImageElement {
@@ -648,6 +673,33 @@ export function buildEditorUI(
     button.innerHTML = svg;
     button.title = `${label} (${hint})`;
     button.setAttribute('aria-label', label);
+    button.addEventListener('click', fn);
+    return button;
+  };
+
+  /** Glyph + label, with an optional trailing figure such as a refund price. */
+  const iconLabelBtn = (
+    svg: string,
+    label: string,
+    fn: () => void,
+    figure?: string,
+  ): HTMLButtonElement => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    const glyph = document.createElement('span');
+    glyph.className = 'selected-part__action-icon';
+    glyph.setAttribute('aria-hidden', 'true');
+    glyph.innerHTML = svg;
+    const text = document.createElement('span');
+    text.className = 'selected-part__action-label';
+    text.textContent = label;
+    button.append(glyph, text);
+    if (figure !== undefined) {
+      const amount = document.createElement('strong');
+      amount.className = 'selected-part__action-figure';
+      amount.textContent = figure;
+      button.appendChild(amount);
+    }
     button.addEventListener('click', fn);
     return button;
   };
@@ -1389,6 +1441,28 @@ export function buildEditorUI(
   ghostTip.style.display = 'none';
   root.appendChild(ghostTip);
 
+  // Shortcut card that rides along with whatever block is selected. It stays up
+  // for the whole selection rather than waiting on a hover, because the two
+  // keys it teaches are the ones players otherwise never discover.
+  const selectionTip = document.createElement('div');
+  selectionTip.className = 'selection-tip';
+  selectionTip.setAttribute('aria-hidden', 'true');
+  selectionTip.style.display = 'none';
+  for (const [key, actionLabel] of [
+    ['R', 'Rotate'],
+    ['M', 'Return to inventory'],
+  ] as const) {
+    const row = document.createElement('span');
+    row.className = 'selection-tip__row';
+    const keyBadge = document.createElement('kbd');
+    keyBadge.textContent = key;
+    const label = document.createElement('span');
+    label.textContent = actionLabel;
+    row.append(keyBadge, label);
+    selectionTip.appendChild(row);
+  }
+  root.appendChild(selectionTip);
+
   const help = buildHelpOverlay();
   help.style.display = 'none';
   root.appendChild(help);
@@ -1428,6 +1502,7 @@ export function buildEditorUI(
   return {
     root,
     ghostTip,
+    selectionTip,
     setBlueprintName: (name) => { nameInput.value = name; },
     setUndoRedo: (canUndo, canRedo) => {
       undoBtn.disabled = !canUndo;
@@ -1595,10 +1670,33 @@ export function buildEditorUI(
         actions.appendChild(repairButton);
       }
       if (!def.isRoot) {
-        actions.append(
-          btn('Turn', () => handlers.onRotateSelected('y'), 'R'),
-          btn(`Sell  +$${economy?.sellRefund ?? 0}`, handlers.onDeleteSelected, 'Delete'),
+        const turnButton = iconLabelBtn(
+          TURN_ICON_SVG,
+          'Turn',
+          () => handlers.onRotateSelected('y'),
         );
+        turnButton.classList.add('selected-part__turn');
+        turnButton.title = 'Rotate this block (R)';
+        const stowButton = iconLabelBtn(
+          STOW_ICON_SVG,
+          'Stow',
+          handlers.onReturnSelected,
+        );
+        stowButton.classList.add('selected-part__stow');
+        stowButton.title =
+          'Take this block off the rig and back into your inventory, free to place again (M)';
+        stowButton.setAttribute('aria-label', 'Return block to inventory');
+        const refund = economy?.sellRefund ?? 0;
+        const sellButton = iconLabelBtn(
+          SELL_ICON_SVG,
+          'Sell',
+          handlers.onDeleteSelected,
+          `+$${refund}`,
+        );
+        sellButton.classList.add('selected-part__sell');
+        sellButton.title = `Sell this block for $${refund} — it leaves your inventory for good (Delete)`;
+        sellButton.setAttribute('aria-label', `Sell block, refunds $${refund}`);
+        actions.append(turnButton, stowButton, sellButton);
       }
       selectedContent.appendChild(actions);
 
@@ -1914,7 +2012,8 @@ function buildHelpOverlay(): HTMLDivElement {
     <div class="cat-title">controls</div>
     <table><tr><td>Orbit / zoom</td><td>left-drag / mouse wheel; keys <b>1-5</b> choose views</td></tr>
     <tr><td>Rotate selected / held part</td><td><b>R</b> turn; <b>F</b> flip</td></tr>
-    <tr><td>Erase</td><td>right-click a part, or <b>Delete</b> on a selected part</td></tr>
+    <tr><td>Return to inventory</td><td><b>M</b> on a selected part — keep it, free to place again</td></tr>
+    <tr><td>Sell for cash</td><td>right-click a part, or <b>Delete</b> on a selected part</td></tr>
     <tr><td>Undo / redo</td><td>Ctrl+Z / Ctrl+Shift+Z</td></tr><tr><td>Layers</td><td>the Height slider in the top bar slices the build</td></tr></table>`;
   return wrap;
 }
