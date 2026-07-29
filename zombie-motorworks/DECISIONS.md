@@ -195,3 +195,56 @@ The destination dialog mirrors the existing New Garage dialog rather than using
 `window.confirm`/`prompt`. Native dialogs are unusable on mobile and are
 suppressed outright inside the sandboxed iframes portals embed the game in,
 which would have left importing silently dead in production.
+
+## Tank treads: a three-cell belt was modelled as a one-cell wheel
+
+Tread rigs did not steer usefully, and the cause was that a Tank Tread is a
+three-cell part (1.5 m) the runtime treated exactly like a 0.5 m wheel: one
+ball collider, one suspension raycast, one contact point. Measured on flat
+asphalt at full lock, a two-belt tank spun at 7.35 rad/s — more than twice
+`YAW_RATE_SOFT_LIMIT` — while a four-belt tank managed 0.42 rad/s at 0.3 m/s.
+A 17.5x spread across belt counts is why tread builds felt broken.
+
+Four things were wrong underneath that.
+
+**Belt spin ran away.** `inertia = 0.6·massKg·radius²` is ~8.9 kg·m² against a
+7200 N·m torque limit, so ω reached 990 rad/s — about 280 m/s of track speed.
+Slip saturated after one step and stayed there, so tread traction sat pinned at
+the friction ceiling and belt speed carried no information. Wheel spin is now
+capped to a slip allowance that tracks actual vehicle speed.
+
+**Skid-steer authority was a flat constant.** A fixed torque was added per
+driven belt with no reference to rig mass, track width, or belt count, so a
+light two-belt rig got far more than it could use and a heavy four-belt rig
+nowhere near enough. It is now a yaw-rate servo: steer commands a target rate,
+and the differential fades to zero as the rig reaches it. That is what makes
+belt count stop mattering — the rig holds a rate instead of accelerating for as
+long as the key is held.
+
+The servo's sign was the subtle part. Positive steer turns toward -x, which is
+a *negative* rotation about +Y. Written the obvious way round, the error term
+saturates immediately and never corrects, which turns the controller into an
+open-loop accelerator — exactly the runaway it was meant to prevent.
+
+**Pivot in place was impossible.** `brakeInputWithAutoHold` applied the parking
+brake whenever there was no throttle at low speed, so the documented excavator
+behaviour ("full lock with the throttle shut rotates the chassis in place")
+never happened — belt ω stayed at exactly 0. A commanded pivot on a skid-steer
+rig now releases auto-hold; a coast with no input still parks.
+
+**Treads then became too fast.** Once the spin runaway was bounded, the belts
+stopped wasting their torque and a two-belt tank out-ran a car — 150 km/h
+against 121. That top speed had never been designed; it was an accident of the
+wheelspin bug. Wheel definitions now carry an explicit `maxSurfaceSpeedMps`,
+and the tread's 17 m/s restores the intended "very slow flat-out" (61 km/h vs
+the car's 121, against 57-69 km/h before this pass).
+
+Results at full lock, by belt count: 3.00 / 2.52 rad/s (a 1.19x spread, from
+17.5x), all under the yaw limit, with pivot-in-place working at 2.31 / 1.54
+rad/s. The four-wheel car is unchanged at 2.36 rad/s and 19.3 m/s, which
+`unit/tread-acceptance.test.ts` guards — treads must not be fixed by quietly
+changing how wheels behave.
+
+Not caused by the all-wheel-drive change in the steering pass: the previous
+two-wheel drive cap picked *both left belts* on a four-tread rig, so that rig
+was broken before and after, differently.

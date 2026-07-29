@@ -69,6 +69,8 @@ export interface WheelStepInput {
   steer: number; // -1..1
   driveTorques: Map<string, number>; // partId -> N·m this step
   env: EnvironmentModifiers;
+  /** Maximum permitted belt surface speed; absent keeps legacy callers uncapped. */
+  maxWheelSurfaceSpeed?: number;
 }
 
 export interface AckermannGeometry {
@@ -269,17 +271,28 @@ export function stepWheels(
     const forwardLen = len(forward);
 
     const travel = w.suspension.travel;
-    const hit = world.castRayAndGetNormal(
-      new RAPIER.Ray(anchorW, suspDirW),
-      w.mountOffset + w.radius + travel,
-      true,
-      undefined,
-      WHEEL_RAY_GROUPS,
-      undefined,
-      body,
-    );
+    const samples = w.contactOffsetsLocal.length > 0 ? w.contactOffsetsLocal : [{ x: 0, y: 0, z: 0 }];
+    const hits = samples.map((offset) => {
+      const origin = add(anchorW, rotateByQuat(rot, offset));
+      return {
+        origin,
+        hit: world.castRayAndGetNormal(
+          new RAPIER.Ray(origin, suspDirW),
+          w.mountOffset + w.radius + travel,
+          true,
+          undefined,
+          WHEEL_RAY_GROUPS,
+          undefined,
+          body,
+        ),
+      };
+    });
+    const groundedHits = hits.filter((sample) => sample.hit !== null) as Array<{
+      origin: Vec3;
+      hit: NonNullable<(typeof hits)[number]['hit']>;
+    }>;
 
-    if (hit === null) {
+    if (groundedHits.length === 0) {
       // Airborne: no ground forces; drive torque just spins the wheel.
       w.compression *= Math.exp(-SUSPENSION_RELAX_PER_S * dt);
       w.grounded = false;
@@ -289,11 +302,19 @@ export function stepWheels(
       const brakeT = w.braking ? input.brake * w.wheelDef.brakeTorque : 0;
       w.omega += (drive / w.inertia) * dt;
       w.omega = applyBrake(w.omega, brakeT, w.inertia, dt);
+      // An unloaded belt has no ground reaction at all, so it is the one that
+      // runs away fastest — it needs the surface-speed cap more than a
+      // grounded one, not less.
+      w.omega = clampSurfaceSpeed(w, input.maxWheelSurfaceSpeed);
       continue;
     }
 
-    const dist = hit.timeOfImpact;
-    w.compression = clamp(w.mountOffset + w.radius - dist, 0, travel);
+    const sampleCount = samples.length;
+    const meanCompression = groundedHits.reduce(
+      (sum, sample) => sum + clamp(w.mountOffset + w.radius - sample.hit.timeOfImpact, 0, travel),
+      0,
+    ) / sampleCount;
+    w.compression = meanCompression;
 
     // Spring/damper along the suspension axis, applied at this wheel's
     // anchor: a compressed corner pushes its own side of the chassis back
@@ -310,118 +331,68 @@ export function stepWheels(
       (w.suspension.damping / w.wheelDef.suspension.damping);
     const vAnchor = add(linvelV, cross(angvelV, sub(anchorW, comV)));
     const compressionSpeed = dot(vAnchor, suspDirW);
-    const springForce = clamp(
+    const totalSpringForce = clamp(
       stiffness * w.compression + damping * compressionSpeed,
       0,
       maxSpringForce,
     );
-    body.applyImpulseAtPoint(scale(up, springForce * dt), anchorW, true);
-
-    const N = springForce;
-    w.loadN = N;
-    w.grounded = true;
-    groundedCount++;
-    if (N > w.wheelDef.maxLoad) overloaded.push(w.partId);
-
-    const contactW = add(anchorW, scale(suspDirW, dist));
-    w.contactPointW = contactW;
-
-    // Degenerate wheel orientation (axle parallel to suspension axis): the
-    // wheel lies flat — it cannot roll. Natural failure: no tire forces.
+    const springForce = totalSpringForce / sampleCount;
     if (forwardLen < 0.35) {
       w.omega *= 1 - clamp(3 * dt, 0, 1);
       continue;
     }
     const fwd = scale(forward, 1 / forwardLen);
     const lat = axleW;
-
-    const surfaceKind = surfaceOf(hit.collider.handle);
-    const surface = SURFACES[surfaceKind];
-    const muLong =
-      w.wheelDef.frictionLong *
-      surface.muLong *
-      TIRE_LONGITUDINAL_GRIP_MULTIPLIER *
-      input.env.gripLongMul;
-    const muLat =
-      w.wheelDef.frictionLat *
-      surface.muLat *
-      TIRE_LATERAL_GRIP_MULTIPLIER *
-      input.env.gripLatMul;
-
-    // Velocity of the chassis at the contact point.
-    const vContact = add(linvelV, cross(angvelV, sub(contactW, comV)));
-    const vLong = dot(vContact, fwd);
-    const vLat = dot(vContact, lat);
-
-    const drive = input.driveTorques.get(w.partId) ?? 0;
-    const wheelSurfaceSpeed = w.omega * w.radius;
-    const atRest =
-      drive === 0 &&
-      Math.abs(wheelSurfaceSpeed) < WHEEL_REST_EPSILON &&
-      Math.abs(vLong) < WHEEL_REST_EPSILON;
-    if (atRest) w.omega = 0;
-
-    // Longitudinal: slip between wheel surface speed and ground speed. At rest,
-    // suppress tiny residual slip so the tire cannot manufacture creep.
-    const slip = w.omega * w.radius - vLong;
-    const slipMagnitude = Math.min(
-      1,
-      Math.hypot(
-        slip / LONG_SLIP_SATURATION,
-        vLat / LAT_SLIP_SATURATION,
-      ),
-    );
-    contacts.push({
-      partId: w.partId,
-      point: contactW,
-      surface: surfaceKind,
-      slip: slipMagnitude,
-      loadN: N,
-    });
-    let fLong = atRest
-      ? 0
-      : muLong * N * clamp(slip / LONG_SLIP_SATURATION, -1, 1);
-    if (!atRest && w.braking && input.brake > 0) {
-      const brakeAmount = clamp(input.brake, 0, 1);
-      const maxBrakeGrip = Math.min(
-        muLong * N * brakeAmount,
-        (w.wheelDef.brakeTorque * brakeAmount) / w.radius,
-      );
-      const stopForce =
-        (-vLong * cornerMass) / (dt * BRAKE_STOP_RESPONSE_STEPS);
-      fLong = clamp(stopForce, -maxBrakeGrip, maxBrakeGrip);
+    for (const sample of groundedHits) {
+      const contact = add(sample.origin, scale(suspDirW, sample.hit.timeOfImpact));
+      body.applyImpulseAtPoint(scale(up, springForce * dt), sample.origin, true);
+      const surfaceKind = surfaceOf(sample.hit.collider.handle);
+      const surface = SURFACES[surfaceKind];
+      const muLong = w.wheelDef.frictionLong * surface.muLong * TIRE_LONGITUDINAL_GRIP_MULTIPLIER * input.env.gripLongMul;
+      let muLat = w.wheelDef.frictionLat * surface.muLat * TIRE_LATERAL_GRIP_MULTIPLIER * input.env.gripLatMul;
+      if (w.wheelDef.skidSteer) {
+        // A commanded pivot requires the belt to shear sideways; retain full grip straight ahead.
+        muLat *= 1 - 0.82 * Math.abs(input.steer);
+      }
+      const vContact = add(linvelV, cross(angvelV, sub(contact, comV)));
+      const vLong = dot(vContact, fwd);
+      const vLat = dot(vContact, lat);
+      const drive = input.driveTorques.get(w.partId) ?? 0;
+      const wheelSurfaceSpeed = w.omega * w.radius;
+      const atRest = drive === 0 && Math.abs(wheelSurfaceSpeed) < WHEEL_REST_EPSILON && Math.abs(vLong) < WHEEL_REST_EPSILON;
+      if (atRest) w.omega = 0;
+      const slip = w.omega * w.radius - vLong;
+      const slipMagnitude = Math.min(1, Math.hypot(slip / LONG_SLIP_SATURATION, vLat / LAT_SLIP_SATURATION));
+      contacts.push({ partId: w.partId, point: contact, surface: surfaceKind, slip: slipMagnitude, loadN: springForce });
+      let fLong = atRest ? 0 : muLong * springForce * clamp(slip / LONG_SLIP_SATURATION, -1, 1);
+      if (!atRest && w.braking && input.brake > 0) {
+        const brakeAmount = clamp(input.brake, 0, 1);
+        const maxBrakeGrip = Math.min(muLong * springForce * brakeAmount, (w.wheelDef.brakeTorque * brakeAmount) / w.radius);
+        fLong = clamp((-vLong * cornerMass) / (dt * BRAKE_STOP_RESPONSE_STEPS), -maxBrakeGrip, maxBrakeGrip);
+      }
+      const fLat = -muLat * springForce * clamp(vLat / LAT_SLIP_SATURATION, -1, 1);
+      const impulse = add(scale(fwd, fLong * dt), scale(lat, fLat * dt));
+      const gripPointW = v3(contact.x, contact.y + (comV.y - contact.y) * TIRE_FORCE_ANCHOR_LIFT, contact.z);
+      body.applyImpulseAtPoint(impulse, gripPointW, true);
+      const loadRatio = springForce / Math.max(1, w.wheelDef.maxLoad);
+      const sinkageFactor = 1 + surface.sinkage * loadRatio * SINKAGE_LOAD_GAIN;
+      const rollRes = surface.rollingResistance * input.env.rollingResistanceMul * sinkageFactor * springForce * w.radius;
+      w.omega += ((drive - fLong * w.radius - Math.sign(w.omega) * Math.min(rollRes, (Math.abs(w.omega) * w.inertia) / dt)) / w.inertia) * dt;
     }
-    // Lateral: resist sliding, saturating at μN.
-    const fLat = -muLat * N * clamp(vLat / LAT_SLIP_SATURATION, -1, 1);
+    const N = totalSpringForce;
+    w.loadN = N;
+    w.grounded = true;
+    groundedCount++;
+    if (N > w.wheelDef.maxLoad) overloaded.push(w.partId);
 
-    const impulse = add(scale(fwd, fLong * dt), scale(lat, fLat * dt));
-    // Raise the application point toward CoM height: same yaw response,
-    // far less roll/pitch leverage from grip.
-    const gripPointW = v3(
-      contactW.x,
-      contactW.y + (comV.y - contactW.y) * TIRE_FORCE_ANCHOR_LIFT,
-      contactW.z,
-    );
-    body.applyImpulseAtPoint(impulse, gripPointW, true);
+    const contactW = groundedHits.reduce((sum, sample) => add(sum, add(sample.origin, scale(suspDirW, sample.hit.timeOfImpact))), v3(0, 0, 0));
+    contactW.x /= groundedHits.length; contactW.y /= groundedHits.length; contactW.z /= groundedHits.length;
+    w.contactPointW = contactW;
 
-    // Wheel spin integration: drive + ground reaction + rolling resistance,
-    // then brake as a no-reversal clamp (locks cleanly instead of
-    // oscillating when brakeTorque·dt/I exceeds ω).
+
     const brakeT = w.braking ? input.brake * w.wheelDef.brakeTorque : 0;
-    const loadRatio = N / Math.max(1, w.wheelDef.maxLoad);
-    const sinkageFactor =
-      1 + surface.sinkage * loadRatio * SINKAGE_LOAD_GAIN;
-    const rollRes =
-      surface.rollingResistance *
-      input.env.rollingResistanceMul *
-      sinkageFactor *
-      N *
-      w.radius;
-    w.omega +=
-      ((drive - fLong * w.radius - Math.sign(w.omega) * Math.min(rollRes, (Math.abs(w.omega) * w.inertia) / dt)) /
-        w.inertia) *
-      dt;
     w.omega = applyBrake(w.omega, brakeT, w.inertia, dt);
+    w.omega = clampSurfaceSpeed(w, input.maxWheelSurfaceSpeed);
 
     if (w.driven) {
       drivenOmegaSum += Math.abs(w.omega);
@@ -435,6 +406,27 @@ export function stepWheels(
     overloadedWheels: overloaded,
     contacts,
   };
+}
+
+/**
+ * Cap how fast a wheel's contact surface may travel. Belts are allowed to slip
+ * — that is how a tracked rig turns — but a tread's small drive radius and low
+ * rotational inertia let drive torque run ω into the hundreds of rad/s, which
+ * is a solver artefact rather than slip: it pins tyre force at the friction
+ * ceiling and makes belt speed meaningless.
+ */
+function clampSurfaceSpeed(
+  w: RuntimeWheel,
+  slipAllowanceMps: number | undefined,
+): number {
+  // The tighter of the dynamic slip allowance and the wheel's own gearing.
+  const cap = Math.min(
+    slipAllowanceMps ?? Number.POSITIVE_INFINITY,
+    w.wheelDef.maxSurfaceSpeedMps ?? Number.POSITIVE_INFINITY,
+  );
+  if (!Number.isFinite(cap)) return w.omega;
+  const limit = cap / w.radius;
+  return clamp(w.omega, -limit, limit);
 }
 
 /** Brake torque opposes spin but can never reverse it within a step. */
