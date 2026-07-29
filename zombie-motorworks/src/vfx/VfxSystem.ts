@@ -1800,6 +1800,159 @@ export class VfxSystem {
     }
   }
 
+  /**
+   * The scuttle charge: the player's own rig going up. It is fired once, at the
+   * end of a run, and everything else on screen is about to stop mattering.
+   *
+   * It is built as a bigger `explosion` with two things that blast does not
+   * have: a shockwave ring that stops exactly on the kill radius, so one
+   * detonation teaches the player how far the charge reaches, and heavy scrap
+   * that settles on the ground as the wreck of the vehicle that just left.
+   *
+   * `fuel` is how full the tanks were, 0..1. It is what the charge is made of,
+   * so it drives the volume of everything thrown: a dry rig coughs out a small
+   * hot pop, a full one goes up like the fuel dump it is.
+   */
+  selfDestruct(
+    x: number,
+    y: number,
+    z: number,
+    radiusM: number,
+    fuel = 1,
+  ): void {
+    if (this.disposed || radiusM <= 0) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+    // Never scales to nothing: the smallest charge still has to read as an
+    // explosion rather than as a missing effect.
+    const charge = 0.35 + 0.65 * Math.min(1, Math.max(0, fuel));
+
+    // Three stacked flashes: a white core inside an amber fireball inside a
+    // wide, slower dome that carries the blast past the vehicle's own size.
+    this.flash(x, y + 0.5, z, radiusM * 0.35, 0.1, VFX_PALETTE.sparkHot);
+    this.flash(x, y + 0.6, z, radiusM * 0.7, 0.22, VFX_PALETTE.hellYellow);
+    this.flash(x, y + 0.9, z, radiusM * 1.15, 0.42, VFX_PALETTE.ember);
+
+    const fireball = this.count(30 * charge, detail);
+    for (let i = 0; i < fireball; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(3, 11) * charge;
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.5);
+      this.spec.y = y + this.rand(0.2, 1.1);
+      this.spec.z = z + this.randSigned(0.5);
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(4, 13) * charge;
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.22, 0.5) * charge;
+      this.spec.endSize = this.spec.size * 0.35;
+      this.spec.lifeSeconds = this.rand(0.5, 1);
+      this.spec.colorStart = VFX_PALETTE.hellYellow;
+      this.spec.colorEnd = VFX_PALETTE.hellRedDark;
+      // Fire climbs: the fireball is the only part of this that fights gravity.
+      this.spec.gravity = 3.2;
+      this.spec.drag = 1.4;
+      this.spec.spin = 4;
+      this.glow.spawn(this.take());
+    }
+
+    // Shockwave: reaches the rim inside its own life, so the ring lands on the
+    // exact radius the blast damages.
+    const ring = this.count(34, detail);
+    for (let i = 0; i < ring; i++) {
+      const angle =
+        (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.12);
+      const life = this.rand(0.34, 0.5);
+      const speed = (radiusM / life) * this.rand(0.85, 1);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * 0.4;
+      this.spec.y = y + 0.15;
+      this.spec.z = z + Math.sin(angle) * 0.4;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(0.4, 1.6);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.2, 0.36);
+      this.spec.endSize = 0.04;
+      this.spec.lifeSeconds = life;
+      this.spec.colorStart = VFX_PALETTE.sparkHot;
+      this.spec.colorEnd = VFX_PALETTE.ember;
+      this.spec.gravity = 0;
+      this.spec.drag = 0.4;
+      this.spec.spin = 9;
+      this.glow.spawn(this.take());
+    }
+
+    // The vehicle itself, coming apart. Steel and brass rather than dirt, and
+    // it sticks where it lands: what is left on the ground is the wreck.
+    const scrap = this.count(26 * charge, detail);
+    for (let i = 0; i < scrap; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(4, 13) * charge;
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.6);
+      this.spec.y = y + this.rand(0.2, 1);
+      this.spec.z = z + this.randSigned(0.6);
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(5, 14) * charge;
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.12, 0.3);
+      this.spec.endSize = this.spec.size * 0.9;
+      this.spec.lifeSeconds = this.rand(1.2, 2.2);
+      this.spec.colorStart = i % 3 === 0 ? VFX_PALETTE.brass : VFX_PALETTE.steel;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -22;
+      this.spec.spin = 16;
+      this.spec.bounce = 0.35;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+
+    // Dirt lifted off the ground the rig was standing on.
+    const dirt = this.count(16 * charge, detail);
+    for (let i = 0; i < dirt; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(3, 9);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y + 0.1;
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(2, 7);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.1, 0.22);
+      this.spec.endSize = this.spec.size * 0.85;
+      this.spec.lifeSeconds = this.rand(1, 1.8);
+      this.spec.colorStart = VFX_PALETTE.dust;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -20;
+      this.spec.spin = 10;
+      this.spec.bounce = 0.25;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+
+    // Mushroom column: slow, tall, and still standing after the fire is out.
+    const smoke = this.count(18 * charge, detail);
+    for (let i = 0; i < smoke; i++) {
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.7);
+      this.spec.y = y + this.rand(0.3, 1.4);
+      this.spec.z = z + this.randSigned(0.7);
+      this.spec.vx = this.randSigned(1.8);
+      this.spec.vy = this.rand(1.6, 4.2) * charge;
+      this.spec.vz = this.randSigned(1.8);
+      this.spec.size = this.rand(0.3, 0.55) * charge;
+      this.spec.endSize = this.spec.size * 3.4;
+      this.spec.lifeSeconds = this.rand(1.3, 2.4);
+      this.spec.colorStart = VFX_PALETTE.smoke;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = 1.6;
+      this.spec.drag = 1.8;
+      this.spec.spin = 1.2;
+      this.lit.spawn(this.take());
+    }
+  }
+
   // --------------------------------------------------------------- freeze ---
 
   /**

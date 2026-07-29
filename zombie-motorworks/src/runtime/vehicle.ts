@@ -512,6 +512,31 @@ export class RuntimeVehicle {
     return this.finishStep();
   }
 
+  /**
+   * Scuttle the rig: every part goes at once, root included, so `isDestroyed`
+   * is true from the next check onward. Nothing is left attached, so no island
+   * can survive the split — the returned array is empty in practice and is
+   * handed back only so callers can treat this like any other structural event.
+   *
+   * The body outlives its colliders here. The caller owns what happens next
+   * (the mode holds the frame for the blast, then leaves), so the body is
+   * frozen in place rather than dropped through a world it can no longer touch.
+   */
+  scuttle(): DetachedIsland[] {
+    // Debris that already broke off is left where it lies: the charge is on the
+    // rig, and wreckage scattered across the arena is not on it any more.
+    for (const [, part] of this.assembled.parts) {
+      if (part.alive && !part.detached) part.health = 0;
+    }
+    for (const connection of this.assembled.connections) connection.health = 0;
+    const islands = this.finishStep();
+    const body = this.assembled.body;
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    body.setGravityScale(0, true);
+    return islands;
+  }
+
   preStep(
     dt: number,
     controls: VehicleControls,
@@ -970,6 +995,11 @@ export class RuntimeVehicle {
       this.fuel + this.fuelCapacity * fraction,
     );
     return this.fuel - before;
+  }
+
+  /** Litres still in the tanks, for callers that need it every frame. */
+  get fuelLitres(): number {
+    return this.fuel;
   }
 
   /** Test/debug seam: set current onboard fuel directly (clamped to capacity). */

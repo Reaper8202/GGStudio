@@ -168,6 +168,48 @@ const WARNING_REFRESH_INTERVAL_SECONDS = 0.25;
 /** Distance at which a blast stops shaking the camera at all, m. */
 const CAMERA_SHAKE_FALLOFF_M = 26;
 
+/**
+ * Scuttle charge ("self-destruct", K).
+ *
+ * A crippled rig is normally a run that is already over: the wheel is gone, the
+ * horde is closing, and there is nothing left to drive away with. The charge
+ * turns that into one last decision — blow the vehicle and take the wave with
+ * it. It arms the moment a wheel is lost and stays armed, because a lost wheel
+ * never comes back mid-wave.
+ *
+ * The bargain is deliberately all-or-nothing. If the blast leaves the wave
+ * empty, the wreck is towed back to the Garage and the run continues from the
+ * cleared wave like any other clear. If even one zombie is left standing — or
+ * the wave still has zombies queued to spawn — the run ends, exactly as losing
+ * the rig to the horde would have.
+ */
+/**
+ * What the charge is actually made of is the fuel still in the tanks, so that
+ * is what sizes the blast. Running the tanks dry to reach a refuel crate now
+ * costs the player their last resort, and a rig that has been hoarding fuel
+ * blows a genuinely wave-clearing hole. The reach is quoted live on the prompt
+ * so the trade is legible before it is taken, never discovered afterwards.
+ */
+const SELF_DESTRUCT_MIN_RADIUS_M = 3;
+const SELF_DESTRUCT_MAX_RADIUS_M = 16;
+const SELF_DESTRUCT_RADIUS_PER_LITRE_M = 0.11;
+/**
+ * Damage at the centre, scaled over the same fuel range. Blast damage falls off
+ * linearly to nothing at the rim, so these are sized so that anything
+ * meaningfully inside the ring dies rather than to be read as literal numbers —
+ * a small charge is short, not weak.
+ */
+const SELF_DESTRUCT_MIN_DAMAGE = 400;
+const SELF_DESTRUCT_MAX_DAMAGE = 1_600;
+/**
+ * How long the frame is held after the charge goes off, before the run resolves
+ * into the Garage or the game-over card. The blast is the payoff for a run
+ * ending; cutting to a menu on the same frame would throw it away.
+ */
+const SELF_DESTRUCT_HOLD_SECONDS = 1.6;
+/** Gap between the aftershocks that cook off around the wreck during the hold. */
+const SELF_DESTRUCT_AFTERSHOCK_SECONDS = 0.34;
+
 export interface SurvivalCallbacks {
   profileMoney(): number;
   runEarnings(): number;
@@ -280,6 +322,8 @@ export interface SurvivalTelemetry {
   cameraPos: [number, number, number];
   /** Debug-only: wheels currently loaded on the ground (collision diagnostics). */
   groundedWheels: number;
+  /** Whether the scuttle charge (K) has been unlocked by a lost wheel. */
+  selfDestructArmed: boolean;
   weapons: {
     partId: string;
     aimMode: 'auto' | 'manual';
@@ -368,6 +412,9 @@ interface SurvivalUi {
   moneyValue: HTMLSpanElement;
   pendingMoneyValue: HTMLSpanElement;
   stuckPrompt: HTMLDivElement;
+  selfDestructButton: HTMLButtonElement;
+  selfDestructHint: HTMLSpanElement;
+  selfDestructBanner: HTMLDivElement;
   countdownOverlay: HTMLDivElement;
   countdownValue: HTMLDivElement;
   waveClearCard: WaveClearCard;
@@ -497,6 +544,9 @@ export class SurvivalMode {
   private readonly moneyValue: HTMLSpanElement;
   private readonly pendingMoneyValue: HTMLSpanElement;
   private readonly stuckPrompt: HTMLDivElement;
+  private readonly selfDestructButton: HTMLButtonElement;
+  private readonly selfDestructHint: HTMLSpanElement;
+  private readonly selfDestructBanner: HTMLDivElement;
   private readonly countdownOverlay: HTMLDivElement;
   private readonly countdownValue: HTMLDivElement;
   private readonly waveClearCard: WaveClearCard;
@@ -584,6 +634,26 @@ export class SurvivalMode {
   private readonly recoveryTargetQuaternion = new THREE.Quaternion();
   private mineWarningDistances = new WeakMap<object, number>();
   private mineWarningPulsed = new WeakSet<object>();
+  /**
+   * Scuttle-charge state. `armed` latches on the first lost wheel and never
+   * clears, `requested` is the press waiting for the next fixed step, and
+   * `holdSeconds` is the post-blast frame hold that owns the run's outcome
+   * (`cleared`) and the pre-blast rig the Garage rebuilds from (`salvage`).
+   */
+  private selfDestructArmed = false;
+  private selfDestructRequested = false;
+  private selfDestructHoldSeconds = 0;
+  private selfDestructAftershockSeconds = 0;
+  private selfDestructCleared = false;
+  /** Fuel factor the charge went off with, so the aftershocks match it. */
+  private selfDestructFuelFired = 0;
+  private selfDestructSalvage: {
+    survivingPartIds: string[];
+    partHp: Record<string, number>;
+  } | null = null;
+  /** HUD state the prompt was last built from, so a steady HUD costs nothing. */
+  private selfDestructHudArmed = false;
+  private selfDestructHudReachM = -1;
 
   private readonly keydown = (event: KeyboardEvent): void => {
     this.unlockAudioFromInput();
@@ -600,6 +670,11 @@ export class SurvivalMode {
     const key = event.key.toLowerCase();
     if (key === 'j') {
       if (!event.repeat) this.recoveryRequested = true;
+      event.preventDefault();
+      return;
+    }
+    if (key === 'k') {
+      if (!event.repeat) this.requestSelfDestruct();
       event.preventDefault();
       return;
     }
@@ -700,6 +775,9 @@ export class SurvivalMode {
     this.moneyValue = builtUi.moneyValue;
     this.pendingMoneyValue = builtUi.pendingMoneyValue;
     this.stuckPrompt = builtUi.stuckPrompt;
+    this.selfDestructButton = builtUi.selfDestructButton;
+    this.selfDestructHint = builtUi.selfDestructHint;
+    this.selfDestructBanner = builtUi.selfDestructBanner;
     this.countdownOverlay = builtUi.countdownOverlay;
     this.countdownValue = builtUi.countdownValue;
     this.waveClearCard = builtUi.waveClearCard;
@@ -949,20 +1027,53 @@ export class SurvivalMode {
     hud.append(speedRow, health, fuel, moneyRow, pendingMoneyRow);
     root.appendChild(hud);
 
+    // Both driver prompts live in one centred row, so whichever are up sit
+    // side by side and read as the same kind of offer: a key, right now.
+    const promptRow = document.createElement('div');
+    promptRow.className = 'survival-prompts';
+
     const stuckPrompt = document.createElement('div');
-    stuckPrompt.className = 'panel survival-stuck-prompt';
+    stuckPrompt.className = 'panel survival-prompt survival-stuck-prompt';
     stuckPrompt.setAttribute('role', 'status');
     const stuckIcon = document.createElement('span');
-    stuckIcon.className = 'survival-stuck-prompt__icon';
+    stuckIcon.className = 'survival-prompt__icon';
     stuckIcon.setAttribute('aria-hidden', 'true');
     const stuckCopy = document.createElement('div');
+    stuckCopy.className = 'survival-prompt__copy';
     const stuckTitle = document.createElement('strong');
     stuckTitle.textContent = 'Vehicle Stuck';
     const stuckAction = document.createElement('span');
     stuckAction.textContent = 'Press J to Jump';
     stuckCopy.append(stuckTitle, stuckAction);
     stuckPrompt.append(stuckIcon, stuckCopy);
-    root.appendChild(stuckPrompt);
+    promptRow.appendChild(stuckPrompt);
+
+    // Scuttle charge: the same prompt card in danger colours, shown only once a
+    // wheel is gone. Its hint quotes the live blast reach, which is fuel.
+    const selfDestructButton = document.createElement('button');
+    selfDestructButton.type = 'button';
+    selfDestructButton.className = 'panel survival-prompt survival-scuttle';
+    const selfDestructIcon = document.createElement('span');
+    selfDestructIcon.className = 'survival-prompt__icon';
+    selfDestructIcon.setAttribute('aria-hidden', 'true');
+    // A span rather than a div: this card is a button, whose content must stay
+    // phrasing-level.
+    const selfDestructCopy = document.createElement('span');
+    selfDestructCopy.className = 'survival-prompt__copy';
+    const selfDestructTitle = document.createElement('strong');
+    selfDestructTitle.textContent = 'Self-Destruct';
+    const selfDestructHint = document.createElement('span');
+    selfDestructCopy.append(selfDestructTitle, selfDestructHint);
+    selfDestructButton.append(selfDestructIcon, selfDestructCopy);
+    selfDestructButton.addEventListener('click', this.onSelfDestructClick);
+    promptRow.appendChild(selfDestructButton);
+    root.appendChild(promptRow);
+
+    const selfDestructBanner = document.createElement('div');
+    selfDestructBanner.className = 'survival-scuttle-banner';
+    selfDestructBanner.setAttribute('role', 'status');
+    selfDestructBanner.hidden = true;
+    root.appendChild(selfDestructBanner);
 
     const countdownOverlay = overlayPanel();
     countdownOverlay.style.pointerEvents = 'none';
@@ -1171,6 +1282,9 @@ export class SurvivalMode {
       moneyValue,
       pendingMoneyValue,
       stuckPrompt,
+      selfDestructButton,
+      selfDestructHint,
+      selfDestructBanner,
       countdownOverlay,
       countdownValue,
       waveClearCard,
@@ -1406,6 +1520,12 @@ export class SurvivalMode {
   }
 
   private stepFixed(): void {
+    // The scuttle charge owns the frame while it plays: the wave, the physics,
+    // and the run's outcome all wait for the blast to finish.
+    if (this.selfDestructHoldSeconds > 0) {
+      this.tickSelfDestructHold();
+      return;
+    }
     if (this.phase === 'countdown') {
       this.countdownRemaining -= FIXED_DT;
       if (this.countdownRemaining <= 0) this.startCurrentWave();
@@ -1415,6 +1535,16 @@ export class SurvivalMode {
   }
 
   private stepPhysics(): void {
+    this.refreshSelfDestructArmed();
+    if (this.selfDestructRequested) {
+      this.selfDestructRequested = false;
+      // Re-checked against live state rather than trusted from the press: the
+      // wave can clear or the rig can die between the keydown and this step.
+      if (this.selfDestructArmed && this.phase === 'active') {
+        this.detonateSelfDestruct();
+        return;
+      }
+    }
     this.waveElapsedSeconds += FIXED_DT;
     this.runElapsedSeconds += FIXED_DT;
     this.updateControls();
@@ -1713,6 +1843,9 @@ export class SurvivalMode {
     this.stuckSeconds = 0;
     this.recoverySettleSeconds = 0;
     this.recoveryRequested = false;
+    // The charge stays armed across waves — the wheel is still gone — but a
+    // press made during the last wave never carries into this one.
+    this.selfDestructRequested = false;
     // Each wave is its own fight: abilities come back charged for it.
     this.abilityCooldowns.clear();
     this.abilityRequests.clear();
@@ -2344,6 +2477,232 @@ export class SurvivalMode {
     return part.alive && !part.detached && part.health > 0;
   }
 
+  // -------------------------------------------------- scuttle charge (K) ---
+
+  /** The HUD button and the K keybind share one request path. */
+  private readonly onSelfDestructClick = (): void => {
+    this.unlockAudioFromInput();
+    this.requestSelfDestruct();
+  };
+
+  /**
+   * Queue a detonation for the next fixed step. A press made outside a live
+   * wave, before a wheel has been lost, or while the charge is already going
+   * off is dropped rather than buffered — the charge may only ever fire on a
+   * frame the player chose.
+   */
+  private requestSelfDestruct(): void {
+    if (this.disposed || this.settingsOpen) return;
+    if (this.phase !== 'active' || this.selfDestructHoldSeconds > 0) return;
+    if (!this.selfDestructArmed) return;
+    this.selfDestructRequested = true;
+  }
+
+  /**
+   * Arm the charge once any wheel has been destroyed or shaken off. It latches:
+   * a wheel lost mid-wave cannot be bolted back on, so re-deriving this every
+   * step could only ever confirm what the first lost wheel already established.
+   */
+  private refreshSelfDestructArmed(): void {
+    if (this.selfDestructArmed) return;
+    for (const part of this.vehicle.assembled.parts.values()) {
+      if (part.def.wheel === undefined) continue;
+      if (this.isAttachedAlivePart(part)) continue;
+      this.selfDestructArmed = true;
+      playSfx('selfDestructArm');
+      return;
+    }
+  }
+
+  /**
+   * Blow the rig. Zombies are killed first: their deaths run WaveManager's
+   * completion check synchronously, so by the time the vehicle itself is
+   * scuttled the wave has already declared whether it is clear — and that is
+   * the whole outcome of the run, decided on this one frame.
+   */
+  /**
+   * Blast reach, in metres, for the fuel currently aboard. Dry tanks still pop
+   * — there is always a charge — but the reach is the fuel.
+   */
+  private selfDestructRadiusM(): number {
+    const litres = this.vehicle.fuelLitres;
+    const fuel = Number.isFinite(litres) ? Math.max(0, litres) : 0;
+    return Math.min(
+      SELF_DESTRUCT_MAX_RADIUS_M,
+      SELF_DESTRUCT_MIN_RADIUS_M + fuel * SELF_DESTRUCT_RADIUS_PER_LITRE_M,
+    );
+  }
+
+  /** 0 on a dry tank, 1 at the fuel that maxes the blast out. */
+  private selfDestructFuelFactor(radiusM: number): number {
+    const span = SELF_DESTRUCT_MAX_RADIUS_M - SELF_DESTRUCT_MIN_RADIUS_M;
+    if (span <= 0) return 1;
+    return Math.min(1, Math.max(0, (radiusM - SELF_DESTRUCT_MIN_RADIUS_M) / span));
+  }
+
+  private detonateSelfDestruct(): void {
+    const position = this.vehicle.body.translation();
+    const radiusM = this.selfDestructRadiusM();
+    const fuelFactor = this.selfDestructFuelFactor(radiusM);
+    const damage =
+      SELF_DESTRUCT_MIN_DAMAGE +
+      (SELF_DESTRUCT_MAX_DAMAGE - SELF_DESTRUCT_MIN_DAMAGE) * fuelFactor;
+    // Captured before anything dies. If the blast clears the wave, this wreck
+    // is what the Garage rebuilds from: the charge costs the run its momentum,
+    // not the vehicle the player spent it building.
+    this.selfDestructSalvage = {
+      survivingPartIds: this.vehicle.survivingPartIds(),
+      partHp: this.vehicle.partHpSnapshot(),
+    };
+
+    this.zombies.explodeAt(
+      position.x,
+      position.y + 0.4,
+      position.z,
+      radiusM,
+      damage,
+    );
+    this.selfDestructCleared = this.phase === 'cleared';
+
+    this.vfx.selfDestruct(
+      position.x,
+      position.y,
+      position.z,
+      radiusM,
+      fuelFactor,
+    );
+    // Everything the blast is felt through scales with it too, so a dry-tank
+    // pop never rattles the screen like a full one.
+    this.followCamera.addShake(0.7 + fuelFactor * 1.1);
+    // The vignette's own saturation ceiling caps this; a full charge going off
+    // in the player's lap should read as the hardest hit the run ever took.
+    this.warningHud.reportDamage(120 + fuelFactor * 280);
+    playSfx('selfDestructBlast');
+
+    this.attachNewIslands(this.vehicle.scuttle());
+    this.controls.throttle = 0;
+    this.controls.brake = 0;
+    this.controls.steer = 0;
+    this.controls.fire = false;
+    this.controls.manualAim = false;
+    this.pointerFiring = false;
+    this.keys.clear();
+    this.stuckPrompt.classList.remove('is-visible');
+
+    this.selfDestructFuelFired = fuelFactor;
+    this.selfDestructHoldSeconds = SELF_DESTRUCT_HOLD_SECONDS;
+    this.selfDestructAftershockSeconds = SELF_DESTRUCT_AFTERSHOCK_SECONDS;
+    this.selfDestructBanner.textContent = this.selfDestructCleared
+      ? 'Wave Cleared — Wreck Towed to the Garage'
+      : 'Charge Blown — Zombies Left Standing';
+    this.selfDestructBanner.classList.toggle(
+      'is-clear',
+      this.selfDestructCleared,
+    );
+    this.selfDestructBanner.hidden = false;
+    this.syncSelfDestructHud();
+  }
+
+  /**
+   * Hold the frame while the blast plays. Physics, the wave, and the vehicle
+   * are all finished by now, so nothing steps: only the effects layer, which
+   * runs off the render frame rather than off this loop, is still moving.
+   */
+  private tickSelfDestructHold(): void {
+    this.selfDestructHoldSeconds -= FIXED_DT;
+    this.selfDestructAftershockSeconds -= FIXED_DT;
+    // Aftershocks stop before the hold does, so the wreck is quiet for a beat
+    // before the card lands rather than still cooking off underneath it.
+    if (
+      this.selfDestructAftershockSeconds <= 0 &&
+      this.selfDestructHoldSeconds > 0.45
+    ) {
+      this.selfDestructAftershockSeconds = SELF_DESTRUCT_AFTERSHOCK_SECONDS;
+      this.emitSelfDestructAftershock();
+    }
+    if (this.selfDestructHoldSeconds > 0) return;
+    this.selfDestructHoldSeconds = 0;
+    this.resolveSelfDestruct();
+  }
+
+  /** One tank or magazine going up somewhere in the wreck. */
+  private emitSelfDestructAftershock(): void {
+    const position = this.vehicle.body.translation();
+    const angle = Math.random() * Math.PI * 2;
+    const spread = 0.6 + this.selfDestructFuelFired * 2;
+    const distance = 0.5 + Math.random() * spread;
+    const x = position.x + Math.cos(angle) * distance;
+    const z = position.z + Math.sin(angle) * distance;
+    this.vfx.explosion(x, position.y + 0.3, z, 1 + this.selfDestructFuelFired);
+    this.shakeCameraAt(x, z, 0.2 + this.selfDestructFuelFired * 0.3);
+  }
+
+  /**
+   * Cash the bargain. A cleared wave goes straight to the Garage on the
+   * checkpoint the blast earned — there is no wave-clear card, because every
+   * choice it offers ("continue now", "repair and continue") needs a vehicle
+   * that is still standing. Anything else is an ordinary destroyed rig.
+   */
+  private resolveSelfDestruct(): void {
+    this.selfDestructBanner.hidden = true;
+    if (!this.selfDestructCleared) {
+      const pendingMoneyDiscarded = this.pendingWaveTotal();
+      this.discardPendingWaveRewards();
+      this.queueGameOver(pendingMoneyDiscarded);
+      return;
+    }
+
+    const salvage = this.selfDestructSalvage;
+    this.bankPendingWaveRewards();
+    const payload = createWaveClearPayload(
+      this.currentWave,
+      salvage?.survivingPartIds ?? [],
+      salvage?.partHp ?? {},
+      this.kills,
+      this.runScore,
+      this.runElapsedSeconds,
+    );
+    if (this.callbacks.onWaveCheckpoint) {
+      this.callbacks.onWaveCheckpoint(
+        payload.nextRun,
+        payload.survivingPartIds,
+        payload.partHp,
+        payload.kills,
+        payload.score,
+      );
+    }
+    this.pendingTransition = {
+      kind: 'buildPhase',
+      run: payload.clearedRun,
+      survivingPartIds: [...payload.survivingPartIds],
+      partHp: payload.partHp,
+      kills: payload.kills,
+      score: payload.score,
+    };
+  }
+
+  /**
+   * Show the charge only while it can actually be fired, and quote what it is
+   * worth right now. The reach is burning away with the fuel, so the number is
+   * live — the player should never have to guess how big their last resort
+   * still is.
+   */
+  private syncSelfDestructHud(): void {
+    const visible =
+      this.selfDestructArmed &&
+      this.phase === 'active' &&
+      this.selfDestructHoldSeconds <= 0;
+    if (visible !== this.selfDestructHudArmed) {
+      this.selfDestructHudArmed = visible;
+      this.selfDestructButton.classList.toggle('is-visible', visible);
+    }
+    if (!visible) return;
+    const reach = Math.round(this.selfDestructRadiusM());
+    if (reach === this.selfDestructHudReachM) return;
+    this.selfDestructHudReachM = reach;
+    this.selfDestructHint.textContent = `Press K — ${reach}m Blast`;
+  }
+
   private updateMineWarningPulse(revealRadiusM: number): void {
     if (
       this.phase !== 'active' ||
@@ -2634,6 +2993,7 @@ export class SurvivalMode {
       this.fuelFill.classList.toggle('is-empty', telemetry.fuel <= 0);
     }
     this.syncAbilityHud();
+    this.syncSelfDestructHud();
     if (this.runScore !== this.lastHudScore) {
       this.lastHudScore = this.runScore;
       this.waveTimelineHud.setScore(this.runScore);
@@ -2898,6 +3258,7 @@ export class SurvivalMode {
         this.camera.position.z,
       ],
       groundedWheels: this.vehicle.telemetry().groundedWheels,
+      selfDestructArmed: this.selfDestructArmed,
       weapons: this.vehicle.weaponStates().map((weapon) => ({
         partId: weapon.partId,
         aimMode: weapon.def.aimMode,

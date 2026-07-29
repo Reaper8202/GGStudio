@@ -5,7 +5,9 @@ export type SfxName =
   | 'cardIn'
   | 'uiClick'
   | 'hitTick'
-  | 'killThud';
+  | 'killThud'
+  | 'selfDestructArm'
+  | 'selfDestructBlast';
 
 export const SFX_MUTED_STORAGE_KEY = 'scraprig.sfx.muted';
 
@@ -273,6 +275,50 @@ function buildCue(
         peak: 0.04,
         filterFrequency: 260 * pitch,
         endFilterFrequency: 150 * pitch,
+      });
+      break;
+    // The scuttle charge going live: a hard two-tone arming beep, deliberately
+    // unlike any other cue so the player never mistakes it for a pickup.
+    case 'selfDestructArm':
+      [0, 0.11].forEach((offset) => {
+        oscillator(context, voice, {
+          type: 'square',
+          start: now + offset,
+          duration: 0.07,
+          frequency: 1_020 * pitch,
+          endFrequency: 1_020 * pitch,
+          peak: 0.07,
+          attack: 0.002,
+        });
+      });
+      break;
+    // The detonation itself: a body-blow sine drop under a long, dark noise
+    // tail, plus a short bright crack on top for the shrapnel.
+    case 'selfDestructBlast':
+      oscillator(context, voice, {
+        type: 'sine',
+        start: now,
+        duration: 0.85,
+        frequency: 140 * pitch,
+        endFrequency: 32 * pitch,
+        peak: 0.3,
+        attack: 0.004,
+      });
+      oscillator(context, voice, {
+        type: 'sawtooth',
+        start: now,
+        duration: 0.22,
+        frequency: 320 * pitch,
+        endFrequency: 60 * pitch,
+        peak: 0.12,
+        attack: 0.002,
+      });
+      noise(context, voice, {
+        start: now,
+        duration: 0.9,
+        peak: 0.16,
+        filterFrequency: 1_800 * pitch,
+        endFilterFrequency: 120 * pitch,
       });
       break;
   }

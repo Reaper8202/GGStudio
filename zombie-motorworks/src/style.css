@@ -3505,11 +3505,24 @@ button:disabled {
   font-size: var(--ui-text-14);
 }
 
-.survival-stuck-prompt {
+/*
+ * Driver prompts: the offers the game makes mid-drive, each one a key. They
+ * share a card and a row so a second offer appears beside the first instead of
+ * on top of it, and the pair stays centred whichever of them is up.
+ */
+.survival-prompts {
   position: absolute;
   bottom: 18%;
   left: 50%;
   z-index: 18;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.survival-prompt {
   display: none;
   grid-template-columns: 42px minmax(0, 1fr);
   align-items: center;
@@ -3520,16 +3533,15 @@ button:disabled {
   box-shadow:
     7px 8px 0 rgb(0 0 0 / 0.45),
     inset 3px 0 0 var(--ui-rust);
-  pointer-events: none;
-  transform: translateX(-50%);
+  text-align: left;
 }
 
-.survival-stuck-prompt.is-visible {
+.survival-prompt.is-visible {
   display: grid;
-  animation: stuck-prompt-in 140ms steps(3, end);
+  animation: prompt-in 140ms steps(3, end);
 }
 
-.survival-stuck-prompt__icon {
+.survival-prompt__icon {
   position: relative;
   display: block;
   width: 42px;
@@ -3537,7 +3549,36 @@ button:disabled {
   background: var(--ui-recess);
 }
 
-.survival-stuck-prompt__icon::before {
+.survival-prompt__copy,
+.survival-prompt strong,
+.survival-prompt__copy > span {
+  display: block;
+}
+
+.survival-prompt strong,
+.survival-prompt__copy > span {
+  text-transform: uppercase;
+}
+
+.survival-prompt strong {
+  color: var(--ui-text);
+  font: 400 var(--ui-text-14)/1 var(--ui-font-display);
+  letter-spacing: 0.06em;
+}
+
+.survival-prompt__copy > span {
+  margin-top: 5px;
+  color: var(--ui-signal-strong);
+  font: var(--ui-text-11)/1 var(--ui-font-body);
+  /* The button base sets tracking; both cards read the same without it. */
+  letter-spacing: normal;
+}
+
+.survival-stuck-prompt {
+  pointer-events: none;
+}
+
+.survival-stuck-prompt .survival-prompt__icon::before {
   position: absolute;
   top: 7px;
   left: 50%;
@@ -3549,7 +3590,7 @@ button:disabled {
   transform: translateX(-50%) rotate(45deg);
 }
 
-.survival-stuck-prompt__icon::after {
+.survival-stuck-prompt .survival-prompt__icon::after {
   position: absolute;
   right: 8px;
   bottom: 8px;
@@ -3561,28 +3602,106 @@ button:disabled {
   content: '';
 }
 
-.survival-stuck-prompt strong,
-.survival-stuck-prompt div > span {
-  display: block;
-  text-transform: uppercase;
-}
-
-.survival-stuck-prompt strong {
-  color: var(--ui-text);
-  font: 400 var(--ui-text-14)/1 var(--ui-font-display);
-  letter-spacing: 0.06em;
-}
-
-.survival-stuck-prompt div > span {
-  margin-top: 5px;
-  color: var(--ui-signal-strong);
-  font: var(--ui-text-11)/1 var(--ui-font-body);
-}
-
-@keyframes stuck-prompt-in {
+@keyframes prompt-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 10px);
+    transform: translateY(10px);
+  }
+}
+
+/*
+ * Scuttle charge (K): the same driver prompt as the jump, in the danger red the
+ * HUD otherwise saves for a failing vehicle — and clickable, because it is an
+ * offer the player takes rather than a status they read.
+ */
+.survival-scuttle {
+  box-shadow:
+    7px 8px 0 rgb(0 0 0 / 0.45),
+    inset 3px 0 0 var(--ui-danger);
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.survival-scuttle:hover,
+.survival-scuttle:focus-visible {
+  background: var(--ui-danger-dark);
+}
+
+.survival-scuttle strong {
+  color: var(--ui-danger);
+}
+
+.survival-scuttle .survival-prompt__copy > span {
+  color: var(--ui-bone);
+}
+
+/* Hazard chevrons: the charge, ready to go. */
+.survival-scuttle .survival-prompt__icon::before {
+  position: absolute;
+  inset: 6px;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--ui-danger) 0 5px,
+    transparent 5px 10px
+  );
+  content: '';
+}
+
+.survival-scuttle .survival-prompt__icon::after {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  bottom: 15px;
+  left: 15px;
+  background: var(--ui-danger);
+  content: '';
+  animation: scuttle-live 0.9s steps(2, end) infinite;
+}
+
+@keyframes scuttle-live {
+  50% {
+    background: var(--ui-bone);
+  }
+}
+
+/*
+ * The verdict, held on screen for the length of the blast: the charge decided
+ * the run the instant it went off, and this says which way before the card
+ * that follows does.
+ */
+.survival-scuttle-banner {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  z-index: 19;
+  padding: 10px 20px;
+  border: 1px solid var(--ui-danger);
+  background: var(--panel-bg-strong);
+  box-shadow: 7px 8px 0 rgb(0 0 0 / 0.45);
+  color: var(--ui-danger);
+  font: 400 var(--ui-text-16)/1.2 var(--ui-font-display);
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  text-align: center;
+  text-transform: uppercase;
+  transform: translateX(-50%);
+  animation: scuttle-banner-in 160ms steps(3, end);
+}
+
+.survival-scuttle-banner[hidden] {
+  display: none;
+}
+
+.survival-scuttle-banner.is-clear {
+  border-color: var(--ui-signal-strong);
+  color: var(--ui-signal-strong);
+}
+
+@keyframes scuttle-banner-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
   }
 }
 

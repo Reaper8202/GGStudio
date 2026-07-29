@@ -134,6 +134,21 @@ helpers. `core` stays engine- and browser-independent.
   an in-run Editor backed by the same checkpoint. Without repair, both choices
   produce equivalent next-wave vehicle state.
 
+### Scuttle Charge
+
+- **Scuttle Charge**: the self-destruct (`K`), owned by `SurvivalMode`. It arms
+  and latches the first time a wheel Placed Part is destroyed or detached, and
+  fires only during a live wave.
+- Blast reach and damage scale with the litres still in the tanks, so fuel is
+  both range and last resort. The live reach is quoted on the prompt.
+- Detonating kills zombies in that radius, then scuttles the Runtime Vehicle.
+  Zombie deaths resolve wave completion synchronously, so the run's outcome is
+  decided on the detonation step: a wave left empty clears, anything else is
+  Failure.
+- A cleared scuttle skips the wave-clear card and goes straight to the Build
+  Phase on the pre-blast surviving IDs and HP — the wreck is towed in. It banks
+  the wave's pending reward like any clear, but awards no badges.
+
 ### Failure, Reset, and Save
 
 - Failure and Reset Wave restore the failed wave's starting checkpoint and
