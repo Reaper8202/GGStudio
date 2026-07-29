@@ -180,10 +180,11 @@ describe('hybrid weapon input', () => {
       0.1,
     );
 
-    // Player-aimed turrets slew at MANUAL_TURRET_YAW_RATE (14 rad/s) over 0.1s.
-    expect(overridden.yaw).toBeCloseTo(1.4);
+    // Turrets hunting their own targets slew at TURRET_YAW_RATE (3.2 rad/s)
+    // over 0.1s; only the player's own aim override slews faster than that.
+    expect(overridden.yaw).toBeCloseTo(0.32);
     expect(overridden.shotsFired).toBe(0);
-    expect(global.yaw).toBeCloseTo(-1.4);
+    expect(global.yaw).toBeCloseTo(-0.32);
     expect(global.shotsFired).toBe(1);
     expect(result.shots).toHaveLength(1);
 
@@ -310,9 +311,9 @@ describe('hybrid weapon input', () => {
     }
     expect(volleys).toBe(12);
 
-    // And it reverts the moment the overcharge lapses.
-    fire(hellfire.durationSeconds);
-    const cooled = fire(1 / def.fireRate).shots;
+    // And it reverts the moment the overcharge lapses: the step that burns off
+    // the last of it already fires a stock volley.
+    const cooled = fire(hellfire.durationSeconds).shots;
     expect(weapon.overcharge).toBeNull();
     expect(cooled[0].damage).toBeCloseTo(def.damage);
     expect(cooled.every((shot) => shot.overcharged)).toBe(false);

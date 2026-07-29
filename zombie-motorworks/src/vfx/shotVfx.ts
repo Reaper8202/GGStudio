@@ -3,15 +3,62 @@
  *
  * Kept as pure functions so both survival and the test chamber classify shots
  * identically, and so the mapping is unit-testable without a Three.js scene.
- * The runtime deliberately does not carry a "muzzle style" field: how a weapon
- * looks is a presentation decision derived from what it does.
+ * Runtime carries an ordinary catalog id; this layer owns the visual mapping.
  */
 
 import type { DamageType } from '../core/types.ts';
 import type { ImpactVfxKind, MuzzleVfxStyle } from './VfxSystem.ts';
 
+type WeaponAppearanceId =
+  'turret' | 'cannon-heavy' | 'ice-cannon' | 'sniper-light' | 'flamethrower';
+
+interface WeaponImpactKinds {
+  readonly zombie: ImpactVfxKind;
+  readonly terrain: ImpactVfxKind;
+  readonly shield: ImpactVfxKind;
+}
+
+const WEAPON_MUZZLES: Readonly<Record<WeaponAppearanceId, MuzzleVfxStyle>> = {
+  turret: 'turret',
+  'cannon-heavy': 'cannon-heavy',
+  'ice-cannon': 'ice-cannon',
+  'sniper-light': 'sniper-light',
+  flamethrower: 'flamethrower',
+};
+
+const WEAPON_IMPACTS: Readonly<Record<WeaponAppearanceId, WeaponImpactKinds>> =
+  {
+    turret: {
+      zombie: 'turret-zombie',
+      terrain: 'turret-terrain',
+      shield: 'turret-shield',
+    },
+    'cannon-heavy': {
+      zombie: 'cannon-heavy-zombie',
+      terrain: 'cannon-heavy-terrain',
+      shield: 'cannon-heavy-shield',
+    },
+    'ice-cannon': {
+      zombie: 'ice-cannon-zombie',
+      terrain: 'ice-cannon-terrain',
+      shield: 'ice-cannon-shield',
+    },
+    'sniper-light': {
+      zombie: 'sniper-light-zombie',
+      terrain: 'sniper-light-terrain',
+      shield: 'sniper-light-shield',
+    },
+    flamethrower: {
+      zombie: 'flamethrower-zombie',
+      terrain: 'flamethrower-terrain',
+      shield: 'flamethrower-shield',
+    },
+  };
+
 /** The parts of a `TracerShot` that presentation cares about. */
 export interface ShotAppearance {
+  /** Required on runtime shots; optional here keeps old presentation fixtures valid. */
+  readonly weaponDefId?: string;
   readonly damageType: DamageType;
   readonly damage: number;
   readonly slowFactor: number;
@@ -24,14 +71,26 @@ export interface ShotAppearance {
 }
 
 /**
- * Barrel character. Thresholds sit well clear of the fully upgraded damage of
- * the tier below (a maxed turret reaches ~5, a maxed cannon ~63), so an
- * upgrade never silently changes a weapon's muzzle.
+ * Map only known catalog weapons. An explicit unknown id has the documented
+ * turret fallback; absent ids take the legacy number-based path for old test
+ * fixtures and external adapters that predate `TracerShot.weaponDefId`.
  */
-export function muzzleStyleForShot(shot: ShotAppearance): MuzzleVfxStyle {
-  if (shot.damageType === 'aoe') {
-    return shot.overcharged ? 'hellfire' : 'flame';
+function weaponAppearanceId(weaponDefId: string): WeaponAppearanceId {
+  if (Object.prototype.hasOwnProperty.call(WEAPON_MUZZLES, weaponDefId)) {
+    return weaponDefId as WeaponAppearanceId;
   }
+  return 'turret';
+}
+
+/** Barrel character is keyed by the firing part, never by upgraded damage. */
+export function muzzleStyleForShot(shot: ShotAppearance): MuzzleVfxStyle {
+  // Overcharge outranks the per-weapon barrel: a Hellfire nozzle has to read as
+  // a different fire, not as a louder flamethrower.
+  if (shot.damageType === 'aoe' && shot.overcharged) return 'hellfire';
+  if (shot.weaponDefId !== undefined) {
+    return WEAPON_MUZZLES[weaponAppearanceId(shot.weaponDefId)];
+  }
+  if (shot.damageType === 'aoe') return 'flame';
   if (shot.slowFactor > 0) return 'ice';
   if (shot.damage < 20) return 'standard';
   return shot.damageType === 'hitscan' ? 'sniper' : 'heavy';
@@ -55,23 +114,35 @@ export function tracerStyleForShot(
 
 /**
  * What the shot terminated against, or null when it simply ran out of range in
- * mid-air and should leave nothing behind. `shielded` is the phone-addict
- * bubble outcome, which ricochets rather than wounds.
+ * mid-air and should leave nothing behind. Shield impacts retain the firing
+ * weapon's accent rather than replacing it with a generic effect.
  */
 export function impactKindForShot(
   shot: ShotAppearance,
   shielded: boolean,
 ): ImpactVfxKind | null {
   const landed = shot.hitZombieHandle !== null || shot.hitSurface;
-  // Flame washes around the phone addict's bubble at full strength, and it
-  // sets light to headstones as readily as to zombies — one effect for both.
-  if (shot.damageType === 'aoe') {
-    if (!landed) return null;
-    return shot.overcharged ? 'hellburn' : 'burn';
+  if (!landed) return null;
+
+  // Overcharge outranks the per-weapon impact, as it does the muzzle. Flame
+  // washes around the phone addict's bubble at full strength, and it sets light
+  // to headstones as readily as to zombies — one effect for both.
+  if (shot.damageType === 'aoe' && shot.overcharged) return 'hellburn';
+
+  if (shot.weaponDefId !== undefined) {
+    const kinds = WEAPON_IMPACTS[weaponAppearanceId(shot.weaponDefId)];
+    if (shot.hitZombieHandle !== null) {
+      return shielded ? kinds.shield : kinds.zombie;
+    }
+    return kinds.terrain;
   }
+
+  // Legacy appearance inputs did not have a catalog id. Keep their previous
+  // classification so downstream adapters can migrate without visual breakage.
+  if (shot.damageType === 'aoe') return 'burn';
   if (shot.hitZombieHandle !== null) {
     if (shielded) return 'shield';
     return shot.slowFactor > 0 ? 'ice' : 'flesh';
   }
-  return shot.hitSurface ? 'hard' : null;
+  return 'hard';
 }

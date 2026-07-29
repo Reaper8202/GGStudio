@@ -91,8 +91,9 @@ describe('unlimited weapons', () => {
     const cannon = createWeapon(cannonPart);
     const attached = new Set([cannon.partId]);
 
-    // No target acquisition exists for a manual weapon: with the trigger up it
-    // simply holds, whatever is in front of it.
+    // No auto-aim entry is supplied here, so the cannon falls back to the
+    // shared input: with the trigger up it simply holds, whatever is in front
+    // of it.
     const held = stepWeapons(
       world,
       assembled,

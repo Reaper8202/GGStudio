@@ -1,0 +1,190 @@
+/* Top-centre wave strip. It floats over the road, so it stays panel-less and
+   leans on the ink outline below for legibility instead of a filled card. */
+.wave-timeline {
+  --wave-timeline-outline:
+    -1px 0 0 var(--ui-ink), 1px 0 0 var(--ui-ink), 0 -1px 0 var(--ui-ink),
+    0 1px 0 var(--ui-ink), 0 2px 0 rgb(0 0 0 / 0.5);
+
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 16;
+  display: grid;
+  width: min(360px, calc(100vw - 20px));
+  gap: 7px;
+  font-family: var(--ui-font-display);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.wave-timeline * {
+  pointer-events: none;
+}
+
+.wave-timeline__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+}
+
+.wave-timeline__group {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.wave-timeline__group--end {
+  justify-items: end;
+  text-align: right;
+}
+
+.wave-timeline__wave,
+.wave-timeline__score {
+  font: 400 var(--ui-text-20)/1 var(--ui-font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+  text-shadow: var(--wave-timeline-outline);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.wave-timeline__wave {
+  color: var(--ui-text);
+}
+
+.wave-timeline__score {
+  color: var(--ui-bone);
+}
+
+.wave-timeline__cleared,
+.wave-timeline__caption {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  letter-spacing: 0.07em;
+  text-shadow: var(--wave-timeline-outline);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Same recessed track as the driver HUD meters. */
+.wave-timeline__bar {
+  height: 10px;
+  padding: 2px;
+  background: var(--ui-recess);
+  box-shadow:
+    inset 2px 2px 0 var(--ui-black),
+    0 0 0 1px var(--ui-edge),
+    2px 3px 0 rgb(0 0 0 / 0.45);
+}
+
+.wave-timeline__fill {
+  display: block;
+  width: 0%;
+  height: 100%;
+  background: var(--ui-signal);
+  transition: width 100ms steps(4, end);
+}
+
+/* One icon per wave, linked by a connector so the row reads as a route. */
+.wave-timeline__rail {
+  --wave-timeline-plate: 20px;
+  --wave-timeline-icon: 13px;
+  --wave-timeline-link-gap: 3px;
+
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: center;
+}
+
+.wave-timeline__slot {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  height: var(--wave-timeline-plate);
+  place-items: center;
+  color: var(--ui-text-muted);
+}
+
+/* Runs from this icon to the next one's centre; the last slot ends the rail. */
+.wave-timeline__slot::after {
+  position: absolute;
+  top: 50%;
+  right: calc(
+    var(--wave-timeline-plate) / 2 + var(--wave-timeline-link-gap) - 50%
+  );
+  left: calc(
+    50% + var(--wave-timeline-plate) / 2 + var(--wave-timeline-link-gap)
+  );
+  height: 2px;
+  content: '';
+  background: var(--ui-text-faint);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.5);
+  transform: translateY(-1px);
+}
+
+.wave-timeline__slot:last-child::after {
+  display: none;
+}
+
+.wave-timeline__mark {
+  display: grid;
+  width: var(--wave-timeline-plate);
+  height: var(--wave-timeline-plate);
+  place-items: center;
+  filter: drop-shadow(1px 1px 0 var(--ui-ink));
+}
+
+.wave-timeline__mark svg {
+  display: block;
+  width: var(--wave-timeline-icon);
+  height: var(--wave-timeline-icon);
+  color: currentcolor;
+  shape-rendering: crispedges;
+}
+
+.wave-timeline__slot--threat {
+  color: var(--ui-bone);
+}
+
+.wave-timeline__slot--boss {
+  color: var(--ui-danger);
+}
+
+/* Cleared waves keep their own icon but recede, and their link reads as done. */
+.wave-timeline__slot--past {
+  color: var(--ui-text-faint);
+}
+
+.wave-timeline__slot--past::after {
+  background: var(--ui-signal-dark);
+}
+
+/* The running wave is the only plated icon, so the eye lands on it first. */
+.wave-timeline__slot--current {
+  color: var(--ui-black);
+}
+
+.wave-timeline__slot--current .wave-timeline__mark {
+  background: var(--ui-signal-strong);
+  box-shadow: 2px 2px 0 rgb(0 0 0 / 0.45);
+  filter: none;
+}
+
+@media (max-width: 420px) {
+  .wave-timeline {
+    top: 8px;
+    gap: 6px;
+  }
+
+  .wave-timeline__wave,
+  .wave-timeline__score {
+    font-size: var(--ui-text-16);
+  }
+
+  .wave-timeline__rail {
+    --wave-timeline-plate: 18px;
+    --wave-timeline-icon: 12px;
+  }
+}

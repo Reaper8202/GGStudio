@@ -1,8 +1,17 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import type { DamageType, MeleeDefinition } from '../../core/types.ts';
+import type {
+  DamageType,
+  MeleeDefinition,
+  PlowDefinition,
+} from '../../core/types.ts';
 import { empShieldLeak } from '../../core/turretModules.ts';
-import type { RuntimePart } from '../../runtime/assembler.ts';
+import { rotateVec } from '../../core/grid.ts';
+import {
+  GROUP_TERRAIN,
+  GROUP_VEHICLE,
+  type RuntimePart,
+} from '../../runtime/assembler.ts';
 import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
 import { vehicleImpactMassFactor } from '../../core/mass.ts';
 import type { MeleeVfxKind, VfxSystem } from '../../vfx/VfxSystem.ts';
@@ -20,13 +29,22 @@ import {
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
   LANDMINE_BLAST_RADIUS,
-  LANDMINE_DAMAGE,
   LANDMINE_TRIGGER_RADIUS,
   LETHAL_IMPACT_SPEED,
   MAXIMUM_SWARM_DRAG,
   MIN_IMPACT_SPEED,
   MIN_SPAWN_DISTANCE_FROM_VEHICLE,
-  PROJECTILE_DAMAGE,
+  PLOW_CRUSH_COOLDOWN_SECONDS,
+  PLOW_HEIGHT_TOLERANCE_M,
+  PLOW_HOLD_SECONDS,
+  PLOW_MIN_CARRY_SPEED_MPS,
+  PLOW_SLOT_MAX_SPEED,
+  PLOW_SLOT_STIFFNESS,
+  PLOW_WALL_PROBE_M,
+  PLOW_WALL_PROBE_PER_SPEED,
+  plowCrushDamage,
+  plowSlots,
+  type PlowSlot,
   PROJECTILE_HIT_RADIUS,
   PROJECTILE_LAUNCH_HEIGHT,
   SEPARATION_RADIUS,
@@ -41,6 +59,7 @@ import {
   ZOMBIE_POOL_SIZE,
   ZOMBIE_RADIUS,
 } from './zombieConfig.ts';
+import { devTuning } from '../devtuning/DevTuning.ts';
 
 interface VehiclePartAnchor {
   readonly partId: string;
@@ -53,7 +72,47 @@ interface VehiclePartAnchor {
   worldZ: number;
 }
 
+/**
+ * One fitted bulldozer blade, resolved once at assembly. The blade's own
+ * balance lives on the part definition; what is cached here is the geometry the
+ * per-step scoop needs — which way the blade faces, and whether it has slammed
+ * recently.
+ */
+interface PlowBlade {
+  readonly anchor: VehiclePartAnchor;
+  readonly plow: PlowDefinition;
+  /** Where each body in a full load rides; see {@link plowSlots}. */
+  readonly slots: readonly PlowSlot[];
+  /** Contact damage a carried zombie takes per impact tick. */
+  readonly scrapeDamage: number;
+  /** Blade forward in vehicle-local space, from the part's placed orientation. */
+  readonly localForwardX: number;
+  readonly localForwardZ: number;
+  crushCooldown: number;
+}
+
+/**
+ * The wall probe only wants scenery. Terrain colliders accept every membership,
+ * so the query rides in as the vehicle and masks everything except terrain —
+ * which also means the blade's own colliders, and the pile of zombies stacked
+ * against it, cannot block the ray.
+ */
+const PLOW_PROBE_GROUPS = (GROUP_VEHICLE << 16) | GROUP_TERRAIN;
+/** Keeps the horizontal probe clear of the ground slab under a squatting rig. */
+const PLOW_PROBE_MIN_HEIGHT = 0.6;
+
 export type ZombieHitResult = 'miss' | 'shielded' | 'damaged' | 'killed';
+
+export interface ZombieDamageReport {
+  /** Stable collider handle for the hit zombie. */
+  targetKey: number;
+  /** Damage after mitigation, including Phone Addict shield leakage. */
+  amount: number;
+  x: number;
+  y: number;
+  z: number;
+  killed: boolean;
+}
 
 /**
  * Pack integer grid coordinates into one number for the separation buckets.
@@ -84,7 +143,24 @@ const DISTANT_TARGET_RESCAN_STEPS = 8;
 function meleeVfxKindFor(visual: string | undefined): MeleeVfxKind {
   if (visual === 'blade') return 'blade';
   if (visual === 'spikes') return 'spikes';
+  // A plough blade has no teeth and no edge — it shoves, so it reads as a ram.
+  if (visual === 'plow') return 'ram';
   return 'drum';
+}
+
+/** Rotate a vector by a Rapier body rotation (unit quaternion). */
+function rotateByQuaternion(
+  v: { x: number; y: number; z: number },
+  q: { x: number; y: number; z: number; w: number },
+): { x: number; y: number; z: number } {
+  const tx = 2 * (q.y * v.z - q.z * v.y);
+  const ty = 2 * (q.z * v.x - q.x * v.z);
+  const tz = 2 * (q.x * v.y - q.y * v.x);
+  return {
+    x: v.x + q.w * tx + q.y * tz - q.z * ty,
+    y: v.y + q.w * ty + q.z * tx - q.x * tz,
+    z: v.z + q.w * tz + q.x * ty - q.y * tx,
+  };
 }
 
 /** Pooled zombie AI, handle routing, vehicle contacts, and spawn selection. */
@@ -103,6 +179,18 @@ export class ZombieSystem {
   private readonly vehicleAnchors: VehiclePartAnchor[] = [];
   /** Anchor lookup for the staggered far-field targeting path. */
   private readonly anchorByPartId = new Map<string, VehiclePartAnchor>();
+  /** Fitted bulldozer blades; empty on every rig that carries none. */
+  private readonly plowBlades: PlowBlade[] = [];
+  /** 1 while a blade is carrying this zombie, so the ram path leaves it alone. */
+  private readonly plowHeld = new Uint8Array(ZOMBIE_POOL_SIZE);
+  /** The load one blade is carrying this step; reused across blades and steps. */
+  private readonly plowPile: Zombie[] = [];
+  /** Distance ahead of the blade, so the pile can be sorted without recomputing. */
+  private readonly plowDepth = new Float32Array(ZOMBIE_POOL_SIZE);
+  private readonly plowRay = new RAPIER.Ray(
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 0, z: 1 },
+  );
   /** Chassis origin this step, for the cheap near/far targeting test. */
   private vehicleCentreX = 0;
   private vehicleCentreZ = 0;
@@ -116,6 +204,15 @@ export class ZombieSystem {
   private readonly fallbackGeometry: THREE.CapsuleGeometry;
   private readonly projectiles: ThrowerProjectiles;
   private readonly landmines: Landmines;
+  /** Reused because this callback runs on the fixed-step combat path. */
+  private readonly damageReport: ZombieDamageReport = {
+    targetKey: 0,
+    amount: 0,
+    x: 0,
+    y: 0,
+    z: 0,
+    killed: false,
+  };
   private readonly tryProjectileImpact = (
     x: number,
     y: number,
@@ -129,7 +226,10 @@ export class ZombieSystem {
       const dy = anchor.worldY - y;
       const dz = anchor.worldZ - z;
       if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
-      this.vehicle.applyDirectDamage(anchor.partId, PROJECTILE_DAMAGE);
+      this.vehicle.applyDirectDamage(
+        anchor.partId,
+        devTuning.specialist.projectileDamage,
+      );
       return true;
     }
     return false;
@@ -163,7 +263,10 @@ export class ZombieSystem {
       const dy = anchor.worldY - y;
       const dz = anchor.worldZ - z;
       if (dx * dx + dy * dy + dz * dz > blastRadiusSq) continue;
-      this.vehicle.applyDirectDamage(anchor.partId, LANDMINE_DAMAGE);
+      this.vehicle.applyDirectDamage(
+        anchor.partId,
+        devTuning.specialist.landmineDamage,
+      );
     }
     return detonated;
   };
@@ -174,10 +277,11 @@ export class ZombieSystem {
   private bossDefinition: BossDefinition | null = null;
   private mineRevealRadiusM = 0;
   private currentWave = 1;
+  private damageListener: ((report: ZombieDamageReport) => void) | null = null;
   private disposed = false;
 
   constructor(
-    world: RAPIER.World,
+    private readonly world: RAPIER.World,
     scene: THREE.Scene,
     private readonly spawnPoints: readonly THREE.Vector3[],
     private readonly vehicle: RuntimeVehicle,
@@ -247,6 +351,22 @@ export class ZombieSystem {
     return null;
   }
 
+  /**
+   * Dev-tuner live apply: recompute every living zombie's stats from the current
+   * tuning + stored wave multipliers, preserving each one's health fraction.
+   * New spawns already read the tuning, so this only touches those on the field.
+   */
+  reapplyTuningToAlive(): void {
+    for (const zombie of this.pool) {
+      if (!zombie.isAlive) continue;
+      zombie.reapplyStats(
+        this.healthMultiplier,
+        this.speedMultiplier,
+        this.attackDamageMultiplier,
+      );
+    }
+  }
+
   getActiveCount(): number {
     let count = 0;
     for (const zombie of this.pool) if (zombie.isAlive) count++;
@@ -272,6 +392,13 @@ export class ZombieSystem {
       1,
       Math.floor(Number.isFinite(wave) ? wave : 1),
     );
+  }
+
+  /** Report every damage event without making gameplay depend on presentation. */
+  setDamageListener(
+    listener: ((report: ZombieDamageReport) => void) | null,
+  ): void {
+    this.damageListener = listener;
   }
 
   /** Pass-through for the minimap. */
@@ -353,6 +480,10 @@ export class ZombieSystem {
       this.updateWatchdog(zombie, dt);
     }
 
+    // Blades run first: whatever they take hold of is carried rather than
+    // rammed, and the contact pass below has to know that before it decides
+    // what a touch is worth.
+    this.processPlowBlades(this.activeScratch, dt);
     this.processVehicleContacts(this.activeScratch, dt);
     this.projectiles.update(dt, this.tryProjectileImpact);
     const vehiclePosition = this.vehicle.body.translation();
@@ -601,14 +732,16 @@ export class ZombieSystem {
     // damage continues to wash around it at full strength.
     if (zombie.kind === 'phone-addict' && damageType !== 'aoe') {
       zombie.flashShield();
-      const killed = zombie.takeDamage(
-        damage * empShieldLeak(empLevel),
-        direction,
-      );
+      const appliedDamage = damage * empShieldLeak(empLevel);
+      const wasTargetable = zombie.isTargetable;
+      const killed = zombie.takeDamage(appliedDamage, direction);
+      if (wasTargetable) this.reportZombieDamage(zombie, appliedDamage, killed);
       if (killed) this.rebuildAliveTargets();
       return killed ? 'killed' : 'shielded';
     }
+    const wasTargetable = zombie.isTargetable;
     const killed = zombie.takeDamage(damage, direction);
+    if (wasTargetable) this.reportZombieDamage(zombie, damage, killed);
     if (killed) this.rebuildAliveTargets();
     return killed ? 'killed' : 'damaged';
   }
@@ -635,7 +768,8 @@ export class ZombieSystem {
     let hit = 0;
     let killedAny = false;
     for (const zombie of this.aliveTargets) {
-      if (skipHandle !== null && zombie.collider.handle === skipHandle) continue;
+      if (skipHandle !== null && zombie.collider.handle === skipHandle)
+        continue;
       const dx = zombie.position.x - x;
       const dy = zombie.position.y - y;
       const dz = zombie.position.z - z;
@@ -650,7 +784,9 @@ export class ZombieSystem {
       this.blastDirection.x = dx / distance;
       this.blastDirection.y = 0;
       this.blastDirection.z = dz / distance;
-      if (zombie.takeDamage(damage, this.blastDirection)) killedAny = true;
+      const killed = zombie.takeDamage(damage, this.blastDirection);
+      this.reportZombieDamage(zombie, damage, killed);
+      if (killed) killedAny = true;
     }
     if (killedAny) this.rebuildAliveTargets();
     return hit;
@@ -678,6 +814,9 @@ export class ZombieSystem {
     this.separationX.fill(0);
     this.separationZ.fill(0);
     this.watchdogTimer.fill(0);
+    this.plowHeld.fill(0);
+    this.plowPile.length = 0;
+    for (const blade of this.plowBlades) blade.crushCooldown = 0;
   }
 
   dispose(): void {
@@ -691,9 +830,34 @@ export class ZombieSystem {
     this.activeScratch.length = 0;
     this.aliveTargets.length = 0;
     this.vehicleAnchors.length = 0;
+    this.plowBlades.length = 0;
+    this.plowPile.length = 0;
+    this.damageListener = null;
     this.anchorByPartId.clear();
     this.separationBuckets.clear();
     this.fallbackGeometry.dispose();
+  }
+
+  /** The listener consumes synchronously, so one report object is enough for every hit. */
+  private reportZombieDamage(
+    zombie: Zombie,
+    amount: number,
+    killed: boolean,
+  ): void {
+    const listener = this.damageListener;
+    if (
+      typeof listener !== 'function' ||
+      !Number.isFinite(amount) ||
+      amount <= 0
+    )
+      return;
+    this.damageReport.targetKey = zombie.collider.handle;
+    this.damageReport.amount = amount;
+    this.damageReport.x = zombie.position.x;
+    this.damageReport.y = zombie.position.y;
+    this.damageReport.z = zombie.position.z;
+    this.damageReport.killed = killed;
+    listener(this.damageReport);
   }
 
   private buildVehicleAnchors(): void {
@@ -720,6 +884,22 @@ export class ZombieSystem {
       };
       this.vehicleAnchors.push(anchor);
       this.anchorByPartId.set(partId, anchor);
+
+      const plow = part.def.melee?.plow;
+      if (plow === undefined) continue;
+      // The part's placed orientation is what points the blade; the vehicle's
+      // own rotation is folded in per step, where it is already being read.
+      const forward = rotateVec(part.placed.orient, { x: 0, y: 0, z: 1 });
+      const length = Math.hypot(forward.x, forward.z) || 1;
+      this.plowBlades.push({
+        anchor,
+        plow,
+        slots: plowSlots(plow),
+        scrapeDamage: part.def.melee?.damage ?? 0,
+        localForwardX: forward.x / length,
+        localForwardZ: forward.z / length,
+        crushCooldown: 0,
+      });
     }
   }
 
@@ -894,6 +1074,223 @@ export class ZombieSystem {
     }
   }
 
+  /**
+   * Bulldozer blades: scoop, carry, and slam.
+   *
+   * Each blade takes hold of everything inside the box in front of it, up to
+   * its capacity, and carries that load at the rig's own velocity — every body
+   * steered onto its own slot in the lattice of ranks ahead of the blade, so
+   * the load packs into a pile instead of shedding off the ends. Pinning them
+   * all against the blade face instead would put several bodies in the same
+   * place, and the solver's answer to that is to squirt them out sideways. A
+   * carried zombie takes only the blade's (deliberately feeble) contact damage;
+   * the ram it would normally have eaten is suppressed by {@link plowHeld}.
+   *
+   * The payoff is the slam. When the blade is closing on scenery fast enough
+   * with a load on it, every body in that load takes the crush at once, scaled
+   * by the closing speed and by how many are packed in there with it.
+   */
+  private processPlowBlades(active: readonly Zombie[], dt: number): void {
+    if (this.plowBlades.length === 0) return;
+    this.plowHeld.fill(0);
+
+    const velocity = this.vehicle.body.linvel();
+    const rotation = this.vehicle.body.rotation();
+    for (const blade of this.plowBlades) {
+      blade.crushCooldown = Math.max(0, blade.crushCooldown - dt);
+      const part = blade.anchor.part;
+      if (!part.alive || part.detached || part.health <= 0) continue;
+
+      // Blade forward in world space. Only the horizontal part matters: the
+      // load rides on the ground however the rig is pitched.
+      const local = { x: blade.localForwardX, y: 0, z: blade.localForwardZ };
+      const world = rotateByQuaternion(local, rotation);
+      const forwardLength = Math.hypot(world.x, world.z);
+      if (forwardLength < 1e-4) continue;
+      const forwardX = world.x / forwardLength;
+      const forwardZ = world.z / forwardLength;
+      // Left of forward, for the lateral test and for placing the slots.
+      const sideX = -forwardZ;
+      const sideZ = forwardX;
+
+      // A blade only ploughs while it is going somewhere. Parked, it would
+      // otherwise hold a crowd the depth of its whole catch zone harmlessly
+      // frozen on the nose without ever paying for it in a slam.
+      const closingSpeed = velocity.x * forwardX + velocity.z * forwardZ;
+      if (closingSpeed < PLOW_MIN_CARRY_SPEED_MPS) continue;
+
+      const pile = this.gatherPile(blade, active, forwardX, forwardZ);
+      if (pile.length === 0) continue;
+
+      for (let i = 0; i < pile.length; i++) {
+        const zombie = pile[i];
+        this.plowHeld[zombie.index] = 1;
+        // The pile arrives sorted front rank first, so slot i is this body's
+        // place: steer it there rather than shoving it at the blade face.
+        const slot = blade.slots[i];
+        const targetX =
+          blade.anchor.worldX + forwardX * slot.depth + sideX * slot.lateral;
+        const targetZ =
+          blade.anchor.worldZ + forwardZ * slot.depth + sideZ * slot.lateral;
+        let steerX = (targetX - zombie.position.x) * PLOW_SLOT_STIFFNESS;
+        let steerZ = (targetZ - zombie.position.z) * PLOW_SLOT_STIFFNESS;
+        // Capped, so a body caught out on the tip is drawn in rather than
+        // slung across the front of the blade and out the other side.
+        const steer = Math.hypot(steerX, steerZ);
+        if (steer > PLOW_SLOT_MAX_SPEED) {
+          const scale = PLOW_SLOT_MAX_SPEED / steer;
+          steerX *= scale;
+          steerZ *= scale;
+        }
+        zombie.holdOnPlow(
+          velocity.x + steerX,
+          velocity.z + steerZ,
+          PLOW_HOLD_SECONDS,
+        );
+        const landed = zombie.applyPlowScrape(blade.scrapeDamage);
+        if (landed === 'ignored') continue;
+        this.reportZombieDamage(
+          zombie,
+          blade.scrapeDamage,
+          landed === 'killed',
+        );
+        this.emitShredVfx(zombie, part.def.melee, forwardX, forwardZ, 0);
+      }
+
+      if (
+        blade.crushCooldown > 0 ||
+        closingSpeed < blade.plow.minCrushSpeedMps
+      ) {
+        continue;
+      }
+      if (!this.wallAhead(blade, forwardX, forwardZ, closingSpeed)) continue;
+      this.crushPile(
+        blade,
+        pile,
+        forwardX,
+        forwardZ,
+        sideX,
+        sideZ,
+        closingSpeed,
+      );
+    }
+  }
+
+  /**
+   * Everything inside one blade's catch box, nearest the blade first, up to its
+   * capacity. Sorting before the cut means a full blade keeps the load already
+   * packed against it and drops the stragglers furthest out front; the overflow
+   * is left to the ordinary contact path, so a blade that is already full stops
+   * protecting the bodies it could not fit on it.
+   */
+  private gatherPile(
+    blade: PlowBlade,
+    active: readonly Zombie[],
+    forwardX: number,
+    forwardZ: number,
+  ): readonly Zombie[] {
+    const pile = this.plowPile;
+    pile.length = 0;
+    const { plow } = blade;
+    for (const zombie of active) {
+      // A frozen zombie belongs to the ice until it thaws, and a body another
+      // blade already has hold of is not caught twice.
+      if (!zombie.isTargetable || zombie.isFrozen) continue;
+      if (this.plowHeld[zombie.index] === 1) continue;
+      // A plough only ploughs from down at ground level: a blade bolted high
+      // on the rig passes over the horde rather than scooping it.
+      if (
+        Math.abs(zombie.position.y - blade.anchor.worldY) >
+        PLOW_HEIGHT_TOLERANCE_M
+      ) {
+        continue;
+      }
+      const dx = zombie.position.x - blade.anchor.worldX;
+      const dz = zombie.position.z - blade.anchor.worldZ;
+      const ahead = dx * forwardX + dz * forwardZ;
+      // Slightly behind the anchor still counts: the anchor is the blade's
+      // centroid, so a body pressed against its face sits close to zero.
+      if (ahead < -ZOMBIE_RADIUS || ahead > plow.reachM) continue;
+      if (Math.abs(dx * -forwardZ + dz * forwardX) > plow.halfWidthM) continue;
+      this.plowDepth[zombie.index] = ahead;
+      pile.push(zombie);
+    }
+    pile.sort((a, b) => this.plowDepth[a.index] - this.plowDepth[b.index]);
+    if (pile.length > plow.capacity) pile.length = plow.capacity;
+    return pile;
+  }
+
+  /**
+   * True when the blade is about to bury its load in scenery. The probe reaches
+   * further the faster the rig is closing, so the crush lands as the pile is
+   * compressed rather than after the collision has already stopped the rig.
+   */
+  private wallAhead(
+    blade: PlowBlade,
+    forwardX: number,
+    forwardZ: number,
+    closingSpeed: number,
+  ): boolean {
+    this.plowRay.origin.x = blade.anchor.worldX;
+    this.plowRay.origin.y = Math.max(
+      blade.anchor.worldY,
+      PLOW_PROBE_MIN_HEIGHT,
+    );
+    this.plowRay.origin.z = blade.anchor.worldZ;
+    this.plowRay.dir.x = forwardX;
+    this.plowRay.dir.y = 0;
+    this.plowRay.dir.z = forwardZ;
+    const reach = PLOW_WALL_PROBE_M + closingSpeed * PLOW_WALL_PROBE_PER_SPEED;
+    return (
+      this.world.castRay(
+        this.plowRay,
+        reach,
+        true,
+        undefined,
+        PLOW_PROBE_GROUPS,
+      ) !== null
+    );
+  }
+
+  /** One slam: the whole load takes it at once and is thrown back off the blade. */
+  private crushPile(
+    blade: PlowBlade,
+    pile: readonly Zombie[],
+    forwardX: number,
+    forwardZ: number,
+    sideX: number,
+    sideZ: number,
+    closingSpeed: number,
+  ): void {
+    const { plow } = blade;
+    const damage = plowCrushDamage(plow, closingSpeed, pile.length);
+    if (damage <= 0) return;
+
+    for (const zombie of pile) {
+      // Thrown back out of the sandwich and off to the side it was caught on,
+      // so the pile scatters instead of collapsing back onto the blade.
+      const dx = zombie.position.x - blade.anchor.worldX;
+      const dz = zombie.position.z - blade.anchor.worldZ;
+      const offset = Math.max(-1, Math.min(1, dx * sideX + dz * sideZ));
+      const awayX = -forwardX + sideX * offset;
+      const awayZ = -forwardZ + sideZ * offset;
+      const landed = zombie.applyPlowCrush(damage, awayX, awayZ);
+      if (landed === 'ignored') continue;
+      this.reportZombieDamage(zombie, damage, landed === 'killed');
+      // A blunt ram burst per body, at full power: the blade has no edge, so
+      // what the player should see is the whole pile going flat at once.
+      this.emitShredVfx(zombie, undefined, awayX, awayZ, LETHAL_IMPACT_SPEED);
+    }
+
+    blade.crushCooldown = PLOW_CRUSH_COOLDOWN_SECONDS;
+    this.vfx?.explosion(
+      blade.anchor.worldX + forwardX * plow.reachM,
+      Math.max(blade.anchor.worldY, PLOW_PROBE_MIN_HEIGHT),
+      blade.anchor.worldZ + forwardZ * plow.reachM,
+      Math.min(3, 1.2 + pile.length * 0.12),
+    );
+  }
+
   private processVehicleContacts(active: readonly Zombie[], dt: number): void {
     // addForce is user-force state in Rapier; clear last step's swarm force
     // even when the final contact just ended. Wheel/weapon runtime uses
@@ -911,6 +1308,10 @@ export class ZombieSystem {
         continue;
       if (zombie.vehicleTarget.distance > ZOMBIE_CONTACT_RADIUS) continue;
       contacts++;
+      // A blade already dealt with this one. It still drags on the rig — a
+      // loaded plough is heavy going — but it has been carried, not rammed,
+      // and the ram damage below would undo the whole point of the blade.
+      if (this.plowHeld[zombie.index] === 1) continue;
 
       // Grinder drums shred on contact regardless of vehicle speed.
       const touchedPart = this.vehicle.assembled.parts.get(
@@ -938,15 +1339,19 @@ export class ZombieSystem {
           : vehicleSpeed >= MIN_IMPACT_SPEED
             ? vehicleSpeed * IMPACT_DAMAGE_PER_SPEED * massFactor
             : 0;
-      const landed = zombie.applyVehicleImpact(
-        Math.max(impactDamage, melee?.damage ?? 0),
-        awayX,
-        awayZ,
-      );
+      const damage = Math.max(impactDamage, melee?.damage ?? 0);
+      // The lethal ram sentinel intentionally bypasses health; display the
+      // remaining health instead of a 16-digit implementation detail.
+      const damageForReport =
+        damage === Number.MAX_SAFE_INTEGER ? zombie.currentHealth : damage;
+      const landed = zombie.applyVehicleImpact(damage, awayX, awayZ);
       // The per-zombie impact cooldown inside applyVehicleImpact is also what
       // paces the shred bursts: a drum touching a packed horde emits once per
       // zombie per cooldown, never once per fixed step.
-      if (landed !== 'ignored') this.emitShredVfx(zombie, melee, awayX, awayZ, vehicleSpeed);
+      if (landed !== 'ignored') {
+        this.reportZombieDamage(zombie, damageForReport, landed === 'killed');
+        this.emitShredVfx(zombie, melee, awayX, awayZ, vehicleSpeed);
+      }
     }
 
     if (contacts === 0) return;

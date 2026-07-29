@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { MinimapFeature } from './Graveyard.ts';
+import type { MinimapFeature } from './arena/Arena.ts';
 
 export interface MinimapBounds {
   minX: number;

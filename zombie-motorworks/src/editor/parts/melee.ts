@@ -50,6 +50,8 @@ export function buildMeleeMesh(
       return buildSpikes(placed, color, opacity);
     case 'blade':
       return buildSawblade(placed, color, opacity);
+    case 'plow':
+      return buildPlow(def, placed, color, opacity);
     default:
       return buildDrum(def, placed, color, opacity);
   }
@@ -211,6 +213,126 @@ function buildSawblade(placed: PlacedPart, color: number, opacity: number): THRE
     tooth.position.set(hubX + Math.cos(angle) * radius, 0, hubZ + Math.sin(angle) * radius);
     group.add(tooth);
   }
+  return group;
+}
+
+/**
+ * Bulldozer Blade: a concave mouldboard spanning the part's three cells, hung
+ * off a full-width back plate by two push arms, with a wing capping each end.
+ *
+ * The shape is the mechanic. Nothing about this part throws a body clear — the
+ * curl of the face and the wings are what keep a load in front of it, so the
+ * silhouette has to say "scoop" rather than "edge" before the player has driven
+ * it into anything.
+ */
+function buildPlow(
+  def: PartDefinition,
+  placed: PlacedPart,
+  color: number,
+  opacity: number,
+): THREE.Group {
+  const s = CELL_SIZE;
+  const group = new THREE.Group();
+  group.name = 'melee-plow';
+  const centre = cellCentreM(placed.pos);
+  group.position.set(centre.x, centre.y, centre.z);
+  // Only the four level turns are allowed for this part: a blade lying on its
+  // side is not a blade.
+  group.quaternion.copy(orientationQuaternion(placed.orient));
+
+  const body = lambert(color, opacity);
+  const steel = lambert(STEEL, opacity);
+  const dark = lambert(DARK_STEEL, opacity);
+  const edge = lambert(BLADE_STEEL, opacity);
+
+  const width = def.cells.length * s * 0.98;
+  const halfWidth = width / 2;
+
+  // The mouldboard, swept as flat strips along an arc in the YZ plane. Each
+  // strip is turned to lie tangent to that arc, so the face reads as one curved
+  // sheet: the lower lip scoops, the top curls forward over whatever it caught.
+  const arcRadius = s * 0.62;
+  const arcCentreY = s * 0.05;
+  const arcCentreZ = s * 0.55;
+  const arcHalfAngle = 0.96;
+  const strips = 7;
+  const stripGeometry = new THREE.BoxGeometry(width, s * 0.26, s * 0.09);
+  for (let i = 0; i < strips; i++) {
+    const angle = -arcHalfAngle + (i / (strips - 1)) * arcHalfAngle * 2;
+    const strip = new THREE.Mesh(stripGeometry, body);
+    strip.position.set(
+      0,
+      arcCentreY + arcRadius * Math.sin(angle),
+      arcCentreZ - arcRadius * Math.cos(angle),
+    );
+    strip.rotation.x = angle;
+    strip.userData.placementSurface = true;
+    group.add(strip);
+  }
+
+  // Cutting edge along the bottom lip, and a rubbing shoe at each end of it.
+  const lipY = arcCentreY - arcRadius * Math.sin(arcHalfAngle);
+  const lipZ = arcCentreZ - arcRadius * Math.cos(arcHalfAngle);
+  const cuttingEdge = new THREE.Mesh(
+    new THREE.BoxGeometry(width, s * 0.18, s * 0.14),
+    edge,
+  );
+  cuttingEdge.position.set(0, lipY - s * 0.1, lipZ + s * 0.06);
+  cuttingEdge.rotation.x = -arcHalfAngle;
+  group.add(cuttingEdge);
+
+  // End wings: the load only stays on the blade because these stop it sliding
+  // off the ends, so they are drawn as real plates rather than trim.
+  const wingGeometry = new THREE.BoxGeometry(s * 0.12, s * 0.86, s * 0.62);
+  for (const side of [-1, 1]) {
+    const wing = new THREE.Mesh(wingGeometry, body);
+    wing.position.set(side * (halfWidth - s * 0.05), s * 0.1, s * 0.12);
+    wing.userData.placementSurface = true;
+    group.add(wing);
+    const capping = new THREE.Mesh(
+      new THREE.BoxGeometry(s * 0.16, s * 0.1, s * 0.66),
+      dark,
+    );
+    capping.position.set(side * (halfWidth - s * 0.05), s * 0.52, s * 0.12);
+    group.add(capping);
+  }
+
+  // Back plate across all three mounting cells, flush with the mounting face.
+  const plate = new THREE.Mesh(
+    new THREE.BoxGeometry(width * 0.96, s * 0.8, s * 0.14),
+    body,
+  );
+  plate.position.z = -s * 0.43;
+  plate.userData.placementSurface = true;
+  group.add(plate);
+  group.add(
+    boltRing({
+      count: 8,
+      radius: s * 0.62,
+      headRadius: s * 0.05,
+      length: s * 0.07,
+      axis: new THREE.Vector3(0, 0, -1),
+      centre: new THREE.Vector3(0, 0, -s * 0.5),
+      opacity,
+    }),
+  );
+
+  // Push arms out to the mouldboard, braced by a rib behind each one.
+  for (const side of [-1, 1]) {
+    const arm = new THREE.Mesh(
+      new THREE.BoxGeometry(s * 0.22, s * 0.24, s * 0.72),
+      steel,
+    );
+    arm.position.set(side * s * 0.5, s * 0.02, -s * 0.06);
+    group.add(arm);
+    const rib = new THREE.Mesh(
+      new THREE.BoxGeometry(s * 0.12, s * 0.62, s * 0.18),
+      dark,
+    );
+    rib.position.set(side * s * 0.5, s * 0.12, s * 0.16);
+    group.add(rib);
+  }
+
   return group;
 }
 

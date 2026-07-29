@@ -49,6 +49,7 @@ declare global {
       survivalTelemetry(): {
         mode: 'survival';
         kills: number;
+        score: number;
         wave: number;
         zombiesAlive: number;
         runMoney: number;
@@ -92,6 +93,10 @@ declare global {
       debugStartWave(wave: number): void;
       debugKillAllZombies(): void;
       forceWaveComplete(): void;
+      /** Destroy the rig outright to reach the game-over screen. */
+      forceGameOver(): void;
+      /** Chip every part to a fraction of max HP, leaving the rig alive. */
+      damageVehicle(fraction: number): void;
       setScenario(s: string): void;
       resetVehicle(): void;
       orient: { yaw90: number; yaw180: number; rollX90: number };

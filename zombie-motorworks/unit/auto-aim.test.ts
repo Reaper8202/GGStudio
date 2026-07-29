@@ -5,14 +5,15 @@ import type { RuntimeWeapon } from '../src/runtime/weapons.ts';
 import { AutoAim } from '../src/survival/AutoAim.ts';
 import type { ZombieSystem } from '../src/survival/zombies/ZombieSystem.ts';
 
-// The Ice Cannon stands in for a generic 360-degree auto turret throughout:
-// the Zombie Blaster and Heavy Cannon are player-aimed and never appear here.
+// The Ice Cannon stands in for a generic 360-degree auto turret throughout;
+// the flamethrower is the one weapon that never acquires a target of its own.
 describe('AutoAim', () => {
   it('targets the nearest body translation and reuses override storage', () => {
     const autoPart = { alive: true, detached: false, health: 100 };
     const manualPart = { alive: true, detached: false, health: 100 };
     const autoWeapon: RuntimeWeapon = {
       partId: 'auto',
+      weaponDefId: 'turret',
       def: { ...PART_CATALOG['ice-cannon'].weapon!, rangeM: 5 },
       mountLocal: { x: 1, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 },
@@ -28,6 +29,7 @@ describe('AutoAim', () => {
     };
     const manualWeapon: RuntimeWeapon = {
       partId: 'manual',
+      weaponDefId: 'turret',
       // A genuinely manual-aim weapon (flamethrower) is excluded from the map.
       def: PART_CATALOG.flamethrower.weapon!,
       mountLocal: { x: 0, y: 0, z: 0 },
@@ -92,6 +94,7 @@ describe('AutoAim', () => {
   it('skips an occluded nearest target for the next visible candidate', () => {
     const autoWeapon: RuntimeWeapon = {
       partId: 'auto',
+      weaponDefId: 'turret',
       def: PART_CATALOG['ice-cannon'].weapon!,
       mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 },
@@ -133,7 +136,7 @@ describe('AutoAim', () => {
 
   it('holds fire when all bounded candidates are occluded', () => {
     const weapon: RuntimeWeapon = {
-      partId: 'auto', def: PART_CATALOG['ice-cannon'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
+      partId: 'auto', weaponDefId: 'ice-cannon', def: PART_CATALOG['ice-cannon'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, pitch: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0, overcharge: null,
     };
     const vehicle = {
@@ -150,7 +153,7 @@ describe('AutoAim', () => {
 
   it('prefers an in-range thrower over a nearer walker for ranged-priority weapons', () => {
     const weapon: RuntimeWeapon = {
-      partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
+      partId: 'sniper', weaponDefId: 'sniper-light', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, pitch: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0, overcharge: null,
     };
     const vehicle = {
@@ -180,6 +183,7 @@ describe('AutoAim', () => {
   it('locks a strongest-priority weapon onto the toughest zombie, not the nearest', () => {
     const cannon: RuntimeWeapon = {
       partId: 'cannon',
+      weaponDefId: 'turret',
       def: {
         ...PART_CATALOG['ice-cannon'].weapon!,
         rangeM: 30,
@@ -211,7 +215,7 @@ describe('AutoAim', () => {
 
   it('holds fire when the only target sits inside the minimum range', () => {
     const weapon: RuntimeWeapon = {
-      partId: 'sniper', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
+      partId: 'sniper', weaponDefId: 'sniper-light', def: PART_CATALOG['sniper-light'].weapon!, mountLocal: { x: 0, y: 0, z: 0 },
       forwardLocal: { x: 0, y: 0, z: 1 }, yaw: 0, pitch: 0, cooldown: 0, cycleTime: 0, shotsFired: 0, label: 'Test Weapon', empLevel: 0, piercingLevel: 0, overcharge: null,
     };
     const vehicle = {
@@ -264,6 +268,7 @@ describe('AutoAim', () => {
 function autoTurret(empLevel: number): RuntimeWeapon {
   return {
     partId: 'auto',
+    weaponDefId: 'turret',
     def: PART_CATALOG['ice-cannon'].weapon!,
     mountLocal: { x: 0, y: 0, z: 0 },
     forwardLocal: { x: 0, y: 0, z: 1 },

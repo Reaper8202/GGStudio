@@ -44,6 +44,14 @@ export interface OverdriveStats {
   cooldownSeconds: number;
 }
 
+/** Resolved phase stats after applying a placed part's upgrade level. */
+export interface PhaseStats {
+  /** Metres the blink covers along the rig's heading. */
+  distanceM: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+}
+
 /** Resolved hellfire stats after applying a placed part's upgrade level. */
 export interface HellfireStats {
   /** Seconds the nozzle stays overcharged. */
@@ -251,8 +259,9 @@ export function effectiveNitro(def: AbilityDefinition, level = 1): NitroStats {
 /**
  * Scales a hellfire ability by the placed part's upgrade level. Each level
  * beyond the first adds half a second of overcharge and a fifth of extra
- * damage; reach, cone, and cooldown are fixed. Level 1 → 6s at ×2.4, level 5 →
- * 8s at ×3.2 (with the default flamethrower payload).
+ * damage; reach, cone, and cooldown are fixed. With the default flamethrower
+ * payload the ability only exists from level 5 (see `unlockLevel`), where it
+ * reads 6s at ×1.9, growing to 6.5s at ×2.1 at level 6.
  */
 export function effectiveHellfire(
   def: AbilityDefinition,
@@ -297,9 +306,114 @@ export function effectiveThump(def: AbilityDefinition, level = 1): ThumpStats {
   };
 }
 
+/**
+ * Scales a phase ability by the placed part's upgrade level. Each level beyond
+ * the first adds a metre of blink; the cooldown is fixed, because reach is the
+ * only thing that can grow without turning a repositioning tool into a way to
+ * cross the arena on demand. Level 1 → 10m, level 5 → 14m (with the default
+ * phase-drive payload).
+ */
+export function effectivePhase(def: AbilityDefinition, level = 1): PhaseStats {
+  return {
+    distanceM: (def.rangeM ?? 0) + upgradeSteps(level),
+    cooldownSeconds: def.cooldownSeconds,
+  };
+}
+
+/** Axis-aligned world footprint a phase blink may not leave. */
+export interface PhaseBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/** Where a phase blink lands, and how far it actually travelled. */
+export interface PhaseDestination {
+  x: number;
+  z: number;
+  /** Metres covered — short of the requested distance when the wall stopped it. */
+  distanceM: number;
+}
+
+/**
+ * Resolve a blink from `from` along `forward` for `distanceM`, stopped by the
+ * arena wall and nothing else. The wall is the one thing a phase cannot pass
+ * through: the trip is clipped to the last point inside the bounds, inset by
+ * `marginM` so the rig lands clear of the fence rather than half inside it.
+ *
+ * The clip is along the ray rather than per axis, so a blink aimed into a
+ * corner stops short instead of sliding sideways along the wall.
+ */
+export function phaseDestination(
+  from: { x: number; z: number },
+  forward: { x: number; z: number },
+  distanceM: number,
+  bounds: PhaseBounds,
+  marginM = 0,
+): PhaseDestination {
+  const length = Math.hypot(forward.x, forward.z);
+  if (length < 1e-6 || distanceM <= 0) {
+    return { x: from.x, z: from.z, distanceM: 0 };
+  }
+  const dirX = forward.x / length;
+  const dirZ = forward.z / length;
+
+  // An arena narrower than two margins has no legal strip left; aim at its
+  // centre line instead of inverting the slab and clipping everything to zero.
+  const [minX, maxX] = insetSpan(bounds.minX, bounds.maxX, marginM);
+  const [minZ, maxZ] = insetSpan(bounds.minZ, bounds.maxZ, marginM);
+
+  let travel = distanceM;
+  travel = Math.min(travel, slabLimit(from.x, dirX, minX, maxX));
+  travel = Math.min(travel, slabLimit(from.z, dirZ, minZ, maxZ));
+  travel = Math.max(0, travel);
+  return {
+    x: from.x + dirX * travel,
+    z: from.z + dirZ * travel,
+    distanceM: travel,
+  };
+}
+
+/** Pull a span in by `margin` on both sides, collapsing to its centre if it runs out. */
+function insetSpan(min: number, max: number, margin: number): [number, number] {
+  if (max - min <= margin * 2) {
+    const centre = (min + max) / 2;
+    return [centre, centre];
+  }
+  return [min + margin, max - margin];
+}
+
+/** How far a ray may travel along one axis before it leaves [min, max]. */
+function slabLimit(
+  origin: number,
+  dir: number,
+  min: number,
+  max: number,
+): number {
+  if (Math.abs(dir) < 1e-6) return Number.POSITIVE_INFINITY;
+  // Starting outside the slab gives a negative limit, which the caller floors
+  // at zero — a rig somehow already past the fence cannot phase further out.
+  return dir > 0 ? (max - origin) / dir : (min - origin) / dir;
+}
+
 /** Upgrade levels past the first, floored at 0 so level 0 reads as level 1. */
 function upgradeSteps(level: number): number {
   return Math.max(0, Math.floor(level) - 1);
+}
+
+/**
+ * Whether a placed part is upgraded far enough to offer its ability. Below the
+ * unlock level the part still works — it simply has nothing to put in the bar
+ * yet, so it is never offered as a loadout candidate.
+ */
+export function abilityUnlocked(def: AbilityDefinition, level = 1): boolean {
+  return Math.max(1, Math.floor(level)) >= abilityUnlockLevel(def);
+}
+
+/** Upgrade level an ability unlocks at; 1 when it ships with the part. */
+export function abilityUnlockLevel(def: AbilityDefinition): number {
+  return Math.max(1, Math.floor(def.unlockLevel ?? 1));
 }
 
 /** Keys that fire the ability bar's slots, left to right. */
@@ -343,6 +457,13 @@ export const ABILITY_KIND_META: Record<
     label: 'Overdrive',
     glyph: '⏵',
     blurb: 'Flood the drivetrain with torque for a burst of ramming speed.',
+  },
+  phase: {
+    label: 'Phase',
+    glyph: '⇥',
+    blurb:
+      'Blink a short way straight ahead, straight through zombies, wrecks and ' +
+      'walls, leaving a trail of after-images behind.',
   },
   hellfire: {
     label: 'Hellfire',

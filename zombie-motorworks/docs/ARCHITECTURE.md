@@ -93,7 +93,8 @@ Locality and creates player-visible disagreement.
 `assembleVehicle` builds one compound dynamic Rapier body for the attached
 vehicle. Non-wheel parts receive colliders; attached wheel colliders contribute
 mass but filter physical contacts. `stepWheels` uses terrain raycasts for spring,
-damping, grip, steering, braking, and drive forces.
+damping, environment-modified grip, load-dependent rolling drag, steering,
+braking, and drive forces.
 
 `RuntimeVehicle` is the deep Module over this machinery. Mode callers provide
 controls and a fixed time step, then consume telemetry, shots, and structural

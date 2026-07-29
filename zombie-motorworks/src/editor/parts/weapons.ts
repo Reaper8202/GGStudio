@@ -20,7 +20,7 @@
 
 import * as THREE from 'three';
 import { CELL_SIZE, type PartDefinition, type PlacedPart } from '../../core/types.ts';
-import { cellCentreM } from '../../core/mass.ts';
+import { cellCentreM, footprintCentreM } from '../../core/mass.ts';
 import {
   DARK_STEEL,
   STEEL,
@@ -31,6 +31,7 @@ import {
   orientationQuaternion,
   shade,
 } from './shared.ts';
+import { addWeaponUpgrades, placedUpgradeLevel } from './upgradeKit.ts';
 
 const GUNMETAL = 0x22262c;
 const FROST = 0x8fe3ff;
@@ -38,6 +39,20 @@ const PILOT_FLAME = 0xffa03a;
 
 /** Group the runtime rotates to the weapon's live aim. */
 export const WEAPON_SWIVEL_NAME = 'weapon-swivel';
+
+/**
+ * How many cells the footprint runs along each horizontal part-local axis.
+ * Every gun but the Heavy Cannon is 1x1, so this only widens that one mount.
+ */
+function footprintSpanCells(def: PartDefinition): { x: number; z: number } {
+  if (def.cells.length === 0) return { x: 1, z: 1 };
+  const xs = def.cells.map((cell) => cell.x);
+  const zs = def.cells.map((cell) => cell.z);
+  return {
+    x: Math.max(...xs) - Math.min(...xs) + 1,
+    z: Math.max(...zs) - Math.min(...zs) + 1,
+  };
+}
 
 export function buildWeaponMesh(
   def: PartDefinition,
@@ -51,28 +66,59 @@ export function buildWeaponMesh(
   group.position.set(centre.x, centre.y, centre.z);
   const orientQuaternion = orientationQuaternion(placed.orient);
 
+  // A gun sits over the middle of the cells it reserves, not over its anchor
+  // cell. Single-cell weapons resolve to zero here; the Heavy Cannon's 2x2
+  // barbette shifts everything to the centre of its pad.
+  const padCentre = footprintCentreM(def, placed);
+  const padOffset = new THREE.Vector3(
+    padCentre.x - centre.x,
+    padCentre.y - centre.y,
+    padCentre.z - centre.z,
+  );
+
   // The mount does not move with the gun: ring and bolts stay bolted to the
   // block below, in the part's placed orientation.
   const mount = new THREE.Group();
+  mount.position.copy(padOffset);
   mount.quaternion.copy(orientQuaternion);
   group.add(mount);
 
-  // Bolted traverse ring: what the whole weapon sits and swings on.
+  // A multi-cell gun gets a plated barbette deck spanning its footprint, so
+  // the cells it reserves read as taken rather than as bare frame with a
+  // turret floating over one corner of them.
+  const span = footprintSpanCells(def);
+  const wide = span.x > 1 || span.z > 1;
+  if (wide) {
+    const deck = boxWithEdges(
+      s * (span.x - 0.06),
+      s * 0.16,
+      s * (span.z - 0.06),
+      shade(color, 0.78),
+      opacity,
+    );
+    deck.position.y = -s * 0.42;
+    mount.add(deck);
+  }
+
+  // Bolted traverse ring: what the whole weapon sits and swings on. It grows
+  // with the mount, so a wide gun swings on a ring that fills its deck.
+  const ringRadius = s * 0.38 * Math.max(span.x, span.z);
+  const ringY = wide ? -s * 0.26 : -s * 0.4;
   const ring = new THREE.Mesh(
-    new THREE.CylinderGeometry(s * 0.38, s * 0.42, s * 0.16, 16),
+    new THREE.CylinderGeometry(ringRadius, ringRadius * 1.1, s * 0.16, wide ? 20 : 16),
     lambert(DARK_STEEL, opacity),
   );
-  ring.position.y = -s * 0.4;
+  ring.position.y = ringY;
   ring.userData.placementSurface = true;
   mount.add(ring);
   mount.add(
     boltRing({
-      count: 8,
-      radius: s * 0.32,
+      count: wide ? 12 : 8,
+      radius: ringRadius * 0.84,
       headRadius: s * 0.04,
       length: s * 0.06,
       axis: new THREE.Vector3(0, 1, 0),
-      centre: new THREE.Vector3(0, -s * 0.33, 0),
+      centre: new THREE.Vector3(0, ringY + s * 0.07, 0),
       phase: Math.PI / 8,
       opacity,
     }),
@@ -84,6 +130,7 @@ export function buildWeaponMesh(
   // placed orientation.
   const swivel = new THREE.Group();
   swivel.name = WEAPON_SWIVEL_NAME;
+  swivel.position.copy(padOffset);
   const hardware = new THREE.Group();
   hardware.quaternion.copy(orientQuaternion);
   swivel.add(hardware);
@@ -106,6 +153,17 @@ export function buildWeaponMesh(
       buildAutocannon(hardware, color, opacity);
       break;
   }
+
+  // Unlocked hardware goes on last, so it can measure the barrel the gun just
+  // built and hang the brake off the real muzzle rather than a guessed one.
+  addWeaponUpgrades(
+    hardware,
+    def.id,
+    placedUpgradeLevel(placed),
+    color,
+    opacity,
+    Math.max(span.x, span.z),
+  );
   return group;
 }
 
@@ -235,43 +293,71 @@ function buildAutocannon(group: THREE.Group, color: number, opacity: number): vo
   group.add(sight);
 }
 
-/** Heavy cannon: thick braked barrel, bore evacuator, recoil cylinders. */
+/**
+ * Heavy cannon: a cast turret filling the 2x2 barbette it is bolted to. Wide
+ * hull with a chamfered roof, a rear stowage bustle counterweighting the tube,
+ * a thick braked barrel with a bore evacuator, recoil cylinders over the
+ * breech, and shell racks down the flanks. Everything is sized against the pad
+ * rather than a single cell — this gun is meant to look like it earns the four
+ * blocks of deck it takes up.
+ */
 function buildHeavyCannon(group: THREE.Group, color: number, opacity: number): void {
   const s = CELL_SIZE;
   const gunmetal = lambert(GUNMETAL, opacity);
   const steel = lambert(STEEL, opacity);
 
-  const receiver = boxWithEdges(s * 0.74, s * 0.56, s * 0.8, color, opacity);
-  receiver.position.y = -s * 0.02;
-  group.add(receiver);
-  // Sloped mantlet: a squat cone reads as a cast gun shield.
+  const hull = boxWithEdges(s * 1.24, s * 0.5, s * 1.18, color, opacity);
+  hull.position.set(0, s * 0.06, -s * 0.04);
+  group.add(hull);
+  const roof = boxWithEdges(s * 0.94, s * 0.24, s * 0.9, shade(color, 0.86), opacity);
+  roof.position.set(0, s * 0.41, -s * 0.08);
+  group.add(roof);
+
+  // Stowage bustle out the back: what keeps a two-metre tube from looking like
+  // it is about to tip the turret over its own front.
+  const bustle = boxWithEdges(s * 0.88, s * 0.34, s * 0.42, shade(color, 0.7), opacity);
+  bustle.position.set(0, s * 0.16, -s * 0.8);
+  group.add(bustle);
+
+  // Sloped mantlet: a squat eight-sided cone reads as a cast gun shield.
   const mantlet = new THREE.Mesh(
-    new THREE.CylinderGeometry(s * 0.26, s * 0.34, s * 0.26, 8),
-    lambert(shade(color, 0.7), opacity),
+    new THREE.CylinderGeometry(s * 0.3, s * 0.46, s * 0.34, 8),
+    lambert(shade(color, 0.68), opacity),
   );
   mantlet.rotation.x = Math.PI / 2;
-  mantlet.position.set(0, s * 0.02, s * 0.44);
+  mantlet.position.set(0, s * 0.1, s * 0.6);
   group.add(mantlet);
 
-  const barrel = pipe(s * 0.075, s * 0.095, s * 2.1, s * 1.4, gunmetal, 14);
+  const barrel = pipe(s * 0.1, s * 0.13, s * 2.3, s * 1.65, gunmetal, 14);
   barrel.name = 'weapon-barrel';
-  barrel.position.y = s * 0.02;
+  barrel.position.y = s * 0.1;
   group.add(barrel);
   // Bore evacuator bulge partway down the tube.
-  const evacuator = pipe(s * 0.15, s * 0.15, s * 0.3, s * 1.0, steel, 12);
-  evacuator.position.y = s * 0.02;
+  const evacuator = pipe(s * 0.2, s * 0.2, s * 0.36, s * 1.3, steel, 12);
+  evacuator.position.y = s * 0.1;
   group.add(evacuator);
 
-  const brake = muzzleBrake(s, s * 0.15, s * 2.34, gunmetal);
-  brake.position.y = s * 0.02;
+  const brake = muzzleBrake(s, s * 0.2, s * 2.68, gunmetal);
+  brake.position.y = s * 0.1;
   group.add(brake);
 
-  // Recoil cylinders flanking the breech.
+  // Recoil cylinders over the breech, shell racks down each flank.
   for (const side of [-1, 1]) {
-    const recoil = pipe(s * 0.06, s * 0.06, s * 0.7, s * 0.6, steel, 8);
-    recoil.position.set(side * s * 0.19, s * 0.22, s * 0.6);
+    const recoil = pipe(s * 0.08, s * 0.08, s * 0.86, s * 0.52, steel, 8);
+    recoil.position.set(side * s * 0.27, s * 0.38, s * 0.52);
     group.add(recoil);
+    const rack = boxWithEdges(s * 0.16, s * 0.3, s * 0.58, shade(color, 0.62), opacity);
+    rack.position.set(side * s * 0.68, s * 0.1, -s * 0.16);
+    group.add(rack);
   }
+
+  // Loader's hatch, offset off the turret centreline like the real thing.
+  const hatch = new THREE.Mesh(
+    new THREE.CylinderGeometry(s * 0.17, s * 0.17, s * 0.08, 10),
+    steel,
+  );
+  hatch.position.set(-s * 0.22, s * 0.55, -s * 0.16);
+  group.add(hatch);
 }
 
 /** Light sniper: long slim tube, big scope, folded bipod. */

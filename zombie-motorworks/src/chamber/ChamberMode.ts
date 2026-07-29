@@ -15,7 +15,13 @@ import {
   type VehicleControls,
 } from '../runtime/vehicle.ts';
 import { lowestPointM, GROUP_TERRAIN, GROUP_ZOMBIE } from '../runtime/assembler.ts';
-import type { SurfaceKind } from '../runtime/surfaces.ts';
+import type { SurfaceKind } from '../core/surfaces.ts';
+import {
+  NEUTRAL_ENVIRONMENT,
+  type BiomeId,
+  type EnvironmentModifiers,
+} from '../core/biomes.ts';
+import { getBiome } from '../survival/arena/recipes/index.ts';
 import { applyWeaponAim, buildPartMesh } from '../editor/meshes.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { ScopeCursor } from '../ui/ScopeCursor.ts';
@@ -34,7 +40,9 @@ export type ScenarioName =
   | 'side-slope'
   | 'bumps'
   | 'zombies'
-  | 'drop';
+  | 'drop'
+  | 'snow'
+  | 'sand';
 
 const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
 const ZOMBIE_GROUPS = (GROUP_ZOMBIE << 16) | 0xffff;
@@ -64,7 +72,28 @@ export class ChamberMode {
   private vfx!: VfxSystem;
   private tracers: { line: THREE.Line; ttl: number }[] = [];
   private scenario: ScenarioName = 'flat';
-  private controls: VehicleControls = { throttle: 0, brake: 0, steer: 0, fire: false, aimYawWorld: 0 };
+  /**
+   * Biome whose handling a scenario is standing in for. A biome is more than
+   * its ground: snow only drifts because the biome also relaxes the
+   * anti-sideslip assist. Replicating the surface alone would let the player
+   * tune a rig here that behaves differently in the real run.
+   */
+  private static readonly SCENARIO_BIOME: Partial<
+    Record<ScenarioName, BiomeId>
+  > = {
+    snow: 'snowfield',
+    sand: 'desert',
+  };
+  // The test chamber has no zombies and so no auto-aim: the player's own aim
+  // is the only aim there is, and the guns follow it at full slew rate.
+  private controls: VehicleControls = {
+    throttle: 0,
+    brake: 0,
+    steer: 0,
+    fire: false,
+    aimYawWorld: 0,
+    manualAim: true,
+  };
   private keys = new Set<string>();
   private accumulator = 0;
   private lastTime = performance.now();
@@ -197,6 +226,19 @@ export class ChamberMode {
       case 'drop':
         this.ground(0, 3.2, 14, 6, 0.3, 10, 'asphalt', 0x4a5058);
         break;
+      // The contrasting surface sits beside the centre lane, not across it, so
+      // a straight run stays on one surface and hitting the ice or the firm
+      // lane is a choice the player steers into.
+      case 'snow':
+        this.ground(0, -0.49, 22, 20, 0.52, 38, 'snow', 0xdce8f7);
+        this.ground(-12, -0.485, 26, 5, 0.525, 24, 'ice', 0x9fc7e8);
+        this.ground(12, -0.485, 26, 5, 0.525, 24, 'ice', 0x9fc7e8);
+        break;
+      case 'sand':
+        this.ground(0, -0.49, 22, 20, 0.52, 38, 'sand', 0xc4a575);
+        this.ground(-12, -0.485, 26, 5, 0.525, 24, 'hardpan', 0x7d6a52);
+        this.ground(12, -0.485, 26, 5, 0.525, 24, 'hardpan', 0x7d6a52);
+        break;
     }
   }
 
@@ -271,7 +313,16 @@ export class ChamberMode {
     reset.addEventListener('click', () => this.reset());
     top.appendChild(reset);
 
-    for (const s of ['flat', 'ramp', 'side-slope', 'bumps', 'zombies', 'drop'] as ScenarioName[]) {
+    for (const s of [
+      'flat',
+      'ramp',
+      'side-slope',
+      'bumps',
+      'zombies',
+      'drop',
+      'snow',
+      'sand',
+    ] as ScenarioName[]) {
       const b = document.createElement('button');
       b.textContent = s;
       b.classList.toggle('active', s === this.scenario);
@@ -373,7 +424,12 @@ export class ChamberMode {
     this.controls.brake = brakeInputWithAutoHold(this.controls, forwardSpeed);
     this.controls.steer = (k.has('a') || k.has('arrowleft') ? -1 : 0) + (k.has('d') || k.has('arrowright') ? 1 : 0);
 
-    this.vehicle.preStep(FIXED_DT, this.controls, (h) => this.surfaceByCollider.get(h) ?? 'asphalt');
+    this.vehicle.preStep(
+      FIXED_DT,
+      this.controls,
+      (h) => this.surfaceByCollider.get(h) ?? 'asphalt',
+      this.scenarioEnvironment(),
+    );
     this.stepZombies();
     this.world.step(this.eventQueue);
     this.vehicle.postStepStability(FIXED_DT);
@@ -408,7 +464,9 @@ export class ChamberMode {
 
     // Weapon hits on zombies.
     for (const shot of this.vehicle.telemetry().shotsThisStep) {
-      this.emitShotVfx(shot);
+      // Flame-volume burns carry damage only; the cone's own jets already drew
+      // the fire that produced them.
+      if (!shot.damageOnly) this.emitShotVfx(shot);
       if (shot.hitZombieHandle === null) continue;
       for (const z of this.zombies) {
         if (!z.alive) continue;
@@ -545,6 +603,7 @@ export class ChamberMode {
 
     // Tracers.
     for (const shot of this.vehicle.telemetry().shotsThisStep) {
+      if (shot.damageOnly) continue;
       const geo = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(shot.from.x, shot.from.y, shot.from.z),
         new THREE.Vector3(shot.to.x, shot.to.y, shot.to.z),
@@ -686,6 +745,12 @@ export class ChamberMode {
       angvel: { x: av.x, y: av.y, z: av.z },
       scenario: this.scenario,
     };
+  }
+
+  /** Base drive modifiers of the biome this scenario stands in for, if any. */
+  private scenarioEnvironment(): EnvironmentModifiers {
+    const biomeId = ChamberMode.SCENARIO_BIOME[this.scenario];
+    return biomeId === undefined ? NEUTRAL_ENVIRONMENT : getBiome(biomeId).drive;
   }
 
   debugSetScenario(s: ScenarioName): void {

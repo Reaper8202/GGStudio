@@ -16,6 +16,7 @@ import { CELL_SIZE, type PartDefinition, type PlacedPart } from '../../core/type
 import { cellCentreM } from '../../core/mass.ts';
 import { rotateVec } from '../../core/grid.ts';
 import { lambert, partColor, shade, toVector3 } from './shared.ts';
+import { addWheelUpgrades, placedUpgradeLevel } from './upgradeKit.ts';
 
 interface WheelStyle {
   /** Tread blocks per row around the circumference. */
@@ -149,6 +150,10 @@ export function buildWheelMesh(
     cap.position.y = side * w.width * 0.6;
     wheel.add(cap);
   }
+
+  // Unlocked hardware rides inside the spin group, so rims and studs turn with
+  // the tyre they are bolted to.
+  addWheelUpgrades(wheel, w, placedUpgradeLevel(placed), color, opacity);
 
   // Cylinder geometry runs along +Y; align that to the placed axle axis.
   const axle = rotateVec(placed.orient, w.axleAxis);

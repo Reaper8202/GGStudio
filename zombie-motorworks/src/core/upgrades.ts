@@ -80,6 +80,17 @@ export function effectivePartDef(
       melee: {
         ...base.melee,
         damage: base.melee.damage * (1 + 0.12 * steps),
+        // A plough's damage is the slam, so upgrading it has to move the slam
+        // too — otherwise the stars buy a rounding error. Reach and capacity
+        // stay fixed: the blade is the size it is drawn.
+        ...(base.melee.plow !== undefined
+          ? {
+              plow: {
+                ...base.melee.plow,
+                crushDamage: base.melee.plow.crushDamage * (1 + 0.12 * steps),
+              },
+            }
+          : {}),
       },
     };
   }

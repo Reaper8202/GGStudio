@@ -48,6 +48,11 @@ They describe work at the time they were written and can be stale.
 - **Effective Definition**: a Part Definition after applying the Placed Part's
   upgrade level. Analysis, assembly, repair maxima, and weapons must resolve
   through `getEffectiveDef` rather than reimplement scaling.
+- **Upgrade Unlock**: one named, iconed step in a part's five-link chain
+  (`src/core/partUpgrades.ts`). Levels are bought in order, so a part's level is
+  its unlock count plus one, and the garage shows it as 0-5 stars. Each unlock
+  also owns a piece of geometry in `src/editor/parts/upgradeKit.ts`; the two
+  files change together.
 - **Connection Graph**: socket-derived structural graph. The root island remains
   the controllable vehicle; detached non-root islands become debris.
 - **Profile**: persistent wallet, unlocks, inventory, selected blueprint name,
@@ -96,11 +101,11 @@ helpers. `core` stays engine- and browser-independent.
 
 | Module | Owns | Must not own |
 | --- | --- | --- |
-| `src/core/` | Types, catalog, blueprint operations, placement, structure, analysis, commands, codecs, profile/run data, upgrades, economy, tutorial predicates, turret-module rules | Three.js/Rapier objects, DOM, localStorage |
-| `src/runtime/` | Rapier vehicle assembly, wheels, drivetrain, surfaces, damage, detachment, weapon stepping | Mode transitions, profile persistence, DOM |
+| `src/core/` | Types, catalog, blueprint operations, placement, structure, analysis, commands, codecs, profile/run data, upgrades, economy, tutorial predicates, turret-module rules, surfaces, biome definitions | Three.js/Rapier objects, DOM, localStorage |
+| `src/runtime/` | Rapier vehicle assembly, wheels, drivetrain, damage, detachment, weapon stepping | Mode transitions, profile persistence, DOM |
 | `src/editor/` | Garage scene, placement/selection input, Store/Inventory UI, repair UI, tutorial overlay, blueprint-slot Adapter | Survival progression or run-save policy |
 | `src/chamber/` | Disposable test-drive world, scenarios, chamber HUD/camera | Persistent blueprint mutation |
-| `src/survival/` | Graveyard, waves, zombie pool/AI, specialists, mines, auto-aim, minimap, combat HUD, alert stack and damage vignette, victory/game-over presentation | Browser persistence and profile ownership |
+| `src/survival/` | Biome arenas and recipes, waves, zombie pool/AI, specialists, mines, auto-aim, minimap, combat HUD, alert stack and damage vignette, victory/game-over presentation | Browser persistence and profile ownership |
 | `src/vfx/` | Pooled voxel particle layers and every effect emitter (melee shred, gibs, muzzles, impacts, fire, explosions), plus the shot-to-effect mapping | Gameplay state, damage, or anything a mode must read back |
 | `src/app/` | Boot, renderer, title/mode lifecycle, active Blueprint, Profile, command history, Run Checkpoint, storage Adapters, debug Seam | Duplicated physics or balance formulas |
 | `src/ui/` | Shared DOM primitives and the UI museum | Gameplay state |
@@ -119,6 +124,10 @@ helpers. `core` stays engine- and browser-independent.
 
 ### Run Start and Wave Clear
 
+- The map a run uses is chosen on the Title screen's New Game map screen, not in
+  the Garage. `App` holds that pick in the Profile and stamps it onto the wave-1
+  checkpoint; from there the checkpoint is the only authority, so an in-flight
+  run cannot change map.
 - `App.startRun` creates the wave-1 checkpoint with full effective HP.
 - `SurvivalMode` receives only the Blueprint plus checkpoint-derived Run State.
 - Zombie kills increment cumulative kills and pending wave reward. They do not
@@ -129,6 +138,21 @@ helpers. `core` stays engine- and browser-independent.
 - `Continue Now` stays in Survival with current damage. `Garage / Repair` opens
   an in-run Editor backed by the same checkpoint. Without repair, both choices
   produce equivalent next-wave vehicle state.
+
+### Scuttle Charge
+
+- **Scuttle Charge**: the self-destruct (`K`), owned by `SurvivalMode`. It arms
+  and latches the first time a wheel Placed Part is destroyed or detached, and
+  fires only during a live wave.
+- Blast reach and damage scale with the litres still in the tanks, so fuel is
+  both range and last resort. The live reach is quoted on the prompt.
+- Detonating kills zombies in that radius, then scuttles the Runtime Vehicle.
+  Zombie deaths resolve wave completion synchronously, so the run's outcome is
+  decided on the detonation step: a wave left empty clears, anything else is
+  Failure.
+- A cleared scuttle skips the wave-clear card and goes straight to the Build
+  Phase on the pre-blast surviving IDs and HP — the wreck is towed in. It banks
+  the wave's pending reward like any clear, but awards no badges.
 
 ### Failure, Reset, and Save
 
@@ -145,13 +169,14 @@ helpers. `core` stays engine- and browser-independent.
 
 ## Persistence
 
-| Storage key | Codec/Adapter | Current payload |
-| --- | --- | --- |
-| `scraprig.profile.v1` | `src/core/profile.ts` / `src/app/profileStore.ts` | Profile schema 1: money, unlocks, inventory, current blueprint name, highest cleared wave, Phone Addict kills |
-| `scraprig.blueprints.v1` | `src/core/serialize.ts` / `src/editor/EditorMode.ts` | Named Blueprint slots; Blueprint schema 4 with migrations from schemas 1-3 |
-| `scraprig.run.v1` | `src/core/runSave.ts` / `src/app/runSaveStore.ts` | Saved Run schema 2; decoder migrates valid schema-1 saves |
-| `scraprig.tutorial-done` | `src/editor/EditorMode.ts` | Existing editor tutorial completion flag |
-| `scraprig.help-seen`, `scraprig.welcome-seen` | `src/editor/ui.ts` | Presentation-only acknowledgement flags |
+| Storage key                                   | Codec/Adapter                                             | Current payload                                                                                               |
+| --------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `scraprig.profile.v1`                         | `src/core/profile.ts` / `src/app/profileStore.ts`         | Profile schema 1: money, unlocks, inventory, current blueprint name, preferred biome, highest cleared wave, Phone Addict kills |
+| `scraprig.blueprints.v1`                      | `src/core/serialize.ts` / `src/editor/EditorMode.ts`      | Named Blueprint slots; Blueprint schema 4 with migrations from schemas 1-3                                    |
+| `scraprig.run.v1`                             | `src/core/runSave.ts` / `src/app/runSaveStore.ts`         | Saved Run schema 2; decoder migrates valid schema-1 saves                                                     |
+| `scraprig.leaderboard.v1`                     | `src/core/leaderboard.ts` / `src/app/leaderboardStore.ts` | Top 10 completed runs ranked by score, wave, kills, then completion time                                      |
+| `scraprig.tutorial-done`                      | `src/editor/EditorMode.ts`                                | Existing editor tutorial completion flag                                                                      |
+| `scraprig.help-seen`, `scraprig.welcome-seen` | `src/editor/ui.ts`                                        | Presentation-only acknowledgement flags                                                                       |
 
 Decoders validate persisted input and normalize or reject malformed values.
 Storage access failures must not make the in-memory game unusable.
@@ -198,7 +223,8 @@ the task crosses their Interface.
 | Vehicle analysis/metrics | `src/core/analysis.ts` | `mass.ts`, `upgrades.ts`, `wheelLayout.ts` | `unit/analysis.test.ts` |
 | Blueprint schema/migration | `src/core/serialize.ts` | `types.ts`, `blueprint.ts` | `unit/serialize.test.ts`, `unit/blueprint.test.ts` |
 | Profile/inventory/unlocks | `src/core/profile.ts` | `app/profileStore.ts`, `editor/EditorMode.ts` | `unit/profile.test.ts`, `unit/profile-store.test.ts`, `unit/store-flow.test.ts` |
-| Economy/repair/upgrades | `src/core/economy.ts` | `upgrades.ts`, `editor/EditorMode.ts`, `app/App.ts` | `unit/economy.test.ts`, `unit/repair.test.ts`, `unit/store-flow.test.ts` |
+| Economy/repair/upgrades | `src/core/economy.ts` | `upgrades.ts`, `partUpgrades.ts`, `editor/EditorMode.ts`, `app/App.ts` | `unit/economy.test.ts`, `unit/repair.test.ts`, `unit/store-flow.test.ts` |
+| Upgrade unlock names/icons/visuals | `src/core/partUpgrades.ts` | `editor/parts/upgradeKit.ts`, `editor/ui.ts` | `unit/part-upgrades.test.ts` |
 | Garage input/placement | `src/editor/EditorMode.ts` | `editor/meshes.ts`, `editor/overlays.ts` | `tests/editor.spec.ts` |
 | Garage DOM/store/inspector | `src/editor/ui.ts` | `EditorMode.ts`, `style.css`, `ui/system.ts` | `unit/store-flow.test.ts`, `tests/editor.spec.ts` |
 | Test-drive physics | `src/chamber/ChamberMode.ts` | `runtime/vehicle.ts`, `runtime/assembler.ts` | `tests/drive.spec.ts`, `tests/collision.spec.ts` |
@@ -211,7 +237,9 @@ the task crosses their Interface.
 | Zombie AI/specialists | `src/survival/zombies/Zombie.ts` | `ZombieSystem.ts`, `Landmines.ts`, `ThrowerProjectiles.ts` | `unit/landmines.test.ts`, `tests/combat.spec.ts` |
 | Boss roster/encounters | `src/survival/zombies/bossConfig.ts` | `Zombie.ts`, `ZombieSystem.ts`, `WaveManager.ts`, `SurvivalMode.ts` | `unit/boss-waves.test.ts`, `unit/boss-balance.test.ts`, `tests/boss.spec.ts` |
 | Survival HUD/transitions | `src/survival/SurvivalMode.ts` | `App.ts`, `WaveManager.ts`, `style.css` | `unit/summaries.test.ts`, `tests/runloop.spec.ts`, `tests/failure.spec.ts` |
-| Minimap/mine detection | `src/survival/Minimap.ts` | `Graveyard.ts`, `Landmines.ts`, `turretModules.ts` | `unit/minimap.test.ts`, `unit/landmines.test.ts` |
+| Minimap/mine detection | `src/survival/Minimap.ts` | `arena/Arena.ts`, `Landmines.ts`, `turretModules.ts` | `unit/minimap.test.ts`, `unit/landmines.test.ts` |
+| Biome recipes/arena generation | `src/survival/arena/recipes/index.ts` | `arena/ArenaBuilder.ts`, `core/biomes.ts`, `core/rng.ts` | `unit/biome-recipes.test.ts`, `unit/arena.test.ts`, `unit/arena-perimeter.test.ts` |
+| Surface grip/biome handling | `src/core/surfaces.ts` | `core/biomes.ts`, `runtime/wheels.ts`, `runtime/vehicle.ts` | `unit/surfaces.test.ts`, `unit/biome-hazard.test.ts`, `unit/biome-selection.test.ts` |
 | Tutorial | `src/core/tutorial.ts` | `editor/TutorialOverlay.ts`, `EditorMode.ts`, `ui.ts` | `unit/tutorial.test.ts`, `tests/tutorial.spec.ts` |
 | Title/resume flow | `src/app/TitleScreen.ts` | `App.ts`, `runSaveStore.ts` | `tests/title.spec.ts`, `unit/app.test.ts` |
 | Debug/browser Seam | `src/app/App.ts` (`installDebugSeam`) | `tests/seam.ts` | the affected Playwright spec |

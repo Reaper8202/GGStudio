@@ -19,6 +19,7 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'wheel-moto',
   'tread-tank',
   'nitro-injector',
+  'phase-drive',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
@@ -36,6 +37,7 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'barrel-drum',
   'spike-ram',
   'sawblade',
+  'dozer-blade',
   'sniper-light',
   'flamethrower',
 ];
@@ -80,12 +82,12 @@ export const KID_LABELS: Record<string, PartLabel> = {
   },
   turret: {
     name: 'Zombie Blaster',
-    blurb: 'Aim with your mouse and click to blast zombies!',
+    blurb: 'Blasts zombies all by itself — click to aim it where you want!',
   },
   'armour-plate': { name: 'Armour Plate', blurb: 'Adds a tough layer of protection!' },
   'cannon-heavy': {
     name: 'Heavy Cannon',
-    blurb: 'Click to lob a shell — it explodes and wipes out the whole crowd!',
+    blurb: 'Lobs shells that explode and wipe out the whole crowd — click to pick the spot!',
   },
   'ice-cannon': {
     name: 'Ice Cannon',
@@ -108,6 +110,10 @@ export const KID_LABELS: Record<string, PartLabel> = {
   sawblade: {
     name: 'Sawblade',
     blurb: 'A spinning blade that saws through zombies it grazes!',
+  },
+  'dozer-blade': {
+    name: 'Bulldozer Blade',
+    blurb: 'Scoops up a whole crowd — squash them against a wall!',
   },
   'sniper-light': {
     name: 'Light Sniper',
@@ -144,6 +150,10 @@ export const KID_LABELS: Record<string, PartLabel> = {
   'nitro-injector': {
     name: 'Speed Boost',
     blurb: 'Gives your truck a big push of go-fast for smashing through!',
+  },
+  'phase-drive': {
+    name: 'Blink Coil',
+    blurb: 'Zap! Jump forward right through zombies and walls!',
   },
 };
 
