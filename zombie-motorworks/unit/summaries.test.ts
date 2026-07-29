@@ -55,20 +55,23 @@ describe('legible consequence summaries', () => {
       [
         placed('core', 'chassis-core', { level: 3 }),
         placed('frame', 'frame-box', { level: 2 }),
-        placed('turret', 'turret', {
-          level: 3,
-          empLevel: 2,
-          piercingLevel: 1,
-        }),
+        // Level 6 tops the turret's chain, which is where EMP and piercing now
+        // come from instead of separately-bought modules.
+        placed('turret', 'turret', { level: 6 }),
       ],
       getPartDef,
     );
 
+    // Concrete totals, not the same helpers re-run: recomputing the expectation
+    // with partInvestment/sellRefund would reimplement the production sum in
+    // the test and compare it against itself. The root chassis is excluded from
+    // the count and the totals, which is what partCount 2 is asserting.
+    // frame-box L2 = 16, turret L6 = 1573.
     expect(summary).toEqual({
       partCount: 2,
-      investment: 800,
-      refund: 400,
-      forfeited: 400,
+      investment: 1589,
+      refund: 794,
+      forfeited: 795,
     });
   });
 });
