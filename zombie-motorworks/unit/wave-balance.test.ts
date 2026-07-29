@@ -118,8 +118,10 @@ describe('wave balance report', () => {
   // Every fifth wave replaces the horde with one boss, so the report is a
   // single boss HP figure plus the boss bounty and the ordinary clear bonus.
   it.each([
+    // Waves 5 and 15 are The Sledge (900 base HP); wave 10 is The Spire, which
+    // carries 1,600 because it replaces the far larger wave-9 horde.
     { wave: 5, effectiveTotalHp: 1116, totalPossibleReward: 240 },
-    { wave: 10, effectiveTotalHp: 1386, totalPossibleReward: 290 },
+    { wave: 10, effectiveTotalHp: 2464, totalPossibleReward: 420 },
     { wave: 15, effectiveTotalHp: 1656, totalPossibleReward: 340 },
   ])('reports the exact boss wave $wave balance', (expected) => {
     expect(waveBalanceReport(expected.wave)).toEqual({

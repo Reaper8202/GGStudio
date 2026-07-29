@@ -235,7 +235,12 @@ export const SHIELD_FLASH_DURATION = 0.45;
 export const SHIELD_FLASH_MAX_OPACITY = 0.4;
 export const SHIELD_RADIUS = 1.3;
 
-export const PROJECTILE_POOL_SIZE = 24;
+/**
+ * Shared by thrower boxes and boss needles. `launch` silently drops a shot when
+ * the pool is full, so this has headroom for a 3-needle volley landing on top of
+ * a full thrower wave (the debug spawn-one-of-each path can mix them).
+ */
+export const PROJECTILE_POOL_SIZE = 32;
 export const PROJECTILE_HORIZONTAL_SPEED = 9; // m/s, still a dodgeable lob
 export const PROJECTILE_MIN_FLIGHT_TIME = 0.5;
 export const PROJECTILE_MAX_FLIGHT_TIME = 2.5;
@@ -244,6 +249,42 @@ export const PROJECTILE_HIT_RADIUS = 1.3;
 export const PROJECTILE_LIFETIME = 6;
 export const PROJECTILE_LAUNCH_HEIGHT = 1.2;
 export const PROJECTILE_SIZE = 0.5;
+
+// Needles: the boss projectile fired by a `needle` boss attack. Same pooled
+// ballistic system as the thrower's boxes, but slower, thinner, and aimed rather
+// than tumbling. Per-needle damage comes from the BossDefinition (so it scales
+// with the wave), not from a constant here.
+/**
+ * Slower than {@link PROJECTILE_HORIZONTAL_SPEED} on purpose — the needle is the
+ * most dodgeable projectile in the game. The boss's own
+ * `attack.projectileSpeedMps` is the live value; this is the shared default.
+ */
+export const NEEDLE_HORIZONTAL_SPEED = 7; // m/s
+/**
+ * Wider clamps than the thrower's. Past `speed * MAX_FLIGHT_TIME` a shot would
+ * be forced to travel *faster* than its nominal speed to arrive in time, so the
+ * ceiling has to sit beyond the boss's working range (~16 m at 7 m/s = 2.29 s).
+ */
+export const NEEDLE_MIN_FLIGHT_TIME = 0.6;
+export const NEEDLE_MAX_FLIGHT_TIME = 3;
+/**
+ * Needles fly under light gravity so the slower shot still arrives flat. At full
+ * gravity the solver has to throw a 7 m/s shot high enough to hang in the air for
+ * two seconds, which would arc it right over the rig and land as a mortar.
+ */
+export const NEEDLE_GRAVITY_SCALE = 0.35;
+/** Tighter than the box's 1.3: a needle should feel like it has to actually hit. */
+export const NEEDLE_HIT_RADIUS = 0.9;
+export const NEEDLE_LIFETIME = 6;
+/** Long and thin, drawn pointing along its flight path. */
+export const NEEDLE_LENGTH = 0.9;
+export const NEEDLE_THICKNESS = 0.07;
+/**
+ * Fraction of the boss's visual height, measured up from its feet, that a needle
+ * leaves from. Matches where `buildNeedle` hangs the prop, so the shot appears to
+ * come out of the spike rather than the boss's chest.
+ */
+export const NEEDLE_LAUNCH_HEIGHT_FRACTION = 0.78;
 
 export const SCALE_VARIATION = 0.12;
 export const WALK_BOB_FREQUENCY = 9;

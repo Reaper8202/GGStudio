@@ -16,11 +16,15 @@ import {
   BOSS_HAMMER_RAISED_ANGLE,
   BOSS_HAMMER_SHAFT,
   BOSS_HAMMER_SHAFT_COLOR,
+  BOSS_NEEDLE_ARM,
+  BOSS_NEEDLE_ARM_COLOR,
+  BOSS_NEEDLE_RAISED_ANGLE,
   BOSS_RING_COLOR,
   BOSS_RING_MIN_FRACTION,
   BOSS_RING_OPACITY,
   DEFAULT_BOSS_ASSET,
   type BossDefinition,
+  type BossNeedleAttack,
 } from './bossConfig.ts';
 import {
   DEATH_FEEDBACK_DURATION,
@@ -239,8 +243,10 @@ export class Zombie {
   onThrow: ((zombie: Zombie) => void) | null = null;
   /** Set by ZombieSystem; fired when a worker's mine-plant timer elapses. */
   onPlantMine: ((zombie: Zombie) => void) | null = null;
-  /** Set by ZombieSystem; fired when a boss's hammer wind-up completes. */
+  /** Set by ZombieSystem; fired when a slam boss's hammer wind-up completes. */
   onBossSlam: ((zombie: Zombie) => void) | null = null;
+  /** Set by ZombieSystem; fired when a needle boss's wind-up completes. */
+  onBossNeedles: ((zombie: Zombie) => void) | null = null;
   readonly kind: ZombieKind;
 
   private readonly visualRoot = new THREE.Group();
@@ -286,6 +292,7 @@ export class Zombie {
   private ringPhase = 0;
   private plantTimer = 0;
   private hammerPivot: THREE.Group | null = null;
+  private needlePivot: THREE.Group | null = null;
   /** Live definition while a boss is active; null for every ordinary zombie. */
   private bossDef: BossDefinition | null = null;
   private windupTimer = 0;
@@ -407,7 +414,13 @@ export class Zombie {
       this.ringMesh.visible = false;
       this.root.add(this.ringMesh);
     }
-    if (this.kind === 'boss') this.buildHammer();
+    // Both boss props are built up front: the pool slot exists long before the
+    // wave picks which boss fills it. applyBossVisualSizing shows only the right
+    // one, so an idle slot costs two hidden groups and nothing else.
+    if (this.kind === 'boss') {
+      this.buildHammer();
+      this.buildNeedle();
+    }
     this.root.visible = false;
     this.scene.add(this.root);
 
@@ -466,6 +479,25 @@ export class Zombie {
     return this.bossDef ? this.attackDamage : 0;
   }
 
+  /**
+   * This boss's needle attack, or null for a slam boss and every ordinary zombie.
+   * Narrowing once here keeps the `attack.kind` check out of the AI hot path.
+   */
+  private get needleAttack(): BossNeedleAttack | null {
+    const attack = this.bossDef?.attack;
+    return attack !== undefined && attack.kind === 'needle' ? attack : null;
+  }
+
+  /**
+   * True once a phased boss has dropped to its second-phase health fraction. Only
+   * a needle boss has phases today; everything else is always false.
+   */
+  get isEnraged(): boolean {
+    const needle = this.needleAttack;
+    if (needle === null || this.spawnHealth <= 0) return false;
+    return this.health / this.spawnHealth <= needle.phaseTwoHealthFraction;
+  }
+
   /** A projectile bounced off this zombie's shield: flash the bubble. */
   flashShield(): void {
     if (!this.isTargetable) return;
@@ -507,6 +539,9 @@ export class Zombie {
     if (!def) return;
     const groundOffset = -this.standHeight();
 
+    const slam = def.attack.kind === 'slam';
+    // Both props are built for every boss pool slot, because the kind is known
+    // before the definition is. Only the one this boss actually swings is shown.
     if (this.hammerPivot) {
       // Shoulder height, out to the side and slightly forward. The hammer is
       // authored for a 4.2 m boss and scales with any other.
@@ -516,15 +551,30 @@ export class Zombie {
         def.visualHeightM * 0.18,
       );
       this.hammerPivot.scale.setScalar(def.visualHeightM / 4.2);
+      this.hammerPivot.visible = slam;
+    }
+    if (this.needlePivot) {
+      // Held further out and higher than the hammer, on a gaunt boss's long arm.
+      this.needlePivot.position.set(
+        def.visualHeightM * 0.17,
+        groundOffset + def.visualHeightM * 0.78,
+        def.visualHeightM * 0.1,
+      );
+      this.needlePivot.scale.setScalar(def.visualHeightM / 5.5);
+      this.needlePivot.visible = !slam;
     }
 
+    const widthScale = def.visualWidthScale ?? 1;
     if (this.loadedModel) {
       const bounds = new THREE.Box3().setFromObject(this.loadedModel);
       const height = Math.max(1e-3, bounds.max.y - bounds.min.y);
       // setFromObject already includes the model's current scale, so divide it
       // back out to get the factor that lands on the target height.
       const current = this.loadedModel.scale.y || 1;
-      this.loadedModel.scale.setScalar((def.visualHeightM / height) * current);
+      const fit = (def.visualHeightM / height) * current;
+      // Non-uniform on purpose: the height fit alone would make a tall boss read
+      // as a scaled-up walker. Squashing width is what makes it look gaunt.
+      this.loadedModel.scale.set(fit * widthScale, fit, fit * widthScale);
       this.loadedModel.position.y = groundOffset;
       for (const material of this.loadedMaterials) {
         material.color.setHex(def.tint);
@@ -538,7 +588,8 @@ export class Zombie {
     const fallbackHeight = (ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS) * 2;
     const fallback = this.visualRoot.children[0];
     if (fallback) {
-      fallback.scale.setScalar(def.visualHeightM / fallbackHeight);
+      const fit = def.visualHeightM / fallbackHeight;
+      fallback.scale.set(fit * widthScale, fit, fit * widthScale);
       fallback.position.y = groundOffset + def.visualHeightM / 2;
     }
     this.fallbackMaterial.color.setHex(def.tint);
@@ -579,6 +630,32 @@ export class Zombie {
     head.castShadow = true;
     pivot.add(shaft, head);
     this.hammerPivot = pivot;
+    this.visualRoot.add(pivot);
+  }
+
+  /**
+   * Placeholder needle: one long thin spike on a shoulder pivot, built in world
+   * metres like the hammer. It rests raised and levels out toward the vehicle as
+   * the wind-up completes, so the release reads as a thrust rather than a swing.
+   */
+  private buildNeedle(): void {
+    const pivot = new THREE.Group();
+    const spike = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        BOSS_NEEDLE_ARM.radius * 2,
+        BOSS_NEEDLE_ARM.length,
+        BOSS_NEEDLE_ARM.radius * 2,
+      ),
+      new THREE.MeshLambertMaterial({
+        color: BOSS_NEEDLE_ARM_COLOR,
+        emissive: 0x2c3a24,
+        flatShading: true,
+      }),
+    );
+    spike.position.y = -BOSS_NEEDLE_ARM.length / 2;
+    spike.castShadow = true;
+    pivot.add(spike);
+    this.needlePivot = pivot;
     this.visualRoot.add(pivot);
   }
 
@@ -1175,6 +1252,21 @@ export class Zombie {
         this.hammerPivot.rotation.x = 0;
       }
     }
+    if (this.needlePivot && this.bossDef) {
+      // Inverse of the hammer: the needle sits raised at rest and levels out to
+      // aim as the wind-up completes, snapping back up over the lunge. The rig
+      // sees the spike come down to point at it just before the shot leaves.
+      const windup = this.bossDef.attack.windupSeconds;
+      if (this.state === ZombieState.WindingUp && windup > 0) {
+        const aim = clamp(1 - this.windupTimer / windup, 0, 1);
+        this.needlePivot.rotation.x = BOSS_NEEDLE_RAISED_ANGLE * (1 - aim);
+      } else if (this.lungeTimer > 0) {
+        const recover = 1 - this.lungeTimer / LUNGE_DURATION;
+        this.needlePivot.rotation.x = BOSS_NEEDLE_RAISED_ANGLE * recover;
+      } else {
+        this.needlePivot.rotation.x = BOSS_NEEDLE_RAISED_ANGLE;
+      }
+    }
     if (this.frostGlowMesh) {
       // Same trick as the addict halo: pin the disc to the ground plane
       // regardless of what the root's animated scale is doing.
@@ -1182,9 +1274,15 @@ export class Zombie {
       this.frostGlowMesh.position.y = (0.05 - translation.y) / rootScale;
     }
 
-    if (this.ringMesh && this.ringMaterial && this.bossDef) {
+    if (
+      this.ringMesh &&
+      this.ringMaterial &&
+      this.bossDef?.attack.kind === 'slam'
+    ) {
       // One ring per swing, expanding to the exact slam radius so the player can
-      // read where the hammer will land and drive out of it.
+      // read where the hammer will land and drive out of it. Only a slam gets a
+      // ring: a needle volley damages one part where it lands, so a ground circle
+      // would promise an area attack that is not coming.
       const winding = this.state === ZombieState.WindingUp && this.isAlive;
       this.ringMesh.visible = winding;
       if (winding) {
@@ -1247,6 +1345,15 @@ export class Zombie {
       }
       this.hammerPivot.clear();
       this.hammerPivot = null;
+    }
+    if (this.needlePivot) {
+      for (const child of this.needlePivot.children) {
+        if (!(child instanceof THREE.Mesh)) continue;
+        child.geometry.dispose();
+        (child.material as THREE.Material).dispose();
+      }
+      this.needlePivot.clear();
+      this.needlePivot = null;
     }
     if (this.frostShellMesh) {
       this.frostShellMaterial?.dispose();
@@ -1351,6 +1458,26 @@ export class Zombie {
         this.updateFacing(dx, dz);
         return;
       }
+    } else if (this.needleAttack !== null) {
+      // A needle boss refuses to be fought at close range: inside its disengage
+      // ring it backs away until it is past retreatRangeM, then fires again. Its
+      // speed is still below a walker's, so this buys distance, not escape.
+      const needle = this.needleAttack;
+      if (this.retreating) {
+        if (target.distance >= needle.retreatRangeM) {
+          this.retreating = false;
+        } else {
+          away = -1;
+        }
+      } else if (target.distance <= needle.disengageRangeM) {
+        this.retreating = true;
+        away = -1;
+      } else if (target.distance <= needle.rangeM) {
+        this.state = ZombieState.Attacking;
+        this.attackTimer = this.attackInterval;
+        this.zeroHorizontalVelocity();
+        return;
+      }
     } else {
       const attackRange = this.bossDef
         ? this.bossDef.attack.rangeM
@@ -1406,7 +1533,13 @@ export class Zombie {
     this.velocityScratch.y = velocity.y;
     this.velocityScratch.z = dirZ * speed + separationZ;
     this.body.setLinvel(this.velocityScratch, true);
-    this.updateFacing(this.velocityScratch.x, this.velocityScratch.z);
+    if (away < 0 && this.needleAttack !== null) {
+      // Backpedal: a retreating needle boss keeps the vehicle in front of it, so
+      // it reads as giving ground under fire rather than fleeing.
+      this.updateFacing(dx, dz);
+    } else {
+      this.updateFacing(this.velocityScratch.x, this.velocityScratch.z);
+    }
   }
 
   private stepAttacking(dt: number, vehicle: RuntimeVehicle): void {
@@ -1421,13 +1554,23 @@ export class Zombie {
       this.state = ZombieState.Chasing;
       return;
     }
+    // A needle boss also abandons the volley when the rig closes on it, handing
+    // back to stepChasing so the retreat starts immediately instead of after the
+    // shot it was already lining up.
+    const needle = this.needleAttack;
+    if (needle !== null && target.distance <= needle.disengageRangeM) {
+      this.retreating = true;
+      this.state = ZombieState.Chasing;
+      return;
+    }
 
     this.updateFacing(target.x - this.position.x, target.z - this.position.z);
     this.attackTimer -= dt;
     if (this.attackTimer <= 0) {
       if (this.bossDef) {
-        // Commit to the swing: the boss stops here and telegraphs, and the
-        // damage is resolved when the hammer lands, not now.
+        // Commit to the attack: the boss stops here and telegraphs, and the
+        // damage is resolved when the wind-up completes, not now. Both attack
+        // kinds telegraph; only the payload at the end differs.
         this.windupTimer = this.bossDef.attack.windupSeconds;
         this.ringPhase = 0;
         this.state = ZombieState.WindingUp;
@@ -1444,10 +1587,11 @@ export class Zombie {
   }
 
   /**
-   * Boss wind-up. The boss holds still with the hammer raised and the ground
-   * ring expanding, tracking the vehicle so the swing faces it. The slam fires
-   * once the timer elapses; because damage is applied at that moment, driving
-   * out of the ring during the wind-up avoids the hit entirely.
+   * Boss wind-up. The boss holds still with its prop raised, tracking the vehicle
+   * so the attack faces it — a slam also expands its ground ring here. The attack
+   * fires once the timer elapses; because a slam's damage is applied at that
+   * moment, driving out of the ring during the wind-up avoids it entirely, and a
+   * needle is only aimed at the moment it leaves.
    */
   private stepWindingUp(dt: number): void {
     this.zeroHorizontalVelocity();
@@ -1459,7 +1603,11 @@ export class Zombie {
     if (this.windupTimer > 0) return;
 
     this.windupTimer = 0;
-    this.onBossSlam?.(this);
+    if (this.needleAttack !== null) {
+      this.onBossNeedles?.(this);
+    } else {
+      this.onBossSlam?.(this);
+    }
     this.lungeTimer = LUNGE_DURATION;
     this.attackTimer = this.attackInterval;
     this.state = ZombieState.Chasing;
@@ -1815,9 +1963,10 @@ export class Zombie {
         this.visualRoot.clear();
         this.visualRoot.add(model);
         this.loadedModel = model;
-        // clear() detached the hammer along with the capsule fallback; a boss
-        // carries it for its whole lifetime, so put it back.
+        // clear() detached the props along with the capsule fallback; a boss
+        // carries them for its whole lifetime, so put them back.
         if (this.hammerPivot) this.visualRoot.add(this.hammerPivot);
+        if (this.needlePivot) this.visualRoot.add(this.needlePivot);
         this.visualMaterials.length = 0;
         this.visualMaterials.push(...this.loadedMaterials);
         // A live boss was spawned before its model finished loading; resize and

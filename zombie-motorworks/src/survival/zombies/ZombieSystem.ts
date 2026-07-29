@@ -24,7 +24,11 @@ import {
 } from './Zombie.ts';
 import type { BossDefinition } from './bossConfig.ts';
 import { Landmines, type MineSnapshot } from './Landmines.ts';
-import { ThrowerProjectiles } from './ThrowerProjectiles.ts';
+import {
+  NEEDLE_PROJECTILE,
+  ThrowerProjectiles,
+  type ProjectileSpec,
+} from './ThrowerProjectiles.ts';
 import {
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
@@ -46,6 +50,7 @@ import {
   plowSlots,
   type PlowSlot,
   PROJECTILE_HIT_RADIUS,
+  NEEDLE_LAUNCH_HEIGHT_FRACTION,
   PROJECTILE_LAUNCH_HEIGHT,
   SEPARATION_RADIUS,
   SEPARATION_STRENGTH,
@@ -213,12 +218,22 @@ export class ZombieSystem {
     z: 0,
     killed: false,
   };
+  /**
+   * Damage and radius arrive per projectile so thrower boxes and boss needles can
+   * share one pool. A box passes 0 damage and falls back to the tuner's thrower
+   * value; a needle carries the wave-scaled amount its boss definition set.
+   */
   private readonly tryProjectileImpact = (
     x: number,
     y: number,
     z: number,
+    damage: number,
+    hitRadius: number,
   ): boolean => {
-    const radiusSq = PROJECTILE_HIT_RADIUS * PROJECTILE_HIT_RADIUS;
+    const radius = hitRadius > 0 ? hitRadius : PROJECTILE_HIT_RADIUS;
+    const radiusSq = radius * radius;
+    const applied =
+      damage > 0 ? damage : devTuning.specialist.projectileDamage;
     for (const anchor of this.vehicleAnchors) {
       if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
         continue;
@@ -226,10 +241,7 @@ export class ZombieSystem {
       const dy = anchor.worldY - y;
       const dz = anchor.worldZ - z;
       if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
-      this.vehicle.applyDirectDamage(
-        anchor.partId,
-        devTuning.specialist.projectileDamage,
-      );
+      this.vehicle.applyDirectDamage(anchor.partId, applied);
       return true;
     }
     return false;
@@ -318,6 +330,7 @@ export class ZombieSystem {
       zombie.onPlantMine = (worker) =>
         this.landmines.plant(worker.position.x, worker.position.z);
       zombie.onBossSlam = (boss) => this.applyBossSlam(boss);
+      zombie.onBossNeedles = (boss) => this.fireNeedlesFrom(boss);
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -509,7 +522,7 @@ export class ZombieSystem {
    */
   private applyBossSlam(boss: Zombie): void {
     const def = boss.bossDefinition;
-    if (this.disposed || !def) return;
+    if (this.disposed || !def || def.attack.kind !== 'slam') return;
     const radiusSq = def.attack.radiusM * def.attack.radiusM;
     const damage = boss.slamDamage;
     if (damage <= 0) return;
@@ -521,6 +534,60 @@ export class ZombieSystem {
       const dz = anchor.worldZ - boss.position.z;
       if (dx * dx + dz * dz > radiusSq) continue;
       this.vehicle.applyDirectDamage(anchor.partId, damage);
+    }
+  }
+
+  /**
+   * A needle boss released its volley: one aimed needle while it is healthy, or a
+   * fan of `enragedNeedleCount` once it drops past its phase-two threshold.
+   *
+   * The fan rotates the horizontal aim vector around Y rather than offsetting the
+   * target point, so every needle keeps the same horizontal distance and therefore
+   * the same flight time — the spray lands together instead of straggling.
+   */
+  private fireNeedlesFrom(boss: Zombie): void {
+    const def = boss.bossDefinition;
+    if (this.disposed || !def || def.attack.kind !== 'needle') return;
+    const target = boss.vehicleTarget;
+    if (target.partId === null) return;
+    const damage = boss.slamDamage;
+    if (damage <= 0) return;
+
+    const attack = def.attack;
+    const spec: ProjectileSpec = {
+      ...NEEDLE_PROJECTILE,
+      horizontalSpeed: attack.projectileSpeedMps,
+      damage,
+    };
+    // position.y is the capsule's centre, so drop to the boss's feet first and
+    // measure the hand up from there — otherwise a tall boss fires from above
+    // its own head.
+    const groundY =
+      boss.position.y - (def.colliderHalfHeightM + def.colliderRadiusM);
+    const fromY = groundY + def.visualHeightM * NEEDLE_LAUNCH_HEIGHT_FRACTION;
+    const dx = target.x - boss.position.x;
+    const dz = target.z - boss.position.z;
+
+    const enraged = boss.isEnraged;
+    const count = enraged ? Math.max(1, attack.enragedNeedleCount) : 1;
+    const halfFan = enraged
+      ? ((attack.enragedSpreadDeg / 2) * Math.PI) / 180
+      : 0;
+
+    for (let i = 0; i < count; i++) {
+      // -half, 0, +half for three; a single needle is the offset-0 special case.
+      const offset = count === 1 ? 0 : -halfFan + (2 * halfFan * i) / (count - 1);
+      const cos = Math.cos(offset);
+      const sin = Math.sin(offset);
+      this.projectiles.launch(
+        boss.position.x,
+        fromY,
+        boss.position.z,
+        boss.position.x + (dx * cos - dz * sin),
+        target.y,
+        boss.position.z + (dx * sin + dz * cos),
+        spec,
+      );
     }
   }
 

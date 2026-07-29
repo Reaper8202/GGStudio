@@ -9,7 +9,7 @@
  * module free of the `WaveManager -> bossConfig` import cycle.
  */
 
-export type BossId = 'hammer-brute';
+export type BossId = 'hammer-brute' | 'needle-spire';
 
 /**
  * Wind-up melee. The boss plants itself inside `rangeM`, telegraphs for
@@ -35,6 +35,52 @@ export interface BossSlamAttack {
   readonly intervalSeconds: number;
 }
 
+/**
+ * Ranged needle volley. The boss holds at `rangeM` and fires needles on a
+ * ballistic arc, so the shot is dodgeable by driving. Unlike the slam it never
+ * closes: if the vehicle gets inside `disengageRangeM` the boss backs away until
+ * it is past `retreatRangeM` and only then resumes firing, reusing the worker's
+ * retreat pattern. Its speed multiplier is still below 1, so a rig can always
+ * run it down — the retreat is repositioning pressure, not an escape.
+ *
+ * Below `phaseTwoHealthFraction` of its spawn health each volley becomes
+ * `enragedNeedleCount` needles fanned across `enragedSpreadDeg`, centred on the
+ * vehicle, at the same interval and the same damage per needle.
+ */
+export interface BossNeedleAttack {
+  readonly kind: 'needle';
+  /** Metres from the nearest vehicle part at which the boss stops and fires. */
+  readonly rangeM: number;
+  /** Closer than this, the boss breaks off and backs away. Must be < rangeM. */
+  readonly disengageRangeM: number;
+  /** It retreats until the nearest part is past this. Between disengage and range. */
+  readonly retreatRangeM: number;
+  /** Telegraph length; the needle is raised for this long before the shot. */
+  readonly windupSeconds: number;
+  /** Damage per needle that connects, before wave scaling. */
+  readonly damage: number;
+  /** Seconds between volleys. */
+  readonly intervalSeconds: number;
+  /**
+   * Horizontal travel speed in m/s. Deliberately below the thrower's
+   * `PROJECTILE_HORIZONTAL_SPEED`: a needle is the slower, more readable shot.
+   */
+  readonly projectileSpeedMps: number;
+  /** Needles per volley once enraged. One needle before that. */
+  readonly enragedNeedleCount: number;
+  /** Total fan width in degrees for an enraged volley. */
+  readonly enragedSpreadDeg: number;
+  /** Spawn-health fraction at or below which the volley becomes a spray. */
+  readonly phaseTwoHealthFraction: number;
+}
+
+/**
+ * A boss's one attack. Adding an arm here is the only reason a new boss needs
+ * more than a `BOSS_DEFINITIONS` entry; `Zombie` dispatches on `kind` at the
+ * moment the wind-up completes.
+ */
+export type BossAttack = BossSlamAttack | BossNeedleAttack;
+
 export interface BossDefinition {
   readonly id: BossId;
   readonly name: string;
@@ -45,7 +91,7 @@ export interface BossDefinition {
   /** Multiplier over `BASE_ZOMBIE_STATS.speed`. Bosses are slower than walkers. */
   readonly speedMultiplier: number;
   readonly reward: number;
-  readonly attack: BossSlamAttack;
+  readonly attack: BossAttack;
   /** 0 = immovable, 1 = shoved like a walker. Applies to rams and the Thumper. */
   readonly knockbackResistance: number;
   /** Hard cap on one ram hit, so an 80 km/h ram cannot one-shot a boss. */
@@ -58,6 +104,12 @@ export interface BossDefinition {
    * baked visual scale — that keeps its feet on the ground at any size.
    */
   readonly visualHeightM: number;
+  /**
+   * Horizontal squash applied on top of the height fit; 1 (the default) keeps the
+   * model's own proportions. Below 1 it reads as gaunt and stretched, which is how
+   * a lanky boss is built out of the same stocky walker mesh.
+   */
+  readonly visualWidthScale?: number;
   /** Placeholder model under `public/assets/zombies` until a boss asset exists. */
   readonly assetName: string;
   readonly tint: number;
@@ -86,6 +138,16 @@ export const BOSS_HAMMER_COLOR = 0x6b6f76;
 export const BOSS_HAMMER_SHAFT_COLOR = 0x4a3a28;
 /** Radians the hammer is raised at full wind-up, swinging down to 0 on impact. */
 export const BOSS_HAMMER_RAISED_ANGLE = -2.1;
+
+/**
+ * Placeholder needle-arm geometry for a needle boss, in pre-`visualScale` metres.
+ * Built like the hammer — a prop on a shoulder pivot — but it levels out toward
+ * the target during the wind-up instead of swinging down.
+ */
+export const BOSS_NEEDLE_ARM = { radius: 0.045, length: 1.5 } as const;
+export const BOSS_NEEDLE_ARM_COLOR = 0xc9d6c0;
+/** Radians the needle is raised at rest, levelling to 0 as the shot releases. */
+export const BOSS_NEEDLE_RAISED_ANGLE = -1.35;
 
 export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
   'hammer-brute': {
@@ -124,13 +186,65 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
     assetName: 'Zed_5',
     tint: 0x2f3a2b,
   },
+  'needle-spire': {
+    id: 'needle-spire',
+    name: 'The Spire',
+    warning:
+      'BOSS WAVE — The Spire. It kites and shoots needles: close the distance and it bleeds.',
+    // ~2,464 HP at wave 10 after the 1.54x health multiplier, against the 2,646
+    // effective HP of the wave-9 horde it replaces. Deliberately a shade under a
+    // full horde: the retreat means every point of its health takes longer to
+    // reach than a brute's does.
+    baseHealth: 1600,
+    // 1.98 m/s base — quicker than The Sledge because it spends its time backing
+    // away, but still far short of a walker, so ramming it down always works.
+    speedMultiplier: 0.62,
+    reward: 280,
+    attack: {
+      kind: 'needle',
+      // Holds a metre past the thrower's 13 m, so the rig is already used to that
+      // being the range where things start shooting.
+      rangeM: 14,
+      // Inside 8 m it breaks off; it will not fight at knife range.
+      disengageRangeM: 8,
+      retreatRangeM: 13,
+      // Short tell: enough to read "it is about to shoot" without the long
+      // commitment a ground slam needs.
+      windupSeconds: 0.45,
+      // Per needle. Under half health three of these land at once, so a volley
+      // hits for 66 before wave scaling — a slam's worth, spread across parts.
+      damage: 22,
+      intervalSeconds: 2.6,
+      // Slower than the thrower's 9 m/s lob, so a needle is the most dodgeable
+      // projectile in the game and crossing its field is a real option.
+      projectileSpeedMps: 7,
+      enragedNeedleCount: 3,
+      enragedSpreadDeg: 16,
+      phaseTwoHealthFraction: 0.5,
+    },
+    // Skinnier than the brute, so a ram shifts it more and hurts it more.
+    knockbackResistance: 0.18,
+    impactDamageCap: 55,
+    // Tall and narrow: a 5.5 m capsule only 0.9 m across.
+    colliderRadiusM: 0.45,
+    colliderHalfHeightM: 2.3,
+    // Matches the capsule's full height, 2 * (halfHeight + radius).
+    visualHeightM: 5.5,
+    // The walker mesh stretched to a gaunt silhouette; without this it would just
+    // read as a second, taller brute.
+    visualWidthScale: 0.55,
+    // Placeholder: the same walker model as The Sledge, drawn tall, thin, and
+    // sickly pale. Swap for a dedicated asset when one exists.
+    assetName: 'Zed_5',
+    tint: 0xb9c6a8,
+  },
 };
 
 /**
  * Boss order by boss-wave index. Push a new id here to put a boss into
  * rotation; the list cycles once every boss has been seen.
  */
-const BOSS_ROTATION: readonly BossId[] = ['hammer-brute'];
+const BOSS_ROTATION: readonly BossId[] = ['hammer-brute', 'needle-spire'];
 
 function safeWaveNumber(wave: number): number {
   return Math.max(1, Math.floor(Number.isFinite(wave) ? wave : 1));

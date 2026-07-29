@@ -261,11 +261,29 @@ functions in `waveBalance.ts`.
 
 Every wave that is a multiple of `BOSS_WAVE_INTERVAL` is a boss wave: the horde
 is replaced entirely by one boss, which heads the spawn queue. A boss is a
-pooled zombie of kind `boss` whose stats, slam attack, capsule size, and
-placeholder visual all come from a `BossDefinition` in
-`zombies/bossConfig.ts`; `WaveManager` selects it with `bossForWave` and hands
-it to `ZombieSystem.setBossDefinition` at wave start. Adding a boss means adding
-a registry entry and putting its id into the rotation, not adding a class.
+pooled zombie of kind `boss` whose stats, attack, capsule size, and placeholder
+visual all come from a `BossDefinition` in `zombies/bossConfig.ts`;
+`WaveManager` selects it with `bossForWave` and hands it to
+`ZombieSystem.setBossDefinition` at wave start. `BOSS_ROTATION` is indexed by
+boss-wave number, so consecutive boss waves are different encounters. Adding a
+boss means adding a registry entry and putting its id into the rotation, not
+adding a class.
+
+`BossDefinition.attack` is a discriminated union. A `slam` boss closes to melee
+and damages every part inside a telegraphed ground ring; a `needle` boss holds at
+range, backs away when the rig closes inside its disengage ring, and fires pooled
+projectiles that damage the single part they strike, fanning several per volley
+once below its phase-two health fraction. Both kinds route through the same
+`WindingUp` state; only the callback fired on completion differs
+(`onBossSlam` vs `onBossNeedles`). A new attack kind is therefore the one change
+that a new boss cannot make from the registry alone.
+
+Boss projectiles share the pooled ballistic system in `ThrowerProjectiles.ts`
+with the thrower. A `ProjectileSpec` carries per-shot speed, lifetime, damage,
+hit radius, and visual variant, so mixed projectiles coexist in one pool and the
+owning system's impact callback receives the damage per projectile rather than
+reading a global constant. Boss needle damage comes from the `BossDefinition` and
+so scales with the wave; the thrower's stays the flat tuner value.
 
 Because a boss occupies an ordinary pool slot, wave clear, kill accounting,
 weapon routing, and ability AoE need no boss-specific cases. Bosses do cap ram

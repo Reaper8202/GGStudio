@@ -45,6 +45,11 @@ describe('legible consequence summaries', () => {
     expect(threatWarningsForWave(5)).toEqual([
       'BOSS WAVE — The Sledge. Slow but brutal: stay out of the hammer ring.',
     ]);
+    // Wave 10 is the other half of the rotation, and its copy has to tell the
+    // player the opposite thing: close the distance instead of keeping it.
+    expect(threatWarningsForWave(10)).toEqual([
+      'BOSS WAVE — The Spire. It kites and shoots needles: close the distance and it bleeds.',
+    ]);
     expect(threatWarningsForWave(6)).toEqual([]);
   });
 

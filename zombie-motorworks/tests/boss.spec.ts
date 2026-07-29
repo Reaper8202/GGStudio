@@ -104,6 +104,65 @@ test('the boss closes on a parked rig and its hammer slam damages parts', async 
   expect(after.boss).not.toBeNull();
 });
 
+test('wave 10 summons The Spire, which shoots needles from range', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await boot(page);
+  await buildBasicRig(page);
+  expect(await page.evaluate(() => window.__scrapRig.enterSurvival())).toBe(
+    true,
+  );
+
+  // Wave 10 is the second slot in the boss rotation, so it is the other boss.
+  await page.evaluate(() => window.__scrapRig.debugStartWave(10));
+  await page.waitForFunction(
+    () => window.__scrapRig.survivalTelemetry()?.boss != null,
+    null,
+    { timeout: 20_000 },
+  );
+
+  const spawned = await page.evaluate(
+    () => window.__scrapRig.survivalTelemetry()!,
+  );
+  expect(spawned.wave).toBe(10);
+  expect(spawned.boss!.name).toBe('The Spire');
+  expect(spawned.zombiesAlive).toBe(1);
+  await expect(
+    page.locator('.survival-boss-hud').getByText('The Spire'),
+  ).toBeVisible();
+
+  // It never closes to melee, so unlike the Sledge test the damage has to arrive
+  // as a projectile. Step deterministically and wait for the first needle to
+  // land on the parked rig.
+  const before = await page.evaluate(
+    () => window.__scrapRig.survivalTelemetry()!,
+  );
+  expect(before.integrityPct).toBe(100);
+
+  await page.evaluate(() => window.__scrapRig.setSimPaused(true));
+  const landedAfterSeconds = await page.evaluate(() => {
+    for (let second = 1; second <= 120; second += 1) {
+      window.__scrapRig.stepSim(60);
+      const integrity = window.__scrapRig.survivalTelemetry()?.integrityPct;
+      if (integrity !== undefined && integrity < 100) return second;
+    }
+    return -1;
+  });
+  expect(landedAfterSeconds).toBeGreaterThan(0);
+
+  const after = await page.evaluate(
+    () => window.__scrapRig.survivalTelemetry()!,
+  );
+  expect(after.integrityPct).toBeLessThan(before.integrityPct);
+  // A needle damages the one part it strikes, unlike the slam's whole circle.
+  const damaged = Object.entries(after.partHp).filter(
+    ([partId, hp]) => hp < (before.partHp[partId] ?? 0),
+  );
+  expect(damaged.length).toBeGreaterThanOrEqual(1);
+  expect(after.boss).not.toBeNull();
+});
+
 test('an ordinary wave never shows the boss health bar', async ({ page }) => {
   test.setTimeout(120_000);
   await boot(page);
