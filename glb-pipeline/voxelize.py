@@ -96,6 +96,25 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Remove small disconnected pieces during remeshing.",
     )
     parser.add_argument(
+        "--min-part",
+        type=float,
+        default=0.05,
+        metavar="RATIO",
+        help=(
+            "With --keep-largest, the smallest piece to keep as a ratio of the "
+            "largest (default: 0.05). 1.0 keeps only the single largest piece, "
+            "which amputates body parts the voxel grid left disconnected."
+        ),
+    )
+    parser.add_argument(
+        "--per-face-color",
+        action="store_true",
+        help=(
+            "Colour each cube face independently instead of giving every voxel "
+            "one flat colour. Softer, but loses the pixel-art look."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print commands without running Blender.",
@@ -104,6 +123,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
     if not 1 <= args.depth <= 10:
         parser.error("--depth must be between 1 and 10")
+    if not 0.0 < args.min_part <= 1.0:
+        parser.error("--min-part must be greater than 0 and at most 1")
     if args.output and len(args.inputs) != 1:
         parser.error("--output can only be used with one input; use --output-dir for batches")
     return args
@@ -146,9 +167,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             str(args.depth),
             "--color-samples",
             str(args.color_samples),
+            "--min-part",
+            str(args.min_part),
         ]
         if args.keep_largest:
             command.append("--keep-largest")
+        if args.per_face_color:
+            command.append("--per-face-color")
 
         print(f"Voxelizing {input_path.name} -> {output_path}")
         if args.dry_run:

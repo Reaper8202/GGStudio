@@ -38,9 +38,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--depth", type=int, default=5)
     parser.add_argument("--color-samples", type=int, choices=(1, 5), default=5)
     parser.add_argument("--keep-largest", action="store_true")
+    parser.add_argument("--min-part", type=float, default=0.05)
+    parser.add_argument("--per-face-color", action="store_true")
     args = parser.parse_args(sys.argv[separator + 1 :])
     if not 1 <= args.depth <= 10:
         parser.error("--depth must be between 1 and 10")
+    if not 0.0 < args.min_part <= 1.0:
+        parser.error("--min-part must be greater than 0 and at most 1")
     return args
 
 
@@ -493,13 +497,20 @@ def lerp_color(first: Any, second: Any, factor: float) -> tuple[float, float, fl
     return tuple(first[index] * (1.0 - factor) + second[index] * factor for index in range(4))
 
 
-def apply_blocks_remesh(obj: Any, depth: int, keep_largest: bool) -> None:
+def apply_blocks_remesh(
+    obj: Any, depth: int, keep_largest: bool, min_part: float = 0.05
+) -> None:
     modifier = obj.modifiers.new(name="Voxelize Blocks", type="REMESH")
     modifier.mode = "BLOCKS"
     modifier.octree_depth = depth
     modifier.use_remove_disconnected = keep_largest
     if hasattr(modifier, "threshold"):
-        modifier.threshold = 1.0
+        # Blender reads `threshold` as "keep components at least this large,
+        # as a ratio of the largest one". At 1.0 it keeps ONLY the largest,
+        # which silently amputates any body part the voxel grid left
+        # disconnected -- a zombie with a severed midsection loses both legs.
+        # Default to a small ratio so this removes specks, as documented.
+        modifier.threshold = min_part
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
     result = bpy.ops.object.modifier_apply(modifier=modifier.name)
@@ -522,7 +533,92 @@ def face_sample_points(mesh: Any, polygon: Any, count: int) -> list[Vector]:
     return [center] + [center.lerp(vertex, 0.72) for vertex in vertices[:4]]
 
 
-def paint_voxel_faces(obj: Any, sampler: SurfaceSampler, samples_per_face: int) -> None:
+def voxel_size_of(mesh: Any) -> float:
+    """Edge length of one cube face. Blocks remesh emits uniform axis-aligned
+    squares, so any face edge is the grid pitch."""
+    for polygon in mesh.polygons:
+        vertices = [mesh.vertices[index].co for index in polygon.vertices]
+        if len(vertices) < 2:
+            continue
+        length = (vertices[1] - vertices[0]).length
+        if length > 1e-9:
+            return length
+    raise RuntimeError("Could not measure the voxel grid pitch from the remeshed mesh.")
+
+
+def group_faces_by_voxel(mesh: Any, size: float) -> dict[tuple[int, int, int], list[int]]:
+    """Map each cube to the faces that bound it.
+
+    A face's owning cube centre sits half a voxel behind the face along its
+    inward normal; quantizing that centre onto the grid gives every face of the
+    same cube an identical key.
+    """
+    centers = []
+    for polygon in mesh.polygons:
+        centers.append(polygon.center - polygon.normal * (size * 0.5))
+
+    if not centers:
+        return {}
+
+    # Quantize relative to a corner of the lattice so keys are stable
+    # non-negative integers and never land on a .5 rounding boundary.
+    origin = Vector(
+        (
+            min(center.x for center in centers),
+            min(center.y for center in centers),
+            min(center.z for center in centers),
+        )
+    )
+
+    groups: dict[tuple[int, int, int], list[int]] = {}
+    for index, center in enumerate(centers):
+        key = (
+            int(math.floor((center.x - origin.x) / size + 0.5)),
+            int(math.floor((center.y - origin.y) / size + 0.5)),
+            int(math.floor((center.z - origin.z) / size + 0.5)),
+        )
+        groups.setdefault(key, []).append(index)
+    return groups
+
+
+def dominant_color(
+    samples: list[tuple[float, float, float, float]],
+) -> tuple[float, float, float, float]:
+    """Pick the most representative colour of a voxel rather than the mean.
+
+    Averaging is what washes voxel art out: a cube straddling a skin/blood
+    boundary averages to pink mud. Bucketing the samples and taking the modal
+    bucket keeps the source palette crisp, which is the whole point of the
+    pixel-art look. Ties go to the more saturated bucket so detail colours
+    survive against large flat regions.
+    """
+    if not samples:
+        return (1.0, 1.0, 1.0, 1.0)
+
+    levels = 12
+    buckets: dict[tuple[int, int, int], list[tuple[float, float, float, float]]] = {}
+    for sample in samples:
+        key = tuple(min(levels - 1, int(sample[channel] * levels)) for channel in range(3))
+        buckets.setdefault(key, []).append(sample)  # type: ignore[arg-type]
+
+    def score(entry: tuple[Any, list[tuple[float, float, float, float]]]) -> tuple[int, float]:
+        members = entry[1]
+        mean = [sum(m[c] for m in members) / len(members) for c in range(3)]
+        saturation = max(mean) - min(mean)
+        return (len(members), saturation)
+
+    winner = max(buckets.items(), key=score)[1]
+    return tuple(  # type: ignore[return-value]
+        sum(member[channel] for member in winner) / len(winner) for channel in range(4)
+    )
+
+
+def paint_voxel_faces(
+    obj: Any,
+    sampler: SurfaceSampler,
+    samples_per_face: int,
+    per_face: bool = False,
+) -> None:
     mesh = obj.data
     attribute = mesh.color_attributes.get(COLOR_ATTRIBUTE)
     if attribute is None:
@@ -530,18 +626,31 @@ def paint_voxel_faces(obj: Any, sampler: SurfaceSampler, samples_per_face: int) 
             name=COLOR_ATTRIBUTE, type="BYTE_COLOR", domain="CORNER"
         )
 
-    transparent = False
-    for polygon in mesh.polygons:
-        samples = [
+    # Sample every face once; grouping below decides how widely each result is
+    # shared. Sampling is the expensive part, so it never runs twice.
+    face_samples = [
+        [
             sampler.color_at(point)
             for point in face_sample_points(mesh, polygon, samples_per_face)
         ]
-        color = tuple(
-            sum(sample[channel] for sample in samples) / len(samples) for channel in range(4)
-        )
+        for polygon in mesh.polygons
+    ]
+
+    if per_face:
+        # Legacy look: each of a cube's six faces keeps its own colour, so a
+        # voxel can be lit differently per side.
+        groups = {index: [index] for index in range(len(mesh.polygons))}.values()
+    else:
+        groups = group_faces_by_voxel(mesh, voxel_size_of(mesh)).values()
+
+    transparent = False
+    for face_indices in groups:
+        pooled = [sample for index in face_indices for sample in face_samples[index]]
+        color = dominant_color(pooled)
         transparent = transparent or color[3] < 0.999
-        for loop_index in polygon.loop_indices:
-            attribute.data[loop_index].color = color
+        for index in face_indices:
+            for loop_index in mesh.polygons[index].loop_indices:
+                attribute.data[loop_index].color = color
 
     material = bpy.data.materials.new("Voxel Material")
     material.use_nodes = True
@@ -612,13 +721,14 @@ def main() -> None:
     source.name = "Color Source"
     sampler = SurfaceSampler.from_object(source)
 
-    apply_blocks_remesh(voxel, args.depth, args.keep_largest)
-    paint_voxel_faces(voxel, sampler, args.color_samples)
+    apply_blocks_remesh(voxel, args.depth, args.keep_largest, args.min_part)
+    paint_voxel_faces(voxel, sampler, args.color_samples, args.per_face_color)
     export_glb(voxel, output_path)
 
     print(
         f"VOXELIZER_RESULT input={input_path} output={output_path} "
-        f"depth={args.depth} faces={len(voxel.data.polygons)}"
+        f"depth={args.depth} faces={len(voxel.data.polygons)} "
+        f"color={'face' if args.per_face_color else 'voxel'}"
     )
 
 

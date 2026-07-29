@@ -6,7 +6,7 @@ Premier gaming development studio
 - `/docs` — repo-wide guides ([index](docs/README.md))
 - `/saved` — raw source assets kept for re-running pipelines
 - `/Shared` — cross-game assets (art, audio, fonts) tracked via Git LFS
-- `/glb-pipeline` — voxelizes + optimizes a GLB into a game asset, in one command
+- `/glb-pipeline` — turns a textured GLB into a pixel-art game asset, in one command
 - `/glb-rigger` — splits a static GLB into rigid parts on an animatable hierarchy
 - Each game (HTML5 or Unity) lives in its own top-level folder, e.g. `/MyGame1`, `/MyGame2`
 
