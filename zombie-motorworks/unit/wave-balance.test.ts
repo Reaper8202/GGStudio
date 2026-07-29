@@ -12,16 +12,19 @@ describe('wave balance report', () => {
       wave: 1,
       composition: {
         walker: 13,
+        gunslinger: 1,
+        necromancer: 0,
         thrower: 0,
         worker: 0,
         'phone-addict': 0,
+        kamikaze: 0,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(1),
       speedMultiplier: speedMultiplierForWave(1),
       attackDamageMultiplier: attackDamageMultiplierForWave(1),
-      effectiveTotalHp: 520,
-      totalPossibleReward: 89,
+      effectiveTotalHp: 592,
+      totalPossibleReward: 98,
     });
   });
 
@@ -30,16 +33,19 @@ describe('wave balance report', () => {
       wave: 2,
       composition: {
         walker: 16,
+        gunslinger: 1,
+        necromancer: 0,
         thrower: 0,
         worker: 0,
         'phone-addict': 0,
+        kamikaze: 0,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(2),
       speedMultiplier: speedMultiplierForWave(2),
       attackDamageMultiplier: attackDamageMultiplierForWave(2),
-      effectiveTotalHp: 678,
-      totalPossibleReward: 108,
+      effectiveTotalHp: 755,
+      totalPossibleReward: 117,
     });
   });
 
@@ -48,16 +54,19 @@ describe('wave balance report', () => {
       wave: 3,
       composition: {
         walker: 19,
+        gunslinger: 1,
+        necromancer: 0,
         thrower: 1,
         worker: 0,
         'phone-addict': 0,
+        kamikaze: 0,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(3),
       speedMultiplier: speedMultiplierForWave(3),
       attackDamageMultiplier: attackDamageMultiplierForWave(3),
-      effectiveTotalHp: 923,
-      totalPossibleReward: 135,
+      effectiveTotalHp: 1004,
+      totalPossibleReward: 144,
     });
   });
 
@@ -66,16 +75,19 @@ describe('wave balance report', () => {
       wave: 4,
       composition: {
         walker: 22,
+        gunslinger: 2,
+        necromancer: 0,
         thrower: 1,
         worker: 0,
         'phone-addict': 0,
+        kamikaze: 2,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(4),
       speedMultiplier: speedMultiplierForWave(4),
       attackDamageMultiplier: attackDamageMultiplierForWave(4),
-      effectiveTotalHp: 1114,
-      totalPossibleReward: 154,
+      effectiveTotalHp: 1331,
+      totalPossibleReward: 186,
     });
   });
 
@@ -84,16 +96,19 @@ describe('wave balance report', () => {
       wave: 7,
       composition: {
         walker: 31,
+        gunslinger: 3,
+        necromancer: 1,
         thrower: 3,
         worker: 1,
         'phone-addict': 0,
+        kamikaze: 3,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(7),
       speedMultiplier: speedMultiplierForWave(7),
       attackDamageMultiplier: attackDamageMultiplierForWave(7),
-      effectiveTotalHp: 2018,
-      totalPossibleReward: 239,
+      effectiveTotalHp: 2622,
+      totalPossibleReward: 303,
     });
   });
 
@@ -102,16 +117,19 @@ describe('wave balance report', () => {
       wave: 11,
       composition: {
         walker: 43,
+        gunslinger: 4,
+        necromancer: 2,
         thrower: 5,
         worker: 2,
         'phone-addict': 1,
+        kamikaze: 5,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(11),
       speedMultiplier: speedMultiplierForWave(11),
       attackDamageMultiplier: attackDamageMultiplierForWave(11),
-      effectiveTotalHp: 3507,
-      totalPossibleReward: 353,
+      effectiveTotalHp: 4666,
+      totalPossibleReward: 456,
     });
   });
 
@@ -119,18 +137,21 @@ describe('wave balance report', () => {
   // single boss HP figure plus the boss bounty and the ordinary clear bonus.
   it.each([
     // Waves 5 and 15 are The Sledge (900 base HP); wave 10 is The Spire, which
-    // carries 1,600 because it replaces the far larger wave-9 horde.
+    // carries 2,000 because it replaces the far larger wave-9 horde.
     { wave: 5, effectiveTotalHp: 1116, totalPossibleReward: 240 },
-    { wave: 10, effectiveTotalHp: 2464, totalPossibleReward: 420 },
+    { wave: 10, effectiveTotalHp: 3080, totalPossibleReward: 420 },
     { wave: 15, effectiveTotalHp: 1656, totalPossibleReward: 340 },
   ])('reports the exact boss wave $wave balance', (expected) => {
     expect(waveBalanceReport(expected.wave)).toEqual({
       wave: expected.wave,
       composition: {
         walker: 0,
+        gunslinger: 0,
+        necromancer: 0,
         thrower: 0,
         worker: 0,
         'phone-addict': 0,
+        kamikaze: 0,
         boss: 1,
       },
       healthMultiplier: healthMultiplierForWave(expected.wave),
@@ -141,12 +162,12 @@ describe('wave balance report', () => {
     });
   });
 
-  it('offers 486 total reward across waves 1 through 4', () => {
+  it('offers 545 total reward across waves 1 through 4', () => {
     const earlyWaveReward = [1, 2, 3, 4].reduce(
       (total, wave) => total + waveBalanceReport(wave).totalPossibleReward,
       0,
     );
 
-    expect(earlyWaveReward).toBe(486);
+    expect(earlyWaveReward).toBe(545);
   });
 });

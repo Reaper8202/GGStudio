@@ -7,7 +7,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { getPartDef } from '../src/core/parts.ts';
-import { MAX_PART_LEVEL } from '../src/core/partUpgrades.ts';
 import type { PlacedPart, VehicleBlueprint } from '../src/core/types.ts';
 import { assembleVehicle } from '../src/runtime/assembler.ts';
 import { RuntimeVehicle } from '../src/runtime/vehicle.ts';
@@ -27,20 +26,22 @@ beforeAll(async () => {
 
 describe('unlimited weapons', () => {
   it('labels a weapon with its player-facing part name', () => {
-    expect(createWeapon(part('blaster', 'turret')).label).toBe('Zombie Blaster');
+    expect(createWeapon(part('blaster', 'turret')).label).toBe(
+      'Zombie Blaster',
+    );
   });
 
-  it('derives emp and piercing from upgrade level, and only for the turret', () => {
-    // Both weapons are maxed on the same ladder. The EMP Coil and Piercing
-    // Rounds are unlocks on the *turret's* chain, so a fully upgraded cannon is
-    // a harder-hitting cannon and nothing more.
+  it('carries module levels only for the turret mounting part', () => {
+    // EMP and piercing are unlocks on the turret's own upgrade chain (see
+    // turretModules.ts), so both come from the part's `level` alone — level 6
+    // is the top of both ladders at once.
     const blaster = createWeapon({
       ...part('blaster', 'turret'),
-      config: { level: MAX_PART_LEVEL },
+      config: { level: 6 },
     });
     const cannon = createWeapon({
       ...part('cannon', 'cannon-heavy'),
-      config: { level: MAX_PART_LEVEL },
+      config: { level: 6 },
     });
 
     expect(blaster.empLevel).toBe(3);

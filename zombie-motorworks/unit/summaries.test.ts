@@ -28,42 +28,51 @@ describe('legible consequence summaries', () => {
     expect(newThreatsForWave(2)).toEqual([]);
     expect(newThreatsForWave(3)).toEqual(['thrower']);
     expect(newThreatsForWave(7)).toEqual(['worker']);
-    // Wave 10 is a boss wave and fields no phone-addicts, so the first wave
-    // that actually brings them — and therefore warns about them — is 11.
+    // The Phone Addict curve opens on wave 10, but wave 10 is a boss duel with
+    // no horde at all, so the first one the player actually meets is on 11. The
+    // look-back in newThreatsForWave skips boss waves, which is what makes the
+    // introduction slide instead of being swallowed.
     expect(newThreatsForWave(10)).toEqual([]);
     expect(newThreatsForWave(11)).toEqual(['phone-addict']);
     expect(newThreatsForWave(12)).toEqual([]);
   });
 
-  it('flags the Phone Addict and garage EMP recommendation the wave before', () => {
+  it('announces the boss instead of a specialist on a boss wave', () => {
+    expect(threatWarningsForWave(5)).toEqual([
+      'BOSS WAVE — The Sledge. Slow but brutal: stay out of the hammer ring.',
+    ]);
+    expect(threatWarningsForWave(10)).toEqual([
+      'BOSS WAVE — The Spire. It kites and shoots needles: close the distance and it bleeds.',
+    ]);
+    // An ordinary wave may still warn about a specialist, but never about a boss.
+    for (const wave of [6, 7, 11]) {
+      for (const warning of threatWarningsForWave(wave)) {
+        expect(warning).not.toContain('BOSS WAVE');
+      }
+    }
+  });
+
+  it('flags the Phone Addict and garage EMP recommendation on wave 11', () => {
+    // No wave number in the copy: the boss wave shifted this by one, and it will
+    // shift again for anything the boss interval displaces later.
     expect(threatWarningsForWave(11)).toEqual([
       'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage now.',
     ]);
   });
 
-  it('announces the boss ahead of every fifth wave', () => {
-    expect(threatWarningsForWave(5)).toEqual([
-      'BOSS WAVE — The Sledge. Slow but brutal: stay out of the hammer ring.',
-    ]);
-    // Wave 10 is the other half of the rotation, and its copy has to tell the
-    // player the opposite thing: close the distance instead of keeping it.
-    expect(threatWarningsForWave(10)).toEqual([
-      'BOSS WAVE — The Spire. It kites and shoots needles: close the distance and it bleeds.',
-    ]);
-    expect(threatWarningsForWave(6)).toEqual([]);
-  });
-
   it('formats exact wave composition while omitting zero-count kinds', () => {
     expect(formatWaveComposition(zombieCompositionForWave(1))).toBe(
-      '13 walkers',
+      '13 walkers / 1 gunslinger',
     );
     expect(formatWaveComposition(zombieCompositionForWave(3))).toBe(
-      '19 walkers / 1 thrower',
+      '19 walkers / 1 gunslinger / 1 thrower',
     );
     expect(formatWaveComposition(zombieCompositionForWave(11))).toBe(
-      '43 walkers / 5 throwers / 2 workers / 1 phone-addict',
+      '43 walkers / 4 gunslingers / 2 necromancers / 5 throwers / 2 workers / 1 phone-addict / 5 kamikazes',
     );
+    // A boss wave replaces the whole horde, both times it comes round.
     expect(formatWaveComposition(zombieCompositionForWave(5))).toBe('1 boss');
+    expect(formatWaveComposition(zombieCompositionForWave(10))).toBe('1 boss');
   });
 
   it('totals New Garage investment, per-part refunds, and forfeited value', () => {
@@ -76,9 +85,11 @@ describe('legible consequence summaries', () => {
       getPartDef,
     );
 
-    // 400 is the frame's 16 plus the turret's 384, i.e. base costs and upgrade
-    // chains only. It was 800 while EMP and piercing were separately bought
-    // modules that added their own spend on top; those are chain unlocks now.
+    // Concrete totals, not the same helpers re-run: recomputing the expectation
+    // with partInvestment/sellRefund would reimplement the production sum in
+    // the test and compare it against itself. The root chassis is excluded from
+    // the count and the totals, which is what partCount 2 is asserting.
+    // frame-box L2 = 16, turret L6 = 1573.
     expect(summary).toEqual({
       partCount: 2,
       investment: 400,

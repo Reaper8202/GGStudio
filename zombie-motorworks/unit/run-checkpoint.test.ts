@@ -175,7 +175,7 @@ describe('run checkpoints', () => {
     const saved = savedRunFromCheckpoint(checkpoint, 1_800_000_000_000);
 
     expect(saved).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       wave: checkpoint.wave,
       kills: checkpoint.kills,
       biomeId: checkpoint.biomeId,
@@ -185,6 +185,46 @@ describe('run checkpoints', () => {
     });
     expect(saved.kills).not.toBe(liveMidWave.kills);
     expect(saved.partHp).not.toEqual(liveMidWave.partHp);
+  });
+
+  it('defaults a saved run to resuming in the arena on the checkpoint wave', () => {
+    const checkpoint = createInitialRunCheckpoint(
+      checkpointBlueprint(),
+      'graveyard',
+    );
+
+    const saved = savedRunFromCheckpoint(checkpoint, 1_800_000_000_000);
+
+    expect(saved.phase).toBe('wave');
+    expect(saved.activeWave).toBe(checkpoint.wave);
+  });
+
+  it('records the Garage phase and the wave the HUD was showing', () => {
+    // Quitting from the Build Phase: the checkpoint has already advanced to
+    // wave 5, but the player last fought wave 4.
+    const checkpoint = createClearedWaveCheckpoint({
+      blueprint: checkpointBlueprint(),
+      nextWave: 5,
+      survivingPartIds: ['core', 'seat'],
+      partHp: { core: 201, seat: 72 },
+      kills: 18,
+      biomeId: 'desert',
+      seed: 8675309,
+      score: 640,
+      bankedEarnings: 165,
+      elapsedSeconds: 120,
+    });
+
+    const saved = savedRunFromCheckpoint(
+      checkpoint,
+      1_800_000_000_000,
+      'build',
+      4,
+    );
+
+    expect(saved.phase).toBe('build');
+    expect(saved.activeWave).toBe(4);
+    expect(saved.wave).toBe(5);
   });
 
   it('passes equivalent survivor HP and cumulative kills through both clear actions', () => {

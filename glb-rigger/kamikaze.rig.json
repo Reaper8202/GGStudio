@@ -1,0 +1,34 @@
+{
+  "name": "kamikaze",
+  "note": [
+    "Rig for the depth-7 voxelizer output of the T-pose voxel zombie",
+    "(voxel-zombie.rig-source.glb, uncompressed per docs/glb-pipeline.md's",
+    "rigging note). Small, slim frame ~1.73 tall in source units, arms",
+    "straight out to the sides (T-pose), wearing a bomb vest that bulges",
+    "forward off the chest/belly.",
+    "Joints read off orthographic renders (front + right, span 2.2) with a",
+    "silhouette-boundary scan rather than by eye. The character faces +Z,",
+    "so its right hand is on -X and a negative local-X rotation swings a",
+    "bone forward.",
+    "No overrides are needed — the model has no separate props (no tome,",
+    "no held item), so nearest-bone assignment is unambiguous."
+  ],
+  "joints": [
+    { "name": "hips",       "parent": null,        "pos": [0, -0.03, -0.02], "tip": [0, 0.05, -0.02],  "radius": 0.95 },
+    { "name": "torso",      "parent": "hips",      "pos": [0, 0.05, -0.02],  "tip": [0, 0.51, -0.02],  "radius": 1.55 },
+    { "name": "head",       "parent": "torso",     "pos": [0, 0.51, -0.02],  "tip": [0, 0.83, -0.015], "radius": 1.3 },
+
+    { "name": "armR_upper", "parent": "torso",     "pos": [-0.14, 0.42, -0.02], "tip": [-0.46, 0.42, -0.02], "radius": 0.85 },
+    { "name": "armR_fore",  "parent": "armR_upper","pos": [-0.46, 0.42, -0.02], "tip": [-0.90, 0.42, -0.02], "radius": 0.95 },
+    { "name": "armL_upper", "parent": "torso",     "pos": [0.14, 0.42, -0.02],  "tip": [0.46, 0.42, -0.02],  "radius": 0.85 },
+    { "name": "armL_fore",  "parent": "armL_upper","pos": [0.46, 0.42, -0.02],  "tip": [0.90, 0.42, -0.02],  "radius": 0.95 },
+
+    { "name": "legR_thigh", "parent": "hips",      "pos": [-0.105, -0.03, -0.015], "tip": [-0.105, -0.38, -0.04], "radius": 0.8 },
+    { "name": "legR_shin",  "parent": "legR_thigh","pos": [-0.105, -0.38, -0.04],  "tip": [-0.105, -0.78, -0.04], "radius": 0.9 },
+    { "name": "footR",      "parent": "legR_shin", "pos": [-0.105, -0.78, -0.04],  "tip": [-0.105, -0.86, 0.09],  "radius": 1.0 },
+
+    { "name": "legL_thigh", "parent": "hips",      "pos": [0.105, -0.03, -0.015], "tip": [0.105, -0.38, -0.04], "radius": 0.8 },
+    { "name": "legL_shin",  "parent": "legL_thigh","pos": [0.105, -0.38, -0.04],  "tip": [0.105, -0.78, -0.04], "radius": 0.9 },
+    { "name": "footL",      "parent": "legL_shin", "pos": [0.105, -0.78, -0.04],  "tip": [0.105, -0.86, 0.09],  "radius": 1.0 }
+  ]
+}

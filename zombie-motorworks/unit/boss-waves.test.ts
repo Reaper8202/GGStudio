@@ -83,9 +83,12 @@ describe('boss wave scheduling', () => {
   it('replaces the whole horde with a single boss', () => {
     expect(zombieCompositionForWave(5)).toEqual({
       walker: 0,
+      gunslinger: 0,
+      necromancer: 0,
       thrower: 0,
       worker: 0,
       'phone-addict': 0,
+      kamikaze: 0,
       boss: 1,
     });
     expect(zombieCountForWave(5)).toBe(1);

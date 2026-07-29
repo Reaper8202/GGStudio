@@ -1,0 +1,125 @@
+{
+  "name": "gunslinger",
+  "note": [
+    "Joint positions are in model space, measured off gunslinger.12k.glb by",
+    "slicing the point cloud into 0.05 horizontal slabs and clustering each",
+    "slab in x (Y up, height 2.0, feet at y=-1.0).",
+    "The character faces +Z — confirmed numerically: at the sole the foot spans",
+    "z -0.17..+0.10 while the ankle above it sits at z -0.17..-0.05, so the toes",
+    "point +Z. Its right hand is therefore on -X.",
+    "Unlike the Necromancer this model is a lean skeleton: the torso core sits",
+    "well back at z -0.11, the head hangs forward at z 0.00, and the arms hang",
+    "outward from x +/-0.17 at the shoulder to x +/-0.34 at the hands, which are",
+    "down near knee height. A revolver hangs from each hand.",
+    "Bone names match necromancer.rig.json so one set of pose curves drives both."
+  ],
+  "joints": [
+    {
+      "name": "hips",
+      "parent": null,
+      "pos": [0.0, -0.02, -0.08],
+      "tip": [0.0, 0.12, -0.1],
+      "radius": 0.95
+    },
+    {
+      "comment": "Runs all the way from the waist to the collar. Greedy, so the ribcage and vest stay whole instead of being claimed by the thighs.",
+      "name": "torso",
+      "parent": "hips",
+      "pos": [0.0, 0.12, -0.1],
+      "tip": [0.0, 0.55, -0.09],
+      "radius": 1.55
+    },
+    {
+      "comment": "Stops at the collar and runs greedy so the wide hat brim at y 0.90..0.95 comes with the skull instead of staying on the torso.",
+      "name": "head",
+      "parent": "torso",
+      "pos": [0.0, 0.55, -0.09],
+      "tip": [0.0, 0.9, 0.0],
+      "radius": 1.3
+    },
+    {
+      "name": "armR_upper",
+      "parent": "torso",
+      "pos": [-0.17, 0.46, -0.11],
+      "tip": [-0.26, 0.14, -0.14],
+      "radius": 0.85
+    },
+    {
+      "name": "armR_fore",
+      "parent": "armR_upper",
+      "pos": [-0.26, 0.14, -0.14],
+      "tip": [-0.34, -0.19, -0.05],
+      "radius": 0.95
+    },
+    {
+      "name": "armL_upper",
+      "parent": "torso",
+      "pos": [0.17, 0.46, -0.11],
+      "tip": [0.26, 0.14, -0.14],
+      "radius": 0.85
+    },
+    {
+      "name": "armL_fore",
+      "parent": "armL_upper",
+      "pos": [0.26, 0.14, -0.14],
+      "tip": [0.34, -0.19, -0.05],
+      "radius": 0.95
+    },
+    {
+      "name": "legR_thigh",
+      "parent": "hips",
+      "pos": [-0.09, -0.04, -0.07],
+      "tip": [-0.09, -0.45, -0.05],
+      "radius": 0.8
+    },
+    {
+      "name": "legR_shin",
+      "parent": "legR_thigh",
+      "pos": [-0.09, -0.45, -0.05],
+      "tip": [-0.1, -0.83, -0.09],
+      "radius": 0.9
+    },
+    {
+      "name": "footR",
+      "parent": "legR_shin",
+      "pos": [-0.1, -0.83, -0.09],
+      "tip": [-0.1, -0.95, 0.02],
+      "radius": 1.0
+    },
+    {
+      "name": "legL_thigh",
+      "parent": "hips",
+      "pos": [0.09, -0.04, -0.07],
+      "tip": [0.09, -0.45, -0.05],
+      "radius": 0.8
+    },
+    {
+      "name": "legL_shin",
+      "parent": "legL_thigh",
+      "pos": [0.09, -0.45, -0.05],
+      "tip": [0.1, -0.83, -0.09],
+      "radius": 0.9
+    },
+    {
+      "name": "footL",
+      "parent": "legL_shin",
+      "pos": [0.1, -0.83, -0.09],
+      "tip": [0.1, -0.95, 0.02],
+      "radius": 1.0
+    }
+  ],
+  "overrides": [
+    {
+      "comment": "Right revolver. It hangs from the hand down to y -0.55 and forward to z +0.21, which puts its muzzle nearer the shin than the forearm that holds it. The box is bounded at x -0.27 so it cannot reach the leg, which lives at x -0.15..-0.03.",
+      "bone": "armR_fore",
+      "min": [-0.45, -0.62, -0.18],
+      "max": [-0.27, -0.12, 0.28]
+    },
+    {
+      "comment": "Left revolver, mirrored.",
+      "bone": "armL_fore",
+      "min": [0.27, -0.62, -0.18],
+      "max": [0.45, -0.12, 0.28]
+    }
+  ]
+}

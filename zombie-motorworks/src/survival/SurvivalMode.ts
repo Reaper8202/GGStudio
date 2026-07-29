@@ -822,6 +822,9 @@ export class SurvivalMode {
       onRemainingChanged: () => undefined,
       onWaveComplete: (wave, reward) => this.onWaveComplete(wave, reward),
     });
+    // Necromancer raises are bodies the director never assigned; hand them to
+    // it so the wave's remaining count covers them.
+    this.zombies.onZombiesRaised = (count) => this.waves.countBonusSpawns(count);
     this.tracerRenderer = new TracerRenderer(this.scene);
     this.phaseGhosts = new PhaseGhosts(this.scene);
 
@@ -1452,14 +1455,17 @@ export class SurvivalMode {
     if (this.disposed || this.phase !== 'active') return;
     const spawned = this.waves.spawnBonusHorde([
       'walker',
+      'gunslinger',
+      'necromancer',
       'thrower',
       'worker',
       'phone-addict',
+      'kamikaze',
     ]);
     this.settingsStatus.textContent =
-      spawned === 4
-        ? 'Spawned a Walker, Ranged, Worker, and Phone User.'
-        : `Spawned ${spawned} of 4 zombies — clear some room and try again.`;
+      spawned === 7
+        ? 'Spawned a Walker, Gunslinger, Necromancer, Ranged, Worker, Phone User, and Kamikaze.'
+        : `Spawned ${spawned} of 7 zombies — clear some room and try again.`;
   };
 
   private readonly onInfiniteMoney = (): void => {

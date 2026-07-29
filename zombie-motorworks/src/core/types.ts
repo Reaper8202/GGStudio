@@ -87,6 +87,14 @@ export interface WheelDefinition {
    * angling the hub — tank treads. Set alongside maxSteerAngleDeg 0.
    */
   skidSteer?: boolean;
+  /**
+   * Hard ceiling on how fast this wheel's contact surface may travel (m/s), and
+   * therefore on how fast it can push the vehicle. A belt is geared for grunt,
+   * not speed; without this the only thing holding a tracked rig back was the
+   * energy it wasted spinning its tracks, which is not a design, it is a bug.
+   * Undefined means "no gearing limit", which is every ordinary wheel.
+   */
+  maxSurfaceSpeedMps?: number;
   driveTorqueLimit: number; // N·m the hub survives
   brakeTorque: number; // N·m
   frictionLong: number; // longitudinal friction coefficient multiplier

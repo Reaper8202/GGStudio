@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { getPartDef } from '../src/core/parts.ts';
-import { deriveAutomaticWheelLayout } from '../src/core/wheelLayout.ts';
+import { deriveAutomaticWheelLayout, resolveDrivenPartIds } from '../src/core/wheelLayout.ts';
 import { BLUEPRINT_SCHEMA_VERSION } from '../src/core/types.ts';
 import type { PartConfig, VehicleBlueprint, Vec3i } from '../src/core/types.ts';
 
@@ -99,13 +99,20 @@ describe('deriveAutomaticWheelLayout steering', () => {
 });
 
 describe('deriveAutomaticWheelLayout drive', () => {
-  it('drives the two wheels farthest from the root, preferring non-steering', () => {
+  it('drives every wheel by default, including steering wheels', () => {
     const layout = deriveAutomaticWheelLayout(
       rig([wheel('fl', FRONT_L), wheel('fr', FRONT_R), wheel('rl', REAR_L), wheel('rr', REAR_R)]),
       getPartDef,
     );
-    expect(layout.drivenPartIds.size).toBe(2);
-    // Front wheels steer, so drive falls to the rear axle.
-    expect([...layout.drivenPartIds].sort()).toEqual(['rl', 'rr']);
+    expect([...layout.drivenPartIds].sort()).toEqual(['fl', 'fr', 'rl', 'rr']);
+    expect([...layout.steeringPartIds].sort()).toEqual(['fl', 'fr']);
+  });
+
+  it('honours an explicit non-driven wheel', () => {
+    const driven = resolveDrivenPartIds(
+      rig([wheel('fl', FRONT_L, { driven: false }), wheel('fr', FRONT_R), wheel('rl', REAR_L), wheel('rr', REAR_R)]),
+      getPartDef,
+    );
+    expect(driven.has('fl')).toBe(false);
   });
 });

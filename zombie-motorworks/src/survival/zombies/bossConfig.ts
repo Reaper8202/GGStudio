@@ -191,11 +191,11 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
     name: 'The Spire',
     warning:
       'BOSS WAVE — The Spire. It kites and shoots needles: close the distance and it bleeds.',
-    // ~2,464 HP at wave 10 after the 1.54x health multiplier, against the 2,646
+    // ~3,080 HP at wave 10 after the 1.54x health multiplier, against the ~3,333
     // effective HP of the wave-9 horde it replaces. Deliberately a shade under a
     // full horde: the retreat means every point of its health takes longer to
     // reach than a brute's does.
-    baseHealth: 1600,
+    baseHealth: 2000,
     // 1.98 m/s base — quicker than The Sledge because it spends its time backing
     // away, but still far short of a walker, so ramming it down always works.
     speedMultiplier: 0.62,

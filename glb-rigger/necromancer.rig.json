@@ -1,0 +1,225 @@
+{
+  "name": "necromancer",
+  "note": [
+    "Joint positions are in model space, read off orthographic renders of",
+    "necromancer.6k.glb (Y up, height 2.0, feet at y=-1.0).",
+    "The character faces +Z, so its right hand is on -X. Body core sits at",
+    "z -0.45..0 and both arms reach forward to z +0.45.",
+    "Each bone is the segment from `pos` to `tip`; triangles are assigned to",
+    "the nearest bone, with `radius` biasing which bone wins contested mass",
+    "(bigger radius = greedier)."
+  ],
+  "joints": [
+    {
+      "name": "hips",
+      "parent": null,
+      "pos": [
+        0.02,
+        0.02,
+        -0.22
+      ],
+      "tip": [
+        0.0,
+        0.16,
+        -0.24
+      ],
+      "radius": 0.95
+    },
+    {
+      "name": "torso",
+      "parent": "hips",
+      "pos": [
+        0.0,
+        0.16,
+        -0.24
+      ],
+      "tip": [
+        -0.02,
+        0.7,
+        -0.15
+      ],
+      "radius": 1.55
+    },
+    {
+      "name": "head",
+      "parent": "torso",
+      "pos": [
+        -0.02,
+        0.7,
+        -0.15
+      ],
+      "tip": [
+        -0.02,
+        1.0,
+        -0.15
+      ],
+      "radius": 1.0
+    },
+    {
+      "name": "armR_upper",
+      "parent": "torso",
+      "pos": [
+        -0.26,
+        0.62,
+        -0.12
+      ],
+      "tip": [
+        -0.31,
+        0.46,
+        0.02
+      ],
+      "radius": 0.85
+    },
+    {
+      "name": "armR_fore",
+      "parent": "armR_upper",
+      "pos": [
+        -0.31,
+        0.46,
+        0.02
+      ],
+      "tip": [
+        -0.36,
+        0.48,
+        0.3
+      ],
+      "radius": 0.95
+    },
+    {
+      "name": "armL_upper",
+      "parent": "torso",
+      "pos": [
+        0.28,
+        0.62,
+        -0.12
+      ],
+      "tip": [
+        0.34,
+        0.46,
+        0.02
+      ],
+      "radius": 0.85
+    },
+    {
+      "name": "armL_fore",
+      "parent": "armL_upper",
+      "pos": [
+        0.34,
+        0.46,
+        0.02
+      ],
+      "tip": [
+        0.4,
+        0.48,
+        0.3
+      ],
+      "radius": 0.95
+    },
+    {
+      "name": "legR_thigh",
+      "parent": "hips",
+      "pos": [
+        -0.16,
+        0.02,
+        -0.2
+      ],
+      "tip": [
+        -0.17,
+        -0.42,
+        -0.2
+      ],
+      "radius": 0.8
+    },
+    {
+      "name": "legR_shin",
+      "parent": "legR_thigh",
+      "pos": [
+        -0.17,
+        -0.42,
+        -0.2
+      ],
+      "tip": [
+        -0.17,
+        -0.84,
+        -0.2
+      ],
+      "radius": 0.9
+    },
+    {
+      "name": "footR",
+      "parent": "legR_shin",
+      "pos": [
+        -0.17,
+        -0.84,
+        -0.2
+      ],
+      "tip": [
+        -0.17,
+        -0.93,
+        -0.05
+      ],
+      "radius": 1.0
+    },
+    {
+      "name": "legL_thigh",
+      "parent": "hips",
+      "pos": [
+        0.15,
+        0.02,
+        -0.2
+      ],
+      "tip": [
+        0.15,
+        -0.42,
+        -0.2
+      ],
+      "radius": 0.8
+    },
+    {
+      "name": "legL_shin",
+      "parent": "legL_thigh",
+      "pos": [
+        0.15,
+        -0.42,
+        -0.2
+      ],
+      "tip": [
+        0.15,
+        -0.84,
+        -0.2
+      ],
+      "radius": 0.9
+    },
+    {
+      "name": "footL",
+      "parent": "legL_shin",
+      "pos": [
+        0.15,
+        -0.84,
+        -0.2
+      ],
+      "tip": [
+        0.15,
+        -0.93,
+        -0.05
+      ],
+      "radius": 1.0
+    }
+  ],
+  "overrides": [
+    {
+      "comment": "The tome hangs forward of the left hand but nearer the coat, so distance alone splits it between armL_fore and torso. Force the whole prop onto the hand that carries it.",
+      "bone": "armL_fore",
+      "min": [
+        0.19,
+        -0.16,
+        0.04
+      ],
+      "max": [
+        0.56,
+        0.36,
+        0.52
+      ]
+    }
+  ]
+}

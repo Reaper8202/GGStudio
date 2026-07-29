@@ -1,17 +1,23 @@
 /** Zombie variants that award run score when killed. */
 export type ScoreZombieKind =
   | 'walker'
+  | 'gunslinger'
+  | 'necromancer'
   | 'thrower'
   | 'phone-addict'
   | 'worker'
+  | 'kamikaze'
   | 'boss';
 
 /** Base points per kill, before the wave multiplier. */
 export const SCORE_PER_KILL: Record<ScoreZombieKind, number> = {
   walker: 10,
+  gunslinger: 20,
+  necromancer: 45,
   worker: 25,
   thrower: 30,
   'phone-addict': 20,
+  kamikaze: 15,
   // A boss replaces the entire horde for its wave, so its kill has to be worth
   // roughly what clearing that horde would have paid — otherwise a boss wave
   // reads as a scoring dead zone on the leaderboard.

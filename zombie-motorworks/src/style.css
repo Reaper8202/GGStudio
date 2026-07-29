@@ -946,6 +946,75 @@ canvas.viewport {
     inset 3px 0 0 var(--ui-rust-dark);
 }
 
+/* Sits just under the notice banner: an imported build naming parts the
+   player has not unlocked stays off the field until they are bought. */
+.editor-locked {
+  position: absolute;
+  top: 104px;
+  left: 50%;
+  z-index: 11;
+  display: flex;
+  max-width: min(680px, calc(100% - 32px));
+  align-items: center;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  background: var(--panel-bg-strong);
+  border: 1px solid var(--ui-edge);
+  border-radius: 0;
+  color: #d8a657;
+  font-weight: 700;
+  text-align: center;
+  box-shadow:
+    5px 6px 0 rgb(0 0 0 / 0.38),
+    inset 3px 0 0 var(--ui-rust-dark);
+}
+
+.editor-locked__text {
+  min-width: 0;
+}
+
+.share-hint {
+  margin: 0 0 8px;
+  color: var(--ui-muted, #9aa0a6);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.share-actions button {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* A build code is a long unbroken string: it must wrap inside the dock rather
+   than stretch the panel past the viewport on a phone. */
+.share-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: rgb(0 0 0 / 0.35);
+  border: 1px solid var(--ui-edge);
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+
+.share-panel .dock-panel__body > button {
+  width: 100%;
+  margin-top: 6px;
+}
+
 .palette {
   position: absolute;
   left: 8px;

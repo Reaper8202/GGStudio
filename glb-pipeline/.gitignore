@@ -1,0 +1,7 @@
+node_modules/
+
+# Pipeline output is regenerable — keep sources in /saved instead.
+*.voxel.glb
+*.opt.glb
+*.pipeline.glb
+*.remesh.glb

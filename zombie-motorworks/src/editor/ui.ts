@@ -32,6 +32,7 @@ export interface EditorUIHandlers {
   newGarageDisposalSummary(): NewGarageDisposalSummary;
   onNew(): void;
   onMenu(): void;
+  onSaveAndQuit(): void;
   onRename(name: string): void;
   onUndo(): void;
   onRedo(): void;
@@ -51,6 +52,12 @@ export interface EditorUIHandlers {
   /** Take the selection off the rig and back into owned stock, not for cash. */
   onReturnSelected(): void;
   onRotateSelected(axis: 'y' | 'x'): void;
+  /** Unlock every catalog part the current build uses but the player lacks. */
+  onBuyMissingParts(): void;
+  onCopyCode(): void;
+  onCopyLink(): void;
+  /** Raw contents of the paste box: a build code or a full share link. */
+  onImport(input: string): void;
 }
 
 export interface SelectedPartEconomy {
@@ -196,6 +203,15 @@ export interface EditorUI {
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
   setStatus(text: string): void;
+  /** Show/hide the "this build uses parts you don't own yet" banner. */
+  setLockedParts(defIds: readonly string[], money: number): void;
+  /**
+   * Ask where an imported build should go. Resolves to the player's choice, or
+   * `'cancel'` if they dismissed the dialog.
+   */
+  askShareImportTarget(
+    buildName: string,
+  ): Promise<'new-slot' | 'replace' | 'cancel'>;
   setNotice(text: string): void;
   deny(text: string): void;
   ghostTip: HTMLDivElement;
@@ -783,6 +799,60 @@ export function buildEditorUI(
     cancelNewGarage.focus();
   };
 
+  // Where should an imported build go? Modelled on the New Garage dialog above
+  // rather than window.confirm/prompt: native dialogs are unusable on mobile
+  // and are suppressed outright inside the sandboxed iframes portals embed the
+  // game in, which would leave importing silently dead in production.
+  const importOverlay = document.createElement('div');
+  importOverlay.className = 'garage-confirm-overlay';
+  importOverlay.hidden = true;
+  importOverlay.setAttribute('role', 'dialog');
+  importOverlay.setAttribute('aria-modal', 'true');
+  importOverlay.setAttribute('aria-labelledby', 'share-import-title');
+  importOverlay.setAttribute('aria-describedby', 'share-import-description');
+  const importDialog = document.createElement('section');
+  importDialog.className = 'panel garage-confirm';
+  const importTitle = document.createElement('h2');
+  importTitle.id = 'share-import-title';
+  importTitle.textContent = 'Import Shared Build';
+  const importDescription = document.createElement('p');
+  importDescription.id = 'share-import-description';
+  const importActions = document.createElement('div');
+  importActions.className = 'garage-confirm__actions';
+  let importReturnFocus: HTMLElement | null = null;
+  let settleImport: ((choice: 'new-slot' | 'replace' | 'cancel') => void) | null =
+    null;
+  // Always settles the pending promise, so a dismissed dialog can never leave
+  // the import flow waiting forever.
+  const closeImportDialog = (choice: 'new-slot' | 'replace' | 'cancel'): void => {
+    importOverlay.hidden = true;
+    const settle = settleImport;
+    settleImport = null;
+    importReturnFocus?.focus();
+    importReturnFocus = null;
+    settle?.(choice);
+  };
+  const cancelImport = btn('Cancel', () => closeImportDialog('cancel'));
+  const importAsNewSlot = btn('Load as new slot', () =>
+    closeImportDialog('new-slot'),
+  );
+  const importReplace = btn('Replace current build', () =>
+    closeImportDialog('replace'),
+  );
+  importReplace.className = 'danger';
+  importActions.append(cancelImport, importReplace, importAsNewSlot);
+  importDialog.append(importTitle, importDescription, importActions);
+  importOverlay.appendChild(importDialog);
+  importOverlay.addEventListener('pointerdown', (event) => {
+    if (event.target === importOverlay) closeImportDialog('cancel');
+  });
+  importOverlay.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    closeImportDialog('cancel');
+    event.preventDefault();
+  });
+  root.appendChild(importOverlay);
+
   const top = document.createElement('div');
   top.className = 'topbar';
   root.appendChild(top);
@@ -792,6 +862,10 @@ export function buildEditorUI(
   nameInput.title = 'Vehicle name';
   nameInput.addEventListener('change', () => handlers.onRename(nameInput.value));
   const menuBtn = btn('Menu', handlers.onMenu);
+  const saveAndQuitBtn = btn('Save & Quit', handlers.onSaveAndQuit);
+  // Banking a wave only means something inside a run; `setRunContext` reveals
+  // this in place of Menu once one is active.
+  saveAndQuitBtn.style.display = 'none';
   const newGarageBtn = btn('New Garage', () =>
     openNewGarageDialog(newGarageBtn),
   );
@@ -871,6 +945,7 @@ export function buildEditorUI(
   utilityButtons.className = 'topbar-utilities';
   utilityButtons.append(
     menuBtn,
+    saveAndQuitBtn,
     btn('Tutorial', handlers.onStartTutorial),
     btn('Help', () => toggleHelp()),
   );
@@ -899,6 +974,20 @@ export function buildEditorUI(
   noticeBanner.className = 'panel editor-notice';
   noticeBanner.style.display = 'none';
   root.appendChild(noticeBanner);
+
+  // An imported build always arrives intact, so it can name parts the player
+  // has not unlocked. Those keep the rig off the field until they are bought,
+  // and this banner is the one place that says so and offers the fix.
+  const lockedBanner = document.createElement('div');
+  lockedBanner.className = 'panel editor-locked';
+  lockedBanner.hidden = true;
+  lockedBanner.setAttribute('role', 'status');
+  const lockedText = document.createElement('span');
+  lockedText.className = 'editor-locked__text';
+  const buyMissingBtn = btn('Buy missing parts', handlers.onBuyMissingParts);
+  buyMissingBtn.className = 'editor-locked__buy';
+  lockedBanner.append(lockedText, buyMissingBtn);
+  root.appendChild(lockedBanner);
 
   // With the bottom bar gone the status line floats just above the build bar,
   // and stays invisible (`:empty`) until there is something to say.
@@ -958,6 +1047,31 @@ export function buildEditorUI(
   store.body.append(storeSearch, storeFilters, storeContent);
 
   garageDock.appendChild(store.panel);
+
+  // Sharing lives in its own dock panel, collapsed by default: it is a thing
+  // players go looking for, not something that should crowd the build tools.
+  const share = buildCollapsiblePanel('Share', 'share-panel');
+  const shareHint = document.createElement('p');
+  shareHint.className = 'share-hint';
+  shareHint.textContent =
+    'Send your rig to a friend, or paste one they sent you.';
+  const shareActions = document.createElement('div');
+  shareActions.className = 'share-actions';
+  const copyCodeBtn = btn('Copy build code', handlers.onCopyCode);
+  const copyLinkBtn = btn('Copy share link', handlers.onCopyLink);
+  shareActions.append(copyCodeBtn, copyLinkBtn);
+  const shareInput = document.createElement('textarea');
+  shareInput.className = 'share-input';
+  shareInput.rows = 2;
+  shareInput.placeholder = 'Paste a build code or share link';
+  shareInput.setAttribute('aria-label', 'Build code or share link');
+  const importBtn = btn('Import build', () => {
+    handlers.onImport(shareInput.value);
+    shareInput.value = '';
+  });
+  share.body.append(shareHint, shareActions, shareInput, importBtn);
+  share.setCollapsed(true);
+  garageDock.appendChild(share.panel);
 
   // Inventory lives in a popover over the build bar rather than in the dock, so
   // the model keeps the middle of the screen until the player goes looking.
@@ -1802,6 +1916,7 @@ export function buildEditorUI(
     },
     setRunContext: (wave, summary, repair) => {
       menuBtn.style.display = wave === undefined ? '' : 'none';
+      saveAndQuitBtn.style.display = wave === undefined ? 'none' : '';
       if (wave !== undefined) {
         runBannerText.textContent = repair
           ? `Next: Wave ${wave + 1} · Integrity ${Math.round(repair.integrityPct)}%`
@@ -1885,6 +2000,29 @@ export function buildEditorUI(
       applyToolStates();
     },
     setStatus,
+    setLockedParts: (defIds, money) => {
+      lockedBanner.hidden = defIds.length === 0;
+      if (defIds.length === 0) return;
+      const names = defIds.map((id) => catalog[id]?.name ?? id);
+      const total = defIds.reduce(
+        (sum, id) => sum + (catalog[id]?.unlockCost ?? 0),
+        0,
+      );
+      lockedText.textContent = `This build uses parts you don't own yet: ${names.join(', ')}.`;
+      buyMissingBtn.disabled = total > money;
+      buyMissingBtn.textContent = `Buy missing parts ($${total})`;
+      buyMissingBtn.title = buyMissingBtn.disabled
+        ? `Not enough money — need $${total}`
+        : `Unlock ${names.length} part${names.length === 1 ? '' : 's'} for $${total}`;
+    },
+    askShareImportTarget: (buildName) =>
+      new Promise((resolve) => {
+        importDescription.textContent = `"${buildName}" is ready to load. Keep your current build by loading this as a new save slot, or replace what's in the garage right now.`;
+        settleImport = resolve;
+        importReturnFocus = (document.activeElement as HTMLElement) ?? null;
+        importOverlay.hidden = false;
+        importAsNewSlot.focus();
+      }),
     setNotice: (text) => {
       noticeBanner.textContent = text;
       noticeBanner.style.display = 'block';

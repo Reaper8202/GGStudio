@@ -16,9 +16,12 @@ export interface WaveManagerCallbacks {
 
 export interface WaveComposition {
   walker: number;
+  gunslinger: number;
+  necromancer: number;
   thrower: number;
   worker: number;
   'phone-addict': number;
+  kamikaze: number;
   boss: number;
 }
 
@@ -45,7 +48,16 @@ function countFromCurve(
 export function zombieCompositionForWave(wave: number): WaveComposition {
   const safeWave = safeWaveNumber(wave);
   if (isBossWave(safeWave)) {
-    return { walker: 0, thrower: 0, worker: 0, 'phone-addict': 0, boss: 1 };
+    return {
+      walker: 0,
+      gunslinger: 0,
+      necromancer: 0,
+      thrower: 0,
+      worker: 0,
+      'phone-addict': 0,
+      kamikaze: 0,
+      boss: 1,
+    };
   }
   const { composition } = devTuning.wave;
   const { types } = devTuning;
@@ -53,6 +65,16 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
     walker: countFromCurve(
       composition.walker,
       types.walker.countOverride,
+      safeWave,
+    ),
+    gunslinger: countFromCurve(
+      composition.gunslinger,
+      types.gunslinger.countOverride,
+      safeWave,
+    ),
+    necromancer: countFromCurve(
+      composition.necromancer,
+      types.necromancer.countOverride,
       safeWave,
     ),
     thrower: countFromCurve(
@@ -68,6 +90,11 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
     'phone-addict': countFromCurve(
       composition['phone-addict'],
       types['phone-addict'].countOverride,
+      safeWave,
+    ),
+    kamikaze: countFromCurve(
+      composition.kamikaze,
+      types.kamikaze.countOverride,
       safeWave,
     ),
     boss: 0,
@@ -136,7 +163,14 @@ export function spawnOrderForWave(wave: number): ZombieKind[] {
   // health bar is up from the start of the wave whatever else is scheduled.
   const bosses: ZombieKind[] = Array(composition.boss).fill('boss');
   const specials: ZombieKind[] = [];
-  for (const kind of ['thrower', 'worker', 'phone-addict'] as const) {
+  for (const kind of [
+    'gunslinger',
+    'necromancer',
+    'thrower',
+    'worker',
+    'phone-addict',
+    'kamikaze',
+  ] as const) {
     for (let i = 0; i < composition[kind]; i++) specials.push(kind);
   }
   if (specials.length === 0) {
@@ -238,9 +272,19 @@ export class WaveManager {
       kinds.length,
       Math.max(0, this.zombies.trySpawnHorde(kinds)),
     );
+    this.countBonusSpawns(spawned);
+    return spawned;
+  }
+
+  /**
+   * Take ownership of bodies that entered the arena without being assigned by
+   * this director — a necromancer's raise, a cheat horde. They have to be
+   * counted, or the wave completes with them still walking around.
+   */
+  countBonusSpawns(spawned: number): void {
+    if (this.waveDone || spawned <= 0) return;
     this.assignedCount += spawned;
     this.emitRemaining();
-    return spawned;
   }
 
   /**
