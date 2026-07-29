@@ -1165,18 +1165,18 @@ export function buildStarterBlueprint(): VehicleBlueprint {
     part('frame-box', { x: -1, y: 1, z: -1 }),
     // Front wheel hangs off the nz face of the frame ahead of it, like a
     // motorcycle fork, so it sits centred instead of hanging off one side.
-    part('wheel-standard', { x: 0, y: 1, z: 2 }, 0, defaultWheelConfig(true)),
+    part('wheel-standard', { x: 0, y: 1, z: 2 }, 0, defaultWheelConfig()),
     part(
       'wheel-standard',
       { x: 2, y: 1, z: -1 },
       yaw180,
-      defaultWheelConfig(false),
+      defaultWheelConfig(),
     ),
     part(
       'wheel-standard',
       { x: -2, y: 1, z: -1 },
       0,
-      defaultWheelConfig(false),
+      defaultWheelConfig(),
     ),
     part('engine-small', { x: 0, y: 2, z: -1 }),
     part('fuel-tank', { x: 0, y: 2, z: 0 }),
@@ -1186,11 +1186,10 @@ export function buildStarterBlueprint(): VehicleBlueprint {
   return { ...createEmptyBlueprint('starter-rig'), parts };
 }
 
-function defaultWheelConfig(steering: boolean): PartConfig {
+function defaultWheelConfig(): PartConfig {
   return {
-    driven: !steering,
+    driven: true,
     braking: true,
-    steering,
     steerInverted: false,
   };
 }

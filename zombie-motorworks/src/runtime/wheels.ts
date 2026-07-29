@@ -58,10 +58,10 @@ const TIRE_FORCE_ANCHOR_LIFT = 0.75;
 // Steering feel. A brisker slew rate makes the wheels reach the commanded
 // angle quickly so turn-in no longer lags the key press, and a gentler
 // high-speed fade keeps the response consistent instead of going numb.
-const STEER_RATE = 14; // rad/s
-const LOW_SPEED_STEER_MULTIPLIER = 1.02;
-const HIGH_SPEED_STEER_MULTIPLIER = 0.95;
-const STEER_FADE_PER_MPS = 0.004;
+const STEER_RATE = 9; // rad/s: progressive turn-in avoids an abrupt weight transfer.
+const STEER_RETURN_RATE = 18; // rad/s: centring faster makes recovery responsive.
+const STEER_SPEED_FADE_REFERENCE_MPS = 26;
+const MIN_HIGH_SPEED_STEER_MULTIPLIER = 0.38;
 
 export interface WheelStepInput {
   throttle: number; // 0..1
@@ -76,6 +76,30 @@ export interface AckermannGeometry {
   track: number;
   /** partIds of paired steering wheels: [leftId, rightId][] */
   pairs: [string, string][];
+}
+
+export function steeringSpeedMultiplier(speedMps: number): number {
+  return clamp(
+    1 / (1 + Math.max(0, speedMps) / STEER_SPEED_FADE_REFERENCE_MPS),
+    MIN_HIGH_SPEED_STEER_MULTIPLIER,
+    1,
+  );
+}
+
+/**
+ * Turn-in is deliberately slower than centring, so a corner loads up
+ * progressively while recovery stays sharp. "Returning" means the step moves
+ * the hub back toward straight: winding off, releasing to centre, or crossing
+ * through centre to the opposite lock. Starting a turn from dead centre is
+ * turn-in, not a sign flip — Math.sign(0) is 0, so that case has to be
+ * excluded explicitly or every turn begun from straight would use the fast
+ * centring rate and feel twitchy.
+ */
+export function steeringActuatorRate(target: number, current: number): number {
+  if (current === 0) return STEER_RATE;
+  if (target === 0) return STEER_RETURN_RATE;
+  if (Math.sign(target) !== Math.sign(current)) return STEER_RETURN_RATE;
+  return Math.abs(target) < Math.abs(current) ? STEER_RETURN_RATE : STEER_RATE;
 }
 
 /** Detect conventional left/right axle pairs (same z, mirrored x). */
@@ -110,23 +134,61 @@ export function computeAckermann(wheels: RuntimeWheel[]): AckermannGeometry {
 }
 
 /**
- * Per-wheel target steer angles. Each steering wheel is now fully independent:
- * it simply turns to its own maxSteerAngle scaled by the input, with no
- * left/right axle coupling. Dropping the old Ackermann pair correction removes
- * the "wonky" behaviour that showed up when a mismatched or mid-run-remounted
- * wheel got paired to the wrong mate and the two sides fought each other.
- * `geom` is kept for signature stability but no longer influences the angles.
+ * Per-wheel Ackermann targets. This solves each wheel against one shared turn
+ * centre, so no left/right pairing is needed when wheels are asymmetric.
  */
 export function steerTargets(
   wheels: RuntimeWheel[],
-  _geom: AckermannGeometry,
+  geom: AckermannGeometry,
   steerInput: number,
 ): Map<string, number> {
   const out = new Map<string, number>();
-  for (const w of wheels) {
-    if (!w.steering || w.broken) continue;
+  if (Math.abs(steerInput) < 1e-6) {
+    for (const w of wheels) if (w.steering && !w.broken) out.set(w.partId, 0);
+    return out;
+  }
+  const s = Math.sign(steerInput);
+  const live = wheels.filter((w) => !w.broken);
+  const steered = live.filter((w) => w.steering);
+  const maxAngleOf = (w: RuntimeWheel): number =>
+    (w.wheelDef.maxSteerAngleDeg * Math.PI) / 180;
+  // Commanded centreline angle. A wheel sitting on the centreline would take
+  // exactly this angle; the geometry below spreads the others around it.
+  const delta =
+    Math.abs(steerInput) * Math.max(...steered.map(maxAngleOf), 0);
+  const tanDelta = Math.tan(delta);
+
+  // The turn centre lies on the axle that does not steer. With every wheel
+  // steering (a single-axle rig, or a build where the player ticked steering
+  // on everything) there is no such reference and Ackermann is undefined, so
+  // fall back to giving each hub the commanded angle directly. Without this
+  // the pivot line would pass through the steered wheels themselves, their
+  // longitudinal offset would be zero, and the rig would refuse to turn at
+  // all — single-axle rigs are explicitly supported by the layout deriver.
+  const pivotWheels = live.filter((w) => !w.steering);
+  const uniform = pivotWheels.length === 0 || Math.abs(tanDelta) <= 1e-6;
+  const pivotZ = uniform
+    ? 0
+    : pivotWheels.reduce((sum, w) => sum + w.anchorLocal.z, 0) /
+      pivotWheels.length;
+  const radius = uniform ? 0 : geom.wheelbase / tanDelta;
+
+  for (const w of steered) {
+    const max = maxAngleOf(w);
     const sign = w.steerInverted ? -1 : 1;
-    out.set(w.partId, sign * steerInput * (w.wheelDef.maxSteerAngleDeg * Math.PI) / 180);
+    if (uniform) {
+      out.set(w.partId, sign * s * Math.min(delta, max));
+      continue;
+    }
+    // Distance from this hub to the turn centre, measured across the vehicle.
+    // The inner hub sits closer to the centre, so it needs the larger angle.
+    const lateral = radius + s * (w.anchorLocal.x - MIRROR_PLANE_X_M);
+    const longitudinal = w.anchorLocal.z - pivotZ;
+    const raw =
+      Math.abs(lateral) > 1e-6
+        ? s * Math.atan2(longitudinal, Math.abs(lateral))
+        : (s * Math.PI) / 2;
+    out.set(w.partId, sign * clamp(raw, -max, max));
   }
   return out;
 }
@@ -163,11 +225,7 @@ export function stepWheels(
   const angvel = body.angvel();
   const com = body.worldCom();
   const horizontalSpeed = Math.hypot(linvel.x, linvel.z);
-  const steeringMultiplier = clamp(
-    LOW_SPEED_STEER_MULTIPLIER - horizontalSpeed * STEER_FADE_PER_MPS,
-    HIGH_SPEED_STEER_MULTIPLIER,
-    LOW_SPEED_STEER_MULTIPLIER,
-  );
+  const steeringMultiplier = steeringSpeedMultiplier(horizontalSpeed);
   const targets = steerTargets(
     wheels,
     geom,
@@ -198,7 +256,8 @@ export function stepWheels(
     if (w.broken) continue;
     // Rate-limited steering.
     const target = targets.get(w.partId) ?? 0;
-    const dSteer = clamp(target - w.steerAngle, -STEER_RATE * dt, STEER_RATE * dt);
+    const rate = steeringActuatorRate(target, w.steerAngle);
+    const dSteer = clamp(target - w.steerAngle, -rate * dt, rate * dt);
     w.steerAngle += dSteer;
 
     const anchorW = add(v3(bodyPos.x, bodyPos.y, bodyPos.z), rotateByQuat(rot, w.anchorLocal));

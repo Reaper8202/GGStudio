@@ -96,3 +96,53 @@ for after playtest, not something to slip in during a biome pass.
 
 Sand deliberately stops *shorter* than asphalt: its rolling resistance and sinkage scrub
 speed. Sand is about sluggishness and bogging down under weight, not about sliding.
+
+## Steering: wheels drive and steer at the same time
+
+Drive and steer were mutually exclusive, and three separate places enforced it. The
+starter rig's `defaultWheelConfig(steering)` returned `driven: !steering`, so the front
+wheel was explicitly locked out of drive and the rear pair explicitly locked out of
+steering. Because an explicit `config.driven` beats the automatic layout, those flags
+survived every rebuild and wheel swap. Underneath, `deriveAutomaticWheelLayout` capped
+drive at two wheels and *preferred non-steering ones*, so even a blueprint with no
+explicit flags derived to rear-drive-only. `defaultConfigForDef` disagreed with
+`defaultWheelConfig` about the default, so behaviour depended on how a wheel got into the
+blueprint.
+
+Now every wheel drives by default and steering is always derived. `distributeTorque`
+splits a fixed engine output across the driven set, so all-wheel drive spreads traction
+rather than adding power. An explicit `driven: false` is still the opt-out.
+
+## Steering: Ackermann without pair-matching
+
+Ackermann was previously computed and then discarded — every steered wheel took the same
+angle, so the inner tire scrubbed against the outer one. It had been removed because
+left/right pair-matching mis-paired wheels that were asymmetric or remounted mid-run.
+
+The fix keeps Ackermann but drops the pairing. Each wheel independently solves for the
+angle that points it at one shared turn centre, from its own lateral and longitudinal
+offset. That is exact for asymmetric rigs and the 3-wheel starter, and there is no pair to
+get wrong.
+
+The turn centre must sit on an axle that does not steer. When every wheel steers — a
+single-axle rig, or a build where the player ticked steering on everything — Ackermann is
+undefined, and solving anyway puts the pivot line through the steered wheels themselves,
+zeroing their longitudinal offset and leaving the rig unable to turn at all. Single-axle
+rigs are explicitly supported by the layout deriver, so that case falls back to giving
+each hub the commanded angle.
+
+## Steering: speed fade and asymmetric actuator rate
+
+The old speed fade ran 1.02 -> 0.95, leaving ~95% of full lock at the 42 m/s top speed,
+which is why the rig snapped and span. It also let the commanded angle exceed the wheel's
+rated max. It now fades `1 / (1 + v/26)` with a 0.38 floor: 1.00 at rest, 0.50 at 26 m/s.
+Reducing max steer angle as speed rises is the standard raycast-vehicle fix.
+
+Turn-in and centring were one 14 rad/s rate. They are now split — 9 rad/s in, 18 rad/s
+back — so corners load up progressively while recovery stays sharp. Note that
+`Math.sign(0)` is 0: a naive sign comparison treats leaving dead centre, the most common
+turn-in there is, as a cross-centre correction and hands it the fast centring rate. That
+case is excluded explicitly and covered by a test.
+
+No smoothing was added to the raw `controls.steer` input. The per-wheel rate limiter is
+already the steering actuator; smoothing the input too would just add lag.
