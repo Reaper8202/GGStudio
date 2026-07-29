@@ -60,6 +60,11 @@ describe('legible consequence summaries', () => {
       getPartDef,
     );
 
+    // Concrete totals, not the same helpers re-run: recomputing the expectation
+    // with partInvestment/sellRefund would reimplement the production sum in
+    // the test and compare it against itself. The root chassis is excluded from
+    // the count and the totals, which is what partCount 2 is asserting.
+    // frame-box L2 = 16, turret L6 = 1573.
     expect(summary).toEqual({
       partCount: 2,
       investment: 400,

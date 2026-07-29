@@ -157,8 +157,14 @@ helpers. `core` stays engine- and browser-independent.
   surviving checkpoint parts recover to full HP in the ordinary Garage.
 - Save & Quit serializes only the wave-start checkpoint. Current-wave damage,
   kills, spawn state, and pending reward are intentionally discarded.
-- Resuming loads the saved checkpoint directly into Survival at its recorded
-  wave.
+- App also writes that checkpoint automatically whenever it commits one, so
+  closing the tab keeps the wave without the player finding a button.
+- The save records where it was written. A `wave` save resumes into Survival; a
+  `build` save resumes into the run Garage, which is reachable through its own
+  Save & Quit button since the Build Phase hides Menu.
+- `activeWave` is the wave the HUD was showing and is stored, not derived:
+  after a clear it trails `wave` by one, but after a mid-wave return to Garage
+  the two are equal.
 - Transient HP belongs to the Run Checkpoint, never the persistent Blueprint
   schema.
 
@@ -168,7 +174,7 @@ helpers. `core` stays engine- and browser-independent.
 | --------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `scraprig.profile.v1`                         | `src/core/profile.ts` / `src/app/profileStore.ts`         | Profile schema 1: money, unlocks, inventory, current blueprint name, preferred biome, highest cleared wave, Phone Addict kills |
 | `scraprig.blueprints.v1`                      | `src/core/serialize.ts` / `src/editor/EditorMode.ts`      | Named Blueprint slots; Blueprint schema 4 with migrations from schemas 1-3                                    |
-| `scraprig.run.v1`                             | `src/core/runSave.ts` / `src/app/runSaveStore.ts`         | Saved Run schema 2; decoder migrates valid schema-1 saves                                                     |
+| `scraprig.run.v1`                             | `src/core/runSave.ts` / `src/app/runSaveStore.ts`         | Saved Run schema 5; decoder migrates valid schema-1 to schema-4 saves                                         |
 | `scraprig.leaderboard.v1`                     | `src/core/leaderboard.ts` / `src/app/leaderboardStore.ts` | Top 10 completed runs ranked by score, wave, kills, then completion time                                      |
 | `scraprig.tutorial-done`                      | `src/editor/EditorMode.ts`                                | Existing editor tutorial completion flag                                                                      |
 | `scraprig.help-seen`, `scraprig.welcome-seen` | `src/editor/ui.ts`                                        | Presentation-only acknowledgement flags                                                                       |

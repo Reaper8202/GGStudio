@@ -229,10 +229,7 @@ describe('blueprint serialization', () => {
       }),
     );
 
-    expect(result.parts.map((part) => part.config)).toEqual([
-      { level: 4 },
-      {},
-    ]);
+    expect(result.parts.map((part) => part.config)).toEqual([{ level: 4 }, {}]);
   });
 
   it('decodes a current turret blueprint saved before module fields existed', () => {

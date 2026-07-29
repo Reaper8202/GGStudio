@@ -26,7 +26,9 @@ beforeAll(async () => {
 
 describe('unlimited weapons', () => {
   it('labels a weapon with its player-facing part name', () => {
-    expect(createWeapon(part('blaster', 'turret')).label).toBe('Zombie Blaster');
+    expect(createWeapon(part('blaster', 'turret')).label).toBe(
+      'Zombie Blaster',
+    );
   });
 
   it('carries module levels only for the turret mounting part', () => {

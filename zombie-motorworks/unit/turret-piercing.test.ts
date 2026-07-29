@@ -14,6 +14,10 @@ import {
 import { applyZombieShot } from '../src/survival/SurvivalMode.ts';
 import type { Zombie, ZombieKind } from '../src/survival/zombies/Zombie.ts';
 import { ZombieSystem } from '../src/survival/zombies/ZombieSystem.ts';
+import {
+  empShieldLeak,
+  piercingDamageFraction,
+} from '../src/core/turretModules.ts';
 
 interface FakeCollider {
   readonly handle: number;
@@ -148,7 +152,6 @@ describe('turret piercing rounds', () => {
 
   it.each([
     [1, 0.3],
-    [2, 0.45],
     [3, 0.6],
   ])('deals the exact level-%s secondary fraction', (level, fraction) => {
     const fired = fire(level, [
@@ -158,6 +161,12 @@ describe('turret piercing rounds', () => {
 
     expect(fired.shot.pierceZombieHandle).toBe(2);
     expect(fired.shot.pierceDamage).toBe(fired.shot.damage * fraction);
+  });
+
+  it('owns the unreachable level-2 fraction in the pure helper', () => {
+    // The placed-part ladder jumps from piercing 1 to 3, so level 2 cannot be
+    // exercised through a turret rig.
+    expect(piercingDamageFraction(2)).toBe(0.45);
   });
 
   it('casts only once beyond the primary and excludes its collider', () => {
@@ -191,10 +200,7 @@ describe('turret piercing rounds', () => {
   });
 
   it('does not pierce when terrain is the primary hit', () => {
-    const fired = fire(3, [
-      hit(10, GROUP_TERRAIN, 2),
-      hit(2, GROUP_ZOMBIE, 1),
-    ]);
+    const fired = fire(3, [hit(10, GROUP_TERRAIN, 2), hit(2, GROUP_ZOMBIE, 1)]);
 
     expect(fired.castRay).toHaveBeenCalledOnce();
     expect(fired.shot.hitZombieHandle).toBeNull();
@@ -216,10 +222,7 @@ describe('turret piercing rounds', () => {
   });
 
   it('terminates before secondary damage when the primary is a Phone Addict', () => {
-    const fired = fire(3, [
-      hit(1, GROUP_ZOMBIE, 2),
-      hit(2, GROUP_ZOMBIE, 2),
-    ]);
+    const fired = fire(3, [hit(1, GROUP_ZOMBIE, 2), hit(2, GROUP_ZOMBIE, 2)]);
     const primary = fakeTarget('phone-addict');
     const secondary = fakeTarget('walker');
     const system = zombieSystem(
@@ -236,13 +239,15 @@ describe('turret piercing rounds', () => {
     });
 
     expect(pierceContinues).toBe(false);
-    expect(primary.health()).toBe(100 - fired.shot.damage * 0.1);
+    expect(primary.health()).toBe(
+      100 - fired.shot.damage * empShieldLeak(fired.shot.empLevel),
+    );
     expect(secondary.health()).toBe(100);
   });
 
   it('composes piercing damage before the secondary shield leak', () => {
     const fired = fire(
-      2,
+      1,
       [hit(1, GROUP_ZOMBIE, 2), hit(2, GROUP_ZOMBIE, 2)],
       2,
     );
@@ -263,9 +268,7 @@ describe('turret piercing rounds', () => {
 
     expect(pierceContinues).toBe(true);
     expect(primary.health()).toBe(100 - fired.shot.damage);
-    expect(secondary.health()).toBe(
-      100 - fired.shot.damage * 0.45 * 0.5,
-    );
+    expect(secondary.health()).toBe(100 - fired.shot.damage * 0.3 * 0.5);
   });
 
   it.each([0, 3])(
