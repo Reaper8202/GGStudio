@@ -26,21 +26,23 @@ beforeAll(async () => {
 
 describe('unlimited weapons', () => {
   it('labels a weapon with its player-facing part name', () => {
-    expect(createWeapon(part('blaster', 'turret')).label).toBe('Zombie Blaster');
+    expect(createWeapon(part('blaster', 'turret')).label).toBe(
+      'Zombie Blaster',
+    );
   });
 
   it('carries module levels only for the turret mounting part', () => {
     const blaster = createWeapon({
       ...part('blaster', 'turret'),
-      config: { empLevel: 3, piercingLevel: 2 },
+      config: { level: 6 },
     });
     const cannon = createWeapon({
       ...part('cannon', 'cannon-heavy'),
-      config: { empLevel: 3, piercingLevel: 3 },
+      config: { level: 1 },
     });
 
     expect(blaster.empLevel).toBe(3);
-    expect(blaster.piercingLevel).toBe(2);
+    expect(blaster.piercingLevel).toBe(3);
     expect(cannon.empLevel).toBe(0);
     expect(cannon.piercingLevel).toBe(0);
   });

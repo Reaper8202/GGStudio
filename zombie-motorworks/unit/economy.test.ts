@@ -30,13 +30,18 @@ describe('economy helpers', () => {
     expect(partInvestment(placed('turret'))).toBe(150);
   });
 
-  it('includes both turret module investments in the sell refund', () => {
-    const turret = placed('turret', 3);
-    turret.config.empLevel = 2;
-    turret.config.piercingLevel = 1;
+  it('includes the whole turret upgrade chain in the sell refund', () => {
+    // EMP and piercing are no longer bought separately: they come with turret
+    // upgrade levels, so the chain a maxed turret has paid for is the thing the
+    // refund has to account for. Level 6 tops both ladders (EMP 3, piercing 3).
+    //
+    // Pinned rather than recomputed from the helpers: sellRefund is defined as
+    // floor(partInvestment * 0.5), so asserting that relationship would only
+    // restate the implementation and could never fail.
+    const turret = placed('turret', 6);
 
-    expect(partInvestment(turret)).toBe(150 + 90 + 144 + 100 + 175 + 125);
-    expect(sellRefund(turret)).toBe(392);
+    expect(partInvestment(turret)).toBe(1573);
+    expect(sellRefund(turret)).toBe(786);
   });
 
   it('refunds only the unlock spend when a part goes back to inventory', () => {

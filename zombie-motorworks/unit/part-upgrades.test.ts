@@ -34,7 +34,7 @@ describe('named part upgrades', () => {
   it('routes a part to the chain matching the hardware it carries', () => {
     // Guns and melee heads split by model: a sniper and a flamethrower share
     // nothing worth bolting on, so they do not share a chain either.
-    expect(upgradeTrackFor(getPartDef('turret'))).toBe('weapon-auto');
+    expect(upgradeTrackFor(getPartDef('turret'))).toBe('weapon-turret');
     expect(upgradeTrackFor(getPartDef('cannon-heavy'))).toBe('weapon-cannon');
     expect(upgradeTrackFor(getPartDef('sniper-light'))).toBe('weapon-sniper');
     expect(upgradeTrackFor(getPartDef('ice-cannon'))).toBe('weapon-ice');

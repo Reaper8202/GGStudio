@@ -36,7 +36,7 @@ function sampleBlueprint() {
     defId: 'turret',
     pos: { x: 0, y: 1, z: 0 },
     orient: 0,
-    config: { empLevel: 2, piercingLevel: 3 },
+    config: {},
   });
   return bp;
 }
@@ -198,67 +198,6 @@ describe('blueprint serialization', () => {
       braking: false,
     });
   });
-
-  it('clamps turret module levels while dropping zero and non-turret modules', () => {
-    const result = deserializeBlueprint(
-      JSON.stringify({
-        schemaVersion: CURRENT_SCHEMA_VERSION,
-        id: 'bp',
-        name: 'module sanitizing',
-        parts: [
-          {
-            id: 'turret-high',
-            defId: 'turret',
-            pos: { x: 0, y: 0, z: 0 },
-            orient: 0,
-            config: { empLevel: 99, piercingLevel: 99 },
-          },
-          {
-            id: 'turret-zero',
-            defId: 'turret',
-            pos: { x: 1, y: 0, z: 0 },
-            orient: 0,
-            config: { empLevel: 0, piercingLevel: 0 },
-          },
-          {
-            id: 'frame',
-            defId: 'frame-box',
-            pos: { x: 2, y: 0, z: 0 },
-            orient: 0,
-            config: { empLevel: 2, piercingLevel: 3 },
-          },
-        ],
-      }),
-    );
-
-    expect(result.parts.map((part) => part.config)).toEqual([
-      { empLevel: 3, piercingLevel: 3 },
-      {},
-      {},
-    ]);
-  });
-
-  it.each(['empLevel', 'piercingLevel'] as const)(
-    'rejects a non-number %s',
-    (moduleKey) => {
-      const json = JSON.stringify({
-        schemaVersion: CURRENT_SCHEMA_VERSION,
-        id: 'bp',
-        name: 'invalid module',
-        parts: [
-          {
-            id: 'turret',
-            defId: 'turret',
-            pos: { x: 0, y: 0, z: 0 },
-            orient: 0,
-            config: { [moduleKey]: '2' },
-          },
-        ],
-      });
-
-      expect(() => deserializeBlueprint(json)).toThrow(BlueprintFormatError);
-    },
-  );
 
   it('decodes a current turret blueprint saved before module fields existed', () => {
     const legacy = {
