@@ -1,8 +1,9 @@
 # GGStudio Agent Rules
 
 This worktree holds several games (`zombie-motorworks`, `zombie-car`,
-`comfy-zoo`, `glb-voxelizer`, …). Each has its own `AGENTS.md`; read the one
-for the directory you are working in. The rules below apply everywhere.
+`comfy-zoo`, …) plus shared asset tools (`glb-pipeline`, `glb-rigger`). Each has
+its own `AGENTS.md`; read the one for the directory you are working in.
+Repo-wide guides live in `docs/`. The rules below apply everywhere.
 
 ## Verification
 

@@ -377,7 +377,7 @@ function mergeGeometry(document) {
   if (materials.size > 1) {
     throw new Error(
       `Input has ${materials.size} materials; rig.mjs expects a single material. ` +
-        'Run it through glb-optimizer (which joins primitives) first.',
+        'Run it through glb-pipeline (which joins primitives) first.',
     );
   }
 
