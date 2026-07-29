@@ -66,6 +66,11 @@ export function effectivePartDef(
         ...base.weapon,
         damage: base.weapon.damage * (1 + 0.12 * steps),
         fireRate: base.weapon.fireRate * (1 + 0.08 * steps),
+        // Blast damage tracks direct damage; the radius stays fixed so an
+        // upgraded cannon hits harder without quietly changing its footprint.
+        ...(base.weapon.splashDamage !== undefined
+          ? { splashDamage: base.weapon.splashDamage * (1 + 0.12 * steps) }
+          : {}),
       },
     };
   }
@@ -75,6 +80,17 @@ export function effectivePartDef(
       melee: {
         ...base.melee,
         damage: base.melee.damage * (1 + 0.12 * steps),
+        // A plough's damage is the slam, so upgrading it has to move the slam
+        // too — otherwise the stars buy a rounding error. Reach and capacity
+        // stay fixed: the blade is the size it is drawn.
+        ...(base.melee.plow !== undefined
+          ? {
+              plow: {
+                ...base.melee.plow,
+                crushDamage: base.melee.plow.crushDamage * (1 + 0.12 * steps),
+              },
+            }
+          : {}),
       },
     };
   }

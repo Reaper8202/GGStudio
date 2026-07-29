@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { MinimapFeature } from './Graveyard.ts';
+import type { MinimapFeature } from './arena/Arena.ts';
 
 export interface MinimapBounds {
   minX: number;
@@ -17,6 +17,11 @@ export interface MinimapMine {
   readonly x: number;
   readonly z: number;
   readonly revealed: boolean;
+}
+
+export interface MinimapCrate {
+  readonly x: number;
+  readonly z: number;
 }
 
 export interface MinimapSnapshotSource {
@@ -44,12 +49,20 @@ const SNAPSHOT_DESATURATION = 0.22;
 const SNAPSHOT_TINT = [1.06, 1.02, 0.82] as const;
 const ZOMBIE_RADIUS_PX = 2.6;
 const MINE_MARKER_RADIUS_PX = 4;
-const PLAYER_LENGTH_PX = 14;
+const FUEL_MARKER_RADIUS_PX = 4.5;
+const FUEL_MARKER_COLOR = '#54e07a';
+const PLAYER_LENGTH_PX = 16;
 const PLAYER_TIP_DISTANCE_PX = (PLAYER_LENGTH_PX * 2) / 3;
 const PLAYER_REAR_DISTANCE_PX = PLAYER_LENGTH_PX / 3;
-const PLAYER_HALF_WIDTH_PX = 6;
-const PLAYER_EDGE_MARGIN_PX = PLAYER_TIP_DISTANCE_PX + 2;
+const PLAYER_HALF_WIDTH_PX = 7;
 const REDRAW_INTERVAL_MS = 1000 / MINIMAP_REDRAW_HZ;
+
+/**
+ * Metres from the vehicle to the edge of the round minimap. The viewport is
+ * zoomed to this radius and re-centred on the player each frame, so the map
+ * scrolls to reveal new sections of the arena as you drive.
+ */
+export const MINIMAP_VIEW_RADIUS_M = 32;
 
 /** Maps the full arena to a north-up minimap without hiding out-of-bounds points. */
 export function worldToMinimap(
@@ -66,7 +79,29 @@ export function worldToMinimap(
   };
 }
 
-/** A fixed, full-arena overview intended for the survival UI layer. */
+/**
+ * Projects a world point into the fixed, player-centred viewport. The player
+ * sits at the canvas centre and the map is north-up (screen-right is world -X,
+ * screen-down is world -Z) — it never rotates with the vehicle's heading; only
+ * the player arrow turns to show which way you are pointing.
+ */
+export function worldToViewport(
+  worldX: number,
+  worldZ: number,
+  playerX: number,
+  playerZ: number,
+  sizePx: number,
+): { x: number; y: number } {
+  const pxPerMetre = sizePx / 2 / MINIMAP_VIEW_RADIUS_M;
+  const half = sizePx / 2;
+  // North-up map space: screen-right is world -X, screen-down is world -Z.
+  return {
+    x: half - (worldX - playerX) * pxPerMetre,
+    y: half - (worldZ - playerZ) * pxPerMetre,
+  };
+}
+
+/** A fixed north-up, zoomed, player-centred radar for the survival UI layer. */
 export class Minimap {
   private root: HTMLDivElement | null;
   private canvas: HTMLCanvasElement | null;
@@ -130,6 +165,7 @@ export class Minimap {
     yaw: number,
     zombies: readonly MinimapZombie[],
     mines?: readonly MinimapMine[],
+    crates?: readonly MinimapCrate[],
   ): void {
     const context = this.context;
     if (context === null) return;
@@ -140,11 +176,18 @@ export class Minimap {
 
     this.resizeBackingStore();
     const sizePx = this.sizePx;
+    const half = sizePx / 2;
+    // Anything past the round edge (plus a marker's reach) is off-viewport.
+    const cullRadiusPx = half + FUEL_MARKER_RADIUS_PX;
 
+    context.save();
     context.clearRect(0, 0, sizePx, sizePx);
-    if (this.backgroundCanvas !== null) {
-      context.drawImage(this.backgroundCanvas, 0, 0, sizePx, sizePx);
-    }
+    // Round radar mask so the rotating background has no square corners.
+    context.beginPath();
+    context.arc(half, half, half, 0, Math.PI * 2);
+    context.clip();
+
+    this.drawBackground(context, vehicleX, vehicleZ, sizePx);
 
     context.fillStyle = '#ff3b30';
     context.strokeStyle = 'rgba(72, 13, 11, 0.9)';
@@ -152,22 +195,45 @@ export class Minimap {
     context.beginPath();
     for (let index = 0; index < zombies.length; index += 1) {
       const position = zombies[index].position;
-      if (
-        position.x < this.minX ||
-        position.x > this.maxX ||
-        position.z < this.minZ ||
-        position.z > this.maxZ
-      ) {
-        continue;
-      }
-
-      const x = (this.maxX - position.x) * this.scaleX;
-      const y = (this.maxZ - position.z) * this.scaleZ;
-      context.moveTo(x + ZOMBIE_RADIUS_PX, y);
-      context.arc(x, y, ZOMBIE_RADIUS_PX, 0, Math.PI * 2);
+      const point = worldToViewport(
+        position.x,
+        position.z,
+        vehicleX,
+        vehicleZ,
+        sizePx,
+      );
+      if (Math.hypot(point.x - half, point.y - half) > cullRadiusPx) continue;
+      context.moveTo(point.x + ZOMBIE_RADIUS_PX, point.y);
+      context.arc(point.x, point.y, ZOMBIE_RADIUS_PX, 0, Math.PI * 2);
     }
     context.fill();
     context.stroke();
+
+    if (crates !== undefined && crates.length > 0) {
+      context.fillStyle = FUEL_MARKER_COLOR;
+      context.strokeStyle = 'rgba(12, 46, 26, 0.95)';
+      context.lineWidth = 1;
+      context.beginPath();
+      for (let index = 0; index < crates.length; index += 1) {
+        const crate = crates[index];
+        const point = worldToViewport(
+          crate.x,
+          crate.z,
+          vehicleX,
+          vehicleZ,
+          sizePx,
+        );
+        if (Math.hypot(point.x - half, point.y - half) > cullRadiusPx) continue;
+        const r = FUEL_MARKER_RADIUS_PX;
+        context.moveTo(point.x - r, point.y - r);
+        context.lineTo(point.x + r, point.y - r);
+        context.lineTo(point.x + r, point.y + r);
+        context.lineTo(point.x - r, point.y + r);
+        context.closePath();
+      }
+      context.fill();
+      context.stroke();
+    }
 
     if (mines !== undefined) {
       context.fillStyle = '#ffae3d';
@@ -176,62 +242,42 @@ export class Minimap {
       context.beginPath();
       for (let index = 0; index < mines.length; index += 1) {
         const mine = mines[index];
-        if (
-          !mine.revealed ||
-          mine.x < this.minX ||
-          mine.x > this.maxX ||
-          mine.z < this.minZ ||
-          mine.z > this.maxZ
-        ) {
-          continue;
-        }
-
-        const x = (this.maxX - mine.x) * this.scaleX;
-        const y = (this.maxZ - mine.z) * this.scaleZ;
-        context.moveTo(x, y - MINE_MARKER_RADIUS_PX);
-        context.lineTo(x + MINE_MARKER_RADIUS_PX, y);
-        context.lineTo(x, y + MINE_MARKER_RADIUS_PX);
-        context.lineTo(x - MINE_MARKER_RADIUS_PX, y);
+        if (!mine.revealed) continue;
+        const point = worldToViewport(
+          mine.x,
+          mine.z,
+          vehicleX,
+          vehicleZ,
+          sizePx,
+        );
+        if (Math.hypot(point.x - half, point.y - half) > cullRadiusPx) continue;
+        const r = MINE_MARKER_RADIUS_PX;
+        context.moveTo(point.x, point.y - r);
+        context.lineTo(point.x + r, point.y);
+        context.lineTo(point.x, point.y + r);
+        context.lineTo(point.x - r, point.y);
         context.closePath();
       }
       context.fill();
       context.stroke();
     }
 
-    const projectedPlayerX = (this.maxX - vehicleX) * this.scaleX;
-    const projectedPlayerY = (this.maxZ - vehicleZ) * this.scaleZ;
-    const playerX = Math.min(
-      sizePx - PLAYER_EDGE_MARGIN_PX,
-      Math.max(PLAYER_EDGE_MARGIN_PX, projectedPlayerX),
-    );
-    const playerY = Math.min(
-      sizePx - PLAYER_EDGE_MARGIN_PX,
-      Math.max(PLAYER_EDGE_MARGIN_PX, projectedPlayerY),
-    );
-    const forwardX = -Math.sin(yaw);
-    const forwardY = -Math.cos(yaw);
-    const sideX = -forwardY;
-    const sideY = forwardX;
-    const rearX = playerX - forwardX * PLAYER_REAR_DISTANCE_PX;
-    const rearY = playerY - forwardY * PLAYER_REAR_DISTANCE_PX;
-
+    // The map is north-up, so the player arrow rotates to show heading. Local
+    // up (0, -1) rotated by canvas `-yaw` points along the vehicle's forward
+    // direction in map space (-sin yaw, -cos yaw), so at yaw 0 it points up.
+    context.save();
+    context.translate(half, half);
+    context.rotate(-yaw);
+    const tipY = -PLAYER_TIP_DISTANCE_PX;
+    const rearY = PLAYER_REAR_DISTANCE_PX;
     context.fillStyle = 'rgba(61, 220, 91, 0.42)';
     context.shadowColor = 'rgba(61, 220, 91, 0.9)';
     context.shadowBlur = 8;
     context.lineJoin = 'round';
     context.beginPath();
-    context.moveTo(
-      playerX + forwardX * PLAYER_TIP_DISTANCE_PX,
-      playerY + forwardY * PLAYER_TIP_DISTANCE_PX,
-    );
-    context.lineTo(
-      rearX + sideX * PLAYER_HALF_WIDTH_PX,
-      rearY + sideY * PLAYER_HALF_WIDTH_PX,
-    );
-    context.lineTo(
-      rearX - sideX * PLAYER_HALF_WIDTH_PX,
-      rearY - sideY * PLAYER_HALF_WIDTH_PX,
-    );
+    context.moveTo(0, tipY);
+    context.lineTo(PLAYER_HALF_WIDTH_PX, rearY);
+    context.lineTo(-PLAYER_HALF_WIDTH_PX, rearY);
     context.closePath();
     context.fill();
     context.shadowColor = 'transparent';
@@ -241,6 +287,38 @@ export class Minimap {
     context.lineWidth = 1.25;
     context.fill();
     context.stroke();
+    context.restore();
+
+    context.restore();
+  }
+
+  /** Draws the fixed north-up, zoomed arena snapshot centred on the player. */
+  private drawBackground(
+    context: CanvasRenderingContext2D,
+    vehicleX: number,
+    vehicleZ: number,
+    sizePx: number,
+  ): void {
+    const half = sizePx / 2;
+    if (this.backgroundCanvas === null) {
+      context.fillStyle = 'rgba(12, 15, 13, 0.82)';
+      context.fillRect(0, 0, sizePx, sizePx);
+      return;
+    }
+    // The background canvas holds the full arena in map space (scaleX px per
+    // world unit). Zoom so MINIMAP_VIEW_RADIUS_M metres fills the radius, and
+    // translate so the player's map-space point sits at the centre. The map is
+    // north-up, so there is no rotation — the arena keeps a fixed orientation.
+    const pxPerMetre = half / MINIMAP_VIEW_RADIUS_M;
+    const zoom = this.scaleX > 0 ? pxPerMetre / this.scaleX : 1;
+    const playerBgX = (this.maxX - vehicleX) * this.scaleX;
+    const playerBgY = (this.maxZ - vehicleZ) * this.scaleZ;
+    context.save();
+    context.translate(half, half);
+    context.scale(zoom, zoom);
+    context.translate(-playerBgX, -playerBgY);
+    context.drawImage(this.backgroundCanvas, 0, 0, sizePx, sizePx);
+    context.restore();
   }
 
   dispose(): void {

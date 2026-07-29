@@ -4,7 +4,7 @@ import { boot, orientOf, place } from './seam.ts';
 test('guided tutorial advances through a first truck', async ({ page }) => {
   await boot(page);
   await page.evaluate(() => window.__scrapRig.startTutorial());
-  await expect.poll(() => page.evaluate(() => window.__scrapRig.tutorialState())).toEqual({ active: true, stepIndex: 0, total: 6 });
+  await expect.poll(() => page.evaluate(() => window.__scrapRig.tutorialState())).toEqual({ active: true, stepIndex: 0, total: 5 });
 
   for (const pos of [
     { x: 0, y: 1, z: 1 }, { x: 0, y: 1, z: -1 },
@@ -25,24 +25,36 @@ test('guided tutorial advances through a first truck', async ({ page }) => {
   }
   expect((await page.evaluate(() => window.__scrapRig.tutorialState()))?.stepIndex).toBe(2);
 
-  expect((await place(page, 'driver-seat', { x: 0, y: 2, z: 0 })).ok).toBe(true);
-  expect((await page.evaluate(() => window.__scrapRig.tutorialState()))?.stepIndex).toBe(3);
   expect((await place(page, 'engine-small', { x: 0, y: 2, z: 1 })).ok).toBe(true);
-  expect((await page.evaluate(() => window.__scrapRig.tutorialState()))?.stepIndex).toBe(4);
+  expect((await page.evaluate(() => window.__scrapRig.tutorialState()))?.stepIndex).toBe(3);
   expect((await place(page, 'fuel-tank', { x: 0, y: 2, z: -1 })).ok).toBe(true);
-  expect((await page.evaluate(() => window.__scrapRig.tutorialState()))?.stepIndex ?? 0).toBeGreaterThanOrEqual(5);
+  expect((await page.evaluate(() => window.__scrapRig.tutorialState()))?.stepIndex ?? 0).toBeGreaterThanOrEqual(4);
   expect(await page.evaluate(() => window.__scrapRig.enterTest())).toBe(true);
 });
 
-test('palette shows the ten build tiles and erase tool', async ({ page }) => {
+test('the garage dock shows store tiles, inventory stock, and the erase tool', async ({
+  page,
+}) => {
   await boot(page);
-  await expect(page.getByText('Block', { exact: true })).toBeVisible();
+
+  // Store and inventory both carry a Frame Box tile, so scope by list rather
+  // than by label — an unscoped getByText('Block') matches both.
+  const store = page.locator('.store-list');
+  const inventory = page.locator('.inventory-list');
+
+  await expect(store.locator('.part-btn[data-part-id="frame-box"]')).toBeVisible();
   await expect(
-    page.getByRole('button', { name: /Armour Plate/ }),
+    store.locator('.part-btn[data-part-id="wheel-standard"]'),
   ).toBeVisible();
+  // Weapons live behind their own filter and start hidden.
+  await expect(store.locator('.part-btn[data-part-id="turret"]')).toBeHidden();
+  await page.getByRole('button', { name: 'Weapons', exact: true }).click();
+  await expect(store.locator('.part-btn[data-part-id="turret"]')).toBeVisible();
   await expect(
-    page.getByRole('button', { name: /Heavy Cannon/ }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: '🧽 Erase' })).toBeVisible();
-  await expect(page.locator('.palette .part-btn')).toHaveCount(10);
+    store.locator('.part-btn[data-part-id="frame-box"]'),
+  ).toBeHidden();
+
+  // The starter garage owns nothing, so the build bar starts with no slots.
+  await expect(inventory.locator('.part-btn')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Erase Part' })).toBeVisible();
 });

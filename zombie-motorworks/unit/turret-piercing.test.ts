@@ -30,12 +30,6 @@ interface FiredShot {
   readonly castRay: ReturnType<typeof vi.fn>;
   readonly primaryCollider: FakeCollider | null;
   readonly recoil: ReturnType<typeof vi.fn>;
-  readonly ammoBefore: number;
-  readonly ammoAfter: number;
-  readonly ammoPerShot: number;
-  readonly ammoUsed: number;
-  readonly powerPerShot: number;
-  readonly powerUsed: number;
   readonly shotsFired: number;
 }
 
@@ -76,14 +70,12 @@ function fire(
     },
   } as unknown as AssembledVehicle;
   const weapon = createWeapon(turret(empLevel, piercingLevel));
-  const ammoBefore = weapon.ammo;
   const result = stepWeapons(
     world,
     vehicle,
     [weapon],
     new Set([weapon.partId]),
     { aimYawWorld: 0, fire: true },
-    1_000,
     0,
   );
   const shot = result.shots[0];
@@ -93,12 +85,6 @@ function fire(
     castRay,
     primaryCollider: hits[0]?.collider ?? null,
     recoil,
-    ammoBefore,
-    ammoAfter: weapon.ammo,
-    ammoPerShot: weapon.def.ammoPerShot,
-    ammoUsed: result.ammoUsed,
-    powerPerShot: weapon.def.powerPerShot,
-    powerUsed: result.powerUsed,
     shotsFired: weapon.shotsFired,
   };
 }
@@ -276,16 +262,13 @@ describe('turret piercing rounds', () => {
   });
 
   it.each([0, 3])(
-    'charges ammo, power, recoil, and trigger accounting once at level %s',
+    'applies recoil and trigger accounting once at level %s',
     (level) => {
       const fired = fire(level, [
         hit(1, GROUP_ZOMBIE, 2),
         hit(2, GROUP_ZOMBIE, 2),
       ]);
 
-      expect(fired.ammoAfter).toBe(fired.ammoBefore - fired.ammoPerShot);
-      expect(fired.ammoUsed).toBe(fired.ammoPerShot);
-      expect(fired.powerUsed).toBe(fired.powerPerShot);
       expect(fired.recoil).toHaveBeenCalledOnce();
       expect(fired.shotsFired).toBe(1);
     },

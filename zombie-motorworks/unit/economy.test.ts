@@ -7,8 +7,10 @@ import {
   placeCost,
   sellRefund,
   unlockCost,
+  unlockInvestment,
 } from '../src/core/economy.ts';
 import { getPartDef } from '../src/core/parts.ts';
+import { MAX_PART_LEVEL } from '../src/core/partUpgrades.ts';
 import type { PlacedPart } from '../src/core/types.ts';
 
 function placed(defId: string, level?: number): PlacedPart {
@@ -37,12 +39,22 @@ describe('economy helpers', () => {
     expect(sellRefund(turret)).toBe(392);
   });
 
+  it('refunds only the unlock spend when a part goes back to inventory', () => {
+    // Returning a part hands back a base block, so the base price stays spent
+    // and everything above it comes back in full.
+    expect(unlockInvestment(placed('turret', 3))).toBe(90 + 144);
+    expect(unlockInvestment(placed('turret'))).toBe(0);
+    expect(unlockInvestment(placed('turret', 3))).toBe(
+      partInvestment(placed('turret', 3)) - placeCost('turret'),
+    );
+  });
+
   it('returns the next upgrade price and stops at the maximum level', () => {
     expect(nextUpgrade(placed('turret'))).toEqual({
       targetLevel: 2,
       price: 90,
     });
-    expect(nextUpgrade(placed('turret', 5))).toBeNull();
+    expect(nextUpgrade(placed('turret', MAX_PART_LEVEL))).toBeNull();
   });
 
   it('handles a catalog part with no upgrade metadata as its base cost only', () => {

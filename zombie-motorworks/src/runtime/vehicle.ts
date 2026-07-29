@@ -1,5 +1,5 @@
 /**
- * RuntimeVehicle: owns the assembled body plus engine/fuel/ammo/power state,
+ * RuntimeVehicle: owns the assembled body plus engine/fuel state,
  * and coordinates drivetrain → wheels → weapons each step. The test chamber
  * owns the Rapier world/step loop; it calls preStep() before world.step()
  * and feeds contact-force events to onContactForce()/finishStep() after.
@@ -12,21 +12,25 @@ import type {
   Vec3,
   VehicleBlueprint,
 } from '../core/types.ts';
+import {
+  NEUTRAL_ENVIRONMENT,
+  type EnvironmentModifiers,
+} from '../core/biomes.ts';
+import type { SurfaceKind } from '../core/surfaces.ts';
 import type { AssembledVehicle, GetDef, RuntimeWheel } from './assembler.ts';
 import { assembleVehicle } from './assembler.ts';
 import type { AckermannGeometry, WheelTelemetry } from './wheels.ts';
 import { MIRROR_PLANE_X_M, computeAckermann, stepWheels } from './wheels.ts';
 import type { EngineOutput, GearboxState } from './drivetrain.ts';
 import { distributeTorque, engineStep, updateGearbox } from './drivetrain.ts';
-import type { RuntimeWeapon, TracerShot } from './weapons.ts';
-import { createWeapon, stepWeapons } from './weapons.ts';
+import type { RuntimeWeapon, TracerShot, WeaponAimInput } from './weapons.ts';
+import { createWeapon, overchargeWeapon, stepWeapons } from './weapons.ts';
 import {
   applyDirectDamage as damagePart,
   applyImpactDamage,
   resolveStructure,
   type DetachedIsland,
 } from './damage.ts';
-import type { SurfaceKind } from './surfaces.ts';
 import { rotateByQuat } from './vec.ts';
 import {
   VEHICLE_PERFORMANCE_REFERENCE_MASS_KG,
@@ -41,8 +45,18 @@ export interface VehicleControls {
   steer: number; // -1..1
   fire: boolean;
   aimYawWorld: number; // rad
+  /**
+   * World point the player is aiming at. Turrets pitch onto it so they shoot
+   * exactly where the cursor is, rather than firing flat along the yaw.
+   */
+  aimPoint?: Vec3;
+  /**
+   * True while the player is aiming at the world themselves. Every weapon then
+   * abandons the target auto-aim found for it and converges on `aimPoint`.
+   */
+  manualAim?: boolean;
   /** Per-placed-weapon overrides; absent entries retain the global aim/fire. */
-  weaponAim?: ReadonlyMap<string, { aimYawWorld: number; fire: boolean }>;
+  weaponAim?: ReadonlyMap<string, WeaponAimInput>;
 }
 
 export const AUTO_HOLD_SPEED = 1.5; // m/s
@@ -58,33 +72,20 @@ export function brakeInputWithAutoHold(
     : controls.brake;
 }
 
-/** One weapon's magazine, for the ammo HUD. */
-export interface WeaponAmmoTelemetry {
-  partId: string;
-  label: string;
-  ammo: number;
-  capacity: number;
-}
-
 export interface VehicleTelemetry {
   speedKmh: number;
   rpm: number;
   gear: number;
   fuel: number;
   fuelCapacity: number;
-  /** Rounds left across every attached weapon. */
-  ammo: number;
-  /** Magazine size across every attached weapon. */
-  ammoCapacity: number;
-  /** Per-weapon magazines, attached and alive only. */
-  weaponAmmo: WeaponAmmoTelemetry[];
-  power: number;
   groundedWheels: number;
   totalWheels: number;
   overloadedWheels: string[];
   aliveParts: number;
   detachedParts: number;
   shotsThisStep: TracerShot[];
+  /** Cumulative rounds fired across every weapon this run (weapons are unlimited). */
+  totalShotsFired: number;
 }
 
 export interface RuntimePartTarget {
@@ -100,22 +101,27 @@ interface RuntimeEngine {
   rpm: number;
 }
 
-const POWER_RECHARGE_PER_S = 15;
-
 // Skid steer (tank treads). At full lock the inner belt drops to
 // (1 - SKID_STEER_BIAS) of its share and the outer belt takes the rest, so a
-// tracked rig pivots on the spot at a standstill and arcs under power. Above
-// 1 the inner belt would counter-rotate, which pivots harder than a heavy
-// tracked rig should manage.
+// mixed wheel+tread rig arcs under power without pivoting too hard. A bias
+// above 1 makes the inner belt counter-rotate for a true pivot-in-place.
 const SKID_STEER_BIAS = 0.9;
 // Torque each belt gets purely from steering, so a tracked rig can pivot with
 // the throttle shut instead of needing to roll first.
 const SKID_PIVOT_TORQUE = 1800; // N·m
 
+// Excavator mode: an all-tread rig (treads and no hub-steering wheels) should
+// spin on the spot like a tracked excavator. The inner belt counter-rotates
+// (bias > 1) and each side gets a strong opposing steer torque, so full lock
+// with the throttle shut rotates the chassis in place.
+const EXCAVATOR_SKID_STEER_BIAS = 1.85;
+const EXCAVATOR_PIVOT_TORQUE = 3400; // N·m
+
 /**
  * Rewrite drive torque for tread-style wheels so steering input turns into a
  * left/right speed difference. Angled-hub wheels are left untouched, so a rig
- * mixing treads and wheels gets both behaviours at once.
+ * mixing treads and wheels gets both behaviours at once. When `excavator` is
+ * set (all-tread rig) the inner belt counter-rotates for a pivot-in-place.
  *
  * Positive steer turns toward -x (matching steerTargets), so the left belt is
  * the one that slows down.
@@ -124,19 +130,39 @@ function applySkidSteer(
   drivenWheels: RuntimeWheel[],
   driveTorques: Map<string, number>,
   steer: number,
+  excavator: boolean,
 ): void {
   if (Math.abs(steer) < 1e-3) return;
+  const bias = excavator ? EXCAVATOR_SKID_STEER_BIAS : SKID_STEER_BIAS;
+  const pivotTorque = excavator ? EXCAVATOR_PIVOT_TORQUE : SKID_PIVOT_TORQUE;
   for (const w of drivenWheels) {
     if (!w.wheelDef.skidSteer || w.broken) continue;
     const side = Math.sign(w.anchorLocal.x - MIRROR_PLANE_X_M);
     if (side === 0) continue; // Centreline belt has no side to favour.
     const base = driveTorques.get(w.partId) ?? 0;
     const biased =
-      base * (1 + side * steer * SKID_STEER_BIAS) +
-      side * steer * SKID_PIVOT_TORQUE;
+      base * (1 + side * steer * bias) + side * steer * pivotTorque;
     const limit = w.wheelDef.driveTorqueLimit;
     driveTorques.set(w.partId, Math.max(-limit, Math.min(limit, biased)));
   }
+}
+
+/**
+ * True when the rig steers purely by treads — it has at least one skid-steer
+ * tread and no hub-steering-capable wheels — so it should pivot like an
+ * excavator. Keyed off the wheel definition (can this hub angle?) rather than
+ * the derived steering flag, so the result is stable regardless of which axle
+ * the layout happens to nominate.
+ */
+export function isAllTreadRig(
+  attachedWheels: Pick<RuntimeWheel, 'wheelDef'>[],
+): boolean {
+  let hasTread = false;
+  for (const w of attachedWheels) {
+    if (w.wheelDef.skidSteer) hasTread = true;
+    else if (w.wheelDef.maxSteerAngleDeg > 0) return false;
+  }
+  return hasTread;
 }
 
 // Soft yaw-rate limiter: above this |angvel.y|, pull it down exponentially
@@ -159,7 +185,13 @@ const LATERAL_STABILITY_RATE_PER_S = 4.2;
 const MAX_LATERAL_CORRECTION_MPS_PER_STEP = 0.45;
 const GROUNDED_ROLL_PITCH_DAMPING_PER_S = 3.2;
 const TURN_ROLL_PITCH_DAMPING_BONUS_PER_S = 2.4;
-const MAX_POST_SOLVE_SPEED_MPS = 38;
+// Top speed is emergent, but the anti-explosion clamp below sets its ceiling.
+// That ceiling scales with total engine power (see updateTopSpeedCap), so
+// bolting on engines makes the vehicle genuinely faster — bounded by a hard,
+// solver-safe maximum.
+const BASE_TOP_SPEED_MPS = 42; // ~151 km/h baseline (a modest bump over the old flat 38)
+const TOP_SPEED_PER_KW = 0.05; // m/s of ceiling added per engine kW
+const HARD_MAX_SPEED_MPS = 55; // absolute cap that keeps Rapier stable
 const MAX_POST_SOLVE_SPEED_GAIN_MPS = 1.25;
 const MAX_POST_SOLVE_ANGULAR_SPEED = 8;
 const MAX_POST_SOLVE_ANGULAR_GAIN = 1.5;
@@ -182,12 +214,30 @@ export class RuntimeVehicle {
   private geom: AckermannGeometry;
   private fuel = 0;
   private fuelCapacity = 0;
-  private power = 0;
-  private powerCapacity = 0;
+  /** Seconds of remaining shield invulnerability; >0 blocks all damage. */
+  private invulnTimer = 0;
+  private environment = NEUTRAL_ENVIRONMENT;
+  /** Seconds of remaining overdrive torque surge; 0 when not boosting. */
+  private overdriveTimer = 0;
+  /** Drive-torque multiplier applied while `overdriveTimer` runs. */
+  private overdriveMultiplier = 1;
+  /**
+   * Multiplier on the anti-explosion speed ceiling while overdriving. Without
+   * it the surge would only be felt up to the normal cap, and a rig already at
+   * cap would feel nothing at all.
+   */
+  private overdriveSpeedMultiplier = 1;
+  /**
+   * Thrust in m/s^2 applied along the rig's heading while overdriving,
+   * independent of throttle and of whether the drive wheels have any grip.
+   */
+  private overdriveThrustAccel = 0;
+  private topSpeedCap = BASE_TOP_SPEED_MPS;
   private lastWheelTelemetry: WheelTelemetry = {
     groundedCount: 0,
     meanDrivenOmega: 0,
     overloadedWheels: [],
+    contacts: [],
   };
   private lastShots: TracerShot[] = [];
   private lastRpm = 0;
@@ -220,10 +270,9 @@ export class RuntimeVehicle {
       }
       if (part.def.weapon) this.weapons.push(createWeapon(part.placed, getDef));
       this.fuelCapacity += part.def.fuelCapacity ?? 0;
-      this.powerCapacity += part.def.batteryCapacity ?? 0;
     }
     this.fuel = this.fuelCapacity;
-    this.power = this.powerCapacity;
+    this.updateTopSpeedCap();
     this.geom = computeAckermann(this.assembled.wheels);
   }
 
@@ -238,8 +287,128 @@ export class RuntimeVehicle {
     return v.x * fwd.x + v.y * fwd.y + v.z * fwd.z;
   }
 
+  /** Dev-tuner god mode: when true, all incoming part damage is ignored. */
+  invulnerable = false;
+
+  /** True when damage is ignored, from either the shield bubble or god mode. */
+  private get damageBlocked(): boolean {
+    return this.invulnerable || this.invulnTimer > 0;
+  }
+
   applyDirectDamage(partId: string, amount: number): void {
+    if (this.damageBlocked) return;
     damagePart(this.assembled, partId, amount);
+  }
+
+  /**
+   * Shield ability: make the whole vehicle immune to damage for `seconds`.
+   * Re-activation extends to the longer remaining time.
+   */
+  grantInvulnerability(seconds: number): void {
+    if (seconds <= 0) return;
+    this.invulnTimer = Math.max(this.invulnTimer, seconds);
+  }
+
+  /** True while the shield bubble is holding. */
+  get isInvulnerable(): boolean {
+    return this.invulnTimer > 0;
+  }
+
+  /**
+   * Overdrive ability: multiply drive torque by `multiplier` for `seconds`,
+   * and lift the speed ceiling by `speedMultiplier` so the surge is felt at
+   * the top end too. Re-activation takes the longer time and the stronger
+   * pull rather than stacking, so spamming it can never run away with the
+   * drivetrain.
+   */
+  grantOverdrive(
+    seconds: number,
+    multiplier: number,
+    speedMultiplier = 1,
+    thrustAccel = 0,
+  ): void {
+    if (seconds <= 0 || multiplier <= 1) return;
+    this.overdriveTimer = Math.max(this.overdriveTimer, seconds);
+    this.overdriveMultiplier = Math.max(this.overdriveMultiplier, multiplier);
+    this.overdriveSpeedMultiplier = Math.max(
+      this.overdriveSpeedMultiplier,
+      Math.max(1, speedMultiplier),
+    );
+    this.overdriveThrustAccel = Math.max(
+      this.overdriveThrustAccel,
+      Math.max(0, thrustAccel),
+    );
+  }
+
+  /**
+   * The speed ceiling in force this step: the engine-derived cap, lifted while
+   * an overdrive surge runs but never past the hard limit that keeps the
+   * solver stable.
+   */
+  private currentSpeedCeiling(): number {
+    if (this.overdriveTimer <= 0) return this.topSpeedCap;
+    return Math.min(
+      HARD_MAX_SPEED_MPS,
+      this.topSpeedCap * this.overdriveSpeedMultiplier,
+    );
+  }
+
+  /** True while the overdrive surge is running. */
+  get isOverdriving(): boolean {
+    return this.overdriveTimer > 0;
+  }
+
+  /**
+   * Hellfire ability: overcharge one part's own weapon for `seconds` — hotter,
+   * further, and wider than its stock spray, and (for the flamethrower's
+   * periodic nozzle) with no pause between bursts. Returns false when the part
+   * carries no weapon, so the caller can decline to start a cooldown.
+   */
+  grantHellfire(
+    partId: string,
+    seconds: number,
+    multipliers: {
+      damageMultiplier: number;
+      rangeMultiplier: number;
+      coneMultiplier: number;
+    },
+  ): boolean {
+    const weapon = this.weapons.find((w) => w.partId === partId);
+    if (weapon === undefined) return false;
+    overchargeWeapon(weapon, seconds, multipliers);
+    return true;
+  }
+
+  /**
+   * Phase ability: pick the chassis up and set it down `dx`/`dz` metres away,
+   * with `liftM` of clearance so it settles onto whatever it landed over rather
+   * than starting the step buried in it. Nothing is swept along the way — that
+   * is what makes the blink pass through zombies, wrecks, and scenery — so the
+   * caller owns clipping the trip to the arena wall.
+   *
+   * Momentum is kept: a blink is a reposition, not a stop, and killing the
+   * velocity would turn every escape into a standing start. Suspension contacts
+   * are dropped because they describe ground the rig is no longer over; leaving
+   * them would push the first step's spring force against a stale surface.
+   */
+  phaseShift(dx: number, dz: number, liftM = 0): void {
+    const body = this.assembled.body;
+    const position = body.translation();
+    body.setTranslation(
+      { x: position.x + dx, y: position.y + liftM, z: position.z + dz },
+      true,
+    );
+    for (const wheel of this.assembled.wheels) {
+      wheel.grounded = false;
+      wheel.contactPointW = null;
+      wheel.compression = 0;
+      wheel.loadN = 0;
+    }
+  }
+
+  /** True while any weapon on the rig is running a Hellfire overcharge. */
+  get isOvercharged(): boolean {
+    return this.weapons.some((w) => w.overcharge !== null);
   }
 
   /** Find the closest attached, living part by its collider-centre centroid. */
@@ -303,11 +472,10 @@ export class RuntimeVehicle {
     return maxHealth > 0 ? (currentHealth / maxHealth) * 100 : 0;
   }
 
-  /** Root loss or loss of every attached control provider ends the run. */
+  /** Root loss ends the run. */
   isDestroyed(): boolean {
     const root = this.assembled.parts.get(this.assembled.rootPartId);
-    if (!root || !root.alive || root.detached) return true;
-    return !this.hasControl(this.attachedAliveIds());
+    return !root || !root.alive || root.detached;
   }
 
   private attachedAliveIds(): Set<string> {
@@ -315,13 +483,6 @@ export class RuntimeVehicle {
     for (const [id, p] of this.assembled.parts)
       if (p.alive && !p.detached) out.add(id);
     return out;
-  }
-
-  private hasControl(attached: Set<string>): boolean {
-    for (const id of attached) {
-      if (this.assembled.parts.get(id)!.def.providesControl) return true;
-    }
-    return false;
   }
 
   /** Stable blueprint IDs for every living part still attached to the root body. */
@@ -351,11 +512,50 @@ export class RuntimeVehicle {
     return this.finishStep();
   }
 
+  /**
+   * Scuttle the rig: every part goes at once, root included, so `isDestroyed`
+   * is true from the next check onward. Nothing is left attached, so no island
+   * can survive the split — the returned array is empty in practice and is
+   * handed back only so callers can treat this like any other structural event.
+   *
+   * The body outlives its colliders here. The caller owns what happens next
+   * (the mode holds the frame for the blast, then leaves), so the body is
+   * frozen in place rather than dropped through a world it can no longer touch.
+   */
+  scuttle(): DetachedIsland[] {
+    // Debris that already broke off is left where it lies: the charge is on the
+    // rig, and wreckage scattered across the arena is not on it any more.
+    for (const [, part] of this.assembled.parts) {
+      if (part.alive && !part.detached) part.health = 0;
+    }
+    for (const connection of this.assembled.connections) connection.health = 0;
+    const islands = this.finishStep();
+    const body = this.assembled.body;
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    body.setGravityScale(0, true);
+    return islands;
+  }
+
   preStep(
     dt: number,
     controls: VehicleControls,
     surfaceOf: (colliderHandle: number) => SurfaceKind,
+    env: EnvironmentModifiers = NEUTRAL_ENVIRONMENT,
   ): void {
+    this.environment = env;
+    this.updateTopSpeedCap();
+    if (this.invulnTimer > 0) {
+      this.invulnTimer = Math.max(0, this.invulnTimer - dt);
+    }
+    if (this.overdriveTimer > 0) {
+      this.overdriveTimer = Math.max(0, this.overdriveTimer - dt);
+      if (this.overdriveTimer === 0) {
+        this.overdriveMultiplier = 1;
+        this.overdriveSpeedMultiplier = 1;
+        this.overdriveThrustAccel = 0;
+      }
+    }
     const body = this.assembled.body;
     const velocityAtStart = body.linvel();
     const angularVelocityAtStart = body.angvel();
@@ -367,15 +567,11 @@ export class RuntimeVehicle {
     this.angularVelocityBeforeSolve.z = angularVelocityAtStart.z;
 
     const attached = this.attachedAliveIds();
-    const controllable = this.hasControl(attached);
     const forwardSpeed = this.forwardSpeed();
-    const throttle = controllable ? controls.throttle : 0;
-    const brake = controllable
-      ? brakeInputWithAutoHold(controls, forwardSpeed)
-      : 0;
-    const steer = controllable ? controls.steer : 0;
-    const reverseInput =
-      controllable && throttle <= 0 ? (controls.reverse ?? 0) : 0;
+    const throttle = controls.throttle;
+    const brake = brakeInputWithAutoHold(controls, forwardSpeed);
+    const steer = controls.steer;
+    const reverseInput = throttle <= 0 ? (controls.reverse ?? 0) : 0;
     const reversing =
       reverseInput > 0 &&
       forwardSpeed < REVERSE_ENGAGE_MAX_FORWARD_MPS &&
@@ -389,6 +585,10 @@ export class RuntimeVehicle {
     const drivenWheels = this.assembled.wheels.filter(
       (w) => !w.broken && attached.has(w.partId) && w.driven,
     );
+    const attachedWheels = this.assembled.wheels.filter(
+      (w) => !w.broken && attached.has(w.partId),
+    );
+    const excavatorSteer = isAllTreadRig(attachedWheels);
 
     let totalTorque = 0;
     let rpmDisplay = 0;
@@ -413,7 +613,7 @@ export class RuntimeVehicle {
         drivenWheels.length > 0
           ? (reversing ? -1 : 1) * out.wheelTorqueTotal
           : 0;
-      this.fuel = Math.max(0, this.fuel - out.fuelUsed);
+      this.fuel = Math.max(0, this.fuel - out.fuelUsed * env.fuelBurnMul);
       rpmDisplay = Math.max(rpmDisplay, out.rpm);
     }
     this.lastRpm = rpmDisplay;
@@ -422,6 +622,10 @@ export class RuntimeVehicle {
     const mass = Math.max(1, body.mass());
     const massPerformance = vehicleMassPerformanceFactor(mass);
     totalTorque *= massPerformance;
+    totalTorque *= env.engineOutputMul;
+    // Overdrive rides on top of the mass and biome penalties, so the surge is
+    // worth most to the heavy rigs and hostile ground the penalties hurt.
+    if (this.overdriveTimer > 0) totalTorque *= this.overdriveMultiplier;
 
     const torques = distributeTorque(
       totalTorque,
@@ -430,7 +634,7 @@ export class RuntimeVehicle {
     const driveTorques = new Map<string, number>();
     drivenWheels.forEach((w, i) => driveTorques.set(w.partId, torques[i]));
     if (liveEngines.length > 0) {
-      applySkidSteer(drivenWheels, driveTorques, steer);
+      applySkidSteer(drivenWheels, driveTorques, steer, excavatorSteer);
     }
 
     this.lastWheelTelemetry = stepWheels(
@@ -438,19 +642,13 @@ export class RuntimeVehicle {
       this.assembled.body,
       this.assembled.wheels,
       this.geom,
-      { throttle, brake, steer, driveTorques },
+      { throttle, brake, steer, driveTorques, env },
       dt,
       surfaceOf,
     );
 
     this.applyStabilityForces(dt, mass, steer);
-
-    // Battery recharges while an engine runs.
-    if (liveEngines.length > 0)
-      this.power = Math.min(
-        this.powerCapacity,
-        this.power + POWER_RECHARGE_PER_S * dt,
-      );
+    this.applyOverdriveThrust(dt, mass, reversing);
 
     const weaponResult = stepWeapons(
       this.world,
@@ -458,16 +656,17 @@ export class RuntimeVehicle {
       this.weapons,
       attached,
       {
-        fire: controllable && controls.fire,
+        fire: controls.fire,
         aimYawWorld: controls.aimYawWorld,
+        // Carried through so an overriding player aims in three dimensions:
+        // turrets pitch onto the cursor point instead of firing flat.
+        aimPoint: controls.aimPoint,
         weaponAim: controls.weaponAim,
+        manualOverride: controls.manualAim,
       },
-      this.power,
       dt,
     );
-    this.power -= weaponResult.powerUsed;
     this.lastShots = weaponResult.shots;
-
   }
 
   /**
@@ -490,6 +689,7 @@ export class RuntimeVehicle {
       groundedCount: 0,
       meanDrivenOmega: 0,
       overloadedWheels: [],
+      contacts: [],
     };
     for (const engine of this.engines) {
       engine.rpm = engine.def.idleRpm;
@@ -506,6 +706,7 @@ export class RuntimeVehicle {
    */
   postStepStability(dt: number): void {
     const body = this.assembled.body;
+    const speedCeiling = this.currentSpeedCeiling();
     const velocity = body.linvel();
     let correctedX = velocity.x;
     let correctedY = velocity.y;
@@ -517,7 +718,7 @@ export class RuntimeVehicle {
       this.velocityBeforeSolve.z,
     );
     const allowedHorizontalSpeed = Math.min(
-      MAX_POST_SOLVE_SPEED_MPS,
+      speedCeiling,
       horizontalSpeedBefore + MAX_POST_SOLVE_SPEED_GAIN_MPS,
     );
     if (horizontalSpeed > allowedHorizontalSpeed && horizontalSpeed > 1e-6) {
@@ -536,7 +737,7 @@ export class RuntimeVehicle {
       this.velocityBeforeSolve.z,
     );
     const allowedSpeed = Math.min(
-      MAX_POST_SOLVE_SPEED_MPS,
+      speedCeiling,
       speedBefore + MAX_POST_SOLVE_SPEED_GAIN_MPS,
     );
     if (speed > allowedSpeed && speed > 1e-6) {
@@ -602,6 +803,45 @@ export class RuntimeVehicle {
     }
   }
 
+  /**
+   * Overdrive as a propellant: while the surge runs the rig is shoved along
+   * its own heading whether or not the driver is on the throttle, so nitro
+   * still digs you out when you are stalled against a wall of zombies or
+   * coasting with your foot off the pedal.
+   *
+   * The shove is a centre-of-mass impulse flattened to the ground plane — off
+   * the wheels entirely, so it works with the drive wheels stalled, and with
+   * no vertical component to launch a nose-up chassis. Reverse points it
+   * backwards, so the bottle always pushes the way the driver is asking to go.
+   */
+  private applyOverdriveThrust(
+    dt: number,
+    mass: number,
+    reversing: boolean,
+  ): void {
+    if (this.overdriveTimer <= 0 || this.overdriveThrustAccel <= 0) return;
+    const body = this.assembled.body;
+    const forward = rotateByQuat(body.rotation(), { x: 0, y: 0, z: 1 });
+    const horizontal = Math.hypot(forward.x, forward.z);
+    if (horizontal < 1e-4) return;
+    // Past the ceiling the clamp would only scrub the extra back off again;
+    // stopping here keeps the impulse from fighting the speed guard.
+    const velocity = body.linvel();
+    if (Math.hypot(velocity.x, velocity.z) >= this.currentSpeedCeiling()) {
+      return;
+    }
+    const direction = reversing ? -1 : 1;
+    const impulse = mass * this.overdriveThrustAccel * dt * direction;
+    body.applyImpulse(
+      {
+        x: (forward.x / horizontal) * impulse,
+        y: 0,
+        z: (forward.z / horizontal) * impulse,
+      },
+      true,
+    );
+  }
+
   private applyStabilityForces(
     dt: number,
     mass: number,
@@ -625,7 +865,7 @@ export class RuntimeVehicle {
       horizontalSpeed * horizontalSpeed * AERO_DRAG_COEFFICIENT;
     const dragDeltaVelocity = Math.min(
       horizontalSpeed,
-      (heavyBuildDrag + aeroDrag) * dt,
+      (heavyBuildDrag + aeroDrag) * this.environment.dragMul * dt,
     );
 
     this.stabilityImpulse.x =
@@ -653,6 +893,7 @@ export class RuntimeVehicle {
     // otherwise it counters the desired lateral motion and scrubs speed.
     const correctionRate =
       LATERAL_STABILITY_RATE_PER_S *
+      this.environment.stabilityAssistMul *
       (1 - Math.abs(steerInput) * 0.65);
     const lateralDeltaVelocity = clampNumber(
       -lateralSpeed * correctionRate * dt,
@@ -682,6 +923,9 @@ export class RuntimeVehicle {
   }
 
   onContactForce(colliderHandle: number, forceMagnitude: number): void {
+    // The bubble blocks self-damage from impacts; the vehicle still crushes
+    // zombies (that runs through ZombieSystem, not this path).
+    if (this.damageBlocked) return;
     applyImpactDamage(
       this.assembled,
       this.colliderToPart,
@@ -701,7 +945,7 @@ export class RuntimeVehicle {
       this.islands.push(...events.detachedIslands);
     }
     if (events.destroyedParts.length > 0 || events.detachedIslands.length > 0) {
-      // Losing tanks/ammo/batteries shrinks capacity (and clamps stock).
+      // Losing fuel tanks shrinks capacity (and clamps current fuel).
       this.recomputeResources();
     }
     return events.detachedIslands;
@@ -709,34 +953,58 @@ export class RuntimeVehicle {
 
   private recomputeResources(): void {
     let fuelCap = 0;
-    let powerCap = 0;
     for (const [, p] of this.assembled.parts) {
       if (!p.alive || p.detached) continue;
       fuelCap += p.def.fuelCapacity ?? 0;
-      powerCap += p.def.batteryCapacity ?? 0;
     }
     this.fuelCapacity = fuelCap;
     this.fuel = Math.min(this.fuel, fuelCap);
-    this.powerCapacity = powerCap;
-    this.power = Math.min(this.power, powerCap);
-    // Ammo needs no clamping: a magazine dies with the weapon that holds it.
+    this.updateTopSpeedCap();
   }
 
-  /** Magazines of every weapon still attached and alive. */
-  private liveWeaponAmmo(): WeaponAmmoTelemetry[] {
-    const out: WeaponAmmoTelemetry[] = [];
-    for (const wpn of this.weapons) {
-      const part = this.assembled.parts.get(wpn.partId);
-      if (!part || !part.alive || part.detached) continue;
-      if (wpn.ammoCapacity <= 0) continue; // Melee mounts carry no rounds.
-      out.push({
-        partId: wpn.partId,
-        label: wpn.label,
-        ammo: wpn.ammo,
-        capacity: wpn.ammoCapacity,
-      });
+  /**
+   * Top-speed ceiling scales with total engine power, so bolting on more
+   * engines makes the vehicle genuinely faster. Bounded below by the base
+   * ceiling and above by a solver-safe hard maximum.
+   */
+  private updateTopSpeedCap(): void {
+    let enginePowerKw = 0;
+    for (const [, p] of this.assembled.parts) {
+      if (!p.alive || p.detached) continue;
+      enginePowerKw += p.def.engine?.maxPowerKw ?? 0;
     }
-    return out;
+    this.topSpeedCap =
+      clampNumber(
+        BASE_TOP_SPEED_MPS + TOP_SPEED_PER_KW * enginePowerKw,
+        BASE_TOP_SPEED_MPS,
+        HARD_MAX_SPEED_MPS,
+      ) * this.environment.topSpeedMul;
+  }
+
+  /**
+   * Top up onboard fuel by a fraction of total capacity (refuel-crate pickups).
+   * Returns the litres actually added, so the caller can decide whether the
+   * pickup was useful (nothing added means the tank was already full and the
+   * crate should be left in place).
+   */
+  refuel(fraction: number): number {
+    if (fraction <= 0 || this.fuelCapacity <= 0) return 0;
+    const before = this.fuel;
+    this.fuel = Math.min(
+      this.fuelCapacity,
+      this.fuel + this.fuelCapacity * fraction,
+    );
+    return this.fuel - before;
+  }
+
+  /** Litres still in the tanks, for callers that need it every frame. */
+  get fuelLitres(): number {
+    return this.fuel;
+  }
+
+  /** Test/debug seam: set current onboard fuel directly (clamped to capacity). */
+  debugSetFuel(litres: number): void {
+    this.fuel = clampNumber(litres, 0, this.fuelCapacity);
   }
 
   wheels(): RuntimeWheel[] {
@@ -760,23 +1028,19 @@ export class RuntimeVehicle {
       if (p.alive && !p.detached) alive++;
       if (p.detached) detached++;
     }
-    const weaponAmmo = this.liveWeaponAmmo();
     return {
       speedKmh: Math.hypot(v.x, v.y, v.z) * 3.6,
       rpm: this.lastRpm,
       gear: this.lastGear,
       fuel: this.fuel,
       fuelCapacity: this.fuelCapacity,
-      ammo: weaponAmmo.reduce((sum, w) => sum + w.ammo, 0),
-      ammoCapacity: weaponAmmo.reduce((sum, w) => sum + w.capacity, 0),
-      weaponAmmo,
-      power: this.power,
       groundedWheels: this.lastWheelTelemetry.groundedCount,
       totalWheels: this.assembled.wheels.filter((w) => !w.broken).length,
       overloadedWheels: this.lastWheelTelemetry.overloadedWheels,
       aliveParts: alive,
       detachedParts: detached,
       shotsThisStep: this.lastShots,
+      totalShotsFired: this.weapons.reduce((sum, w) => sum + w.shotsFired, 0),
     };
   }
 

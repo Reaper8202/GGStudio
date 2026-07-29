@@ -46,7 +46,6 @@ function fixtures(): Record<string, PartDefinition> {
   return {
     root: base('root', {
       isRoot: true,
-      providesControl: true,
       reinforcement: 0.5,
     }),
     frame: base('frame'),

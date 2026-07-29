@@ -21,16 +21,23 @@ const EXPECTED_LABELS: Record<string, string> = {
   'wheel-offroad': 'Monster Wheel',
   'wheel-moto': 'Speedy Wheel',
   'tread-tank': 'Tank Tread',
-  'driver-seat': 'Driver Seat',
   'engine-small': 'Engine',
   'fuel-tank': 'Fuel Tank',
   'mine-sweeper': 'Mine Finder',
   turret: 'Zombie Blaster',
   'armour-plate': 'Armour Plate',
   'cannon-heavy': 'Heavy Cannon',
+  'ice-cannon': 'Ice Cannon',
   'barrel-drum': 'Grinder Drum',
+  'spike-ram': 'Long Spikes',
+  sawblade: 'Sawblade',
+  'dozer-blade': 'Bulldozer Blade',
   'sniper-light': 'Light Sniper',
   flamethrower: 'Flamethrower',
+  'shield-generator': 'Shield Bubble',
+  'pulse-emitter': 'Push Blaster',
+  'nitro-injector': 'Speed Boost',
+  'phase-drive': 'Blink Coil',
 };
 
 const FRAME_BUILD: readonly { defId: string; pos: Vec3i }[] = [
@@ -106,7 +113,6 @@ function addDirectWheels(bp: VehicleBlueprint): VehicleBlueprint {
 function buildThroughFuel(): VehicleBlueprint {
   let bp = addFrameBuild(createTutorialBlueprint());
   bp = addDirectWheels(bp);
-  bp = addValidPart(bp, 'driver-seat', { x: 0, y: 2, z: 0 });
   bp = addValidPart(bp, 'engine-small', { x: 0, y: 2, z: 1 });
   return addValidPart(bp, 'fuel-tank', { x: 0, y: 2, z: -1 });
 }
@@ -132,14 +138,21 @@ describe('editor catalog presentation', () => {
       'wheel-offroad',
       'wheel-moto',
       'tread-tank',
-      'driver-seat',
+      'nitro-injector',
+      'phase-drive',
       'engine-small',
       'fuel-tank',
       'mine-sweeper',
       'turret',
       'armour-plate',
       'cannon-heavy',
+      'ice-cannon',
+      'shield-generator',
+      'pulse-emitter',
       'barrel-drum',
+      'spike-ram',
+      'sawblade',
+      'dozer-blade',
       'sniper-light',
       'flamethrower',
     ]);
@@ -151,11 +164,10 @@ describe('editor catalog presentation', () => {
 });
 
 describe('tutorial progression', () => {
-  it('defines the exact six-step sequence and instructions', () => {
+  it('defines the exact five-step sequence and instructions', () => {
     expect(TUTORIAL_STEPS.map((step) => step.id)).toEqual([
       'frame',
       'wheels',
-      'driver',
       'engine',
       'fuel',
       'drive',
@@ -163,7 +175,6 @@ describe('tutorial progression', () => {
     expect(TUTORIAL_STEPS.map((step) => step.paletteDefId)).toEqual([
       'frame-box',
       'wheel-standard',
-      'driver-seat',
       'engine-small',
       'fuel-tank',
       undefined,
@@ -171,7 +182,6 @@ describe('tutorial progression', () => {
     expect(TUTORIAL_STEPS.map((step) => step.text)).toEqual([
       'Add 4 Blocks around the orange Truck Heart. Right-click a mistake to erase.',
       'Put 4 Wheels straight onto the outside Blocks. Wheels set themselves up.',
-      'Put the Driver Seat on top.',
       'Snap on an Engine.',
       'Add a Fuel Tank.',
       'Press TEST DRIVE!',
@@ -204,14 +214,11 @@ describe('tutorial progression', () => {
     bp = addDirectWheels(bp);
     expect(tutorialProgress(bp, getPartDef)).toBe(2);
 
-    bp = addValidPart(bp, 'driver-seat', { x: 0, y: 2, z: 0 });
+    bp = addValidPart(bp, 'engine-small', { x: 0, y: 2, z: 1 });
     expect(tutorialProgress(bp, getPartDef)).toBe(3);
 
-    bp = addValidPart(bp, 'engine-small', { x: 0, y: 2, z: 1 });
-    expect(tutorialProgress(bp, getPartDef)).toBe(4);
-
     bp = addValidPart(bp, 'fuel-tank', { x: 0, y: 2, z: -1 });
-    expect(TUTORIAL_STEPS[4].isComplete(bp, getPartDef)).toBe(true);
+    expect(TUTORIAL_STEPS[3].isComplete(bp, getPartDef)).toBe(true);
     expect(validateBlueprint(bp, getPartDef).errors).toEqual([]);
     expect(tutorialProgress(bp, getPartDef)).toBe(TUTORIAL_STEPS.length);
   });
@@ -223,7 +230,7 @@ describe('tutorial progression', () => {
       z: 0,
     });
 
-    expect(TUTORIAL_STEPS[3].isComplete(bp, getPartDef)).toBe(true);
+    expect(TUTORIAL_STEPS[2].isComplete(bp, getPartDef)).toBe(true);
     expect(tutorialProgress(bp, getPartDef)).toBe(0);
   });
 
@@ -238,14 +245,14 @@ describe('tutorial progression', () => {
     });
 
     expect(
-      TUTORIAL_STEPS.slice(0, 5).every((step) =>
+      TUTORIAL_STEPS.slice(0, 4).every((step) =>
         step.isComplete(invalid, getPartDef),
       ),
     ).toBe(true);
     expect(
       validateBlueprint(invalid, getPartDef).errors.map((issue) => issue.code),
     ).toContain('DISCONNECTED');
-    expect(TUTORIAL_STEPS[5].isComplete(invalid, getPartDef)).toBe(false);
-    expect(tutorialProgress(invalid, getPartDef)).toBe(5);
+    expect(TUTORIAL_STEPS[4].isComplete(invalid, getPartDef)).toBe(false);
+    expect(tutorialProgress(invalid, getPartDef)).toBe(4);
   });
 });

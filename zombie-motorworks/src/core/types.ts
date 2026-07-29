@@ -117,15 +117,17 @@ export type DamageType = 'projectile' | 'hitscan' | 'aoe';
 
 export interface WeaponDefinition {
   mountType: WeaponMountType;
-  /** Auto weapons acquire targets; manual weapons follow player aim input. */
+  /**
+   * Auto weapons acquire their own targets in range; manual weapons only ever
+   * follow the player's aim input. Either way a held trigger overrides every
+   * weapon onto the player's cursor point.
+   */
   aimMode: 'auto' | 'manual';
   /** Horizontal firing arc in degrees (centered on part forward; 360 for turrets). */
   arcDeg: number;
   damageType: DamageType;
   damage: number;
   fireRate: number; // shots/s
-  ammoPerShot: number;
-  powerPerShot: number;
   recoilImpulse: number; // N·s applied opposite to fire direction at the mount
   projectileSpeed: number; // m/s
   rangeM: number;
@@ -152,14 +154,144 @@ export interface WeaponDefinition {
    */
   burstSeconds?: number;
   burstIntervalSeconds?: number;
-  /** Auto-aim preference: 'ranged' targets thrower zombies before walkers. */
-  targetPriority?: 'ranged';
+  /**
+   * Auto-aim preference: 'ranged' targets thrower zombies before walkers;
+   * 'strongest' locks onto the zombie with the most current health.
+   */
+  targetPriority?: 'ranged' | 'strongest';
+  /**
+   * Cryo weapons (Ice Cannon normal fire): on hit, slow the struck zombie to
+   * `slowFactor` of its speed for `slowDurationSeconds`. Both set together;
+   * the Q ability is a separate full freeze.
+   */
+  slowFactor?: number;
+  slowDurationSeconds?: number;
+  /**
+   * Auto-aim weapon that still waits for the player's trigger: the auto-aim
+   * system tracks a target and keeps the mount pointed at it, but the weapon
+   * only fires while the player holds fire (left click / F) instead of firing
+   * itself the instant a target is acquired. Used for slow, precious shots.
+   *
+   * Meaningless on a manual-aim weapon, which already only fires on the
+   * player's trigger.
+   */
+  manualFire?: boolean;
+  /**
+   * Explosive payload. On impact, every zombie within `splashRadiusM` of the
+   * point of impact takes `splashDamage` at the centre, falling off linearly
+   * to nothing at the rim. Blast damage is delivered as `aoe` regardless of
+   * the weapon's own `damageType`, so it washes around the phone addict's
+   * bubble the way flame does. Both fields must be set together.
+   */
+  splashRadiusM?: number;
+  splashDamage?: number;
 }
 
-/** Contact weapon (grinder drum): damages any zombie touching the part. */
+/**
+ * Player-triggered active ability carried by a part. Unlike a
+ * WeaponDefinition these do not auto-fire or follow aim — they discharge on a
+ * key press and run on their own cooldown, handled outside the weapon firing
+ * loop. A part may carry both a `weapon` (normal fire) and an `ability`.
+ *
+ * An ability only exists while its part is bolted on and alive. Survival shows
+ * the equipped ones in the centre-screen bar (Q / E / R); when the rig carries
+ * more ability parts than the bar has slots, the player picks which ones make
+ * the cut in the garage — see `activeAbility` on PartConfig and
+ * `resolveAbilityLoadout` in core/abilities.ts.
+ */
+export interface AbilityDefinition {
+  /**
+   * 'freeze' flash-freezes the nearest zombies in place; 'shield' wraps the
+   * vehicle in a bubble granting temporary invulnerability; 'pulse' slams out
+   * a damaging ring of force; 'overdrive' floods the drivetrain with torque;
+   * 'hellfire' overcharges the part's own flame nozzle; 'phase' blinks the rig
+   * forward through whatever is in the way.
+   */
+  kind: 'freeze' | 'shield' | 'pulse' | 'overdrive' | 'hellfire' | 'phase';
+  /**
+   * Upgrade level the host part must reach before the ability reaches the bar
+   * at all; 1 (the default) means it ships with the part. Set above 1 for an
+   * ability riding on a part that is already useful on its own — the nozzle is
+   * bought for its flame, and Hellfire is what the upgrade chain leads to.
+   */
+  unlockLevel?: number;
+  /** Seconds between activations (fixed across levels). */
+  cooldownSeconds: number;
+  /** Effect duration in seconds at level 1 (grows with upgrade level). */
+  baseDurationSeconds: number;
+  /**
+   * Freeze/pulse: metres from the vehicle the effect reaches. Phase: metres the
+   * blink covers at level 1 (grows with upgrade level).
+   */
+  rangeM?: number;
+  /** Freeze only: zombies frozen at level 1 (grows with upgrade level). */
+  baseTargets?: number;
+  /** Pulse only: blast damage at the centre at level 1 (grows with level). */
+  baseDamage?: number;
+  /** Overdrive only: drive-torque multiplier at level 1 (grows with level). */
+  baseTorqueMultiplier?: number;
+  /**
+   * Overdrive only: multiplier on the vehicle's top-speed ceiling at level 1
+   * (grows with upgrade level). Without it the extra torque would only be felt
+   * below the normal cap, so a rig already flat out would feel nothing.
+   */
+  baseTopSpeedMultiplier?: number;
+  /**
+   * Overdrive only: propellant thrust in m/s^2 at level 1 (grows with upgrade
+   * level), pushed through the chassis along its heading. This is what makes
+   * nitro work with the throttle shut or the drive wheels stalled — the torque
+   * multiplier alone does nothing when the engine is not being asked for
+   * anything.
+   */
+  baseThrustAccel?: number;
+  /**
+   * Hellfire only: multiplier on the host weapon's damage at level 1 (grows
+   * with upgrade level).
+   */
+  baseDamageMultiplier?: number;
+  /**
+   * Hellfire only: multipliers on the host weapon's reach and spray cone while
+   * the overcharge runs. Fixed across levels — upgrades buy heat and duration,
+   * not a wider nozzle.
+   */
+  rangeMultiplier?: number;
+  coneMultiplier?: number;
+}
+
+/** Contact weapon (grinder drum, spikes, sawblade): damages any zombie touching the part. */
 export interface MeleeDefinition {
   /** Damage per contact hit; cadence is the zombie impact cooldown. */
   damage: number;
+  /** Mesh treatment; default 'drum' (toothed grinder roller). */
+  visual?: 'drum' | 'spikes' | 'blade' | 'plow';
+  /** Present on blades that scoop zombies up instead of throwing them off. */
+  plow?: PlowDefinition;
+}
+
+/**
+ * A bulldozer blade. Instead of knocking a zombie clear, the blade takes hold
+ * of everything in front of it and carries it along, and the pile only pays for
+ * it when the rig drives that pile into something solid.
+ *
+ * The blade therefore suppresses the ordinary ram: a zombie riding it takes
+ * `MeleeDefinition.damage` per contact tick and nothing else, however fast the
+ * rig is going. All the damage is in the slam.
+ */
+export interface PlowDefinition {
+  /** Half the width of the catch zone in front of the blade, metres. */
+  halfWidthM: number;
+  /** How far ahead of the blade a zombie is still caught, metres. */
+  reachM: number;
+  /** Most zombies one blade carries; the overflow is rammed normally. */
+  capacity: number;
+  /** Damage each carried zombie takes in a slam at the minimum speed. */
+  crushDamage: number;
+  /** Extra crush damage per m/s of closing speed above the minimum. */
+  crushDamagePerSpeed: number;
+  /** Below this closing speed the blade only shoves; nothing is crushed. */
+  minCrushSpeedMps: number;
+  /** Share of the crush each *other* body in the pile adds (pile-on). */
+  pileBonus: number;
 }
 
 export interface ArmourDefinition {
@@ -207,19 +339,24 @@ export interface PartDefinition {
   unlockCost?: number;
   /** Multiplier on the strength of structural connections into this part. */
   reinforcement: number;
-  /** Only one instance allowed per vehicle (root chassis, driver seat). */
+  /**
+   * Fraction of a ram impact this part shrugs off, 0..1 — 0 (the default)
+   * feels every collision in full, 0.75 takes a quarter of it. For hardware
+   * built to be driven into things: a plough blade that loses its own health
+   * ramming a wall is a blade the player learns not to use as one.
+   */
+  impactResistance?: number;
+  /** Only one instance allowed per vehicle (root chassis). */
   unique?: boolean;
-  /** True for the root chassis / driver compartment that anchors connectivity. */
+  /** True for the root chassis that anchors connectivity. */
   isRoot?: boolean;
-  providesControl?: boolean; // driver seat / cab
   wheel?: WheelDefinition;
   engine?: EngineDefinition;
   weapon?: WeaponDefinition;
+  ability?: AbilityDefinition;
   melee?: MeleeDefinition;
   armour?: ArmourDefinition;
   fuelCapacity?: number; // litres
-  batteryCapacity?: number; // kJ
-  ammoCapacity?: number; // rounds
   cargoCapacity?: number; // kg
   /** Approximate render/collider box size per cell, metres (default 1). */
   visualScale?: number;
@@ -240,15 +377,24 @@ export type PaintColor = keyof typeof PAINT_COLORS;
 export interface PartConfig {
   /** Upgrade level; omitted means the catalog base level (1). */
   level?: number;
-  /** Zombie Blaster EMP module level, 0..3. Independent of `level`. */
-  empLevel?: number;
-  /** Zombie Blaster piercing module level, 0..3. Independent of `level`. */
-  piercingLevel?: number;
   driven?: boolean;
   steering?: boolean;
   /** Invert steering direction (rear-steer axles). */
   steerInverted?: boolean;
   braking?: boolean;
+  /**
+   * Legacy tick for "equip this ability": kept so blueprints saved before the
+   * garage ability panel existed still resolve the same way. New edits write
+   * `abilitySlot` instead.
+   */
+  activeAbility?: boolean;
+  /**
+   * For parts with an `ability`: which of the three ability-bar boxes the
+   * player dropped it into (0 → Q, 1 → E, 2 → R), or
+   * `BENCHED_ABILITY_SLOT` (-1) when they took it out of the bar. Undefined
+   * means "wherever it fits", which is how every ability starts out.
+   */
+  abilitySlot?: number;
   suspensionPreset?: SuspensionPreset;
   /** Player-chosen paint; undefined = the part's default colour. */
   paint?: PaintColor;

@@ -44,7 +44,11 @@ function appWithDamagedCheckpoint(
     blueprint,
     partHp: { ...partHp },
     kills: 0,
+    biomeId: 'graveyard',
+    seed: 1234,
+    score: 0,
     bankedEarnings: 0,
+    elapsedSeconds: 0,
   };
   const profile = defaultProfile();
   profile.money = money;
@@ -68,16 +72,13 @@ function appWithDamagedCheckpoint(
 }
 
 describe('starter blueprint', () => {
-  it('includes a deck turret and remains valid', () => {
+  it('has no pre-mounted weapon and remains valid', () => {
     const blueprint = buildStarterBlueprint();
 
-    expect(blueprint.parts).toHaveLength(23);
-    expect(blueprint.parts).toContainEqual(
-      expect.objectContaining({
-        defId: 'turret',
-        pos: { x: 0, y: 2, z: 1 },
-      }),
-    );
+    expect(blueprint.parts).toHaveLength(10);
+    expect(
+      blueprint.parts.some((part) => part.defId === 'turret'),
+    ).toBe(false);
     expect(validateBlueprint(blueprint, getPartDef).errors).toEqual([]);
     expect(
       blueprint.parts.every((part) =>

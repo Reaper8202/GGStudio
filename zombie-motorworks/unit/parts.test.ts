@@ -6,7 +6,6 @@ import { STARTER_UNLOCKS } from '../src/core/profile.ts';
 import {
   createEmptyBlueprint,
   findRoot,
-  hasControl,
   hasEngine,
   nextPartId,
   withPartAdded,
@@ -30,16 +29,23 @@ const EXPECTED_CATALOG_IDS = [
   'wheel-offroad',
   'wheel-moto',
   'tread-tank',
-  'driver-seat',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
   'turret',
   'armour-plate',
   'cannon-heavy',
+  'ice-cannon',
   'barrel-drum',
+  'spike-ram',
+  'sawblade',
+  'dozer-blade',
   'sniper-light',
   'flamethrower',
+  'shield-generator',
+  'pulse-emitter',
+  'nitro-injector',
+  'phase-drive',
 ];
 
 function vecKey(v: Vec3i): string {
@@ -103,16 +109,64 @@ describe('part catalog integrity', () => {
           cell: { x: 0, y: 0, z: 0 },
           face: 'px',
         },
+        {
+          id: 'wheel-mount-pz',
+          type: 'frame',
+          cell: { x: 0, y: 0, z: 0 },
+          face: 'pz',
+        },
+        {
+          id: 'wheel-mount-nz',
+          type: 'frame',
+          cell: { x: 0, y: 0, z: 0 },
+          face: 'nz',
+        },
       ]);
     }
 
     expect(PART_CATALOG['fuel-tank'].health).toBe(80);
     expect(PART_CATALOG.turret.clearanceCells).toEqual([{ x: 0, y: 1, z: 0 }]);
-    expect(PART_CATALOG.turret.ammoCapacity).toBe(200);
-    expect(PART_CATALOG.turret.batteryCapacity).toBe(500);
+    // Both player-facing guns acquire their own targets in range; the player's
+    // click overrides them onto the cursor rather than being the only way to
+    // make them shoot.
     expect(PART_CATALOG.turret.weapon?.aimMode).toBe('auto');
     expect(PART_CATALOG['armour-plate'].armour?.protection).toBeGreaterThan(0);
-    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('manual');
+    expect(PART_CATALOG['cannon-heavy'].weapon?.aimMode).toBe('auto');
+    // The Heavy Cannon is the one explosive weapon: its shell has an area of
+    // effect on top of the direct hit.
+    expect(PART_CATALOG['cannon-heavy'].weapon?.splashRadiusM).toBeGreaterThan(0);
+    expect(PART_CATALOG['cannon-heavy'].weapon?.splashDamage).toBeGreaterThan(0);
+  });
+
+  it('gives the Heavy Cannon a bolted-down 2x2 barbette', () => {
+    const cannon = PART_CATALOG['cannon-heavy'];
+    expect(new Set(cannon.cells.map(cellKey))).toEqual(
+      new Set(
+        [
+          { x: 0, y: 0, z: 0 },
+          { x: 1, y: 0, z: 0 },
+          { x: 0, y: 0, z: 1 },
+          { x: 1, y: 0, z: 1 },
+        ].map(cellKey),
+      ),
+    );
+    // A hardpoint under every cell, and headroom over every cell: the gun is
+    // carried by the whole pad and nothing may be built through it.
+    expect(cannon.sockets).toHaveLength(4);
+    expect(cannon.sockets.every((socket) => socket.face === 'ny')).toBe(true);
+    expect(new Set(cannon.clearanceCells.map(cellKey))).toEqual(
+      new Set(cannon.cells.map((cell) => cellKey({ ...cell, y: cell.y + 1 }))),
+    );
+  });
+
+  it('keeps the splash and cryo guns inside sniper range', () => {
+    const sniper = PART_CATALOG['sniper-light'].weapon!.rangeM;
+    // Reach is the sniper's job. The cannon has to be driven into the fight
+    // for its blast, and the ice cannon chills what is already closing in.
+    expect(PART_CATALOG['cannon-heavy'].weapon!.rangeM).toBeLessThan(sniper);
+    expect(PART_CATALOG['ice-cannon'].weapon!.rangeM).toBeLessThan(
+      PART_CATALOG['cannon-heavy'].weapon!.rangeM,
+    );
   });
 
   it('defines the unique Mine Sweeper outside the starter catalog', () => {
@@ -150,19 +204,12 @@ describe('blueprint helpers', () => {
     expect(nextPartId(withPart)).toBe('p2');
   });
 
-  it('queries root, control, and engine presence', () => {
+  it('queries root and engine presence', () => {
     let bp = createEmptyBlueprint('query rig');
     bp = withPartAdded(bp, {
       id: 'p1',
       defId: 'chassis-core',
       pos: { x: 0, y: 0, z: 0 },
-      orient: 0,
-      config: {},
-    });
-    bp = withPartAdded(bp, {
-      id: 'p2',
-      defId: 'driver-seat',
-      pos: { x: 0, y: 1, z: 0 },
       orient: 0,
       config: {},
     });
@@ -175,7 +222,6 @@ describe('blueprint helpers', () => {
     });
 
     expect(findRoot(bp)?.id).toBe('p1');
-    expect(hasControl(bp)).toBe(true);
     expect(hasEngine(bp)).toBe(true);
   });
 });

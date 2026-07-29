@@ -8,11 +8,12 @@ const DEFAULT_PROFILE = {
     'chassis-core',
     'frame-box',
     'wheel-standard',
-    'driver-seat',
     'engine-small',
     'fuel-tank',
     'turret',
   ],
+  highestWaveCleared: 0,
+  phoneAddictsKilled: 0,
 };
 
 interface BlueprintSnapshot {
@@ -71,7 +72,7 @@ async function startNewGame(page: Page): Promise<void> {
 }
 
 async function createDistinctSave(page: Page): Promise<{
-  profile: { money: number; unlocks: string[] };
+  profile: ReturnType<Window['__scrapRig']['profile']>;
   blueprint: BlueprintSnapshot;
 }> {
   await startNewGame(page);
@@ -103,13 +104,17 @@ async function createDistinctSave(page: Page): Promise<{
       }),
     );
   });
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  return page.evaluate(() => ({
+  const snapshot = await page.evaluate(() => ({
     profile: window.__scrapRig.profile(),
     blueprint: JSON.parse(
       window.__scrapRig.getBlueprintJson(),
     ) as BlueprintSnapshot,
   }));
+  // There is no Save button any more. Menu flushes the profile and persists the
+  // garage slot on the way back to the title, which is what the caller needs.
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await page.waitForFunction(() => window.__scrapRig.mode() === 'title');
+  return snapshot;
 }
 
 test('fresh boot stays on the title until New Game starts a default garage', async ({
@@ -244,7 +249,7 @@ test('Menu disposes the editor and returns to the title', async ({ page }) => {
   await expect(
     page.getByText('ZOMBIE MOTORWORKS', { exact: true }),
   ).toBeVisible();
-  await expect(page.locator('.palette')).toHaveCount(0);
+  await expect(page.locator('.garage-dock')).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: 'Menu', exact: true }),
   ).toHaveCount(0);
@@ -260,6 +265,8 @@ test('Menu is hidden during an active run Build Phase', async ({ page }) => {
     window.__scrapRig.setSimPaused(true);
     window.__scrapRig.forceWaveComplete();
   });
+  // Clearing a wave now stops on the victory summary; the garage is a click away.
+  await page.getByRole('button', { name: 'Garage / Repair' }).click();
   await page.waitForFunction(() => window.__scrapRig.mode() === 'editor');
 
   expect(await page.evaluate(() => window.__scrapRig.runState())).toEqual({

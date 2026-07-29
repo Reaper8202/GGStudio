@@ -37,7 +37,7 @@ declare global {
         speedKmh: number;
         rpm: number;
         fuel: number;
-        ammo: number;
+        totalShotsFired: number;
         groundedWheels: number;
         totalWheels: number;
         aliveParts: number;
@@ -49,6 +49,7 @@ declare global {
       survivalTelemetry(): {
         mode: 'survival';
         kills: number;
+        score: number;
         wave: number;
         zombiesAlive: number;
         runMoney: number;
@@ -71,7 +72,12 @@ declare global {
           worldCentre: [number, number, number];
         }[];
       } | null;
-      profile(): { money: number; unlocks: string[] };
+      profile(): {
+        money: number;
+        unlocks: string[];
+        highestWaveCleared: number;
+        phoneAddictsKilled: number;
+      };
       grantMoney(amount: number): boolean;
       buyUpgrade(partId: string): boolean;
       sellPart(partId: string): boolean;
@@ -81,6 +87,10 @@ declare global {
       debugStartWave(wave: number): void;
       debugKillAllZombies(): void;
       forceWaveComplete(): void;
+      /** Destroy the rig outright to reach the game-over screen. */
+      forceGameOver(): void;
+      /** Chip every part to a fraction of max HP, leaving the rig alive. */
+      damageVehicle(fraction: number): void;
       setScenario(s: string): void;
       resetVehicle(): void;
       orient: { yaw90: number; yaw180: number; rollX90: number };
@@ -156,7 +166,6 @@ export async function buildBasicRig(page: Page): Promise<void> {
   await newBlueprint(page);
   const steps: [string, P, number?][] = [
     ['chassis-core', { x: 0, y: 1, z: 0 }],
-    ['driver-seat', { x: 0, y: 2, z: 0 }],
     ['frame-box', { x: 0, y: 1, z: 1 }],
     ['frame-box', { x: 0, y: 1, z: 2 }],
     ['frame-box', { x: 0, y: 1, z: -1 }],

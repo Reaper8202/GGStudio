@@ -18,14 +18,21 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'wheel-offroad',
   'wheel-moto',
   'tread-tank',
-  'driver-seat',
+  'nitro-injector',
+  'phase-drive',
   'engine-small',
   'fuel-tank',
   'mine-sweeper',
   'turret',
   'armour-plate',
   'cannon-heavy',
+  'ice-cannon',
+  'shield-generator',
+  'pulse-emitter',
   'barrel-drum',
+  'spike-ram',
+  'sawblade',
+  'dozer-blade',
   'sniper-light',
   'flamethrower',
 ];
@@ -62,19 +69,41 @@ export const KID_LABELS: Record<string, PartLabel> = {
     name: 'Tank Tread',
     blurb: 'Slow and super tough! Crawls over anything.',
   },
-  'driver-seat': { name: 'Driver Seat', blurb: 'Put your brave driver here!' },
   'engine-small': { name: 'Engine', blurb: 'Makes the truck go!' },
   'fuel-tank': { name: 'Fuel Tank', blurb: 'Keeps the engine fueled up!' },
   'mine-sweeper': {
     name: 'Mine Finder',
     blurb: 'Beeps when buried mines are close by!',
   },
-  turret: { name: 'Zombie Blaster', blurb: 'Spins around to blast zombies!' },
+  turret: {
+    name: 'Zombie Blaster',
+    blurb: 'Blasts zombies all by itself — click to aim it where you want!',
+  },
   'armour-plate': { name: 'Armour Plate', blurb: 'Adds a tough layer of protection!' },
-  'cannon-heavy': { name: 'Heavy Cannon', blurb: 'A big boom for tough zombies!' },
+  'cannon-heavy': {
+    name: 'Heavy Cannon',
+    blurb: 'Lobs shells that explode and wipe out the whole crowd — click to pick the spot!',
+  },
+  'ice-cannon': {
+    name: 'Ice Cannon',
+    blurb:
+      'Shoots chilly shards that slow zombies — hit its key to freeze them solid!',
+  },
   'barrel-drum': {
     name: 'Grinder Drum',
     blurb: 'Spinning drum that munches zombies it touches!',
+  },
+  'spike-ram': {
+    name: 'Long Spikes',
+    blurb: 'Long, sharp spikes that poke any zombie that gets close!',
+  },
+  sawblade: {
+    name: 'Sawblade',
+    blurb: 'A spinning blade that saws through zombies it grazes!',
+  },
+  'dozer-blade': {
+    name: 'Bulldozer Blade',
+    blurb: 'Scoops up a whole crowd — squash them against a wall!',
   },
   'sniper-light': {
     name: 'Light Sniper',
@@ -83,6 +112,22 @@ export const KID_LABELS: Record<string, PartLabel> = {
   flamethrower: {
     name: 'Flamethrower',
     blurb: 'Whoosh! Sprays hot flames up close!',
+  },
+  'shield-generator': {
+    name: 'Shield Bubble',
+    blurb: 'Press its key for a blue bubble that keeps your truck safe for a bit!',
+  },
+  'pulse-emitter': {
+    name: 'Push Blaster',
+    blurb: 'BOOM! Shoves every zombie around you away and hurts them too!',
+  },
+  'nitro-injector': {
+    name: 'Speed Boost',
+    blurb: 'Gives your truck a big push of go-fast for smashing through!',
+  },
+  'phase-drive': {
+    name: 'Blink Coil',
+    blurb: 'Zap! Jump forward right through zombies and walls!',
   },
 };
 
@@ -101,7 +146,7 @@ function countOf(bp: VehicleBlueprint, defId: string): number {
   return bp.parts.filter((part) => part.defId === defId).length;
 }
 
-/** The guided build: frame → wheels → driver → engine → fuel → drive. */
+/** The guided build: frame → wheels → engine → fuel → drive. */
 const BUILD_STEPS: readonly TutorialStep[] = [
   {
     id: 'frame',
@@ -118,13 +163,6 @@ const BUILD_STEPS: readonly TutorialStep[] = [
     paletteDefId: 'wheel-standard',
     isComplete: (bp) =>
       countOf(bp, 'wheel-standard') + countOf(bp, 'wheel-offroad') >= 4,
-  },
-  {
-    id: 'driver',
-    title: 'Add the driver',
-    text: 'Put the Driver Seat on top.',
-    paletteDefId: 'driver-seat',
-    isComplete: (bp) => countOf(bp, 'driver-seat') >= 1,
   },
   {
     id: 'engine',

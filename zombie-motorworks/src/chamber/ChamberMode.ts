@@ -15,9 +15,24 @@ import {
   type VehicleControls,
 } from '../runtime/vehicle.ts';
 import { lowestPointM, GROUP_TERRAIN, GROUP_ZOMBIE } from '../runtime/assembler.ts';
-import type { SurfaceKind } from '../runtime/surfaces.ts';
-import { buildPartMesh } from '../editor/meshes.ts';
+import type { SurfaceKind } from '../core/surfaces.ts';
+import {
+  NEUTRAL_ENVIRONMENT,
+  type BiomeId,
+  type EnvironmentModifiers,
+} from '../core/biomes.ts';
+import { getBiome } from '../survival/arena/recipes/index.ts';
+import { applyWeaponAim, buildPartMesh } from '../editor/meshes.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
+import { ScopeCursor } from '../ui/ScopeCursor.ts';
+import type { TracerShot } from '../runtime/weapons.ts';
+import { VfxSystem } from '../vfx/VfxSystem.ts';
+import {
+  impactKindForShot,
+  muzzleStyleForShot,
+  tracerStyleForShot,
+} from '../vfx/shotVfx.ts';
+import { VFX_PALETTE } from '../vfx/vfxConfig.ts';
 
 export type ScenarioName =
   | 'flat'
@@ -25,11 +40,15 @@ export type ScenarioName =
   | 'side-slope'
   | 'bumps'
   | 'zombies'
-  | 'drop';
+  | 'drop'
+  | 'snow'
+  | 'sand';
 
 const TERRAIN_GROUPS = (GROUP_TERRAIN << 16) | 0xffff;
 const ZOMBIE_GROUPS = (GROUP_ZOMBIE << 16) | 0xffff;
 const FIXED_DT = 1 / 60;
+/** Chamber dummies are plain boxes; their gibs borrow the walker body green. */
+const CHAMBER_ZOMBIE_TINT = 0x4c6b3f;
 
 interface Zombie {
   body: RAPIER.RigidBody;
@@ -49,9 +68,32 @@ export class ChamberMode {
   private islandGroups = new Map<number, THREE.Group>();
   private surfaceByCollider = new Map<number, SurfaceKind>();
   private zombies: Zombie[] = [];
+  /** Recreated with the world: `resetWorld` clears and disposes the whole scene. */
+  private vfx!: VfxSystem;
   private tracers: { line: THREE.Line; ttl: number }[] = [];
   private scenario: ScenarioName = 'flat';
-  private controls: VehicleControls = { throttle: 0, brake: 0, steer: 0, fire: false, aimYawWorld: 0 };
+  /**
+   * Biome whose handling a scenario is standing in for. A biome is more than
+   * its ground: snow only drifts because the biome also relaxes the
+   * anti-sideslip assist. Replicating the surface alone would let the player
+   * tune a rig here that behaves differently in the real run.
+   */
+  private static readonly SCENARIO_BIOME: Partial<
+    Record<ScenarioName, BiomeId>
+  > = {
+    snow: 'snowfield',
+    sand: 'desert',
+  };
+  // The test chamber has no zombies and so no auto-aim: the player's own aim
+  // is the only aim there is, and the guns follow it at full slew rate.
+  private controls: VehicleControls = {
+    throttle: 0,
+    brake: 0,
+    steer: 0,
+    fire: false,
+    aimYawWorld: 0,
+    manualAim: true,
+  };
   private keys = new Set<string>();
   private accumulator = 0;
   private lastTime = performance.now();
@@ -60,6 +102,7 @@ export class ChamberMode {
   private banner!: HTMLDivElement;
   private failTimers = { flipped: 0, noTraction: 0, airborne: 0 };
   private ui!: HTMLDivElement;
+  private scopeCursor!: ScopeCursor;
   private disposed = false;
   private readonly keydown = (e: KeyboardEvent) => {
     this.keys.add(e.key.toLowerCase());
@@ -94,6 +137,9 @@ export class ChamberMode {
   private resetWorld(): void {
     if (this.eventQueue) this.eventQueue.free();
     if (this.world) this.world.free();
+    // Detach the VFX layers before the sweep so their pooled geometry and
+    // materials are disposed once, by their owner.
+    this.vfx?.dispose();
     disposeSceneAssets(this.scene);
     this.tracers.length = 0;
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
@@ -109,6 +155,7 @@ export class ChamberMode {
     dir.position.set(20, 30, 10);
     this.scene.add(dir);
 
+    this.vfx = new VfxSystem(this.scene);
     this.buildTerrain();
     this.spawnVehicle();
   }
@@ -178,6 +225,19 @@ export class ChamberMode {
         break;
       case 'drop':
         this.ground(0, 3.2, 14, 6, 0.3, 10, 'asphalt', 0x4a5058);
+        break;
+      // The contrasting surface sits beside the centre lane, not across it, so
+      // a straight run stays on one surface and hitting the ice or the firm
+      // lane is a choice the player steers into.
+      case 'snow':
+        this.ground(0, -0.49, 22, 20, 0.52, 38, 'snow', 0xdce8f7);
+        this.ground(-12, -0.485, 26, 5, 0.525, 24, 'ice', 0x9fc7e8);
+        this.ground(12, -0.485, 26, 5, 0.525, 24, 'ice', 0x9fc7e8);
+        break;
+      case 'sand':
+        this.ground(0, -0.49, 22, 20, 0.52, 38, 'sand', 0xc4a575);
+        this.ground(-12, -0.485, 26, 5, 0.525, 24, 'hardpan', 0x7d6a52);
+        this.ground(12, -0.485, 26, 5, 0.525, 24, 'hardpan', 0x7d6a52);
         break;
     }
   }
@@ -253,7 +313,16 @@ export class ChamberMode {
     reset.addEventListener('click', () => this.reset());
     top.appendChild(reset);
 
-    for (const s of ['flat', 'ramp', 'side-slope', 'bumps', 'zombies', 'drop'] as ScenarioName[]) {
+    for (const s of [
+      'flat',
+      'ramp',
+      'side-slope',
+      'bumps',
+      'zombies',
+      'drop',
+      'snow',
+      'sand',
+    ] as ScenarioName[]) {
       const b = document.createElement('button');
       b.textContent = s;
       b.classList.toggle('active', s === this.scenario);
@@ -288,6 +357,8 @@ export class ChamberMode {
     this.renderer.domElement.addEventListener('pointermove', this.onAim);
     this.renderer.domElement.addEventListener('pointerdown', this.onFireDown);
     this.renderer.domElement.addEventListener('pointerup', this.onFireUp);
+
+    this.scopeCursor = new ScopeCursor(this.ui, this.renderer.domElement);
   }
 
   private onAim = (e: PointerEvent): void => {
@@ -334,6 +405,8 @@ export class ChamberMode {
       this.stepPhysics();
     }
     this.syncView(frameDt);
+    this.vfx.setViewpoint(this.camera.position);
+    this.vfx.update(frameDt);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -351,7 +424,12 @@ export class ChamberMode {
     this.controls.brake = brakeInputWithAutoHold(this.controls, forwardSpeed);
     this.controls.steer = (k.has('a') || k.has('arrowleft') ? -1 : 0) + (k.has('d') || k.has('arrowright') ? 1 : 0);
 
-    this.vehicle.preStep(FIXED_DT, this.controls, (h) => this.surfaceByCollider.get(h) ?? 'asphalt');
+    this.vehicle.preStep(
+      FIXED_DT,
+      this.controls,
+      (h) => this.surfaceByCollider.get(h) ?? 'asphalt',
+      this.scenarioEnvironment(),
+    );
     this.stepZombies();
     this.world.step(this.eventQueue);
     this.vehicle.postStepStability(FIXED_DT);
@@ -386,17 +464,59 @@ export class ChamberMode {
 
     // Weapon hits on zombies.
     for (const shot of this.vehicle.telemetry().shotsThisStep) {
+      // Flame-volume burns carry damage only; the cone's own jets already drew
+      // the fire that produced them.
+      if (!shot.damageOnly) this.emitShotVfx(shot);
       if (shot.hitZombieHandle === null) continue;
       for (const z of this.zombies) {
         if (!z.alive) continue;
         for (let i = 0; i < z.body.numColliders(); i++) {
           if (z.body.collider(i).handle === shot.hitZombieHandle) {
             z.health -= 12;
-            if (z.health <= 0) z.alive = false;
+            if (z.health <= 0) {
+              z.alive = false;
+              const p = z.body.translation();
+              this.vfx.zombieGib(p.x, p.y, p.z, CHAMBER_ZOMBIE_TINT);
+            }
           }
         }
       }
     }
+  }
+
+  /**
+   * Same gun feedback the graveyard plays, so a weapon looks in the test
+   * chamber exactly as it will in a wave. Chamber dummies are never shielded.
+   */
+  private emitShotVfx(shot: TracerShot): void {
+    this.vfx.muzzleFlash(shot.from, shot.to, muzzleStyleForShot(shot));
+    if (shot.damageType === 'aoe') {
+      this.vfx.flameJet(shot.from, shot.to, shot.overcharged);
+    }
+    // Explosive shells detonate here too. The chamber has no splash damage
+    // model, but the blast has to look identical to the graveyard or the test
+    // drive misrepresents the weapon.
+    if (shot.splashRadiusM > 0) {
+      this.vfx.shellBurst(shot.to.x, shot.to.y, shot.to.z, shot.splashRadiusM);
+    }
+    const impact = impactKindForShot(shot, false);
+    if (impact === null) return;
+    let dirX = shot.to.x - shot.from.x;
+    let dirY = shot.to.y - shot.from.y;
+    let dirZ = shot.to.z - shot.from.z;
+    const length = Math.hypot(dirX, dirY, dirZ) || 1;
+    dirX /= length;
+    dirY /= length;
+    dirZ /= length;
+    this.vfx.bulletImpact(
+      shot.to.x,
+      shot.to.y,
+      shot.to.z,
+      dirX,
+      dirY,
+      dirZ,
+      impact,
+    );
   }
 
   private stepZombies(): void {
@@ -438,6 +558,13 @@ export class ChamberMode {
       }
     }
 
+    // Turn each gun to where it is actually shooting.
+    for (const weapon of this.vehicle.weaponStates()) {
+      const mesh = this.vehicleGroup.getObjectByName(`part:${weapon.partId}`);
+      if (mesh)
+        applyWeaponAim(mesh, weapon.forwardLocal, weapon.yaw, weapon.pitch);
+    }
+
     // Wheels: world-space position with suspension travel + spin.
     for (const w of this.vehicle.wheels()) {
       const mesh = this.wheelMeshes.get(w.partId);
@@ -476,11 +603,15 @@ export class ChamberMode {
 
     // Tracers.
     for (const shot of this.vehicle.telemetry().shotsThisStep) {
+      if (shot.damageOnly) continue;
       const geo = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(shot.from.x, shot.from.y, shot.from.z),
         new THREE.Vector3(shot.to.x, shot.to.y, shot.to.z),
       ]);
-      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffd76e }));
+      // Cryo fire draws turquoise, matching survival's Ice Cannon ray.
+      const color =
+        tracerStyleForShot(shot) === 'ice' ? VFX_PALETTE.ice : 0xffd76e;
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color }));
       this.scene.add(line);
       this.tracers.push({ line, ttl: 0.08 });
     }
@@ -533,7 +664,6 @@ export class ChamberMode {
       `<div class="stat-row"><span>Speed</span><span>${t.speedKmh.toFixed(0)} km/h</span></div>`,
       `<div class="stat-row"><span>RPM</span><span>${t.rpm.toFixed(0)} (gear ${t.gear + 1})</span></div>`,
       `<div class="stat-row"><span>Fuel</span><span>${t.fuel.toFixed(1)} / ${t.fuelCapacity.toFixed(0)} L</span></div>`,
-      `<div class="stat-row"><span>Ammo</span><span>${t.ammo}</span></div>`,
       `<div class="stat-row"><span>Wheels grounded</span><span>${t.groundedWheels}/${t.totalWheels}</span></div>`,
       `<div class="stat-row"><span>Parts</span><span>${t.aliveParts} alive · ${t.detachedParts} lost</span></div>`,
       t.overloadedWheels.length > 0 ? `<div class="issue-warning">Wheel load exceeded</div>` : '',
@@ -552,6 +682,8 @@ export class ChamberMode {
     this.renderer.domElement.removeEventListener('pointermove', this.onAim);
     this.renderer.domElement.removeEventListener('pointerdown', this.onFireDown);
     this.renderer.domElement.removeEventListener('pointerup', this.onFireUp);
+    this.scopeCursor.dispose();
+    this.vfx?.dispose();
     this.vehicle?.dispose();
     this.eventQueue?.free();
     this.world?.free();
@@ -613,6 +745,12 @@ export class ChamberMode {
       angvel: { x: av.x, y: av.y, z: av.z },
       scenario: this.scenario,
     };
+  }
+
+  /** Base drive modifiers of the biome this scenario stands in for, if any. */
+  private scenarioEnvironment(): EnvironmentModifiers {
+    const biomeId = ChamberMode.SCENARIO_BIOME[this.scenario];
+    return biomeId === undefined ? NEUTRAL_ENVIRONMENT : getBiome(biomeId).drive;
   }
 
   debugSetScenario(s: ScenarioName): void {

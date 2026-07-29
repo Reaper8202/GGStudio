@@ -187,18 +187,19 @@ test('a corrupted profile falls back to defaults and boots a clean editor', asyn
   await reloadDebugApp(page);
 
   expect(await page.evaluate(() => window.__scrapRig.mode())).toBe('editor');
-  await expect(page.locator('.palette')).toBeVisible();
+  await expect(page.locator('.garage-dock')).toBeVisible();
   expect(await page.evaluate(() => window.__scrapRig.profile())).toEqual({
     money: 200,
     unlocks: [
       'chassis-core',
       'frame-box',
       'wheel-standard',
-      'driver-seat',
       'engine-small',
       'fuel-tank',
       'turret',
     ],
+    highestWaveCleared: 0,
+    phoneAddictsKilled: 0,
   });
   expect(
     await page.evaluate(() => window.__scrapRig.validate().errors),

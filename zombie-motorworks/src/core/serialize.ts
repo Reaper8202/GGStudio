@@ -14,7 +14,7 @@ import {
   rotateVec,
 } from './grid.ts';
 import { getPartDef } from './parts.ts';
-import { TURRET_MODULE_MAX_LEVEL } from './turretModules.ts';
+import { BENCHED_ABILITY_SLOT, MAX_ABILITY_SLOTS } from './abilities.ts';
 
 export const CURRENT_SCHEMA_VERSION = BLUEPRINT_SCHEMA_VERSION;
 
@@ -213,29 +213,27 @@ function validateConfig(
     }
     sanitized.level = Math.min(level, def.upgrade?.maxLevel ?? 1);
   }
-  for (const key of ['empLevel', 'piercingLevel'] as const) {
-    const moduleLevel = config[key];
-    if (moduleLevel === undefined) continue;
-    if (typeof moduleLevel !== 'number' || !Number.isInteger(moduleLevel)) {
-      throw new BlueprintFormatError(
-        `${path}.${key} must be an integer between 0 and ${TURRET_MODULE_MAX_LEVEL}`,
-      );
-    }
-    const clampedLevel = Math.min(
-      TURRET_MODULE_MAX_LEVEL,
-      Math.max(0, moduleLevel),
-    );
-    if (def.id === 'turret' && clampedLevel > 0) {
-      sanitized[key] = clampedLevel;
-    }
-  }
   for (const key of [
     'driven',
     'steering',
     'steerInverted',
     'braking',
+    'activeAbility',
   ] as const) {
     if (typeof config[key] === 'boolean') sanitized[key] = config[key];
+  }
+  // Ability-bar box: 0..2 for a slot, BENCHED_ABILITY_SLOT for benched.
+  // Anything else is dropped back to "wherever it fits" rather than rejected,
+  // so a hand-edited blueprint still loads.
+  const abilitySlot = config.abilitySlot;
+  if (
+    def.ability !== undefined &&
+    typeof abilitySlot === 'number' &&
+    Number.isInteger(abilitySlot) &&
+    abilitySlot >= BENCHED_ABILITY_SLOT &&
+    abilitySlot < MAX_ABILITY_SLOTS
+  ) {
+    sanitized.abilitySlot = abilitySlot;
   }
   if (
     typeof config.suspensionPreset === 'string' &&

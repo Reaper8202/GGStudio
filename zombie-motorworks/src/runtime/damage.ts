@@ -52,6 +52,16 @@ export function connectionDamage(
   );
 }
 
+/**
+ * How much of a ram a part actually feels, 0..1. Ramming hardware — the plough
+ * blade above all — is built to be driven into walls and wrecks, so it eats
+ * most of the impulse rather than passing it on to its own health and mounts.
+ */
+export function impactFelt(def: { impactResistance?: number }): number {
+  const resistance = def.impactResistance ?? 0;
+  return 1 - Math.min(1, Math.max(0, resistance));
+}
+
 /** Apply impact damage to a part (by collider handle) and its connections. */
 export function applyImpactDamage(
   vehicle: AssembledVehicle,
@@ -63,7 +73,9 @@ export function applyImpactDamage(
   if (!partId) return;
   const part = vehicle.parts.get(partId);
   if (!part || !part.alive) return;
-  const impulseNs = impactImpulseNs(forceMagnitude);
+  // The blade's own resistance covers its mounts too: surviving the hit only
+  // to be shaken off the nose is the same failure from the driver's seat.
+  const impulseNs = impactImpulseNs(forceMagnitude) * impactFelt(part.def);
   part.health -= partDamage(impulseNs);
 
   const liveConnections = (vehicle.connectionsByPart.get(partId) ?? [])

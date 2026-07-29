@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   connectionDamage,
+  impactFelt,
   impactImpulseNs,
   partDamage,
 } from '../src/runtime/damage.ts';
+import { getPartDef } from '../src/core/parts.ts';
 
 describe('impact damage model', () => {
   it('does no damage below the safe impact force', () => {
@@ -34,5 +36,16 @@ describe('impact damage model', () => {
     expect(damageHp).toBeCloseTo(160.77, 2);
     expect(damageHp).toBeGreaterThan(150);
     expect(edgeDamage).toBeGreaterThanOrEqual(1);
+  });
+
+  it('lets the plough blade survive the wall it is built to be driven into', () => {
+    const blade = getPartDef('dozer-blade');
+    // Ordinary hardware feels a collision in full; the blade does not.
+    expect(impactFelt(getPartDef('frame-box'))).toBe(1);
+    expect(impactFelt(blade)).toBeCloseTo(0.2);
+
+    // The same 60 km/h wall impact that flattens a frame block.
+    const felt = impactImpulseNs(727_000) * impactFelt(blade);
+    expect(partDamage(felt)).toBeLessThan(blade.health / 5);
   });
 });

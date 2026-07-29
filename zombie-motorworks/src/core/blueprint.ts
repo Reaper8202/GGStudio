@@ -98,10 +98,6 @@ export function findRoot(bp: VehicleBlueprint): PlacedPart | undefined {
   return bp.parts.find((part) => getPartDef(part.defId).isRoot === true);
 }
 
-export function hasControl(bp: VehicleBlueprint): boolean {
-  return bp.parts.some((part) => getPartDef(part.defId).providesControl === true);
-}
-
 export function hasEngine(bp: VehicleBlueprint): boolean {
   return bp.parts.some((part) => getPartDef(part.defId).engine !== undefined);
 }

@@ -1,13 +1,22 @@
+import { isBiomeId, type BiomeId } from './biomes.ts';
+import { randomSeed } from './rng.ts';
 import { deserializeBlueprint } from './serialize.ts';
 import type { VehicleBlueprint } from './types.ts';
 
+/** Persisted wave-start checkpoint for a survival run. */
 export interface SavedRun {
-  schemaVersion: 2;
+  schemaVersion: 4;
+  /** Arcade score accumulated across the run. */
+  score: number;
   /** Wave the player resumes at (>= 1). */
   wave: number;
   kills: number;
+  biomeId: BiomeId;
+  seed: number;
   /** Money banked during this run so far. */
   bankedEarnings: number;
+  /** Arena seconds played so far. 0 on saves written before run timing. */
+  elapsedSeconds: number;
   blueprint: VehicleBlueprint;
   /** Per-part remaining HP at save time, keyed by blueprint part id. */
   partHp: Record<string, number>;
@@ -20,10 +29,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 interface RawSavedRun {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3 | 4;
+  score: unknown;
   wave: number;
   kills: number;
+  biomeId: unknown;
+  seed: unknown;
   bankedEarnings: number;
+  elapsedSeconds: unknown;
   blueprint: Record<string, unknown>;
   partHp: Record<string, unknown>;
   savedAt: number;
@@ -32,7 +45,10 @@ interface RawSavedRun {
 function normalizeShape(value: unknown): RawSavedRun | null {
   if (!isRecord(value)) return null;
   if (
-    (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
+    (value.schemaVersion !== 1 &&
+      value.schemaVersion !== 2 &&
+      value.schemaVersion !== 3 &&
+      value.schemaVersion !== 4) ||
     typeof value.wave !== 'number' ||
     typeof value.kills !== 'number' ||
     !isRecord(value.blueprint) ||
@@ -46,13 +62,24 @@ function normalizeShape(value: unknown): RawSavedRun | null {
   if (typeof bankedEarnings !== 'number') return null;
   return {
     schemaVersion: value.schemaVersion,
+    score: value.schemaVersion >= 3 ? value.score : 0,
     wave: value.wave,
     kills: value.kills,
+    biomeId: value.schemaVersion === 4 ? value.biomeId : undefined,
+    seed: value.schemaVersion === 4 ? value.seed : undefined,
     bankedEarnings,
+    // Added after schema 4 shipped, so saves written before it simply omit it.
+    elapsedSeconds: value.elapsedSeconds,
     blueprint: value.blueprint,
     partHp: value.partHp,
     savedAt: value.savedAt,
   };
+}
+
+const DEFAULT_BIOME_ID: BiomeId = 'graveyard';
+
+function normalizeBiomeId(value: unknown): BiomeId {
+  return isBiomeId(value) ? value : DEFAULT_BIOME_ID;
 }
 
 /** Returns null rather than allowing malformed persisted data to escape. */
@@ -97,15 +124,34 @@ export function decodeSavedRun(json: string | null): SavedRun | null {
   ) as Record<string, number>;
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 4,
+    score:
+      typeof normalized.score === 'number' &&
+      Number.isSafeInteger(normalized.score) &&
+      normalized.score >= 0
+        ? normalized.score
+        : 0,
     wave: normalized.wave,
     kills:
       Number.isFinite(normalized.kills) && normalized.kills >= 0
         ? normalized.kills
         : 0,
+    biomeId: normalizeBiomeId(normalized.biomeId),
+    seed:
+      typeof normalized.seed === 'number' &&
+      Number.isFinite(normalized.seed)
+        ? normalized.seed
+        : randomSeed(),
     bankedEarnings:
-      Number.isFinite(normalized.bankedEarnings) && normalized.bankedEarnings >= 0
+      Number.isFinite(normalized.bankedEarnings) &&
+      normalized.bankedEarnings >= 0
         ? normalized.bankedEarnings
+        : 0,
+    elapsedSeconds:
+      typeof normalized.elapsedSeconds === 'number' &&
+      Number.isFinite(normalized.elapsedSeconds) &&
+      normalized.elapsedSeconds >= 0
+        ? normalized.elapsedSeconds
         : 0,
     blueprint,
     partHp,
@@ -117,9 +163,13 @@ export function decodeSavedRun(json: string | null): SavedRun | null {
 export function encodeSavedRun(run: SavedRun): string {
   return JSON.stringify({
     schemaVersion: run.schemaVersion,
+    score: run.score,
     wave: run.wave,
     kills: run.kills,
+    biomeId: run.biomeId,
+    seed: run.seed,
     bankedEarnings: run.bankedEarnings,
+    elapsedSeconds: run.elapsedSeconds,
     blueprint: run.blueprint,
     partHp: run.partHp,
     savedAt: run.savedAt,

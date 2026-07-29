@@ -42,8 +42,8 @@ export function resolveDrivenPartIds(
  * non-steering and its lateral grip fights the wheel that still steers, which
  * reads in-game as the rig barely being able to turn.
  *
- * Drive torque goes to the two wheels farthest from the driver, preferring
- * wheels that do not steer.
+ * Drive torque goes to the two wheels farthest from the root chassis,
+ * preferring wheels that do not steer.
  */
 export function deriveAutomaticWheelLayout(
   blueprint: VehicleBlueprint,
@@ -80,13 +80,10 @@ export function deriveAutomaticWheelLayout(
     }
   }
 
-  const driver = blueprint.parts.find(
-    (part) => getDef(part.defId).providesControl === true,
-  );
   const root = blueprint.parts.find(
     (part) => getDef(part.defId).isRoot === true,
   );
-  const reference = cellCentreM((driver ?? root ?? wheels[0]!.part).pos);
+  const reference = cellCentreM((root ?? wheels[0]!.part).pos);
   const distanceSq = (wheel: (typeof wheels)[number]): number => {
     const dx = wheel.centre.x - reference.x;
     const dy = wheel.centre.y - reference.y;

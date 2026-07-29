@@ -1,14 +1,16 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   GROUP_TERRAIN,
   GROUP_VEHICLE,
   GROUP_ZOMBIE,
 } from '../../runtime/assembler.ts';
 import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
+import type { VfxSystem } from '../../vfx/VfxSystem.ts';
+import { VFX_PALETTE } from '../../vfx/vfxConfig.ts';
 import { instantiateVoxelAsset } from '../VoxelAssetLoader.ts';
 import {
-  BASE_ZOMBIE_STATS,
   DEATH_FEEDBACK_DURATION,
   DETOUR_BLEND,
   DETOUR_DURATION,
@@ -22,9 +24,6 @@ import {
   OBSTACLE_PROBE_HEIGHT,
   PHONE_ADDICT_GLOW_OPACITY,
   PHONE_ADDICT_GLOW_RADIUS,
-  PHONE_ADDICT_HEALTH_MULTIPLIER,
-  PHONE_ADDICT_REWARD,
-  PHONE_ADDICT_SPEED_MULTIPLIER,
   PHONE_ADDICT_VISUAL_HEIGHT,
   SCALE_VARIATION,
   SHIELD_FLASH_DURATION,
@@ -34,30 +33,21 @@ import {
   STUCK_SPEED_THRESHOLD,
   STUCK_TIME_THRESHOLD,
   THROWER_ATTACK_EXIT_MARGIN,
-  THROWER_ATTACK_INTERVAL,
-  THROWER_ATTACK_RANGE,
-  THROWER_HEALTH_MULTIPLIER,
-  THROWER_REWARD,
-  THROWER_SPEED_MULTIPLIER,
   THROWER_VISUAL_HEIGHT,
   WALK_BOB_AMPLITUDE,
   WALK_BOB_FREQUENCY,
-  WORKER_HEALTH_MULTIPLIER,
-  WORKER_PLANT_RANGE,
-  WORKER_PLANT_SECONDS,
   WORKER_RETREAT_RANGE,
   WORKER_RING_MAX_RADIUS,
   WORKER_RING_MAX_RATE,
   WORKER_RING_MIN_RATE,
   WORKER_RING_OPACITY,
-  WORKER_REWARD,
-  WORKER_SPEED_MULTIPLIER,
   WORKER_VISUAL_HEIGHT,
   ZOMBIE_ATTACK_EXIT_MARGIN,
   ZOMBIE_ATTACK_RANGE,
   ZOMBIE_HALF_HEIGHT,
   ZOMBIE_RADIUS,
 } from './zombieConfig.ts';
+import { devTuning } from '../devtuning/DevTuning.ts';
 
 const ZOMBIE_GROUPS =
   (GROUP_ZOMBIE << 16) | (GROUP_TERRAIN | GROUP_VEHICLE | GROUP_ZOMBIE);
@@ -65,6 +55,41 @@ const ZOMBIE_ASSET_ROOT = `${import.meta.env.BASE_URL}assets/zombies`;
 const OBSTACLE_FILTER_GROUPS = (GROUP_ZOMBIE << 16) | GROUP_TERRAIN;
 const BASE_EMISSIVE = 0.25;
 const HIT_FLASH_COLOR = new THREE.Color(0xffffff);
+/** Turquoise glow applied to a frozen zombie's body while its freeze lasts. */
+const ICE_FREEZE_COLOR = new THREE.Color(VFX_PALETTE.ice);
+const ICE_FREEZE_EMISSIVE = 0.85;
+/**
+ * How far a body's own tint is dragged toward the ice colour. A freeze turns
+ * the zombie into ice outright; a slow only frosts it over, so the two states
+ * stay tellable apart in a crowd.
+ */
+const ICE_FREEZE_TINT = 0.72;
+const ICE_SLOW_TINT = 0.3;
+/** Ice block encasing a frozen zombie, in world metres. */
+const ICE_SHELL_RADIUS = 0.86;
+const ICE_SHELL_OPACITY = 0.52;
+/** Turquoise floor halo under the block, so a freeze reads from any angle. */
+const ICE_SHELL_GLOW_RADIUS = 1.15;
+const ICE_SHELL_GLOW_OPACITY = 0.6;
+/** Seconds the block takes to close in, and to fall away again. */
+const ICE_SHELL_FADE = 0.12;
+/**
+ * Shards driven into a zombie the cold has hold of. Merged into a single mesh
+ * at build time and toggled with one `visible` flag — one draw call, no
+ * particles, no per-frame work, so a whole horde can wear them for nothing.
+ */
+const ICE_SHARD_COUNT = 7;
+const ICE_SHARD_LENGTH = 0.32;
+const ICE_SHARD_RADIUS = 0.07;
+/** Per-shard size spread, so no two spikes on a body match. */
+const ICE_SHARD_SIZE_VARIATION = 0.5;
+/** Shades each shard is cut from, pale rime through to deep glacier. */
+const ICE_SHARD_SHADES = [
+  VFX_PALETTE.frost,
+  0xa7f0e8,
+  VFX_PALETTE.ice,
+  0x1f8a91,
+] as const;
 const BASE_VISUAL_SCALE = 1.85;
 const BODY_TINTS = [0x4c6b3f, 0x5a7247, 0x3f5c48, 0x6b5a3f, 0x556b4c, 0x47614a];
 const warnedVisualVariants = new Set<number>();
@@ -111,6 +136,15 @@ function getAddictGlowTexture(): THREE.CanvasTexture {
   );
 }
 
+/** Turquoise halo under a zombie held in Ice Cannon freeze. */
+function getFrostGlowTexture(): THREE.CanvasTexture {
+  return getGlowTexture(
+    'rgba(217, 255, 249, 0.95)',
+    'rgba(64, 224, 208, 0.5)',
+    'rgba(15, 95, 107, 0)',
+  );
+}
+
 export interface Vector3Like {
   readonly x: number;
   readonly y: number;
@@ -140,46 +174,16 @@ export type ZombieKilledCallback = (reward: number, kind: ZombieKind) => void;
 
 export type ZombieKind = 'walker' | 'thrower' | 'phone-addict' | 'worker';
 
+/**
+ * Outcome of a vehicle contact. `ignored` covers a zombie that is untargetable
+ * or still inside its impact cooldown, so presentation can skip its effect
+ * instead of spraying gore on every fixed step of a sustained contact.
+ */
+export type VehicleImpactResult = 'ignored' | 'damaged' | 'killed';
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
-
-/** Per-kind stat multipliers over BASE_ZOMBIE_STATS, plus flat rewards. */
-const KIND_STATS: Record<
-  ZombieKind,
-  {
-    readonly health: number;
-    readonly speed: number;
-    readonly reward: number;
-    readonly attackInterval: number;
-  }
-> = {
-  walker: {
-    health: 1,
-    speed: 1,
-    reward: BASE_ZOMBIE_STATS.reward,
-    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
-  },
-  thrower: {
-    health: THROWER_HEALTH_MULTIPLIER,
-    speed: THROWER_SPEED_MULTIPLIER,
-    reward: THROWER_REWARD,
-    attackInterval: THROWER_ATTACK_INTERVAL,
-  },
-  'phone-addict': {
-    health: PHONE_ADDICT_HEALTH_MULTIPLIER,
-    speed: PHONE_ADDICT_SPEED_MULTIPLIER,
-    reward: PHONE_ADDICT_REWARD,
-    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
-  },
-  // Workers never attack; the interval is inert but kept sane.
-  worker: {
-    health: WORKER_HEALTH_MULTIPLIER,
-    speed: WORKER_SPEED_MULTIPLIER,
-    reward: WORKER_REWARD,
-    attackInterval: BASE_ZOMBIE_STATS.attackInterval,
-  },
-};
 
 /** One persistent pooled zombie body, collider, visual, and AI state machine. */
 export class Zombie {
@@ -208,6 +212,8 @@ export class Zombie {
   private readonly loadedMaterials: THREE.MeshLambertMaterial[] = [];
   private readonly visualMaterials: THREE.MeshLambertMaterial[] = [];
   private readonly baseScale: number;
+  /** Body tint this corpse's gibs are cut from, as an sRGB hex. */
+  private readonly gibTintHex: number;
   private readonly rayOrigin = { x: 0, y: 0, z: 0 };
   private readonly rayDirection = { x: 0, y: 0, z: 0 };
   private readonly ray: RAPIER.Ray;
@@ -219,12 +225,30 @@ export class Zombie {
   private shieldMaterial: THREE.MeshBasicMaterial | null = null;
   private shieldTimer = 0;
   private glowMesh: THREE.Mesh | null = null;
+  /** Ice block and floor halo, built the first time this zombie is frozen. */
+  private frostShellMesh: THREE.Mesh | null = null;
+  private frostShellMaterial: THREE.MeshLambertMaterial | null = null;
+  private frostGlowMesh: THREE.Mesh | null = null;
+  private frostGlowMaterial: THREE.MeshBasicMaterial | null = null;
+  /** 0..1 grow-in of the block, so freezing and thawing are not hard pops. */
+  private frostShellFade = 0;
+  /** Shards stuck in the body, shown for as long as the cold holds. */
+  private frostShardMesh: THREE.Mesh | null = null;
+  private frostShardMaterial: THREE.MeshLambertMaterial | null = null;
+  /** True while the body tint is shifted to ice, so the reset runs once. */
+  private frostTinted = false;
+  /** Body tint strength currently written into the materials (0 = stock). */
+  private appliedTint = 0;
+  /** Emissive look currently written into the materials. */
+  private appliedGlow: 'none' | 'flash' | 'frozen' | 'slowed' = 'none';
   private ringMesh: THREE.Mesh | null = null;
   private ringMaterial: THREE.MeshBasicMaterial | null = null;
   private ringPhase = 0;
   private plantTimer = 0;
 
   private health = 0;
+  /** Full health at spawn, so live re-tuning can preserve the damage fraction. */
+  private spawnHealth = 0;
   private moveSpeed = 0;
   private attackDamage = 0;
   private attackInterval = 0;
@@ -241,6 +265,11 @@ export class Zombie {
   private retreating = false;
   private lungeTimer = 0;
   private hitFlashTimer = 0;
+  /** Seconds of remaining Ice Cannon freeze; while >0 the zombie can't act. */
+  private freezeTimer = 0;
+  /** Seconds of remaining ice-fire slow; while >0 move speed scales by slowFactor. */
+  private slowTimer = 0;
+  private slowFactor = 1;
   private bobPhase = 0;
   private visualOpacity = 1;
   private disposed = false;
@@ -252,6 +281,8 @@ export class Zombie {
     kind: ZombieKind,
     fallbackGeometry: THREE.CapsuleGeometry,
     private readonly onKilled: ZombieKilledCallback,
+    /** Optional so headless tests can pool zombies without a scene budget. */
+    private readonly vfx: VfxSystem | null = null,
   ) {
     this.kind = kind;
     this.baseScale =
@@ -259,6 +290,7 @@ export class Zombie {
     const tint = new THREE.Color(
       BODY_TINTS[index % BODY_TINTS.length],
     ).offsetHSL(0, 0, (Math.random() - 0.5) * 0.08);
+    this.gibTintHex = tint.getHex();
     this.fallbackMaterial = new THREE.MeshLambertMaterial({
       color: tint,
       emissive: new THREE.Color().setScalar(BASE_EMISSIVE),
@@ -358,6 +390,11 @@ export class Zombie {
     return this.isAlive && this.state !== ZombieState.Spawning;
   }
 
+  /** Current hit points, for target-priority weapons that seek the toughest foe. */
+  get currentHealth(): number {
+    return this.health;
+  }
+
   /** A projectile bounced off this zombie's shield: flash the bubble. */
   flashShield(): void {
     if (!this.isTargetable) return;
@@ -393,10 +430,13 @@ export class Zombie {
     if (this.disposed) return;
     this.active = true;
     this.state = ZombieState.Spawning;
-    const stats = KIND_STATS[this.kind];
-    this.health = BASE_ZOMBIE_STATS.health * healthMultiplier * stats.health;
-    this.moveSpeed = BASE_ZOMBIE_STATS.speed * speedMultiplier * stats.speed;
-    this.attackDamage = BASE_ZOMBIE_STATS.attackDamage * attackDamageMultiplier;
+    const base = devTuning.base;
+    const stats = devTuning.types[this.kind];
+    this.health = base.health * healthMultiplier * stats.healthMult;
+    this.spawnHealth = this.health;
+    this.moveSpeed = base.speed * speedMultiplier * stats.speedMult;
+    this.attackDamage =
+      base.attackDamage * attackDamageMultiplier * stats.damageMult;
     this.attackInterval = stats.attackInterval;
     this.reward = stats.reward;
     this.shieldTimer = 0;
@@ -415,6 +455,20 @@ export class Zombie {
     if (this.ringMesh) this.ringMesh.visible = false;
     this.lungeTimer = 0;
     this.hitFlashTimer = 0;
+    this.freezeTimer = 0;
+    this.slowTimer = 0;
+    this.slowFactor = 1;
+    // A recycled zombie must never come back out of the pool still iced over.
+    this.frostShellFade = 0;
+    if (this.frostShardMesh) this.frostShardMesh.visible = false;
+    if (this.frostShellMesh) this.frostShellMesh.visible = false;
+    if (this.frostGlowMesh) this.frostGlowMesh.visible = false;
+    if (this.frostTinted) this.applyFrostTint(0);
+    // A recycled zombie starts from the resting look, so the next visual
+    // frame writes whatever it needs rather than trusting a stale cache.
+    this.appliedGlow = 'none';
+    for (const material of this.visualMaterials)
+      material.emissive.setScalar(BASE_EMISSIVE);
     this.detourSign = Math.random() < 0.5 ? -1 : 1;
     this.bobPhase = Math.random() * Math.PI * 2;
 
@@ -439,10 +493,42 @@ export class Zombie {
     this.setOpacity(0.15);
   }
 
+  /**
+   * Dev-tuner live re-apply for a zombie that is already on the field. Recomputes
+   * stats from the current tuning and the supplied wave multipliers, preserving
+   * the zombie's remaining-health fraction so a live edit never revives or
+   * one-shots it. No-op for dead/inactive zombies.
+   */
+  reapplyStats(
+    healthMultiplier: number,
+    speedMultiplier: number,
+    attackDamageMultiplier: number,
+  ): void {
+    if (!this.isAlive) return;
+    const base = devTuning.base;
+    const stats = devTuning.types[this.kind];
+    const fraction =
+      this.spawnHealth > 0
+        ? Math.max(0, Math.min(1, this.health / this.spawnHealth))
+        : 1;
+    const newFull = base.health * healthMultiplier * stats.healthMult;
+    this.spawnHealth = newFull;
+    this.health = Math.max(1e-3, newFull * fraction);
+    this.moveSpeed = base.speed * speedMultiplier * stats.speedMult;
+    this.attackDamage =
+      base.attackDamage * attackDamageMultiplier * stats.damageMult;
+    this.attackInterval = stats.attackInterval;
+    this.reward = stats.reward;
+  }
+
   /** Apply speed-scaled vehicle damage and a real Rapier knockback impulse. */
-  applyVehicleImpact(damage: number, dirX: number, dirZ: number): boolean {
+  applyVehicleImpact(
+    damage: number,
+    dirX: number,
+    dirZ: number,
+  ): VehicleImpactResult {
     if (!this.isTargetable || damage <= 0 || this.impactCooldown > 0)
-      return false;
+      return 'ignored';
 
     this.impactCooldown = IMPACT_COOLDOWN_SECONDS;
     this.health -= damage;
@@ -456,9 +542,77 @@ export class Zombie {
     this.impulseScratch.z = (dirZ / length) * impulseMagnitude;
     this.body.applyImpulse(this.impulseScratch, true);
 
-    if (this.health > 0) return false;
+    if (this.health > 0) return 'damaged';
     this.die();
-    return true;
+    return 'killed';
+  }
+
+  /**
+   * Ridden on a bulldozer blade: carried at the blade's velocity, and held in
+   * the knockback state so the zombie can neither chase nor bite while the
+   * blade has it. The caller refreshes this every step it keeps hold, so the
+   * hold lapses on its own once the zombie rolls off.
+   *
+   * A frozen zombie is left alone — the ice owns it until it thaws.
+   */
+  holdOnPlow(velocityX: number, velocityZ: number, holdSeconds: number): void {
+    if (!this.isTargetable || this.freezeTimer > 0) return;
+    this.state = ZombieState.KnockedBack;
+    this.knockbackTimer = Math.max(this.knockbackTimer, holdSeconds);
+    // Vertical velocity is the physics engine's business: overwriting it would
+    // hold the load off the ground while the blade is climbing a kerb.
+    this.velocityScratch.x = velocityX;
+    this.velocityScratch.y = this.body.linvel().y;
+    this.velocityScratch.z = velocityZ;
+    this.body.setLinvel(this.velocityScratch, true);
+  }
+
+  /**
+   * Contact damage from a blade that is carrying this zombie rather than
+   * throwing it clear: no knockback, because being flung is exactly what the
+   * blade is preventing. Paced by the same impact cooldown as a ram.
+   */
+  applyPlowScrape(damage: number): VehicleImpactResult {
+    if (!this.isTargetable || damage <= 0 || this.impactCooldown > 0)
+      return 'ignored';
+
+    this.impactCooldown = IMPACT_COOLDOWN_SECONDS;
+    this.health -= damage;
+    this.hitFlashTimer = HIT_FLASH_DURATION;
+    if (this.health > 0) return 'damaged';
+    this.die();
+    return 'killed';
+  }
+
+  /**
+   * The blade drove its load into something solid. Deliberately ignores the
+   * impact cooldown: the slam is one discrete event, not a contact tick, and it
+   * must land on every body in the pile the moment it happens. Survivors are
+   * thrown up and out of the way rather than merely shoved.
+   */
+  applyPlowCrush(
+    damage: number,
+    dirX: number,
+    dirZ: number,
+  ): VehicleImpactResult {
+    if (!this.isTargetable || damage <= 0) return 'ignored';
+
+    this.impactCooldown = IMPACT_COOLDOWN_SECONDS;
+    this.health -= damage;
+    this.hitFlashTimer = HIT_FLASH_DURATION;
+    this.state = ZombieState.KnockedBack;
+    this.knockbackTimer = KNOCKBACK_DURATION;
+
+    const length = Math.hypot(dirX, dirZ) || 1;
+    const impulseMagnitude = this.body.mass() * KNOCKBACK_SPEED;
+    this.impulseScratch.x = (dirX / length) * impulseMagnitude;
+    this.impulseScratch.y = impulseMagnitude * 0.5;
+    this.impulseScratch.z = (dirZ / length) * impulseMagnitude;
+    this.body.applyImpulse(this.impulseScratch, true);
+
+    if (this.health > 0) return 'damaged';
+    this.die();
+    return 'killed';
   }
 
   fixedUpdate(
@@ -469,6 +623,22 @@ export class Zombie {
   ): void {
     if (!this.active) return;
     this.impactCooldown = Math.max(0, this.impactCooldown - dt);
+    if (this.slowTimer > 0) {
+      this.slowTimer = Math.max(0, this.slowTimer - dt);
+      if (this.slowTimer === 0) this.slowFactor = 1;
+    }
+
+    // Ice Cannon freeze: hold the zombie in place until the freeze expires.
+    // Dead zombies still run their death animation; everything else is halted.
+    if (this.freezeTimer > 0 && this.state !== ZombieState.Dead) {
+      this.freezeTimer = Math.max(0, this.freezeTimer - dt);
+      this.zeroHorizontalVelocity();
+      this.syncPositionFromBody();
+      // Thawing out is the moment the zombie becomes dangerous again, so it
+      // gets its own sound-and-fury rather than a silent fade.
+      if (this.freezeTimer === 0) this.emitFrostShatter();
+      return;
+    }
 
     switch (this.state) {
       case ZombieState.Spawning:
@@ -501,6 +671,49 @@ export class Zombie {
     if (!this.active) return;
     this.zeroHorizontalVelocity();
     this.syncPositionFromBody();
+  }
+
+  /**
+   * Ice Cannon flash-freeze: halt the zombie for `seconds`. Only affects a live,
+   * targetable zombie; re-freezing extends to the longer remaining time.
+   */
+  applyFreeze(seconds: number): void {
+    if (!this.isTargetable || seconds <= 0) return;
+    const wasFrozen = this.freezeTimer > 0;
+    this.freezeTimer = Math.max(this.freezeTimer, seconds);
+    // Only the moment of capture plays the encasing burst; topping a freeze up
+    // mid-wave would otherwise re-fire it on every ability press.
+    if (wasFrozen) return;
+    this.vfx?.freezeEncase(
+      this.position.x,
+      this.position.y,
+      this.position.z,
+    );
+  }
+
+  /** True while an Ice Cannon freeze is holding this zombie. */
+  get isFrozen(): boolean {
+    return this.freezeTimer > 0;
+  }
+
+  /**
+   * Ice Cannon normal fire: slow the zombie to `factor` of its speed for
+   * `seconds`. Only affects a live, targetable zombie; a stronger (lower
+   * factor) or longer slow overrides a weaker one, and the timer extends.
+   */
+  applySlow(factor: number, seconds: number): void {
+    if (!this.isTargetable || seconds <= 0) return;
+    const clampedFactor = Math.max(0, Math.min(1, factor));
+    this.slowFactor =
+      this.slowTimer > 0
+        ? Math.min(this.slowFactor, clampedFactor)
+        : clampedFactor;
+    this.slowTimer = Math.max(this.slowTimer, seconds);
+  }
+
+  /** True while an ice-fire slow is dragging this zombie down. */
+  get isSlowed(): boolean {
+    return this.slowTimer > 0;
   }
 
   teleportTo(position: Vector3Like): void {
@@ -544,6 +757,10 @@ export class Zombie {
   updateVisuals(dt: number): void {
     if (!this.active) return;
 
+    // Emissive and tint are written through every body material, so they are
+    // only touched when the look actually changes. A walker crossing the
+    // graveyard in its resting state — the overwhelming majority of the horde,
+    // every frame — costs nothing here.
     if (this.hitFlashTimer > 0) {
       this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
       const amount =
@@ -551,10 +768,41 @@ export class Zombie {
       for (const material of this.visualMaterials) {
         material.emissive.copy(HIT_FLASH_COLOR).multiplyScalar(amount);
       }
-    } else {
+      // The flash fades continuously, so the next frame must rewrite whatever
+      // state follows it.
+      this.appliedGlow = 'flash';
+    } else if (this.freezeTimer > 0) {
+      // Icy blue glow while frozen (a hit-flash briefly overrides it above).
+      if (this.appliedGlow !== 'frozen') {
+        this.appliedGlow = 'frozen';
+        for (const material of this.visualMaterials)
+          material.emissive
+            .copy(ICE_FREEZE_COLOR)
+            .multiplyScalar(ICE_FREEZE_EMISSIVE);
+      }
+    } else if (this.slowTimer > 0) {
+      // Fainter icy glow while merely slowed by ice fire.
+      if (this.appliedGlow !== 'slowed') {
+        this.appliedGlow = 'slowed';
+        for (const material of this.visualMaterials)
+          material.emissive
+            .copy(ICE_FREEZE_COLOR)
+            .multiplyScalar(ICE_FREEZE_EMISSIVE * 0.4);
+      }
+    } else if (this.appliedGlow !== 'none') {
+      this.appliedGlow = 'none';
       for (const material of this.visualMaterials)
         material.emissive.setScalar(BASE_EMISSIVE);
     }
+
+    // Emissive alone washes out against the graveyard's own lights, so the
+    // body tint moves too: frozen zombies go turquoise, slowed ones frost over.
+    const frozen = this.freezeTimer > 0 && this.isAlive;
+    const slowed = !frozen && this.slowTimer > 0 && this.isAlive;
+    const tint = frozen ? ICE_FREEZE_TINT : slowed ? ICE_SLOW_TINT : 0;
+    if (tint !== this.appliedTint) this.applyFrostTint(tint);
+    this.updateFrostShell(dt, frozen);
+    this.updateFrostShards(frozen || slowed);
 
     if (this.shieldMesh && this.shieldMaterial) {
       this.shieldTimer = Math.max(0, this.shieldTimer - dt);
@@ -615,13 +863,23 @@ export class Zombie {
       const rootScale = this.root.scale.y || 1;
       this.glowMesh.position.y = (0.06 - translation.y) / rootScale;
     }
+    if (this.frostGlowMesh) {
+      // Same trick as the addict halo: pin the disc to the ground plane
+      // regardless of what the root's animated scale is doing.
+      const rootScale = this.root.scale.y || 1;
+      this.frostGlowMesh.position.y = (0.05 - translation.y) / rootScale;
+    }
     if (this.ringMesh && this.ringMaterial) {
       const planting = this.state === ZombieState.Planting && this.isAlive;
       this.ringMesh.visible = planting;
       if (planting) {
         // Each pulse expands from the worker and fades; pulses come faster as
         // the arming channel nears completion.
-        const charge = clamp(1 - this.plantTimer / WORKER_PLANT_SECONDS, 0, 1);
+        const charge = clamp(
+          1 - this.plantTimer / devTuning.specialist.workerPlantSeconds,
+          0,
+          1,
+        );
         const rate =
           WORKER_RING_MIN_RATE +
           (WORKER_RING_MAX_RATE - WORKER_RING_MIN_RATE) * charge;
@@ -652,6 +910,17 @@ export class Zombie {
       this.ringMaterial?.dispose();
       this.ringMesh.geometry.dispose();
     }
+    if (this.frostShellMesh) {
+      this.frostShellMaterial?.dispose();
+      this.frostShellMesh.geometry.dispose();
+    }
+    if (this.frostGlowMesh) {
+      this.frostGlowMaterial?.dispose();
+      this.frostGlowMesh.geometry.dispose();
+    }
+    // One merged geometry and one material back the whole shard set.
+    this.frostShardMesh?.geometry.dispose();
+    this.frostShardMaterial?.dispose();
     for (const material of this.loadedMaterials) material.dispose();
     this.loadedMaterials.length = 0;
     this.visualMaterials.length = 0;
@@ -683,9 +952,9 @@ export class Zombie {
         } else {
           away = -1;
         }
-      } else if (target.distance <= WORKER_PLANT_RANGE) {
+      } else if (target.distance <= devTuning.specialist.workerPlantRange) {
         // In range: commit to the arming channel wherever the vehicle goes.
-        this.plantTimer = WORKER_PLANT_SECONDS;
+        this.plantTimer = devTuning.specialist.workerPlantSeconds;
         this.ringPhase = 0;
         this.state = ZombieState.Planting;
         this.zeroHorizontalVelocity();
@@ -694,7 +963,9 @@ export class Zombie {
       }
     } else {
       const attackRange =
-        this.kind === 'thrower' ? THROWER_ATTACK_RANGE : ZOMBIE_ATTACK_RANGE;
+        this.kind === 'thrower'
+          ? devTuning.specialist.throwerAttackRange
+          : ZOMBIE_ATTACK_RANGE;
       if (target.distance <= attackRange) {
         this.state = ZombieState.Attacking;
         // Throwers wind up quickly on arrival instead of a full idle interval.
@@ -739,9 +1010,10 @@ export class Zombie {
     }
 
     const velocity = this.body.linvel();
-    this.velocityScratch.x = dirX * this.moveSpeed + separationX;
+    const speed = this.slowTimer > 0 ? this.moveSpeed * this.slowFactor : this.moveSpeed;
+    this.velocityScratch.x = dirX * speed + separationX;
     this.velocityScratch.y = velocity.y;
-    this.velocityScratch.z = dirZ * this.moveSpeed + separationZ;
+    this.velocityScratch.z = dirZ * speed + separationZ;
     this.body.setLinvel(this.velocityScratch, true);
     this.updateFacing(this.velocityScratch.x, this.velocityScratch.z);
   }
@@ -751,7 +1023,7 @@ export class Zombie {
     const target = this.vehicleTarget;
     const exitRange =
       this.kind === 'thrower'
-        ? THROWER_ATTACK_RANGE + THROWER_ATTACK_EXIT_MARGIN
+        ? devTuning.specialist.throwerAttackRange + THROWER_ATTACK_EXIT_MARGIN
         : ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN;
     if (target.partId === null || target.distance > exitRange) {
       this.state = ZombieState.Chasing;
@@ -830,6 +1102,20 @@ export class Zombie {
     if (this.state === ZombieState.Dead) return;
     this.state = ZombieState.Dead;
     this.deathTimer = DEATH_FEEDBACK_DURATION;
+    // Killed inside the ice: the block goes with the corpse, not after it.
+    if (this.freezeTimer > 0) {
+      this.freezeTimer = 0;
+      this.emitFrostShatter();
+    }
+    // Burst into this corpse's own voxels; specialists are bigger, so they
+    // throw a correspondingly bigger cloud.
+    this.vfx?.zombieGib(
+      this.position.x,
+      this.position.y,
+      this.position.z,
+      this.gibTintHex,
+      this.kind === 'walker' ? 1 : 1.25,
+    );
     const velocity = this.body.linvel();
     this.velocityScratch.x = 0;
     this.velocityScratch.y = velocity.y;
@@ -856,6 +1142,179 @@ export class Zombie {
     this.velocityScratch.z = 0;
     this.body.setLinvel(this.velocityScratch, false);
     this.body.setAngvel(this.velocityScratch, false);
+  }
+
+  /**
+   * Drag every body material `strength` of the way from its own tint to the
+   * ice colour, remembering each material's original tint the first time it is
+   * touched. Passing 0 puts the body back exactly as it was.
+   */
+  private applyFrostTint(strength: number): void {
+    for (const material of this.visualMaterials) {
+      const base = (material.userData.baseColor ??=
+        material.color.clone()) as THREE.Color;
+      material.color.copy(base).lerp(ICE_FREEZE_COLOR, strength);
+    }
+    this.frostTinted = strength > 0;
+    this.appliedTint = strength;
+  }
+
+  /**
+   * Close the ice block in around a frozen zombie and drop it away on the
+   * thaw. Built on first use: a run that never fires the Ice Cannon never pays
+   * for a shell per pooled zombie.
+   */
+  private updateFrostShell(dt: number, frozen: boolean): void {
+    if (frozen && this.frostShellMesh === null) this.createFrostShell();
+    const mesh = this.frostShellMesh;
+    if (mesh === null || this.frostShellMaterial === null) return;
+
+    const step = dt / ICE_SHELL_FADE;
+    this.frostShellFade = clamp(
+      this.frostShellFade + (frozen ? step : -step),
+      0,
+      1,
+    );
+    const visible = this.frostShellFade > 0;
+    mesh.visible = visible;
+    if (this.frostGlowMesh) this.frostGlowMesh.visible = visible;
+    if (!visible) return;
+
+    // Overshoot mid-fade so the block snaps shut rather than swelling.
+    const grow =
+      this.frostShellFade * (1 + Math.sin(this.frostShellFade * Math.PI) * 0.14);
+    mesh.scale.set(grow, grow * 1.18, grow);
+    mesh.rotation.y += dt * 0.5;
+    this.frostShellMaterial.opacity = ICE_SHELL_OPACITY * this.frostShellFade;
+    if (this.frostGlowMaterial) {
+      this.frostGlowMaterial.opacity =
+        ICE_SHELL_GLOW_OPACITY * this.frostShellFade;
+    }
+  }
+
+  /** Show the stuck shards while the cold holds, hide them the moment it lets go. */
+  private updateFrostShards(iced: boolean): void {
+    if (iced && this.frostShardMesh === null) this.createFrostShards();
+    if (this.frostShardMesh) this.frostShardMesh.visible = iced;
+  }
+
+  /**
+   * Drive spikes out through the body at scattered angles, heights, sizes and
+   * shades, then bake the lot into one mesh. Everything random happens here,
+   * once: from then on the shards cost a single visibility flag a frame and a
+   * single draw call, and no two zombies wear the same set.
+   */
+  private createFrostShards(): void {
+    const baseLength = ICE_SHARD_LENGTH / BASE_VISUAL_SCALE;
+    const baseRadius = ICE_SHARD_RADIUS / BASE_VISUAL_SCALE;
+    const bodyRadius = ZOMBIE_RADIUS / BASE_VISUAL_SCALE;
+    const spread = ZOMBIE_HALF_HEIGHT / BASE_VISUAL_SCALE;
+    const matrix = new THREE.Matrix4();
+    const offset = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const unitScale = new THREE.Vector3(1, 1, 1);
+    const direction = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
+    const shade = new THREE.Color();
+    const shards: THREE.BufferGeometry[] = [];
+
+    for (let i = 0; i < ICE_SHARD_COUNT; i++) {
+      // Walk the ring unevenly so the spikes never settle into a neat collar.
+      const angle = ((i + Math.random() * 0.9) / ICE_SHARD_COUNT) * Math.PI * 2;
+      const size = 1 + (Math.random() - 0.5) * ICE_SHARD_SIZE_VARIATION;
+      const length = baseLength * size;
+      // Cone axis is +Y, so shift the base to the origin and let the rotation
+      // aim it; the tip then lands outside the body, not inside it.
+      const shard = new THREE.ConeGeometry(baseRadius * size, length, 4).translate(
+        0,
+        length / 2,
+        0,
+      );
+
+      // Sunk somewhere in the outer half of the body, so each spike reads as
+      // driven in rather than glued on, and tilted up the way ice grows.
+      const sink = 0.35 + Math.random() * 0.35;
+      offset.set(
+        Math.cos(angle) * bodyRadius * sink,
+        (Math.random() - 0.5) * 2 * spread,
+        Math.sin(angle) * bodyRadius * sink,
+      );
+      direction
+        .set(Math.cos(angle), 0.2 + Math.random() * 0.85, Math.sin(angle))
+        .normalize();
+      rotation.setFromUnitVectors(up, direction);
+      shard.applyMatrix4(matrix.compose(offset, rotation, unitScale));
+
+      shade.setHex(
+        ICE_SHARD_SHADES[Math.floor(Math.random() * ICE_SHARD_SHADES.length)],
+      );
+      const vertices = shard.attributes.position.count;
+      const colors = new Float32Array(vertices * 3);
+      for (let v = 0; v < vertices; v++) {
+        colors[v * 3] = shade.r;
+        colors[v * 3 + 1] = shade.g;
+        colors[v * 3 + 2] = shade.b;
+      }
+      shard.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      shards.push(shard);
+    }
+
+    // One mesh for the set: the shade lives in the vertices, so the variety
+    // costs nothing at draw time.
+    const merged = mergeGeometries(shards, false);
+    for (const shard of shards) shard.dispose();
+    this.frostShardMaterial = new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      emissive: ICE_FREEZE_COLOR.clone().multiplyScalar(0.3),
+      flatShading: true,
+    });
+    this.frostShardMesh = new THREE.Mesh(merged, this.frostShardMaterial);
+    this.frostShardMesh.visible = false;
+    this.root.add(this.frostShardMesh);
+  }
+
+  private createFrostShell(): void {
+    this.frostShellMaterial = new THREE.MeshLambertMaterial({
+      color: ICE_FREEZE_COLOR,
+      emissive: ICE_FREEZE_COLOR.clone().multiplyScalar(0.5),
+      flatShading: true,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    // Local units are the root's, which carries the shared visual scale.
+    this.frostShellMesh = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(ICE_SHELL_RADIUS / BASE_VISUAL_SCALE, 0),
+      this.frostShellMaterial,
+    );
+    this.frostShellMesh.rotation.set(0.3, Math.random() * Math.PI, 0.18);
+    this.frostShellMesh.visible = false;
+    this.root.add(this.frostShellMesh);
+
+    const glowSize = (ICE_SHELL_GLOW_RADIUS * 2) / BASE_VISUAL_SCALE;
+    this.frostGlowMaterial = new THREE.MeshBasicMaterial({
+      map: getFrostGlowTexture(),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.frostGlowMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(glowSize, glowSize),
+      this.frostGlowMaterial,
+    );
+    this.frostGlowMesh.rotation.x = -Math.PI / 2;
+    this.frostGlowMesh.visible = false;
+    this.root.add(this.frostGlowMesh);
+  }
+
+  /** Break the block: called when the freeze runs out or its host dies in it. */
+  private emitFrostShatter(): void {
+    this.vfx?.frostShatter(
+      this.position.x,
+      this.position.y,
+      this.position.z,
+    );
   }
 
   private setOpacity(opacity: number): void {

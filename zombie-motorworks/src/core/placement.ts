@@ -104,6 +104,15 @@ function existingClearance(
   return clearance;
 }
 
+/**
+ * Melee weapons are terminal: a drum, pike, or blade bolts to the rig, but
+ * nothing bolts to it. They are moving contact surfaces, so anything perched
+ * on one would be riding the part that is meant to be grinding zombies.
+ */
+export function blocksAttachments(def: PartDefinition): boolean {
+  return def.melee !== undefined;
+}
+
 function candidateId(bp: VehicleBlueprint): string {
   let id = '__placement_candidate__';
   while (bp.parts.some((part) => part.id === id)) id = `_${id}`;
@@ -275,18 +284,41 @@ export function canPlacePart(
     (connection) =>
       connection.aId === candidate.id || connection.bId === candidate.id,
   );
-  if (
-    !(def.isRoot && bp.parts.length === 0) &&
-    candidateConnections.length === 0
-  ) {
+  // A melee weapon may not be what holds a part on, so it does not count as
+  // support here. A part touching one is fine as long as the frame carries it.
+  const supportConnections = candidateConnections.filter((connection) => {
+    const otherId =
+      connection.aId === candidate.id ? connection.bId : connection.aId;
+    const other = bp.parts.find((part) => part.id === otherId);
+    const otherDef =
+      other === undefined ? undefined : getDefinition(getDef, other.defId);
+    return otherDef !== undefined && !blocksAttachments(otherDef);
+  });
+  if (!(def.isRoot && bp.parts.length === 0) && supportConnections.length === 0) {
     issues.push(
-      issue(
-        'NO_CONNECTION',
-        'Part does not form a structural connection.',
-        [],
-        boundsCells,
-        'Attach a compatible socket to the vehicle.',
-      ),
+      candidateConnections.length > 0
+        ? issue(
+            'MELEE_MOUNT_BLOCKED',
+            'Nothing can be mounted on a melee weapon.',
+            [
+              ...new Set(
+                candidateConnections.map((connection) =>
+                  connection.aId === candidate.id
+                    ? connection.bId
+                    : connection.aId,
+                ),
+              ),
+            ],
+            boundsCells,
+            'Attach the part to the frame instead.',
+          )
+        : issue(
+            'NO_CONNECTION',
+            'Part does not form a structural connection.',
+            [],
+            boundsCells,
+            'Attach a compatible socket to the vehicle.',
+          ),
     );
   }
   return result(issues);
@@ -390,17 +422,6 @@ export function validateBlueprint(
         'Add a root chassis.',
       ),
     );
-  if (!knownParts.some(({ def }) => def.providesControl)) {
-    errors.push(
-      issue(
-        'NO_CONTROL',
-        'Vehicle has no control part.',
-        [],
-        [],
-        'Add a driver seat or cab.',
-      ),
-    );
-  }
   if (!knownParts.some(({ def }) => def.engine !== undefined)) {
     errors.push(
       issue(

@@ -349,7 +349,7 @@ export function analyzeVehicle(bp: VehicleBlueprint, getDef: (id: string) => Par
     addIssue(issue('LOW_CLEARANCE', 'Ground clearance is low.', [], [], 'Raise the chassis or use larger wheels.'));
   }
   for (const entry of entries) {
-    if (entry.def.id !== 'fuel-tank' && entry.def.id !== 'ammo-box') continue;
+    if (entry.def.id !== 'fuel-tank') continue;
     const exposed = exposedCellsForSensitivePart(entry, occupied, armourFaces);
     if (exposed.length > 0) {
       addIssue(issue('EXPOSED_FUEL', `${entry.def.name} has exposed faces.`, [entry.part.id], exposed, 'Cover exposed faces with armour or adjacent structure.', 'info'));

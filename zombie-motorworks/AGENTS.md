@@ -43,13 +43,17 @@ Run from this directory:
 npm run test:unit
 npm run lint
 npm run build
-npm test
 ```
 
-Use focused Vitest or Playwright files during iteration. Run the full set when
-a change crosses Modules, persistence, mode transitions, physics, or visible UI.
-The browser test Seam is `window.__scrapRig` under `?debug=1`; its test Adapter
-is `tests/seam.ts`.
+**Do not run the Playwright suite (`npm test`, `npx playwright test`), and do
+not write throwaway spec files to drive the browser.** E2E here is slow and
+flaky — waves have to path across the map before anything is observable — and
+the owner verifies visual and gameplay behaviour by playing the game. Finish
+instead with a short "verify this" list: which mode to enter, which key to
+press, and what should look or behave differently.
+
+`npm test` and the browser test Seam (`window.__scrapRig` under `?debug=1`,
+Adapter in `tests/seam.ts`) remain for the owner and CI to run.
 
 ## Documentation Maintenance
 
