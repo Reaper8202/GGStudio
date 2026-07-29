@@ -1,0 +1,20 @@
+{
+  "name": "glb-optimizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Remesh + optimize static GLB models into performant runtime assets.",
+  "bin": { "glb-optimize": "./optimize.mjs" },
+  "engines": { "node": ">=20.19.0" },
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.mjs\""
+  },
+  "dependencies": {
+    "@gltf-transform/core": "^4.4.2",
+    "@gltf-transform/extensions": "^4.4.2",
+    "@gltf-transform/functions": "^4.4.2",
+    "draco3dgltf": "^1.5.7",
+    "meshoptimizer": "^0.25.0",
+    "sharp": "^0.34.4"
+  }
+}

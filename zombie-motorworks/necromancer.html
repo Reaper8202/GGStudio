@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Necromancer Rig Preview</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #16171d;
+        overflow: hidden;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #d8dae2;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px 14px;
+        background: rgba(12, 13, 17, 0.82);
+        border: 1px solid #33363f;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      #hud button {
+        font: inherit;
+        color: inherit;
+        background: #23252d;
+        border: 1px solid #3d404a;
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      #hud button[aria-pressed='true'] {
+        background: #3b5bdb;
+        border-color: #5c7cfa;
+      }
+      #hud label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .row {
+        display: flex;
+        gap: 6px;
+      }
+      .hint {
+        color: #868b98;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="hud">
+      <div class="row" id="models"></div>
+      <div class="row" id="clips"></div>
+      <label>
+        speed
+        <input id="speed" type="range" min="0" max="250" value="100" />
+        <span id="speedLabel">1.00x</span>
+      </label>
+      <label><input id="showParts" type="checkbox" /> color parts</label>
+      <div class="hint">drag to orbit &middot; scroll to zoom</div>
+      <div class="hint" id="status">loading&hellip;</div>
+    </div>
+    <script type="module" src="/src/tools/necromancerPreview.ts"></script>
+  </body>
+</html>
