@@ -7,6 +7,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { getPartDef } from '../src/core/parts.ts';
+import { MAX_PART_LEVEL } from '../src/core/partUpgrades.ts';
 import type { PlacedPart, VehicleBlueprint } from '../src/core/types.ts';
 import { assembleVehicle } from '../src/runtime/assembler.ts';
 import { RuntimeVehicle } from '../src/runtime/vehicle.ts';
@@ -29,20 +30,30 @@ describe('unlimited weapons', () => {
     expect(createWeapon(part('blaster', 'turret')).label).toBe('Zombie Blaster');
   });
 
-  it('carries module levels only for the turret mounting part', () => {
+  it('derives emp and piercing from upgrade level, and only for the turret', () => {
+    // Both weapons are maxed on the same ladder. The EMP Coil and Piercing
+    // Rounds are unlocks on the *turret's* chain, so a fully upgraded cannon is
+    // a harder-hitting cannon and nothing more.
     const blaster = createWeapon({
       ...part('blaster', 'turret'),
-      config: { empLevel: 3, piercingLevel: 2 },
+      config: { level: MAX_PART_LEVEL },
     });
     const cannon = createWeapon({
       ...part('cannon', 'cannon-heavy'),
-      config: { empLevel: 3, piercingLevel: 3 },
+      config: { level: MAX_PART_LEVEL },
     });
 
     expect(blaster.empLevel).toBe(3);
-    expect(blaster.piercingLevel).toBe(2);
+    expect(blaster.piercingLevel).toBe(3);
     expect(cannon.empLevel).toBe(0);
     expect(cannon.piercingLevel).toBe(0);
+  });
+
+  it('leaves an un-upgraded turret with neither unlock', () => {
+    const stock = createWeapon(part('blaster', 'turret'));
+
+    expect(stock.empLevel).toBe(0);
+    expect(stock.piercingLevel).toBe(0);
   });
 
   it('never runs out of ammo — it fires as fast as its cooldown allows', () => {

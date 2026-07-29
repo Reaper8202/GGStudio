@@ -30,13 +30,16 @@ describe('economy helpers', () => {
     expect(partInvestment(placed('turret'))).toBe(150);
   });
 
-  it('includes both turret module investments in the sell refund', () => {
-    const turret = placed('turret', 3);
-    turret.config.empLevel = 2;
-    turret.config.piercingLevel = 1;
+  it('prices a maxed turret as the upgrade chain and nothing more', () => {
+    // The EMP Coil and Piercing Rounds used to be side modules bought separately,
+    // and their price was added on top of the chain. They are now rungs *on* the
+    // chain, so a fully upgraded turret costs exactly base plus its five unlocks
+    // — there is no module surcharge left to account for.
+    const maxed = placed('turret', MAX_PART_LEVEL);
 
-    expect(partInvestment(turret)).toBe(150 + 90 + 144 + 100 + 175 + 125);
-    expect(sellRefund(turret)).toBe(392);
+    expect(partInvestment(maxed)).toBe(150 + 90 + 144 + 230 + 369 + 590);
+    expect(partInvestment(maxed)).toBe(1573);
+    expect(sellRefund(maxed)).toBe(786);
   });
 
   it('refunds only the unlock spend when a part goes back to inventory', () => {

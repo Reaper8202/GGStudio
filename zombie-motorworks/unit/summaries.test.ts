@@ -71,20 +71,19 @@ describe('legible consequence summaries', () => {
       [
         placed('core', 'chassis-core', { level: 3 }),
         placed('frame', 'frame-box', { level: 2 }),
-        placed('turret', 'turret', {
-          level: 3,
-          empLevel: 2,
-          piercingLevel: 1,
-        }),
+        placed('turret', 'turret', { level: 3 }),
       ],
       getPartDef,
     );
 
+    // 400 is the frame's 16 plus the turret's 384, i.e. base costs and upgrade
+    // chains only. It was 800 while EMP and piercing were separately bought
+    // modules that added their own spend on top; those are chain unlocks now.
     expect(summary).toEqual({
       partCount: 2,
-      investment: 800,
-      refund: 400,
-      forfeited: 400,
+      investment: 400,
+      refund: 200,
+      forfeited: 200,
     });
   });
 });

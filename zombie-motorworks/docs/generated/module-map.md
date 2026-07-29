@@ -211,7 +211,7 @@
 - Imports: `src/core/types.ts`
 - Imported by: `src/core/parts.ts`, `src/core/turretModules.ts`, `src/editor/parts/upgradeKit.ts`, `src/editor/ui.ts`
 - External packages: none
-- Direct tests: `unit/economy.test.ts`, `unit/part-upgrades.test.ts`, `unit/serialize.test.ts`, `unit/turret-module-ui.test.ts`, `unit/upgrades.test.ts`
+- Direct tests: `unit/economy.test.ts`, `unit/part-upgrades.test.ts`, `unit/serialize.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-piercing.test.ts`, `unit/upgrades.test.ts`, `unit/weapon-ammo.test.ts`
 
 ### [`src/core/parts.ts`](../../src/core/parts.ts) (1033 LOC)
 
@@ -291,7 +291,7 @@
 - Imports: `src/core/partUpgrades.ts`, `src/core/types.ts`
 - Imported by: `src/runtime/weapons.ts`, `src/survival/SurvivalMode.ts`, `src/survival/zombies/ZombieSystem.ts`
 - External packages: none
-- Direct tests: `unit/landmines.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-modules.test.ts`
+- Direct tests: `unit/landmines.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-modules.test.ts`, `unit/turret-piercing.test.ts`
 
 ### [`src/core/tutorial.ts`](../../src/core/tutorial.ts) (238 LOC)
 

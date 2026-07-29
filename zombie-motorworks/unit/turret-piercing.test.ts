@@ -11,6 +11,12 @@ import {
   stepWeapons,
   type TracerShot,
 } from '../src/runtime/weapons.ts';
+import { MAX_PART_LEVEL } from '../src/core/partUpgrades.ts';
+import {
+  piercingDamageFraction,
+  turretEmpLevel,
+  turretPiercingLevel,
+} from '../src/core/turretModules.ts';
 import { applyZombieShot } from '../src/survival/SurvivalMode.ts';
 import type { Zombie, ZombieKind } from '../src/survival/zombies/Zombie.ts';
 import { ZombieSystem } from '../src/survival/zombies/ZombieSystem.ts';
@@ -33,15 +39,25 @@ interface FiredShot {
   readonly shotsFired: number;
 }
 
-function turret(empLevel = 0, piercingLevel = 0): PlacedPart {
+/**
+ * EMP and piercing are no longer separately bought modules: both come off the
+ * turret's ordinary upgrade level, so these tests drive that one number.
+ */
+function turret(level = 1): PlacedPart {
   return {
     id: 'turret',
     defId: 'turret',
     pos: { x: 0, y: 0, z: 0 },
     orient: 0,
-    config: { empLevel, piercingLevel },
+    config: { level },
   };
 }
+
+/** Turret upgrade levels that actually unlock a piercing shot. */
+const PIERCE_UNLOCK_LEVEL = 5;
+const PIERCE_MAX_LEVEL = 6;
+/** Highest level that still has no piercing at all, but does have an EMP coil. */
+const PIERCE_LOCKED_LEVEL = 4;
 
 function hit(handle: number, group: number, timeOfImpact: number): FakeHit {
   return {
@@ -53,11 +69,7 @@ function hit(handle: number, group: number, timeOfImpact: number): FakeHit {
   };
 }
 
-function fire(
-  piercingLevel: number,
-  hits: readonly (FakeHit | null)[],
-  empLevel = 0,
-): FiredShot {
+function fire(level: number, hits: readonly (FakeHit | null)[]): FiredShot {
   let hitIndex = 0;
   const castRay = vi.fn(() => hits[hitIndex++] ?? null);
   const world = { castRay } as unknown as RAPIER.World;
@@ -69,7 +81,7 @@ function fire(
       applyImpulseAtPoint: recoil,
     },
   } as unknown as AssembledVehicle;
-  const weapon = createWeapon(turret(empLevel, piercingLevel));
+  const weapon = createWeapon(turret(level));
   const result = stepWeapons(
     world,
     vehicle,
@@ -129,32 +141,67 @@ function zombieSystem(targets: ReadonlyMap<number, FakeTarget>): ZombieSystem {
 }
 
 describe('turret piercing rounds', () => {
-  it('produces no secondary hit at level zero', () => {
-    const fired = fire(0, [hit(1, GROUP_ZOMBIE, 2), hit(2, GROUP_ZOMBIE, 2)]);
+  it('reads both strengths off the turret upgrade level alone', () => {
+    // The ladders are the contract these tests drive, so pin them here rather
+            // than spreading magic levels through every case. Piercing strength 2
+    // is deliberately unreachable: the chain steps 0 -> 1 -> 3.
+    const levels = [1, 2, 3, 4, 5, 6];
+    expect(levels.map((level) => turretEmpLevel({ config: { level } }))).toEqual([
+      0, 0, 0, 1, 2, 3,
+    ]);
+    expect(
+      levels.map((level) => turretPiercingLevel({ config: { level } })),
+    ).toEqual([0, 0, 0, 0, 1, 3]);
+    expect(MAX_PART_LEVEL).toBe(PIERCE_MAX_LEVEL);
+  });
+
+  it('produces no secondary hit below the piercing unlock', () => {
+    const fired = fire(PIERCE_LOCKED_LEVEL, [
+      hit(1, GROUP_ZOMBIE, 2),
+      hit(2, GROUP_ZOMBIE, 2),
+    ]);
 
     expect(fired.castRay).toHaveBeenCalledOnce();
-    expect(fired.shot.empLevel).toBe(0);
+    // The EMP coil is already live at this level, so this proves the shot is
+    // reading the ladder rather than simply carrying zeroes.
+    expect(fired.shot.empLevel).toBe(1);
     expect(fired.shot.pierceZombieHandle).toBeNull();
     expect(fired.shot.pierceDamage).toBe(0);
     expect(fired.shot.pierceTo).toBeNull();
   });
 
   it.each([
+    [0, 0],
     [1, 0.3],
     [2, 0.45],
     [3, 0.6],
-  ])('deals the exact level-%s secondary fraction', (level, fraction) => {
-    const fired = fire(level, [
-      hit(1, GROUP_ZOMBIE, 2),
-      hit(2, GROUP_ZOMBIE, 2),
-    ]);
+  ])(
+    'maps piercing strength %s to the exact secondary fraction',
+    (strength, fraction) => {
+      // Strength 2 has no turret level that reaches it, but the ladder still has
+      // to hold: it is one upgrade-chain edit away from being live.
+      expect(piercingDamageFraction(strength)).toBe(fraction);
+    },
+  );
 
-    expect(fired.shot.pierceZombieHandle).toBe(2);
-    expect(fired.shot.pierceDamage).toBe(fired.shot.damage * fraction);
-  });
+  it.each([
+    [PIERCE_UNLOCK_LEVEL, 0.3],
+    [PIERCE_MAX_LEVEL, 0.6],
+  ])(
+    'a level-%s turret deals the %s secondary fraction',
+    (level, fraction) => {
+      const fired = fire(level, [
+        hit(1, GROUP_ZOMBIE, 2),
+        hit(2, GROUP_ZOMBIE, 2),
+      ]);
+
+      expect(fired.shot.pierceZombieHandle).toBe(2);
+      expect(fired.shot.pierceDamage).toBe(fired.shot.damage * fraction);
+    },
+  );
 
   it('casts only once beyond the primary and excludes its collider', () => {
-    const fired = fire(3, [
+    const fired = fire(PIERCE_MAX_LEVEL, [
       hit(1, GROUP_ZOMBIE, 2),
       hit(2, GROUP_ZOMBIE, 2),
       hit(3, GROUP_ZOMBIE, 1),
@@ -167,24 +214,26 @@ describe('turret piercing rounds', () => {
 
   it('limits continuation to the remaining original range', () => {
     const firstHitDistance = 3;
-    const fired = fire(1, [
+    const fired = fire(PIERCE_UNLOCK_LEVEL, [
       hit(1, GROUP_ZOMBIE, firstHitDistance),
       hit(2, GROUP_ZOMBIE, 1),
     ]);
 
+    // Reach is not upgrade-scaled — only damage and fire rate are — so the ray
+    // length stays the catalog range at any level.
     expect(fired.castRay.mock.calls[0]?.[1]).toBe(8);
     expect(fired.castRay.mock.calls[1]?.[1]).toBeCloseTo(
       8 - firstHitDistance - 0.0001,
     );
 
-    const edge = fire(1, [hit(1, GROUP_ZOMBIE, 7.99995)]);
+    const edge = fire(PIERCE_UNLOCK_LEVEL, [hit(1, GROUP_ZOMBIE, 7.99995)]);
     expect(edge.castRay).toHaveBeenCalledOnce();
     expect(edge.shot.pierceZombieHandle).toBeNull();
     expect(edge.shot.pierceTo).toBeNull();
   });
 
   it('does not pierce when terrain is the primary hit', () => {
-    const fired = fire(3, [
+    const fired = fire(PIERCE_MAX_LEVEL, [
       hit(10, GROUP_TERRAIN, 2),
       hit(2, GROUP_ZOMBIE, 1),
     ]);
@@ -196,7 +245,7 @@ describe('turret piercing rounds', () => {
   });
 
   it('lets terrain on the continuation block a secondary zombie', () => {
-    const fired = fire(3, [
+    const fired = fire(PIERCE_MAX_LEVEL, [
       hit(1, GROUP_ZOMBIE, 2),
       hit(10, GROUP_TERRAIN, 1),
       hit(2, GROUP_ZOMBIE, 1),
@@ -209,10 +258,13 @@ describe('turret piercing rounds', () => {
   });
 
   it('terminates before secondary damage when the primary is a Phone Addict', () => {
-    const fired = fire(3, [
+    const fired = fire(PIERCE_MAX_LEVEL, [
       hit(1, GROUP_ZOMBIE, 2),
       hit(2, GROUP_ZOMBIE, 2),
     ]);
+    // A turret upgraded far enough to pierce necessarily has a maxed EMP coil
+    // too — one ladder drives both — so the leak here is the strongest one.
+    expect(fired.shot.empLevel).toBe(3);
     const primary = fakeTarget('phone-addict');
     const secondary = fakeTarget('walker');
     const system = zombieSystem(
@@ -229,16 +281,18 @@ describe('turret piercing rounds', () => {
     });
 
     expect(pierceContinues).toBe(false);
-    expect(primary.health()).toBe(100 - fired.shot.damage * 0.1);
+    expect(primary.health()).toBe(100 - fired.shot.damage * 0.65);
     expect(secondary.health()).toBe(100);
   });
 
   it('composes piercing damage before the secondary shield leak', () => {
-    const fired = fire(
-      2,
-      [hit(1, GROUP_ZOMBIE, 2), hit(2, GROUP_ZOMBIE, 2)],
-      2,
-    );
+    // Level 5 is the one rung with a piercing shot and a mid-strength coil, so
+    // it is where the two fractions are distinguishable from each other.
+    const fired = fire(PIERCE_UNLOCK_LEVEL, [
+      hit(1, GROUP_ZOMBIE, 2),
+      hit(2, GROUP_ZOMBIE, 2),
+    ]);
+    expect(fired.shot.empLevel).toBe(2);
     const primary = fakeTarget('walker');
     const secondary = fakeTarget('phone-addict');
     const system = zombieSystem(
@@ -256,12 +310,11 @@ describe('turret piercing rounds', () => {
 
     expect(pierceContinues).toBe(true);
     expect(primary.health()).toBe(100 - fired.shot.damage);
-    expect(secondary.health()).toBe(
-      100 - fired.shot.damage * 0.45 * 0.5,
-    );
+    // Piercing fraction first, then the shield leak on top of it.
+    expect(secondary.health()).toBe(100 - fired.shot.damage * 0.3 * 0.5);
   });
 
-  it.each([0, 3])(
+  it.each([1, PIERCE_MAX_LEVEL])(
     'applies recoil and trigger accounting once at level %s',
     (level) => {
       const fired = fire(level, [

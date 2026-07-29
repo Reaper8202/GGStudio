@@ -36,7 +36,7 @@ function sampleBlueprint() {
     defId: 'turret',
     pos: { x: 0, y: 1, z: 0 },
     orient: 0,
-    config: { empLevel: 2, piercingLevel: 3 },
+    config: { level: 4 },
   });
   return bp;
 }
@@ -199,66 +199,71 @@ describe('blueprint serialization', () => {
     });
   });
 
-  it('clamps turret module levels while dropping zero and non-turret modules', () => {
+  it('clamps an over-high upgrade level to each part own maximum', () => {
+    // EMP and piercing used to be separately stored module levels. They are now
+    // unlocks on the part's upgrade chain, so `level` is the only thing the codec
+    // has to sanitize — and it clamps per part rather than to a global ceiling.
     const result = deserializeBlueprint(
       JSON.stringify({
         schemaVersion: CURRENT_SCHEMA_VERSION,
         id: 'bp',
-        name: 'module sanitizing',
+        name: 'level sanitizing',
         parts: [
           {
             id: 'turret-high',
             defId: 'turret',
             pos: { x: 0, y: 0, z: 0 },
             orient: 0,
-            config: { empLevel: 99, piercingLevel: 99 },
+            config: { level: 99 },
           },
           {
-            id: 'turret-zero',
+            id: 'turret-stock',
             defId: 'turret',
             pos: { x: 1, y: 0, z: 0 },
             orient: 0,
-            config: { empLevel: 0, piercingLevel: 0 },
+            config: { level: 1 },
           },
           {
             id: 'frame',
             defId: 'frame-box',
             pos: { x: 2, y: 0, z: 0 },
             orient: 0,
-            config: { empLevel: 2, piercingLevel: 3 },
+            config: {},
           },
         ],
       }),
     );
 
     expect(result.parts.map((part) => part.config)).toEqual([
-      { empLevel: 3, piercingLevel: 3 },
-      {},
+      { level: MAX_PART_LEVEL },
+      { level: 1 },
       {},
     ]);
   });
 
-  it.each(['empLevel', 'piercingLevel'] as const)(
-    'rejects a non-number %s',
-    (moduleKey) => {
-      const json = JSON.stringify({
-        schemaVersion: CURRENT_SCHEMA_VERSION,
-        id: 'bp',
-        name: 'invalid module',
-        parts: [
-          {
-            id: 'turret',
-            defId: 'turret',
-            pos: { x: 0, y: 0, z: 0 },
-            orient: 0,
-            config: { [moduleKey]: '2' },
-          },
-        ],
-      });
+  it.each([
+    ['a non-number', '2'],
+    ['a fractional', 2.5],
+    ['a below-one', 0],
+    ['a negative', -3],
+  ])('rejects %s upgrade level', (_label, level) => {
+    const json = JSON.stringify({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      id: 'bp',
+      name: 'invalid level',
+      parts: [
+        {
+          id: 'turret',
+          defId: 'turret',
+          pos: { x: 0, y: 0, z: 0 },
+          orient: 0,
+          config: { level },
+        },
+      ],
+    });
 
-      expect(() => deserializeBlueprint(json)).toThrow(BlueprintFormatError);
-    },
-  );
+    expect(() => deserializeBlueprint(json)).toThrow(BlueprintFormatError);
+  });
 
   it('decodes a current turret blueprint saved before module fields existed', () => {
     const legacy = {
