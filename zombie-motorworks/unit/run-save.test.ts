@@ -61,7 +61,9 @@ function sampleBlueprint(): VehicleBlueprint {
 
 function sampleRun(): SavedRun {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
+    phase: 'wave',
+    activeWave: 7,
     score: 12_450,
     wave: 7,
     kills: 42,
@@ -76,7 +78,7 @@ function sampleRun(): SavedRun {
 }
 
 describe('saved run codec', () => {
-  it('round-trips schema-4 checkpoint fields', () => {
+  it('round-trips schema-5 checkpoint fields', () => {
     const run = sampleRun();
 
     expect(decodeSavedRun(encodeSavedRun(run))).toEqual(run);
@@ -88,7 +90,7 @@ describe('saved run codec', () => {
     ['missing fields', '{}'],
     [
       'wrong schema version',
-      JSON.stringify({ ...sampleRun(), schemaVersion: 5 }),
+      JSON.stringify({ ...sampleRun(), schemaVersion: 6 }),
     ],
     ['wave zero', JSON.stringify({ ...sampleRun(), wave: 0 })],
     ['fractional wave', JSON.stringify({ ...sampleRun(), wave: 2.5 })],
@@ -129,6 +131,8 @@ describe('saved run codec', () => {
         score: 0,
         biomeId: 'graveyard',
         seed: 1_073_741_824,
+        phase: 'wave',
+        activeWave: current.wave,
       });
     } finally {
       random.mockRestore();
@@ -152,6 +156,8 @@ describe('saved run codec', () => {
         score: 0,
         biomeId: 'graveyard',
         seed: 1_073_741_824,
+        phase: 'wave',
+        activeWave: current.wave,
       });
     } finally {
       random.mockRestore();
@@ -172,7 +178,7 @@ describe('saved run codec', () => {
   );
 
   it('always returns the current schema version', () => {
-    expect(decodeSavedRun(JSON.stringify(sampleRun()))?.schemaVersion).toBe(4);
+    expect(decodeSavedRun(JSON.stringify(sampleRun()))?.schemaVersion).toBe(5);
   });
 
   it('clamps negative kills and banked earnings to zero', () => {
@@ -186,6 +192,61 @@ describe('saved run codec', () => {
       kills: 0,
       bankedEarnings: 0,
     });
+  });
+});
+
+describe('resume location', () => {
+  // `wave` is the wave the player resumes into; `activeWave` is the wave the
+  // run HUD was showing. They differ in the Garage, where the checkpoint has
+  // already advanced to the wave being prepared for.
+  function buildPhaseRun(): SavedRun {
+    return { ...sampleRun(), phase: 'build', wave: 8, activeWave: 7 };
+  }
+
+  it('keeps a Garage save distinguishable from an arena save', () => {
+    const decoded = decodeSavedRun(encodeSavedRun(buildPhaseRun()));
+
+    expect(decoded?.phase).toBe('build');
+    expect(decoded?.wave).toBe(8);
+    expect(decoded?.activeWave).toBe(7);
+  });
+
+  it('resumes a schema-4 save into the arena on its own wave', () => {
+    const legacy = { ...sampleRun(), schemaVersion: 4, wave: 6 };
+    delete (legacy as Partial<typeof legacy>).phase;
+    delete (legacy as Partial<typeof legacy>).activeWave;
+
+    const decoded = decodeSavedRun(JSON.stringify(legacy));
+
+    expect(decoded?.phase).toBe('wave');
+    expect(decoded?.activeWave).toBe(6);
+  });
+
+  it.each([
+    ['an unknown phase', 'garage'],
+    ['a missing phase', undefined],
+    ['a non-string phase', 3],
+  ])('falls back to the arena for %s', (_case, phase) => {
+    const json = JSON.stringify({ ...buildPhaseRun(), phase });
+
+    expect(decodeSavedRun(json)?.phase).toBe('wave');
+  });
+
+  it.each([0, -3, 2.5, '4', Number.NaN, null])(
+    'falls back to the resume wave for an invalid activeWave of %s',
+    (activeWave) => {
+      const json = JSON.stringify({ ...buildPhaseRun(), activeWave });
+
+      // buildPhaseRun resumes into wave 8, so a rejected activeWave shows up
+      // as 8 rather than the 7 it was written with.
+      expect(decodeSavedRun(json)?.activeWave).toBe(8);
+    },
+  );
+
+  it('rejects a schema-5 save whose blueprint is unusable', () => {
+    const json = JSON.stringify({ ...buildPhaseRun(), blueprint: {} });
+
+    expect(decodeSavedRun(json)).toBeNull();
   });
 });
 

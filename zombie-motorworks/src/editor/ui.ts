@@ -32,6 +32,7 @@ export interface EditorUIHandlers {
   newGarageDisposalSummary(): NewGarageDisposalSummary;
   onNew(): void;
   onMenu(): void;
+  onSaveAndQuit(): void;
   onRename(name: string): void;
   onUndo(): void;
   onRedo(): void;
@@ -786,6 +787,10 @@ export function buildEditorUI(
   nameInput.title = 'Vehicle name';
   nameInput.addEventListener('change', () => handlers.onRename(nameInput.value));
   const menuBtn = btn('Menu', handlers.onMenu);
+  const saveAndQuitBtn = btn('Save & Quit', handlers.onSaveAndQuit);
+  // Banking a wave only means something inside a run; `setRunContext` reveals
+  // this in place of Menu once one is active.
+  saveAndQuitBtn.style.display = 'none';
   const newGarageBtn = btn('New Garage', () =>
     openNewGarageDialog(newGarageBtn),
   );
@@ -865,6 +870,7 @@ export function buildEditorUI(
   utilityButtons.className = 'topbar-utilities';
   utilityButtons.append(
     menuBtn,
+    saveAndQuitBtn,
     btn('Tutorial', handlers.onStartTutorial),
     btn('Help', () => toggleHelp()),
   );
@@ -1796,6 +1802,7 @@ export function buildEditorUI(
     },
     setRunContext: (wave, summary, repair) => {
       menuBtn.style.display = wave === undefined ? '' : 'none';
+      saveAndQuitBtn.style.display = wave === undefined ? 'none' : '';
       if (wave !== undefined) {
         runBannerText.textContent = repair
           ? `Next: Wave ${wave + 1} · Integrity ${Math.round(repair.integrityPct)}%`
