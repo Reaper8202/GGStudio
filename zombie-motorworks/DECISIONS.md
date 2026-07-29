@@ -146,3 +146,52 @@ case is excluded explicitly and covered by a test.
 
 No smoothing was added to the raw `controls.steer` input. The per-wheel rate limiter is
 already the steering actuator; smoothing the input too would just add lag.
+
+## Sharing a build: self-contained codes, no server
+
+The game is static, so there is nowhere to store a build server-side and hand
+back a short seed. A share code therefore carries the whole rig: a compact
+binary encoding of the blueprint, base64url'd. The starter rig lands at 266
+characters (a 314-character link), which is a paste, not something anyone types.
+A real six-character seed would mean running a backend, which the no-server
+architecture and the portal deploy model both rule out.
+
+Two things in the encoding are deliberately verbose. The defId table carries
+part-id *strings* rather than catalog indices, and the suspension-preset and
+paint lists are hand-written append-only arrays rather than derived from the
+catalog. Both cost bytes and both buy the same thing: a code shared today still
+decodes after a patch inserts a catalog part or a paint colour. Index-based
+encoding would corrupt old codes silently, which is the worst possible failure
+for something players paste to each other. Tests pin the wire values.
+
+Decoding hands off to the existing `deserializeBlueprint`, so schema migrations
+and validation are reused rather than reimplemented, and a hostile or corrupt
+code surfaces as a `ShareCodeError` message instead of a broken garage.
+
+## Sharing: imports are free, but locked parts stay on the bench
+
+A shared build always transfers intact, whatever the recipient owns. Parts they
+have not unlocked come in flagged and hold **TEST DRIVE** and **Fight Zombies**
+until bought, with a banner naming them and a one-click unlock priced from the
+existing economy. Charging on import would make most shares simply fail, and
+importing with no gate at all would let a wave-30 rig skip the whole
+progression curve; this keeps sharing frictionless without letting it buy
+progress.
+
+The check lives in `EditorMode.refreshAnalysis`, not in `core/placement.ts`'s
+`validateBlueprint`, because that validator is profile-independent and shared
+with the runtime — unlock state belongs in the editor layer, where the profile
+does. It is filtered through `isUnlocked` rather than the raw profile list, so
+a part that costs nothing to unlock can never read as locked and strand a legal
+build.
+
+Import asks every time where the build should land, and "load as new slot"
+suffixes the name (`(shared)`, `(shared 2)`, …) so it can never silently
+overwrite a save. Unlike New Garage, importing refunds nothing: the outgoing
+build is not sold, and refunding would hand back the value of a build that
+"load as new slot" leaves sitting in its own slot.
+
+The destination dialog mirrors the existing New Garage dialog rather than using
+`window.confirm`/`prompt`. Native dialogs are unusable on mobile and are
+suppressed outright inside the sandboxed iframes portals embed the game in,
+which would have left importing silently dead in production.
