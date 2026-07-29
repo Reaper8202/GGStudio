@@ -20,6 +20,7 @@ import {
   nextPartId,
 } from '../core/blueprint.ts';
 import { canPlacePart, validateBlueprint } from '../core/placement.ts';
+import { cellCentreM } from '../core/mass.ts';
 import { deriveConnections } from '../core/structural.ts';
 import { analyzeVehicle } from '../core/analysis.ts';
 import {
@@ -76,6 +77,7 @@ import {
   scaledHpOnUpgrade,
   sellRefund,
   unlockCost,
+  unlockInvestment,
   type RunState,
 } from '../core/economy.ts';
 import type { PlayerProfile } from '../core/profile.ts';
@@ -277,6 +279,9 @@ export class EditorMode {
   private readonly history: CommandHistory;
   private bp: VehicleBlueprint;
   private selected = new Set<string>();
+  /** World point the selection shortcut card hangs above, or null when idle. */
+  private selectionTipAnchor: THREE.Vector3 | null = null;
+  private readonly tipProjection = new THREE.Vector3();
   private symmetry = false;
   private layer = -1;
   private readonly toggles: OverlayToggles = { ...defaultToggles(), com: true, contacts: true, supportPolygon: true, connections: false, arcs: false };
@@ -399,6 +404,7 @@ export class EditorMode {
       onRepairPart: (partId) => this.repairPart(partId),
       onRepairAll: () => this.repairAll(),
       onDeleteSelected: () => this.deleteSelected(),
+      onReturnSelected: () => this.returnSelectedToInventory(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onCancelTool: () => this.disarmTool(),
       onBuyMissingParts: () => {
@@ -443,7 +449,30 @@ export class EditorMode {
 
   update(): void {
     this.controls.update();
+    this.updateSelectionTip();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Pin the shortcut card above the selection. It rides the camera every frame
+   * rather than being placed once, so orbiting never leaves it stranded.
+   */
+  private updateSelectionTip(): void {
+    const tip = this.ui.selectionTip;
+    // While a part is armed, R turns the ghost and the card would be lying.
+    if (!this.selectionTipAnchor || this.ghost) {
+      tip.style.display = 'none';
+      return;
+    }
+    const projected = this.tipProjection.copy(this.selectionTipAnchor).project(this.camera);
+    if (projected.z > 1) {
+      tip.style.display = 'none';
+      return;
+    }
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    tip.style.display = 'flex';
+    tip.style.left = `${rect.left + ((projected.x + 1) / 2) * rect.width}px`;
+    tip.style.top = `${rect.top + ((1 - projected.y) / 2) * rect.height}px`;
   }
 
   resize(w: number, h: number): void {
@@ -606,7 +635,7 @@ export class EditorMode {
       const prev = this.history.undo(this.bp);
       if (prev) {
         this.bp = prev;
-        if (this.isInventoryPlacementLabel(label)) {
+        if (this.isInventoryStockLabel(label)) {
           this.reconcilePlacementInventory(before, prev);
         }
         this.selected.clear();
@@ -625,7 +654,7 @@ export class EditorMode {
       const next = this.history.redo(this.bp);
       if (next) {
         this.bp = next;
-        if (this.isInventoryPlacementLabel(label)) {
+        if (this.isInventoryStockLabel(label)) {
           this.reconcilePlacementInventory(before, next);
         }
         this.selected.clear();
@@ -692,8 +721,17 @@ export class EditorMode {
     this.refreshProfile();
   }
 
-  private isInventoryPlacementLabel(label: string): boolean {
-    return label.startsWith('Place ') || label === 'symmetric place';
+  /**
+   * Commands that move blocks between the rig and owned stock, and so have to
+   * be mirrored in the inventory when undone or redone. Selling is not one:
+   * the block leaves the game for cash either way.
+   */
+  private isInventoryStockLabel(label: string): boolean {
+    return (
+      label.startsWith('Place ') ||
+      label === 'symmetric place' ||
+      label === 'return to inventory'
+    );
   }
 
   /** Keeps owned stock consistent when a placement is undone or redone. */
@@ -871,7 +909,12 @@ export class EditorMode {
     this.selectOnly(partId);
   }
 
-  private deleteSelected(): void {
+  /**
+   * The selection, minus the Truck Heart. Returns an empty list (after saying
+   * why) when the player only had the root selected, so the two removal
+   * actions agree on what may come off the rig.
+   */
+  private removableSelection(refusal: string): PlacedPart[] {
     const parts = [...this.selected]
       .map((id) => getPart(this.bp, id))
       .filter((part): part is PlacedPart => part !== undefined && !getPartDef(part.defId).isRoot);
@@ -880,10 +923,44 @@ export class EditorMode {
         const part = getPart(this.bp, id);
         return part ? getPartDef(part.defId).isRoot : false;
       })) {
-        this.ui.setStatus("Truck Heart can't be deleted");
+        this.ui.setStatus(refusal);
       }
-      return;
     }
+    return parts;
+  }
+
+  /**
+   * Pull the selection off the rig and back into owned stock, ready to place
+   * again for free. Unlike a sale the player keeps the blocks, so the only
+   * money that moves is a full refund of their unlocks: inventory counts
+   * blocks by type and cannot carry a level, and silently burning that spend
+   * would make the move a trap.
+   */
+  private returnSelectedToInventory(): void {
+    const parts = this.removableSelection("Truck Heart can't be removed");
+    if (parts.length === 0) return;
+    const refund = parts.reduce((total, part) => total + unlockInvestment(part), 0);
+    const returned = this.exec(batchCommand(
+      'return to inventory',
+      parts.map((part) => removeCommand(part.id, unlockInvestment(part))),
+    ));
+    if (!returned) return;
+    const stock = this.inventory();
+    for (const part of parts) stock[part.defId] = (stock[part.defId] ?? 0) + 1;
+    this.persistProfile();
+    this.selected.clear();
+    this.refresh();
+    const blocks = `${parts.length} block${parts.length === 1 ? '' : 's'}`;
+    this.ui.setStatus(
+      refund > 0
+        ? `Returned ${blocks} to inventory — unlocks refunded +$${refund}`
+        : `Returned ${blocks} to inventory`,
+    );
+  }
+
+  private deleteSelected(): void {
+    const parts = this.removableSelection("Truck Heart can't be deleted");
+    if (parts.length === 0) return;
     const refund = parts.reduce((total, part) => total + sellRefund(part), 0);
     const sold = this.exec(batchCommand(
       'sell selection',
@@ -1535,6 +1612,7 @@ export class EditorMode {
   }
 
   private refreshSelectionUI(): void {
+    this.updateSelectionTipAnchor();
     const first = [...this.selected][0];
     if (!first) {
       this.ui.setSelectedPart(null);
@@ -1570,6 +1648,27 @@ export class EditorMode {
       : undefined,
       def.ability ? this.abilitySlotStatus(part.id) : undefined);
     this.refreshOverlays();
+  }
+
+  /**
+   * Park the shortcut card over the centre of the selection, lifted clear of
+   * the blocks so it never covers the thing it is describing.
+   */
+  private updateSelectionTipAnchor(): void {
+    const centres = [...this.selected]
+      .map((id) => getPart(this.bp, id))
+      .filter((part): part is PlacedPart => part !== undefined)
+      .map((part) => cellCentreM(part.pos));
+    if (centres.length === 0) {
+      this.selectionTipAnchor = null;
+      return;
+    }
+    const anchor = this.selectionTipAnchor ?? new THREE.Vector3();
+    anchor.set(0, 0, 0);
+    for (const centre of centres) anchor.add(new THREE.Vector3(centre.x, centre.y, centre.z));
+    anchor.divideScalar(centres.length);
+    anchor.y += CELL_SIZE * 0.6;
+    this.selectionTipAnchor = anchor;
   }
 
   // ---------- pointer/keyboard ----------
@@ -1642,6 +1741,9 @@ export class EditorMode {
           this.ghost.orient = this.nextAllowedOrient(this.ghost.defId, this.ghost.orient, 'x');
           this.refreshGhostAtLastPointer();
         } else this.rotateSelected('x');
+        break;
+      case 'm':
+        this.returnSelectedToInventory();
         break;
       case 'delete':
       case 'backspace':

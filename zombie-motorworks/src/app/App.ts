@@ -637,6 +637,7 @@ export class App {
         this.concludeRun(state, pendingMoneyDiscarded, score, kills),
       onGameOverContinue: () => this.openEditor(),
       onResetWave: (state) => this.resetSurvivalWave(state),
+      onReturnToGarage: (state) => this.returnToGarageMidWave(state),
       onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
       onPhoneAddictKilled: () => {
         recordPhoneAddictKilled(this.profile);
@@ -794,6 +795,29 @@ export class App {
     this.activeRun = { wave: run.wave };
     this.inBuildPhase = false;
     this.enterSurvival(this.bp, this.activeRun);
+  }
+
+  /**
+   * Abandon the live wave and open the Garage on this wave's checkpoint. The
+   * wave counter does not advance — deploying again refights the same wave —
+   * so this rewinds like `resetSurvivalWave` but lands in the editor.
+   */
+  private returnToGarageMidWave(run: RunState): void {
+    this.flushProfile();
+    if (this.checkpoint !== null) {
+      this.bp = this.checkpoint.blueprint;
+      this.activeRun = { wave: this.checkpoint.wave };
+    } else {
+      this.activeRun = { wave: run.wave };
+    }
+    this.inBuildPhase = true;
+    this.runSummary = undefined;
+    // The pre-wave commands can reference parts destroyed in the abandoned
+    // wave, so the undo stack cannot survive the trip back.
+    this.history.clear();
+    this.survival?.dispose();
+    this.survival = null;
+    this.openEditor();
   }
 
   private grantInfiniteMoney(): void {
