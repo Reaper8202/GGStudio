@@ -131,6 +131,7 @@ describe('wave formulas', () => {
       worker: 0,
       'phone-addict': 0,
       kamikaze: 0,
+      behemoth: 0,
     });
     expect(zombieCompositionForWave(4)).toEqual({
       walker: 22,
@@ -140,6 +141,7 @@ describe('wave formulas', () => {
       worker: 0,
       'phone-addict': 0,
       kamikaze: 2,
+      behemoth: 0,
     });
     expect(zombieCompositionForWave(7)).toEqual({
       walker: 31,
@@ -149,6 +151,7 @@ describe('wave formulas', () => {
       worker: 1,
       'phone-addict': 0,
       kamikaze: 3,
+      behemoth: 0,
     });
     expect(zombieCompositionForWave(10)).toEqual({
       walker: 40,
@@ -158,6 +161,7 @@ describe('wave formulas', () => {
       worker: 2,
       'phone-addict': 1,
       kamikaze: 5,
+      behemoth: 1,
     });
     expect(zombieCompositionForWave(20)).toEqual({
       walker: 70,
@@ -167,6 +171,7 @@ describe('wave formulas', () => {
       worker: 5,
       'phone-addict': 3,
       kamikaze: 10,
+      behemoth: 3,
     });
   });
 
@@ -179,6 +184,7 @@ describe('wave formulas', () => {
       thrower: 0,
       'phone-addict': 0,
       kamikaze: 0,
+      behemoth: 0,
     });
   });
 
@@ -204,6 +210,9 @@ describe('wave formulas', () => {
     );
     expect(ZOMBIE_POOL_COUNTS.kamikaze).toBeGreaterThanOrEqual(
       lateWaveComposition.kamikaze,
+    );
+    expect(ZOMBIE_POOL_COUNTS.behemoth).toBeGreaterThanOrEqual(
+      lateWaveComposition.behemoth,
     );
   });
 

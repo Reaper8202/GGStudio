@@ -159,6 +159,18 @@ describe('wave icon', () => {
     ).toBe('boss');
   });
 
+  it('uses the boss icon for the Behemoth introduction', () => {
+    expect(
+      waveIcon(
+        node({
+          wave: 8,
+          threats: ['behemoth'],
+          isMilestone: true,
+        }),
+      ),
+    ).toBe('boss');
+  });
+
   it('keeps other specialist introductions as new threats', () => {
     expect(waveIcon(node({ threats: ['worker'], isMilestone: true }))).toBe(
       'threat',

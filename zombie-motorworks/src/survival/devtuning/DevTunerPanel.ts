@@ -36,6 +36,7 @@ const KIND_LABELS: Record<ZombieKind, string> = {
   worker: 'Worker',
   'phone-addict': 'Phone Addict',
   kamikaze: 'Kamikaze',
+  behemoth: 'Behemoth',
 };
 
 interface FieldSpec {
@@ -452,6 +453,40 @@ export class DevTunerPanel {
           decimals: 1,
           get: () => devTuning.specialist.kamikazeExplosionRadius,
           set: (v) => (devTuning.specialist.kamikazeExplosionRadius = v),
+        }),
+      );
+    } else if (kind === 'behemoth') {
+      section.appendChild(groupLabel('Behemoth specials'));
+      section.appendChild(
+        this.makeField({
+          label: 'Attack range (m)',
+          min: 2,
+          max: 12,
+          step: 0.2,
+          decimals: 1,
+          get: () => devTuning.specialist.behemothAttackRange,
+          set: (v) => (devTuning.specialist.behemothAttackRange = v),
+        }),
+      );
+      section.appendChild(
+        this.makeField({
+          label: 'Smash damage',
+          min: 0,
+          max: 150,
+          step: 1,
+          get: () => devTuning.specialist.behemothSmashDamage,
+          set: (v) => (devTuning.specialist.behemothSmashDamage = v),
+        }),
+      );
+      section.appendChild(
+        this.makeField({
+          label: 'Smash radius (m)',
+          min: 0.5,
+          max: 10,
+          step: 0.1,
+          decimals: 1,
+          get: () => devTuning.specialist.behemothSmashRadius,
+          set: (v) => (devTuning.specialist.behemothSmashRadius = v),
         }),
       );
     }

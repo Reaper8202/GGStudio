@@ -11,6 +11,11 @@ import type { VfxSystem } from '../../vfx/VfxSystem.ts';
 import { VFX_PALETTE } from '../../vfx/vfxConfig.ts';
 import { instantiateVoxelAsset } from '../VoxelAssetLoader.ts';
 import {
+  smashPose as behemothSmashPose,
+  SMASH_IMPACT as BEHEMOTH_SMASH_IMPACT,
+  walkPose as behemothWalkPose,
+} from '../../tools/behemothPose.ts';
+import {
   shootPose as gunslingerShootPose,
   SHOT_R as GUNSLINGER_SHOT_PROGRESS,
   walkPose as gunslingerWalkPose,
@@ -26,6 +31,11 @@ import {
   type CharacterPose,
 } from '../../tools/rigPose.ts';
 import {
+  BEHEMOTH_ATTACK_EXIT_MARGIN,
+  BEHEMOTH_RING_COLOR,
+  BEHEMOTH_SMASH_VFX_RADIUS,
+  BEHEMOTH_VISUAL_HEIGHT,
+  BEHEMOTH_WALK_CADENCE,
   DEATH_FEEDBACK_DURATION,
   DETOUR_BLEND,
   DETOUR_DURATION,
@@ -188,6 +198,10 @@ const KIND_MODELS: Partial<Record<ZombieKind, KindModel>> = {
     file: () => 'kamikaze.rigged.glb',
     height: KAMIKAZE_VISUAL_HEIGHT,
   },
+  behemoth: {
+    file: () => 'behemoth.rigged.glb',
+    height: BEHEMOTH_VISUAL_HEIGHT,
+  },
 };
 
 /** The numbered Zed exports share one voxel grid, so they need no fitting. */
@@ -221,6 +235,11 @@ const RIG_CLIPS: Partial<Record<ZombieKind, RigClips>> = {
   kamikaze: {
     walk: kamikazeRunPose,
     cadence: KAMIKAZE_RUN_CADENCE,
+  },
+  behemoth: {
+    walk: behemothWalkPose,
+    channel: behemothSmashPose,
+    cadence: BEHEMOTH_WALK_CADENCE,
   },
 };
 
@@ -465,7 +484,8 @@ export type ZombieKind =
   | 'thrower'
   | 'phone-addict'
   | 'worker'
-  | 'kamikaze';
+  | 'kamikaze'
+  | 'behemoth';
 
 /**
  * Outcome of a vehicle contact. `ignored` covers a zombie that is untargetable
@@ -502,6 +522,8 @@ export class Zombie {
   onSummon: ((zombie: Zombie) => void) | null = null;
   /** Set by ZombieSystem; fired when a kamikaze detonates, alive or dying. */
   onExplode: ((zombie: Zombie) => void) | null = null;
+  /** Set by ZombieSystem; fired the instant a behemoth's slam lands. */
+  onSmash: ((zombie: Zombie) => void) | null = null;
   readonly kind: ZombieKind;
 
   private readonly visualRoot = new THREE.Group();
@@ -578,6 +600,8 @@ export class Zombie {
   private gunslingerShotFired = false;
   /** Seconds left in the shot's bright flash before the line hides again. */
   private gunslingerFlashTimer = 0;
+  /** True once this cycle's slam has already landed, so it lands once. */
+  private behemothSmashed = false;
   /** Scratch for the muzzle world position, read off the gun-arm bone. */
   private readonly muzzleScratch = { x: 0, y: 0, z: 0 };
   private readonly boneWorldScratch = new THREE.Vector3();
@@ -725,13 +749,23 @@ export class Zombie {
       }
       this.root.add(this.sigilGroup);
     }
-    if (this.kind === 'worker' || this.kind === 'necromancer') {
+    if (
+      this.kind === 'worker' ||
+      this.kind === 'necromancer' ||
+      this.kind === 'behemoth'
+    ) {
       // Channel telegraph: a flat ring that repeatedly expands from a zombie
       // standing still to finish something — the worker arming a mine, the
-      // necromancer calling a group up — pulsing faster near completion. Each
-      // wears its own kind's colour, so the two channels never read alike.
+      // necromancer calling a group up, the behemoth winding up a slam —
+      // pulsing faster near completion. Each wears its own kind's colour, so
+      // no two channels read alike.
       this.ringMaterial = new THREE.MeshBasicMaterial({
-        color: this.kind === 'worker' ? 0xffb428 : VFX_PALETTE.necro,
+        color:
+          this.kind === 'worker'
+            ? 0xffb428
+            : this.kind === 'behemoth'
+              ? BEHEMOTH_RING_COLOR
+              : VFX_PALETTE.necro,
         transparent: true,
         opacity: 0,
         depthWrite: false,
@@ -1360,6 +1394,12 @@ export class Zombie {
               this.kind === 'gunslinger'
             ) {
               this.applyRigPose(channel(this.gunslingerPoseProgress()));
+            } else if (
+              channel &&
+              this.state === ZombieState.Attacking &&
+              this.kind === 'behemoth'
+            ) {
+              this.applyRigPose(channel(this.behemothPoseProgress()));
             } else {
               this.applyRigPose(REST_POSE);
             }
@@ -1399,8 +1439,16 @@ export class Zombie {
     if (this.sigilGroup) this.updateSigil(dt, translation.y);
     if (this.ringMesh && this.ringMaterial) {
       const worker = this.state === ZombieState.Planting;
+      // A behemoth keeps the ring lit only through its own wind-up — once
+      // the slam has landed the Attacking state carries on into recovery,
+      // which the ring has no business marking.
+      const behemothWindingUp =
+        this.kind === 'behemoth' &&
+        this.state === ZombieState.Attacking &&
+        !this.behemothSmashed;
       const channelling =
-        (worker || this.state === ZombieState.Summoning) && this.isAlive;
+        (worker || this.state === ZombieState.Summoning || behemothWindingUp) &&
+        this.isAlive;
       this.ringMesh.visible = channelling;
       if (channelling) {
         // Each pulse expands from the zombie and fades; pulses come faster as
@@ -1408,9 +1456,11 @@ export class Zombie {
         const charge = clamp(
           worker
             ? 1 - this.plantTimer / devTuning.specialist.workerPlantSeconds
-            : 1 -
-                this.summonTimer /
-                  devTuning.specialist.necromancerSummonSeconds,
+            : behemothWindingUp
+              ? this.behemothPoseProgress() / BEHEMOTH_SMASH_IMPACT
+              : 1 -
+                  this.summonTimer /
+                    devTuning.specialist.necromancerSummonSeconds,
           0,
           1,
         );
@@ -1629,7 +1679,9 @@ export class Zombie {
             ? devTuning.specialist.throwerAttackRange
             : this.kind === 'gunslinger'
               ? devTuning.specialist.gunslingerAttackRange
-              : ZOMBIE_ATTACK_RANGE;
+              : this.kind === 'behemoth'
+                ? devTuning.specialist.behemothAttackRange
+                : ZOMBIE_ATTACK_RANGE;
         if (target.distance <= attackRange) {
           this.state = ZombieState.Attacking;
           // Throwers wind up quickly on arrival instead of a full idle interval.
@@ -1639,6 +1691,7 @@ export class Zombie {
               : this.attackInterval;
           this.gunslingerAimLocked = false;
           this.gunslingerShotFired = false;
+          this.behemothSmashed = false;
           this.zeroHorizontalVelocity();
           return;
         }
@@ -1692,7 +1745,11 @@ export class Zombie {
     // Once a gunslinger is aiming down the sights (the point has locked) it
     // is committed the same way a necromancer or worker channel is: the shot
     // is going off wherever the vehicle ends up, range be damned, rather than
-    // aborting because the vehicle happened to drive back out of range.
+    // aborting because the vehicle happened to drive back out of range. A
+    // behemoth is not: its wind-up only lands a hit on something still near
+    // where it is standing, so a vehicle that puts real distance between
+    // itself and the wind-up aborts the swing outright rather than merely
+    // dodging the final ring.
     const committed = this.kind === 'gunslinger' && this.gunslingerAimLocked;
     if (!committed) {
       const exitRange =
@@ -1701,14 +1758,17 @@ export class Zombie {
           : this.kind === 'gunslinger'
             ? devTuning.specialist.gunslingerAttackRange +
               GUNSLINGER_ATTACK_EXIT_MARGIN
-            : ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN;
+            : this.kind === 'behemoth'
+              ? devTuning.specialist.behemothAttackRange +
+                BEHEMOTH_ATTACK_EXIT_MARGIN
+              : ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN;
       if (target.partId === null || target.distance > exitRange) {
         this.state = ZombieState.Chasing;
         return;
       }
     }
 
-    if (committed) {
+    if (this.kind === 'gunslinger' && committed) {
       // Facing locks with the shot rather than swivelling to keep tracking a
       // target that may already be out of range.
       this.updateFacing(
@@ -1716,6 +1776,8 @@ export class Zombie {
         this.gunslingerAimZ - this.position.z,
       );
     } else {
+      // A behemoth's own hit is centred on itself rather than a locked point
+      // elsewhere, so it just keeps facing wherever the vehicle actually is.
       this.updateFacing(target.x - this.position.x, target.z - this.position.z);
     }
     this.attackTimer -= dt;
@@ -1742,6 +1804,32 @@ export class Zombie {
       }
       return;
     }
+    if (this.kind === 'behemoth') {
+      // The slam lands the instant the pose crosses its own impact frame —
+      // reading the clip's own exported boundary rather than a separately
+      // hand-kept "seconds" threshold is what keeps the animation and the
+      // area hit perfectly in sync (see fireGunslingerShot's shot for the
+      // same idea). AOE math against vehicle parts lives in ZombieSystem,
+      // which is the one holding the anchors to walk; this only owns the
+      // effect and the callback that reaches over there.
+      if (!this.behemothSmashed && this.behemothPoseProgress() >= BEHEMOTH_SMASH_IMPACT) {
+        this.behemothSmashed = true;
+        // A physical ground-pound, not a blast: chunky rubble and dust, no
+        // bright flash or glow — see VfxSystem.groundSmash for why.
+        this.vfx?.groundSmash(
+          this.position.x,
+          this.position.y,
+          this.position.z,
+          BEHEMOTH_SMASH_VFX_RADIUS,
+        );
+        this.onSmash?.(this);
+      }
+      if (this.attackTimer <= 0) {
+        this.attackTimer = this.attackInterval;
+        this.behemothSmashed = false;
+      }
+      return;
+    }
     if (this.attackTimer <= 0) {
       this.attackTimer = this.attackInterval;
       if (this.kind === 'thrower') {
@@ -1755,6 +1843,21 @@ export class Zombie {
       }
       this.lungeTimer = LUNGE_DURATION;
     }
+  }
+
+  /**
+   * Pose progress for the behemoth's Attacking channel: unlike the
+   * gunslinger's three hand-timed beats, `smashPose` already spends its own
+   * fixed fractions on wind-up/release/settle, so the whole cycle maps
+   * straight onto elapsed/attackInterval with nothing extra to keep in sync.
+   */
+  private behemothPoseProgress(): number {
+    return clamp(
+      (this.attackInterval - this.attackTimer) /
+        Math.max(1e-3, this.attackInterval),
+      0,
+      1,
+    );
   }
 
   /**

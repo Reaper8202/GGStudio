@@ -23,6 +23,7 @@ export const ZOMBIE_POOL_COUNTS = {
   worker: 8,
   'phone-addict': 8,
   kamikaze: 16,
+  behemoth: 5,
 } as const;
 export const ZOMBIE_POOL_SIZE = Object.values(ZOMBIE_POOL_COUNTS).reduce(
   (total, count) => total + count,
@@ -300,6 +301,46 @@ export const KAMIKAZE_EXPLOSION_VFX_RADIUS = 2;
 export const KAMIKAZE_BLINK_RADIUS = 0.1;
 export const KAMIKAZE_BLINK_INTERVAL = 0.3; // seconds per on/off cycle
 export const KAMIKAZE_BLINK_OPACITY = 1;
+
+// Behemoth: the rigged GLB boss (behemoth.rigged.glb). The toughest, rarest,
+// and slowest thing in the horde — it chases the vehicle and only commits to
+// a two-handed overhead wind-up (a red ground ring at its feet, the same
+// telegraph mechanism the Worker and Necromancer use) once it is within smash
+// range, then slams down for area damage around itself rather than a
+// single-part hit. Unlike the Worker's plant and the Necromancer's raise, the
+// wind-up itself is not committed — a vehicle that drives back out of range
+// mid-wind-up aborts the swing and sends it back to chasing, so staying
+// mobile is a real defence, not just a matter of dodging the final ring.
+export const BEHEMOTH_HEALTH_MULTIPLIER = 6;
+export const BEHEMOTH_SPEED_MULTIPLIER = 0.6;
+export const BEHEMOTH_REWARD = 24;
+export const BEHEMOTH_VISUAL_HEIGHT = 2.7; // pre-baseScale model height, m — the tallest silhouette in the horde
+/** Steps per second for its walk cycle; the rig's own lumbering shamble. */
+export const BEHEMOTH_WALK_CADENCE = 0.9;
+/** Closing to this range commits it to the wind-up/smash cycle. */
+export const BEHEMOTH_ATTACK_RANGE = 4.2;
+/** Wind-up aborts back to chasing once the vehicle clears this much past the attack range. */
+export const BEHEMOTH_ATTACK_EXIT_MARGIN = 1.2;
+/** Both arms rising overhead before the slam. */
+export const BEHEMOTH_WINDUP_SECONDS = 0.9;
+/** Stagger after the slam before it can chase again. */
+export const BEHEMOTH_RECOVER_SECONDS = 0.7;
+/**
+ * One full wind-up/slam/recover cycle, seconds. `behemothPose.ts`'s
+ * `smashPose` spends its own `SMASH_IMPACT` fraction of this on the wind-up
+ * and the rest on recovery, so the two files never need to agree on a
+ * separate hand-kept split.
+ */
+export const BEHEMOTH_ATTACK_INTERVAL =
+  BEHEMOTH_WINDUP_SECONDS + BEHEMOTH_RECOVER_SECONDS;
+/** AOE damage falloff radius around the impact point, world metres. */
+export const BEHEMOTH_SMASH_RADIUS = 3.4;
+/** Peak vehicle-part damage at the centre of the blast. */
+export const BEHEMOTH_SMASH_DAMAGE = 48;
+/** Purely visual blast size, independent of the damage falloff above. */
+export const BEHEMOTH_SMASH_VFX_RADIUS = 2.6;
+/** Ground warning ring colour while it winds up — distinct from the Worker's amber and the Necromancer's violet. */
+export const BEHEMOTH_RING_COLOR = 0xff3020;
 
 // Phone Addict: projectile-proof zombie (PhoneAddict voxel pck). A personal
 // bubble shield absorbs every gun hit — only flame, ramming, and grinder

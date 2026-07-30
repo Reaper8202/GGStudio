@@ -8,6 +8,8 @@ import {
 import type { WaveComposition } from './WaveManager.ts';
 import {
   BASE_ZOMBIE_STATS,
+  BEHEMOTH_HEALTH_MULTIPLIER,
+  BEHEMOTH_REWARD,
   GUNSLINGER_HEALTH_MULTIPLIER,
   GUNSLINGER_REWARD,
   KAMIKAZE_HEALTH_MULTIPLIER,
@@ -28,7 +30,8 @@ export type SpecialistZombieKind =
   | 'thrower'
   | 'worker'
   | 'phone-addict'
-  | 'kamikaze';
+  | 'kamikaze'
+  | 'behemoth';
 
 const SPECIALIST_KINDS: readonly SpecialistZombieKind[] = [
   'gunslinger',
@@ -37,6 +40,7 @@ const SPECIALIST_KINDS: readonly SpecialistZombieKind[] = [
   'worker',
   'phone-addict',
   'kamikaze',
+  'behemoth',
 ];
 
 const COMPOSITION_LABELS: Record<keyof WaveComposition, [string, string]> = {
@@ -47,6 +51,7 @@ const COMPOSITION_LABELS: Record<keyof WaveComposition, [string, string]> = {
   worker: ['worker', 'workers'],
   'phone-addict': ['phone-addict', 'phone-addicts'],
   kamikaze: ['kamikaze', 'kamikazes'],
+  behemoth: ['behemoth', 'behemoths'],
 };
 
 const THREAT_WARNINGS: Record<SpecialistZombieKind, string> = {
@@ -58,6 +63,8 @@ const THREAT_WARNINGS: Record<SpecialistZombieKind, string> = {
   'phone-addict':
     'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage before wave 10.',
   kamikaze: 'Kamikazes incoming — small, fast, and they explode on contact.',
+  behemoth:
+    'Behemoths incoming — they hit like a wrecking ball. Watch the red ring and keep moving.',
 };
 
 /** Specialist kinds that first appear on the requested wave. */
@@ -109,7 +116,8 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
       composition['phone-addict'] *
         baseHealth *
         PHONE_ADDICT_HEALTH_MULTIPLIER +
-      composition.kamikaze * baseHealth * KAMIKAZE_HEALTH_MULTIPLIER,
+      composition.kamikaze * baseHealth * KAMIKAZE_HEALTH_MULTIPLIER +
+      composition.behemoth * baseHealth * BEHEMOTH_HEALTH_MULTIPLIER,
   );
   const totalPossibleReward =
     composition.walker * BASE_ZOMBIE_STATS.reward +
@@ -119,6 +127,7 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
     composition.worker * WORKER_REWARD +
     composition['phone-addict'] * PHONE_ADDICT_REWARD +
     composition.kamikaze * KAMIKAZE_REWARD +
+    composition.behemoth * BEHEMOTH_REWARD +
     waveRewardForWave(wave);
 
   return {

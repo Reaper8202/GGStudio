@@ -32,6 +32,8 @@ export const VFX_PALETTE = {
   smoke: 0x6e7379,
   smokeDark: 0x24282d,
   dust: 0x8b8577,
+  /** Broken ground/rubble chunk, for a physical ground-pound rather than a blast. */
+  rubble: 0x5c4d3d,
   brass: 0xd6a13c,
   /**
    * Ice Cannon turquoise. One family drives the whole weapon: its tracer, its

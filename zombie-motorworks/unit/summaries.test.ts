@@ -28,6 +28,7 @@ describe('legible consequence summaries', () => {
     expect(newThreatsForWave(2)).toEqual([]);
     expect(newThreatsForWave(3)).toEqual(['gunslinger', 'thrower']);
     expect(newThreatsForWave(7)).toEqual(['worker']);
+    expect(newThreatsForWave(8)).toEqual(['behemoth']);
     expect(newThreatsForWave(10)).toEqual(['phone-addict']);
     expect(newThreatsForWave(11)).toEqual([]);
   });
@@ -35,6 +36,12 @@ describe('legible consequence summaries', () => {
   it('flags the wave-10 Phone Addict and garage EMP recommendation after wave 9', () => {
     expect(threatWarningsForWave(10)).toEqual([
       'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage before wave 10.',
+    ]);
+  });
+
+  it('flags the wave-8 Behemoth boss introduction', () => {
+    expect(threatWarningsForWave(8)).toEqual([
+      'Behemoths incoming — they hit like a wrecking ball. Watch the red ring and keep moving.',
     ]);
   });
 
@@ -46,7 +53,7 @@ describe('legible consequence summaries', () => {
       '19 walkers / 1 gunslinger / 1 thrower',
     );
     expect(formatWaveComposition(zombieCompositionForWave(10))).toBe(
-      '40 walkers / 10 gunslingers / 1 necromancer / 4 throwers / 2 workers / 1 phone-addict / 5 kamikazes',
+      '40 walkers / 10 gunslingers / 1 necromancer / 4 throwers / 2 workers / 1 phone-addict / 5 kamikazes / 1 behemoth',
     );
   });
 
