@@ -223,4 +223,62 @@ export function exportTuningJSON(): string {
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Copy every leaf of `incoming` that matches the shape of `target`.
+ *
+ * Shape-led rather than input-led on purpose: a pasted snapshot only writes
+ * fields the tuning already has, of the type it already has, so a stale or
+ * hand-edited config can add junk keys or wrong types without corrupting the
+ * live state. `countOverride` is the one nullable field, so null passes too.
+ */
+function mergeShape(target: object, incoming: unknown): void {
+  if (!isRecord(incoming)) return;
+  const fields = target as Record<string, unknown>;
+  for (const [key, current] of Object.entries(fields)) {
+    if (!(key in incoming)) continue;
+    const next = incoming[key];
+    if (isRecord(current)) {
+      mergeShape(current, next);
+      continue;
+    }
+    // The one nullable leaf: null restores "use the wave formula", and has to
+    // be accepted even when the live value is currently a pinned number.
+    if (key === 'countOverride' && next === null) {
+      fields[key] = null;
+      continue;
+    }
+    if (typeof next === 'number' && Number.isFinite(next)) {
+      fields[key] = next;
+    }
+  }
+}
+
+/**
+ * Load a snapshot produced by `exportTuningJSON`, then notify.
+ *
+ * Returns false and leaves the tuning untouched when the text is not valid
+ * JSON, so a bad paste is a no-op rather than a half-applied config. Cheats are
+ * session state and are never read from a snapshot.
+ */
+export function importTuningJSON(text: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  if (!isRecord(parsed)) return false;
+
+  mergeShape(devTuning.base, parsed.base);
+  mergeShape(devTuning.types, parsed.types);
+  mergeShape(devTuning.wave, parsed.wave);
+  mergeShape(devTuning.specialist, parsed.specialist);
+  notifyTuningChanged();
+  return true;
+}
+
 export { KIND_ORDER };

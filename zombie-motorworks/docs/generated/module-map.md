@@ -4,9 +4,9 @@
 > edit by hand. Search this file for a path or exported symbol; do not read
 > it end to end as routine task setup.
 
-- Source Modules: 100
-- Source lines: 39,799
-- Test files scanned: 87
+- Source Modules: 102
+- Source lines: 40,289
+- Test files scanned: 90
 
 ## Largest Modules
 
@@ -317,6 +317,14 @@
 - External packages: none
 - Direct tests: `unit/app.test.ts`, `unit/cannon-splash.test.ts`, `unit/part-upgrades.test.ts`, `unit/plow-crush.test.ts`, `unit/run-checkpoint.test.ts`, `unit/turret-module-ui.test.ts`, `unit/upgrades.test.ts`
 
+### [`src/core/waveModel.ts`](../../src/core/waveModel.ts) (166 LOC)
+
+- Exports: `KindProfiles`, `kindShare`, `payPerThreat`, `spawnBoundSeconds`, `spawnOverflow`, `threatScaledPayout`, `WaveCounts`, `waveKillReward`, `wavePopulation`, `waveThreat`, `ZombieKindProfile`
+- Imports: none
+- Imported by: `src/survival/waveLab.ts`
+- External packages: none
+- Direct tests: `unit/wave-model.test.ts`
+
 ### [`src/core/waveTimeline.ts`](../../src/core/waveTimeline.ts) (105 LOC)
 
 - Exports: `buildWaveTimeline`, `THREAT_LABELS`, `TimelineNode`, `TimelineNodeState`, `waveIcon`, `WaveIconKind`, `WaveTimeline`, `WaveTimelineInput`
@@ -607,7 +615,7 @@
 
 - Exports: `attackDamageMultiplierForWave`, `healthMultiplierForWave`, `hordeIntervalForWave`, `maxActiveZombiesForWave`, `speedMultiplierForWave`, `WaveComposition`, `WaveManager`, `WaveManagerCallbacks`, `waveRewardForWave`, `zombieCompositionForWave`, `zombieCountForWave`
 - Imports: `src/survival/devtuning/DevTuning.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`
-- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/waveBalance.ts`
+- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/waveBalance.ts`, `src/survival/waveLab.ts`
 - External packages: none
 - Direct tests: `unit/summaries.test.ts`, `unit/wave-balance.test.ts`, `unit/waves.test.ts`, `unit/zombie-balance.test.ts`
 
@@ -683,13 +691,13 @@
 - External packages: none
 - Direct tests: none
 
-### [`src/survival/devtuning/DevTuning.ts`](../../src/survival/devtuning/DevTuning.ts) (226 LOC)
+### [`src/survival/devtuning/DevTuning.ts`](../../src/survival/devtuning/DevTuning.ts) (284 LOC)
 
-- Exports: `CheatTuning`, `CompositionCurve`, `CurveTuning`, `defaultTuning`, `devTuning`, `DevTuningState`, `exportTuningJSON`, `KIND_ORDER`, `notifyTuningChanged`, `resetTuning`, `SpecialistTuning`, `subscribeTuning`, `WaveTuning`, `ZombieKindTuning`
+- Exports: `CheatTuning`, `CompositionCurve`, `CurveTuning`, `defaultTuning`, `devTuning`, `DevTuningState`, `exportTuningJSON`, `importTuningJSON`, `KIND_ORDER`, `notifyTuningChanged`, `resetTuning`, `SpecialistTuning`, `subscribeTuning`, `WaveTuning`, `ZombieKindTuning`
 - Imports: `src/survival/zombies/Zombie.ts`, `src/survival/zombies/zombieConfig.ts`
-- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/WaveManager.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`
+- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/WaveManager.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/waveLab.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`
 - External packages: none
-- Direct tests: none
+- Direct tests: `unit/dev-tuning-io.test.ts`, `unit/wave-lab.test.ts`
 
 ### [`src/survival/devtuning/devMode.ts`](../../src/survival/devtuning/devMode.ts) (25 LOC)
 
@@ -714,6 +722,14 @@
 - Imported by: `src/editor/EditorMode.ts`, `src/survival/SurvivalMode.ts`, `src/survival/devtuning/DevTunerPanel.ts`
 - External packages: none
 - Direct tests: `unit/summaries.test.ts`, `unit/wave-balance.test.ts`
+
+### [`src/survival/waveLab.ts`](../../src/survival/waveLab.ts) (266 LOC)
+
+- Exports: `kindProfiles`, `SPECIALIST_KINDS`, `summarize`, `waveLabRow`, `WaveLabRow`, `waveLabRows`, `WaveLabSummary`
+- Imports: `src/core/waveModel.ts`, `src/survival/WaveManager.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/zombies/zombieConfig.ts`
+- Imported by: none
+- External packages: none
+- Direct tests: `unit/wave-lab.test.ts`
 
 ### [`src/survival/zombies/Landmines.ts`](../../src/survival/zombies/Landmines.ts) (278 LOC)
 
@@ -751,7 +767,7 @@
 
 - Exports: `BASE_ZOMBIE_STATS`, `DEATH_FEEDBACK_DURATION`, `DETOUR_BLEND`, `DETOUR_DURATION`, `HIT_FLASH_DURATION`, `HORDE_SCATTER_RADIUS`, `IMPACT_COOLDOWN_SECONDS`, `IMPACT_DAMAGE_PER_SPEED`, `KNOCKBACK_DURATION`, `KNOCKBACK_SPEED`, `LANDMINE_ARM_SECONDS`, `LANDMINE_BLAST_RADIUS`, `LANDMINE_DAMAGE`, `LANDMINE_EXPLOSION_DURATION`, `LANDMINE_EXPLOSION_POOL_SIZE`, `LANDMINE_EXPLOSION_RADIUS`, `LANDMINE_GLINT_RADIUS`, `LANDMINE_HEIGHT`, `LANDMINE_POOL_SIZE`, `LANDMINE_PULSE_AMPLITUDE`, `LANDMINE_PULSE_FREQUENCY`, `LANDMINE_RADIUS`, `LANDMINE_TRIGGER_RADIUS`, `LANDMINE_VISIBLE_THROUGH_WAVE`, `LETHAL_IMPACT_SPEED`, `LUNGE_DISTANCE`, `LUNGE_DURATION`, `MAXIMUM_SWARM_DRAG`, `MIN_IMPACT_SPEED`, `MIN_SPAWN_DISTANCE_FROM_VEHICLE`, `OBSTACLE_PROBE_DISTANCE`, `OBSTACLE_PROBE_HEIGHT`, `PHONE_ADDICT_GLOW_OPACITY`, `PHONE_ADDICT_GLOW_RADIUS`, `PHONE_ADDICT_HEALTH_MULTIPLIER`, `PHONE_ADDICT_REWARD`, `PHONE_ADDICT_SPEED_MULTIPLIER`, `PHONE_ADDICT_VISUAL_HEIGHT`, `PLOW_CRUSH_COOLDOWN_SECONDS`, `PLOW_FACE_CLEARANCE_M`, `PLOW_HEIGHT_TOLERANCE_M`, `PLOW_HOLD_SECONDS`, `PLOW_MIN_CARRY_SPEED_MPS`, `PLOW_SLOT_MAX_SPEED`, `PLOW_SLOT_SPACING_M`, `PLOW_SLOT_STIFFNESS`, `PLOW_WALL_PROBE_M`, `PLOW_WALL_PROBE_PER_SPEED`, `plowCrushDamage`, `PlowSlot`, `plowSlots`, `PROJECTILE_DAMAGE`, `PROJECTILE_HIT_RADIUS`, `PROJECTILE_HORIZONTAL_SPEED`, `PROJECTILE_LAUNCH_HEIGHT`, `PROJECTILE_LIFETIME`, `PROJECTILE_MAX_FLIGHT_TIME`, `PROJECTILE_MIN_FLIGHT_TIME`, `PROJECTILE_POOL_SIZE`, `PROJECTILE_SIZE`, `SCALE_VARIATION`, `SEPARATION_RADIUS`, `SEPARATION_STRENGTH`, `SHIELD_FLASH_DURATION`, `SHIELD_FLASH_MAX_OPACITY`, `SHIELD_RADIUS`, `SPAWN_RISE_DURATION`, `STUCK_SPEED_THRESHOLD`, `STUCK_TELEPORT_DISPLACEMENT`, `STUCK_TELEPORT_SECONDS`, `STUCK_TIME_THRESHOLD`, `SWARM_DRAG_ACCELERATION`, `SWARM_DRAG_PER_CONTACT`, `THROWER_ATTACK_EXIT_MARGIN`, `THROWER_ATTACK_INTERVAL`, `THROWER_ATTACK_RANGE`, `THROWER_HEALTH_MULTIPLIER`, `THROWER_REWARD`, `THROWER_SPEED_MULTIPLIER`, `THROWER_VISUAL_HEIGHT`, `WALK_BOB_AMPLITUDE`, `WALK_BOB_FREQUENCY`, `WORKER_HEALTH_MULTIPLIER`, `WORKER_PLANT_RANGE`, `WORKER_PLANT_SECONDS`, `WORKER_RETREAT_RANGE`, `WORKER_REWARD`, `WORKER_RING_MAX_RADIUS`, `WORKER_RING_MAX_RATE`, `WORKER_RING_MIN_RATE`, `WORKER_RING_OPACITY`, `WORKER_SPEED_MULTIPLIER`, `WORKER_VISUAL_HEIGHT`, `ZOMBIE_ATTACK_EXIT_MARGIN`, `ZOMBIE_ATTACK_RANGE`, `ZOMBIE_CONTACT_RADIUS`, `ZOMBIE_HALF_HEIGHT`, `ZOMBIE_POOL_COUNTS`, `ZOMBIE_POOL_SIZE`, `ZOMBIE_RADIUS`
 - Imports: `src/core/types.ts`
-- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Landmines.ts`, `src/survival/zombies/ThrowerProjectiles.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`
+- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/waveBalance.ts`, `src/survival/waveLab.ts`, `src/survival/zombies/Landmines.ts`, `src/survival/zombies/ThrowerProjectiles.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`
 - External packages: none
 - Direct tests: `unit/landmines.test.ts`, `unit/pending-rewards.test.ts`, `unit/plow-crush.test.ts`, `unit/waves.test.ts`, `unit/zombie-balance.test.ts`
 

@@ -20,3 +20,6 @@ verify-damage.mjs
 verify-weapons.mjs
 shot-dmg.mjs
 shot-timeline.mjs
+
+# Balance Lab output: regenerated on demand, timestamped, not a source of truth
+docs/generated/balance-lab.html
