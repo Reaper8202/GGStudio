@@ -38,6 +38,7 @@ describe('biome selection', () => {
           nextWave,
           survivingPartIds: checkpoint.blueprint.parts.map((part) => part.id),
           partHp: checkpoint.partHp,
+          missingParts: checkpoint.missingParts,
           kills: nextWave * 3,
           biomeId: checkpoint.biomeId,
           seed: checkpoint.seed,

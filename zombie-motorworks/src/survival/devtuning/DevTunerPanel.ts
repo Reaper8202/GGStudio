@@ -314,7 +314,20 @@ export class DevTunerPanel {
     section.append(countField, auto);
 
     // Specialist knobs.
-    if (kind === 'necromancer') {
+    if (kind === 'gunslinger') {
+      section.appendChild(groupLabel('Gunslinger specials'));
+      section.appendChild(
+        this.makeField({
+          label: 'Attack range (m)',
+          min: 3,
+          max: 25,
+          step: 0.5,
+          decimals: 1,
+          get: () => devTuning.specialist.gunslingerAttackRange,
+          set: (v) => (devTuning.specialist.gunslingerAttackRange = v),
+        }),
+      );
+    } else if (kind === 'necromancer') {
       section.appendChild(groupLabel('Necromancer summons'));
       section.appendChild(
         this.makeField({

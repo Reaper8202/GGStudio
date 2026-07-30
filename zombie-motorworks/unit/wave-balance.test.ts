@@ -12,7 +12,7 @@ describe('wave balance report', () => {
       wave: 1,
       composition: {
         walker: 13,
-        gunslinger: 1,
+        gunslinger: 0,
         necromancer: 0,
         thrower: 0,
         worker: 0,
@@ -22,8 +22,8 @@ describe('wave balance report', () => {
       healthMultiplier: healthMultiplierForWave(1),
       speedMultiplier: speedMultiplierForWave(1),
       attackDamageMultiplier: attackDamageMultiplierForWave(1),
-      effectiveTotalHp: 592,
-      totalPossibleReward: 98,
+      effectiveTotalHp: 520,
+      totalPossibleReward: 89,
     });
   });
 
@@ -32,7 +32,7 @@ describe('wave balance report', () => {
       wave: 2,
       composition: {
         walker: 16,
-        gunslinger: 1,
+        gunslinger: 0,
         necromancer: 0,
         thrower: 0,
         worker: 0,
@@ -42,8 +42,8 @@ describe('wave balance report', () => {
       healthMultiplier: healthMultiplierForWave(2),
       speedMultiplier: speedMultiplierForWave(2),
       attackDamageMultiplier: attackDamageMultiplierForWave(2),
-      effectiveTotalHp: 755,
-      totalPossibleReward: 117,
+      effectiveTotalHp: 678,
+      totalPossibleReward: 108,
     });
   });
 
@@ -72,7 +72,7 @@ describe('wave balance report', () => {
       wave: 4,
       composition: {
         walker: 22,
-        gunslinger: 2,
+        gunslinger: 3,
         necromancer: 0,
         thrower: 1,
         worker: 0,
@@ -82,8 +82,8 @@ describe('wave balance report', () => {
       healthMultiplier: healthMultiplierForWave(4),
       speedMultiplier: speedMultiplierForWave(4),
       attackDamageMultiplier: attackDamageMultiplierForWave(4),
-      effectiveTotalHp: 1331,
-      totalPossibleReward: 186,
+      effectiveTotalHp: 1416,
+      totalPossibleReward: 195,
     });
   });
 
@@ -92,7 +92,7 @@ describe('wave balance report', () => {
       wave: 7,
       composition: {
         walker: 31,
-        gunslinger: 3,
+        gunslinger: 9,
         necromancer: 1,
         thrower: 3,
         worker: 1,
@@ -102,8 +102,8 @@ describe('wave balance report', () => {
       healthMultiplier: healthMultiplierForWave(7),
       speedMultiplier: speedMultiplierForWave(7),
       attackDamageMultiplier: attackDamageMultiplierForWave(7),
-      effectiveTotalHp: 2622,
-      totalPossibleReward: 303,
+      effectiveTotalHp: 3210,
+      totalPossibleReward: 357,
     });
   });
 
@@ -112,7 +112,7 @@ describe('wave balance report', () => {
       wave: 10,
       composition: {
         walker: 40,
-        gunslinger: 4,
+        gunslinger: 10,
         necromancer: 1,
         thrower: 4,
         worker: 2,
@@ -122,8 +122,8 @@ describe('wave balance report', () => {
       healthMultiplier: healthMultiplierForWave(10),
       speedMultiplier: speedMultiplierForWave(10),
       attackDamageMultiplier: attackDamageMultiplierForWave(10),
-      effectiveTotalHp: 3949,
-      totalPossibleReward: 413,
+      effectiveTotalHp: 4614,
+      totalPossibleReward: 467,
     });
   });
 
@@ -132,7 +132,7 @@ describe('wave balance report', () => {
       wave: 15,
       composition: {
         walker: 55,
-        gunslinger: 5,
+        gunslinger: 10,
         necromancer: 2,
         thrower: 7,
         worker: 3,
@@ -142,17 +142,17 @@ describe('wave balance report', () => {
       healthMultiplier: healthMultiplierForWave(15),
       speedMultiplier: speedMultiplierForWave(15),
       attackDamageMultiplier: attackDamageMultiplierForWave(15),
-      effectiveTotalHp: 6874,
-      totalPossibleReward: 593,
+      effectiveTotalHp: 7537,
+      totalPossibleReward: 638,
     });
   });
 
-  it('offers 545 total reward across waves 1 through 4', () => {
+  it('offers 536 total reward across waves 1 through 4', () => {
     const earlyWaveReward = [1, 2, 3, 4].reduce(
       (total, wave) => total + waveBalanceReport(wave).totalPossibleReward,
       0,
     );
 
-    expect(earlyWaveReward).toBe(545);
+    expect(earlyWaveReward).toBe(536);
   });
 });

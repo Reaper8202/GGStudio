@@ -26,7 +26,7 @@ function placed(
 describe('legible consequence summaries', () => {
   it('reports each specialist only on the wave where it first appears', () => {
     expect(newThreatsForWave(2)).toEqual([]);
-    expect(newThreatsForWave(3)).toEqual(['thrower']);
+    expect(newThreatsForWave(3)).toEqual(['gunslinger', 'thrower']);
     expect(newThreatsForWave(7)).toEqual(['worker']);
     expect(newThreatsForWave(10)).toEqual(['phone-addict']);
     expect(newThreatsForWave(11)).toEqual([]);
@@ -40,13 +40,13 @@ describe('legible consequence summaries', () => {
 
   it('formats exact wave composition while omitting zero-count kinds', () => {
     expect(formatWaveComposition(zombieCompositionForWave(1))).toBe(
-      '13 walkers / 1 gunslinger',
+      '13 walkers',
     );
     expect(formatWaveComposition(zombieCompositionForWave(3))).toBe(
       '19 walkers / 1 gunslinger / 1 thrower',
     );
     expect(formatWaveComposition(zombieCompositionForWave(10))).toBe(
-      '40 walkers / 4 gunslingers / 1 necromancer / 4 throwers / 2 workers / 1 phone-addict / 5 kamikazes',
+      '40 walkers / 10 gunslingers / 1 necromancer / 4 throwers / 2 workers / 1 phone-addict / 5 kamikazes',
     );
   });
 

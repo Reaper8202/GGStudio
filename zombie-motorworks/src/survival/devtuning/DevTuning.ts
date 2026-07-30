@@ -1,6 +1,8 @@
 import type { ZombieKind } from '../zombies/Zombie.ts';
 import {
   BASE_ZOMBIE_STATS,
+  GUNSLINGER_ATTACK_INTERVAL,
+  GUNSLINGER_ATTACK_RANGE,
   GUNSLINGER_HEALTH_MULTIPLIER,
   GUNSLINGER_REWARD,
   GUNSLINGER_SPEED_MULTIPLIER,
@@ -80,6 +82,7 @@ export interface WaveTuning {
 }
 
 export interface SpecialistTuning {
+  gunslingerAttackRange: number;
   throwerAttackRange: number;
   necromancerSummonRange: number;
   necromancerSummonSeconds: number;
@@ -147,7 +150,7 @@ export function defaultTuning(): DevTuningState {
         healthMult: GUNSLINGER_HEALTH_MULTIPLIER,
         speedMult: GUNSLINGER_SPEED_MULTIPLIER,
         damageMult: 1,
-        attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+        attackInterval: GUNSLINGER_ATTACK_INTERVAL,
         reward: GUNSLINGER_REWARD,
         countOverride: null,
       },
@@ -198,7 +201,7 @@ export function defaultTuning(): DevTuningState {
       damage: { perWave: 0.06, cap: 2 },
       composition: {
         walker: { startWave: 1, base: 13, perStep: 3, every: 1, cap: 70 },
-        gunslinger: { startWave: 1, base: 1, perStep: 1, every: 3, cap: 8 },
+        gunslinger: { startWave: 3, base: 1, perStep: 2, every: 1, cap: 10 },
         necromancer: { startWave: 6, base: 1, perStep: 1, every: 5, cap: 4 },
         thrower: { startWave: 3, base: 1, perStep: 1, every: 2, cap: 10 },
         worker: { startWave: 7, base: 1, perStep: 1, every: 3, cap: 6 },
@@ -213,6 +216,7 @@ export function defaultTuning(): DevTuningState {
       maxActiveCap: 48,
     },
     specialist: {
+      gunslingerAttackRange: GUNSLINGER_ATTACK_RANGE,
       throwerAttackRange: THROWER_ATTACK_RANGE,
       necromancerSummonRange: NECROMANCER_SUMMON_RANGE,
       necromancerSummonSeconds: NECROMANCER_SUMMON_SECONDS,

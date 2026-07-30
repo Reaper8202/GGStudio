@@ -10,7 +10,11 @@ import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
 import type { VfxSystem } from '../../vfx/VfxSystem.ts';
 import { VFX_PALETTE } from '../../vfx/vfxConfig.ts';
 import { instantiateVoxelAsset } from '../VoxelAssetLoader.ts';
-import { walkPose as gunslingerWalkPose } from '../../tools/gunslingerPose.ts';
+import {
+  shootPose as gunslingerShootPose,
+  SHOT_R as GUNSLINGER_SHOT_PROGRESS,
+  walkPose as gunslingerWalkPose,
+} from '../../tools/gunslingerPose.ts';
 import { runPose as kamikazeRunPose } from '../../tools/kamikazePose.ts';
 import {
   castPose,
@@ -25,6 +29,16 @@ import {
   DEATH_FEEDBACK_DURATION,
   DETOUR_BLEND,
   DETOUR_DURATION,
+  GUNSLINGER_ATTACK_EXIT_MARGIN,
+  GUNSLINGER_DRAW_SECONDS,
+  GUNSLINGER_HIT_TOLERANCE,
+  GUNSLINGER_LEAD_SECONDS,
+  GUNSLINGER_LINE_LENGTH,
+  GUNSLINGER_MUZZLE_HEIGHT,
+  GUNSLINGER_SCOPE_ICON_SIZE,
+  GUNSLINGER_SHOT_FLASH_SECONDS,
+  GUNSLINGER_TELEGRAPH_OPACITY,
+  GUNSLINGER_TELEGRAPH_SECONDS,
   GUNSLINGER_VISUAL_HEIGHT,
   GUNSLINGER_WALK_CADENCE,
   HIT_FLASH_DURATION,
@@ -196,6 +210,7 @@ interface RigClips {
 const RIG_CLIPS: Partial<Record<ZombieKind, RigClips>> = {
   gunslinger: {
     walk: gunslingerWalkPose,
+    channel: gunslingerShootPose,
     cadence: GUNSLINGER_WALK_CADENCE,
   },
   necromancer: {
@@ -249,6 +264,37 @@ function getAddictGlowTexture(): THREE.CanvasTexture {
     'rgba(215, 0, 0, 0.45)',
     'rgba(140, 0, 0, 0)',
   );
+}
+
+/** Small scope reticle marking a gunslinger's locked impact point: a ring with four outward ticks. */
+let scopeTexture: THREE.CanvasTexture | null = null;
+function getScopeTexture(): THREE.CanvasTexture {
+  if (scopeTexture) return scopeTexture;
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const c = size / 2;
+  const radius = size * 0.3;
+  ctx.strokeStyle = '#ff2a00';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(c, c, radius, 0, Math.PI * 2);
+  ctx.stroke();
+  for (const [dx, dy] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const) {
+    ctx.beginPath();
+    ctx.moveTo(c + dx * radius, c + dy * radius);
+    ctx.lineTo(c + dx * (radius + size * 0.14), c + dy * (radius + size * 0.14));
+    ctx.stroke();
+  }
+  scopeTexture = new THREE.CanvasTexture(canvas);
+  return scopeTexture;
 }
 
 /** Violet halo under the necromancer, shown only while it is channelling. */
@@ -511,6 +557,30 @@ export class Zombie {
   private ringMesh: THREE.Mesh | null = null;
   private ringMaterial: THREE.MeshBasicMaterial | null = null;
   private ringPhase = 0;
+  /**
+   * Gunslinger only: a raw barrel-to-target segment marking the locked
+   * predicted impact point, with a small scope icon at the far end. Both are
+   * written once, when the point locks, and held — a genuinely static
+   * telegraph, not a live-tracking beam. The same line stands in for the
+   * shot itself, flashing bright rather than a travelling projectile.
+   */
+  private telegraphLine: THREE.Line | null = null;
+  private telegraphMaterial: THREE.LineBasicMaterial | null = null;
+  private readonly telegraphPositions = new Float32Array(6);
+  private scopeSprite: THREE.Sprite | null = null;
+  /** World point the current cycle's shot is locked onto. */
+  private gunslingerAimX = 0;
+  private gunslingerAimY = 0;
+  private gunslingerAimZ = 0;
+  /** True once this cycle has locked a point, so the lock only happens once. */
+  private gunslingerAimLocked = false;
+  /** True once this cycle's shot has fired, so it fires once. */
+  private gunslingerShotFired = false;
+  /** Seconds left in the shot's bright flash before the line hides again. */
+  private gunslingerFlashTimer = 0;
+  /** Scratch for the muzzle world position, read off the gun-arm bone. */
+  private readonly muzzleScratch = { x: 0, y: 0, z: 0 };
+  private readonly boneWorldScratch = new THREE.Vector3();
   private plantTimer = 0;
   /** Seconds left in the current raise channel; 0 when not channelling. */
   private summonTimer = 0;
@@ -701,6 +771,47 @@ export class Zombie {
         -(ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS) + KAMIKAZE_VISUAL_HEIGHT * 0.8;
       this.blinkMesh.visible = false;
       this.visualRoot.add(this.blinkMesh);
+    }
+    if (this.kind === 'gunslinger') {
+      // World-space, not parented under root: its endpoints are written once
+      // in world coordinates when the point locks, so there is nothing a
+      // parent transform would buy here.
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        'position',
+        new THREE.BufferAttribute(this.telegraphPositions, 3),
+      );
+      this.telegraphMaterial = new THREE.LineBasicMaterial({
+        color: VFX_PALETTE.kamikazeWarn,
+        transparent: true,
+        opacity: GUNSLINGER_TELEGRAPH_OPACITY,
+        depthWrite: false,
+        // The line is meant to read as a fixed 25m marker, not a physical
+        // object the terrain or the car body can slice into — without this,
+        // whatever the line passes behind swallows part of it, so the same
+        // 25m segment reads as a different length shot to shot depending on
+        // what it happens to cross.
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+      });
+      this.telegraphLine = new THREE.Line(geometry, this.telegraphMaterial);
+      this.telegraphLine.frustumCulled = false;
+      this.telegraphLine.renderOrder = 1;
+      this.telegraphLine.visible = false;
+      this.scene.add(this.telegraphLine);
+
+      this.scopeSprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: getScopeTexture(),
+          transparent: true,
+          depthWrite: false,
+          depthTest: false,
+        }),
+      );
+      this.scopeSprite.scale.setScalar(GUNSLINGER_SCOPE_ICON_SIZE);
+      this.scopeSprite.renderOrder = 1;
+      this.scopeSprite.visible = false;
+      this.scene.add(this.scopeSprite);
     }
     this.root.visible = false;
     this.scene.add(this.root);
@@ -1227,8 +1338,9 @@ export class Zombie {
           if (this.rigClips) {
             // A channel is the one thing a rigged zombie does standing still.
             // Its clip is driven by how far through the channel it is, so the
-            // arms rise with the witch-light instead of on their own clock.
-            // Everything else holds the bind pose.
+            // arms rise on the same clock as the effect they cause — witch-
+            // light for a summon, the draw-and-fire for a gunslinger's shot —
+            // instead of on their own timer. Everything else holds the bind pose.
             const channel = this.rigClips.channel;
             if (channel && this.state === ZombieState.Summoning) {
               const progress = clamp(
@@ -1242,6 +1354,12 @@ export class Zombie {
                 1,
               );
               this.applyRigPose(channel(progress * CHANNEL_CLIP_RELEASE));
+            } else if (
+              channel &&
+              this.state === ZombieState.Attacking &&
+              this.kind === 'gunslinger'
+            ) {
+              this.applyRigPose(channel(this.gunslingerPoseProgress()));
             } else {
               this.applyRigPose(REST_POSE);
             }
@@ -1306,6 +1424,31 @@ export class Zombie {
         );
         this.ringMesh.position.y = (0.1 - translation.y) / rootScale;
         this.ringMaterial.opacity = WORKER_RING_OPACITY * (1 - this.ringPhase);
+      }
+    }
+    if (this.telegraphLine && this.telegraphMaterial) {
+      // Endpoints were written once, when the point locked (see
+      // lockGunslingerAim) — this only ever toggles visibility and opacity,
+      // which is what keeps the line genuinely static rather than tracking
+      // anything live. The same line stands in for the shot itself: once
+      // fired it just flashes at full brightness and fades, no separate mesh.
+      if (this.gunslingerFlashTimer > 0) {
+        this.gunslingerFlashTimer = Math.max(0, this.gunslingerFlashTimer - dt);
+      }
+      const flashing = this.gunslingerFlashTimer > 0 && this.isAlive;
+      const telegraphing =
+        this.state === ZombieState.Attacking &&
+        this.gunslingerAimLocked &&
+        !this.gunslingerShotFired &&
+        this.isAlive;
+      const visible = telegraphing || flashing;
+      this.telegraphLine.visible = visible;
+      if (this.scopeSprite) this.scopeSprite.visible = visible;
+      if (flashing) {
+        this.telegraphMaterial.opacity =
+          this.gunslingerFlashTimer / GUNSLINGER_SHOT_FLASH_SECONDS;
+      } else if (telegraphing) {
+        this.telegraphMaterial.opacity = GUNSLINGER_TELEGRAPH_OPACITY;
       }
     }
   }
@@ -1380,6 +1523,15 @@ export class Zombie {
     if (this.ringMesh) {
       this.ringMaterial?.dispose();
       this.ringMesh.geometry.dispose();
+    }
+    if (this.telegraphLine) {
+      this.scene.remove(this.telegraphLine);
+      this.telegraphMaterial?.dispose();
+      this.telegraphLine.geometry.dispose();
+    }
+    if (this.scopeSprite) {
+      this.scene.remove(this.scopeSprite);
+      (this.scopeSprite.material as THREE.SpriteMaterial).dispose();
     }
     if (this.blinkMesh) {
       this.blinkMaterial?.dispose();
@@ -1475,7 +1627,9 @@ export class Zombie {
         const attackRange =
           this.kind === 'thrower'
             ? devTuning.specialist.throwerAttackRange
-            : ZOMBIE_ATTACK_RANGE;
+            : this.kind === 'gunslinger'
+              ? devTuning.specialist.gunslingerAttackRange
+              : ZOMBIE_ATTACK_RANGE;
         if (target.distance <= attackRange) {
           this.state = ZombieState.Attacking;
           // Throwers wind up quickly on arrival instead of a full idle interval.
@@ -1483,6 +1637,8 @@ export class Zombie {
             this.kind === 'thrower'
               ? this.attackInterval * 0.5
               : this.attackInterval;
+          this.gunslingerAimLocked = false;
+          this.gunslingerShotFired = false;
           this.zeroHorizontalVelocity();
           return;
         }
@@ -1533,26 +1689,195 @@ export class Zombie {
   private stepAttacking(dt: number, vehicle: RuntimeVehicle): void {
     this.zeroHorizontalVelocity();
     const target = this.vehicleTarget;
-    const exitRange =
-      this.kind === 'thrower'
-        ? devTuning.specialist.throwerAttackRange + THROWER_ATTACK_EXIT_MARGIN
-        : ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN;
-    if (target.partId === null || target.distance > exitRange) {
-      this.state = ZombieState.Chasing;
-      return;
+    // Once a gunslinger is aiming down the sights (the point has locked) it
+    // is committed the same way a necromancer or worker channel is: the shot
+    // is going off wherever the vehicle ends up, range be damned, rather than
+    // aborting because the vehicle happened to drive back out of range.
+    const committed = this.kind === 'gunslinger' && this.gunslingerAimLocked;
+    if (!committed) {
+      const exitRange =
+        this.kind === 'thrower'
+          ? devTuning.specialist.throwerAttackRange + THROWER_ATTACK_EXIT_MARGIN
+          : this.kind === 'gunslinger'
+            ? devTuning.specialist.gunslingerAttackRange +
+              GUNSLINGER_ATTACK_EXIT_MARGIN
+            : ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN;
+      if (target.partId === null || target.distance > exitRange) {
+        this.state = ZombieState.Chasing;
+        return;
+      }
     }
 
-    this.updateFacing(target.x - this.position.x, target.z - this.position.z);
+    if (committed) {
+      // Facing locks with the shot rather than swivelling to keep tracking a
+      // target that may already be out of range.
+      this.updateFacing(
+        this.gunslingerAimX - this.position.x,
+        this.gunslingerAimZ - this.position.z,
+      );
+    } else {
+      this.updateFacing(target.x - this.position.x, target.z - this.position.z);
+    }
     this.attackTimer -= dt;
+    if (this.kind === 'gunslinger') {
+      // Three beats, timed off wall-clock seconds rather than a fraction of
+      // the cycle, so tuning attackInterval can't smear the recoil beats into
+      // slow motion: draw the guns up, hold that aim while the telegraph
+      // locks and sits static, then let the round go and play the recoil.
+      const elapsed = this.attackInterval - this.attackTimer;
+      if (!this.gunslingerAimLocked && elapsed >= GUNSLINGER_DRAW_SECONDS) {
+        this.lockGunslingerAim(vehicle);
+      }
+      if (!this.gunslingerShotFired && this.gunslingerAimLocked) {
+        const posePosition = this.gunslingerPoseProgress();
+        if (posePosition >= GUNSLINGER_SHOT_PROGRESS) {
+          this.gunslingerShotFired = true;
+          this.fireGunslingerShot(vehicle);
+        }
+      }
+      if (this.attackTimer <= 0) {
+        this.attackTimer = this.attackInterval;
+        this.gunslingerAimLocked = false;
+        this.gunslingerShotFired = false;
+      }
+      return;
+    }
     if (this.attackTimer <= 0) {
       this.attackTimer = this.attackInterval;
       if (this.kind === 'thrower') {
         this.onThrow?.(this);
-      } else {
+      } else if (target.partId !== null) {
+        // Always true here in practice — the top-of-function guard already
+        // returned otherwise for every kind but gunslinger, which never
+        // reaches this branch — but the guard is now conditional on
+        // `committed`, so the type checker needs it spelled out again.
         vehicle.applyDirectDamage(target.partId, this.attackDamage);
       }
       this.lungeTimer = LUNGE_DURATION;
     }
+  }
+
+  /**
+   * Pose progress for the gunslinger's Attacking channel, mapped through its
+   * own three real-time phases rather than straight off attackTimer — draw
+   * maps onto shootPose's own aim-up ramp (0..0.3), the telegraph hold freezes
+   * it there, and firing/holstering (which also carries both of shootPose's
+   * shot beats) spends whatever of the cycle is left after those two.
+   */
+  private gunslingerPoseProgress(): number {
+    const elapsed = this.attackInterval - this.attackTimer;
+    if (elapsed <= GUNSLINGER_DRAW_SECONDS) {
+      return (elapsed / GUNSLINGER_DRAW_SECONDS) * 0.3;
+    }
+    const telegraphEnd = GUNSLINGER_DRAW_SECONDS + GUNSLINGER_TELEGRAPH_SECONDS;
+    if (elapsed <= telegraphEnd) return 0.3;
+    const recoverSeconds = Math.max(1e-3, this.attackInterval - telegraphEnd);
+    const recoverProgress = clamp(
+      (elapsed - telegraphEnd) / recoverSeconds,
+      0,
+      1,
+    );
+    return 0.3 + recoverProgress * 0.7;
+  }
+
+  /**
+   * Lock this cycle's shot onto a predicted point rather than the vehicle's
+   * current position: a straight lead off the vehicle's own velocity, over a
+   * lead time shorter than the telegraph hold so the lock stays close to
+   * where the vehicle actually is. The telegraph line itself is just a fixed
+   * 25m ray from the muzzle through that point, with the scope icon parked
+   * at its far end — everything is written once and held, since it's all
+   * frozen the instant the point locks.
+   */
+  private lockGunslingerAim(vehicle: RuntimeVehicle): void {
+    this.gunslingerAimLocked = true;
+    const target = this.vehicleTarget;
+    const bodyVelocity = vehicle.body.linvel();
+    this.gunslingerAimX = target.x + bodyVelocity.x * GUNSLINGER_LEAD_SECONDS;
+    this.gunslingerAimY = target.y;
+    this.gunslingerAimZ = target.z + bodyVelocity.z * GUNSLINGER_LEAD_SECONDS;
+
+    this.computeMuzzlePosition();
+    const dx = this.gunslingerAimX - this.muzzleScratch.x;
+    const dy = this.gunslingerAimY - this.muzzleScratch.y;
+    const dz = this.gunslingerAimZ - this.muzzleScratch.z;
+    const length = Math.hypot(dx, dy, dz) || 1e-3;
+    const lineEndX =
+      this.muzzleScratch.x + (dx / length) * GUNSLINGER_LINE_LENGTH;
+    const lineEndY =
+      this.muzzleScratch.y + (dy / length) * GUNSLINGER_LINE_LENGTH;
+    const lineEndZ =
+      this.muzzleScratch.z + (dz / length) * GUNSLINGER_LINE_LENGTH;
+    this.telegraphPositions[0] = this.muzzleScratch.x;
+    this.telegraphPositions[1] = this.muzzleScratch.y;
+    this.telegraphPositions[2] = this.muzzleScratch.z;
+    this.telegraphPositions[3] = lineEndX;
+    this.telegraphPositions[4] = lineEndY;
+    this.telegraphPositions[5] = lineEndZ;
+    const position = this.telegraphLine?.geometry.getAttribute('position') as
+      | THREE.BufferAttribute
+      | undefined;
+    if (position) position.needsUpdate = true;
+    this.telegraphMaterial?.color.setHex(VFX_PALETTE.kamikazeWarn);
+    this.scopeSprite?.position.set(lineEndX, lineEndY, lineEndZ);
+  }
+
+  /**
+   * Let the shot go. There is no travelling round: the same telegraph line
+   * just flashes bright for a beat, and damage lands immediately if the
+   * vehicle is still close enough to the point the telegraph locked onto —
+   * a vehicle that moved off it is a clean dodge.
+   */
+  private fireGunslingerShot(vehicle: RuntimeVehicle): void {
+    this.gunslingerFlashTimer = GUNSLINGER_SHOT_FLASH_SECONDS;
+    this.telegraphMaterial?.color.setHex(VFX_PALETTE.sparkHot);
+    if (this.telegraphMaterial) this.telegraphMaterial.opacity = 1;
+    this.vfx?.muzzleFlash(
+      {
+        x: this.telegraphPositions[0],
+        y: this.telegraphPositions[1],
+        z: this.telegraphPositions[2],
+      },
+      { x: this.gunslingerAimX, y: this.gunslingerAimY, z: this.gunslingerAimZ },
+      'sniper-light',
+    );
+    const target = this.vehicleTarget;
+    if (target.partId === null) return;
+    const dx = target.x - this.gunslingerAimX;
+    const dy = target.y - this.gunslingerAimY;
+    const dz = target.z - this.gunslingerAimZ;
+    if (
+      dx * dx + dy * dy + dz * dz <=
+      GUNSLINGER_HIT_TOLERANCE * GUNSLINGER_HIT_TOLERANCE
+    ) {
+      vehicle.applyDirectDamage(target.partId, this.attackDamage);
+    }
+  }
+
+  /**
+   * World position the round actually leaves from. The revolver is rigged
+   * onto the right forearm (see gunslingerPose.ts), so that bone's own world
+   * matrix is the real muzzle once the model has loaded; a fixed height
+   * offset covers the capsule fallback and the brief window before it loads.
+   */
+  private computeMuzzlePosition(): void {
+    const bone = this.rigBones.get('armR_fore');
+    if (bone) {
+      // Bone rotations were just written this frame (applyRigPose) but
+      // matrixWorld only refreshes on the render traversal; walk the one
+      // ancestor chain up to root now so the read reflects this frame, not
+      // last frame's pose.
+      bone.updateWorldMatrix(true, false);
+      this.boneWorldScratch.setFromMatrixPosition(bone.matrixWorld);
+      this.muzzleScratch.x = this.boneWorldScratch.x;
+      this.muzzleScratch.y = this.boneWorldScratch.y;
+      this.muzzleScratch.z = this.boneWorldScratch.z;
+      return;
+    }
+    const translation = this.body.translation();
+    this.muzzleScratch.x = translation.x;
+    this.muzzleScratch.y = translation.y + GUNSLINGER_MUZZLE_HEIGHT;
+    this.muzzleScratch.z = translation.z;
   }
 
   /**
