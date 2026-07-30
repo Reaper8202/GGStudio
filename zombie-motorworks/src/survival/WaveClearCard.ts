@@ -1,6 +1,9 @@
 import './WaveClearCard.css';
 import type { BadgeAward } from '../core/badges.ts';
 import { playSfx } from '../app/sfx.ts';
+import { isDevMode } from './devtuning/devMode.ts';
+import { recordFeel } from './devtuning/feelLog.ts';
+import type { FeelRating } from './devtuning/feelLog.ts';
 
 export interface WaveClearRepairOffer {
   /** Total cost to restore every damaged part, in dollars. Always > 0. */
@@ -60,6 +63,11 @@ export class WaveClearCard {
   private readonly badgesBonus: HTMLSpanElement;
   private readonly badgesGrid: HTMLDivElement;
   private readonly badgeElements: BadgeElement[] = [];
+  private readonly feelBlock: HTMLElement | null;
+  private feelButtons: HTMLButtonElement[] = [];
+  private feelNote: HTMLInputElement | null = null;
+  private feelRating: FeelRating | null = null;
+  private feelView: WaveClearCardView | null = null;
   private readonly previewBlock: HTMLElement;
   private readonly previewValue: HTMLDivElement;
   private readonly warningBlock: HTMLElement;
@@ -171,6 +179,9 @@ export class WaveClearCard {
     setTextIfChanged(this.garageButton, 'Garage / Repair');
     actions.append(this.repairButton, this.continueButton, this.garageButton);
 
+    this.feelBlock = isDevMode() ? this.buildFeelRow() : null;
+    if (this.feelBlock !== null) body.appendChild(this.feelBlock);
+
     this.card.append(header, body, actions);
     this.root.appendChild(this.card);
 
@@ -179,6 +190,78 @@ export class WaveClearCard {
     this.repairButton.addEventListener('click', this.onRepairAndContinue);
     this.continueButton.addEventListener('click', this.onContinue);
     this.garageButton.addEventListener('click', this.onGarage);
+  }
+
+  /**
+   * Dev-only strip for rating the wave just cleared.
+   *
+   * Sits on the clear card because that is the one moment the player has just
+   * finished the wave and has not yet started thinking about the next one, and
+   * because the numbers it files the verdict against are already on screen.
+   */
+  private buildFeelRow(): HTMLElement {
+    const block = element('section', 'wave-clear__feel');
+    const title = element('h3', 'wave-clear__section-title');
+    setTextIfChanged(title, 'HOW DID THAT WAVE FEEL?');
+
+    const row = element('div', 'wave-clear__feel-row');
+    const options: [FeelRating, string][] = [
+      ['easy', 'Too easy'],
+      ['right', 'About right'],
+      ['hard', 'Too hard'],
+    ];
+    const buttons: HTMLButtonElement[] = [];
+    for (const [rating, label] of options) {
+      const button = element('button', 'wave-clear__feel-btn');
+      button.type = 'button';
+      setTextIfChanged(button, label);
+      button.addEventListener('click', () => {
+        this.rateWave(rating);
+        for (const other of buttons) {
+          other.classList.toggle('wave-clear__feel-btn--on', other === button);
+        }
+      });
+      buttons.push(button);
+      row.appendChild(button);
+    }
+    this.feelButtons = buttons;
+
+    this.feelNote = element('input', 'wave-clear__feel-note');
+    this.feelNote.type = 'text';
+    this.feelNote.placeholder = 'What made it that way? (optional)';
+    // Re-file on every keystroke so a note typed after the verdict is not lost
+    // when the player hits Continue without leaving the field.
+    this.feelNote.addEventListener('input', () => {
+      if (this.feelRating !== null) this.rateWave(this.feelRating);
+    });
+
+    block.append(title, row, this.feelNote);
+    return block;
+  }
+
+  /** Point the rating controls at the wave now on screen, unanswered. */
+  private resetFeelRow(view: WaveClearCardView): void {
+    if (this.feelBlock === null) return;
+    this.feelView = view;
+    this.feelRating = null;
+    for (const button of this.feelButtons) {
+      button.classList.remove('wave-clear__feel-btn--on');
+    }
+    if (this.feelNote !== null) this.feelNote.value = '';
+  }
+
+  private rateWave(rating: FeelRating): void {
+    if (this.feelView === null) return;
+    this.feelRating = rating;
+    const note = this.feelNote?.value.trim() ?? '';
+    recordFeel({
+      wave: this.feelView.wave,
+      rating,
+      seconds: this.feelView.elapsedSeconds,
+      integrityPct: this.feelView.integrityPct,
+      kills: this.feelView.kills,
+      ...(note === '' ? {} : { note }),
+    });
   }
 
   /** Shows the card and starts the reveal sequence from the top. */
@@ -190,6 +273,7 @@ export class WaveClearCard {
     this.finalMoneyEarned = Math.max(0, Math.round(view.moneyEarned));
     this.resetRevealState();
     this.renderView(view);
+    this.resetFeelRow(view);
 
     this.root.hidden = false;
     // Flushing after removing the reveal class lets a reused card replay its entrance.

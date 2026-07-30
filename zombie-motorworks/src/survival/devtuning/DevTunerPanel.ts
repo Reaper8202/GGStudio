@@ -6,11 +6,13 @@ import {
   zombieCompositionForWave,
 } from '../WaveManager.ts';
 import { formatWaveComposition } from '../waveBalance.ts';
+import { feelEntries, formatFeelReport } from './feelLog.ts';
 import type { ZombieKind } from '../zombies/Zombie.ts';
 import {
   KIND_ORDER,
   devTuning,
   exportTuningJSON,
+  importTuningJSON,
   notifyTuningChanged,
   resetTuning,
 } from './DevTuning.ts';
@@ -178,7 +180,21 @@ export class DevTunerPanel {
       copyBtn.textContent = 'Copied ✓';
       window.setTimeout(() => (copyBtn.textContent = 'Copy JSON'), 1200);
     });
-    actions.append(spawnBtn, killBtn, moneyBtn, copyBtn);
+    const pasteBtn = el('button', 'dev-btn');
+    pasteBtn.textContent = 'Paste JSON';
+    pasteBtn.addEventListener('click', () => {
+      void this.pasteTuning(pasteBtn);
+    });
+    const feelBtn = el('button', 'dev-btn');
+    feelBtn.textContent = 'Copy feel log';
+    feelBtn.title = 'Copy the wave ratings collected this session';
+    feelBtn.addEventListener('click', () => {
+      const log = feelEntries();
+      void navigator.clipboard?.writeText(formatFeelReport(log));
+      feelBtn.textContent = log.length === 0 ? 'Nothing rated' : 'Copied ✓';
+      window.setTimeout(() => (feelBtn.textContent = 'Copy feel log'), 1400);
+    });
+    actions.append(spawnBtn, killBtn, moneyBtn, copyBtn, pasteBtn, feelBtn);
     foot.appendChild(actions);
 
     this.previewEl = el('pre', 'dev-tuner__preview') as HTMLPreElement;
@@ -540,6 +556,33 @@ export class DevTunerPanel {
   }
 
   // ---- lifecycle ----------------------------------------------------------
+
+  /**
+   * Load a tuning snapshot from the clipboard into the live game.
+   *
+   * Reading the clipboard needs a permission the browser can refuse, and the
+   * prompt fallback is what makes a tuning pasted from somewhere else — a chat
+   * window, a file, a message — usable without saving it anywhere first.
+   */
+  private async pasteTuning(button: HTMLButtonElement): Promise<void> {
+    let text: string | null = null;
+    try {
+      text = (await navigator.clipboard?.readText()) ?? null;
+    } catch {
+      text = null;
+    }
+    text ??= window.prompt('Paste a tuning snapshot');
+    if (text === null) return;
+
+    const loaded = importTuningJSON(text);
+    button.textContent = loaded ? 'Loaded ✓' : 'Not a tuning ✗';
+    window.setTimeout(() => (button.textContent = 'Paste JSON'), 1400);
+    if (!loaded) return;
+    // importTuningJSON already notified; the running wave still has to be told
+    // to pick the new numbers up, exactly as a slider edit would.
+    this.host.applyLiveTuning();
+    this.refresh();
+  }
 
   /** A control changed: apply to the live game, then refresh dependent readouts. */
   private commit(): void {
