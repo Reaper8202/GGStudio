@@ -146,10 +146,15 @@ type StoreGroup = 'essentials' | 'weapons' | 'defence' | 'mobility';
 const DEFENSIVE_WEAPON_PART_IDS = new Set([
   'shield-generator',
   'pulse-emitter',
+  // Pure knockback, no damage: the Thumper buys breathing room, not kills.
+  'thumper',
 ]);
 
 /** Catalog parts filed under `weapon` that are really about getting around. */
-const MOBILITY_WEAPON_PART_IDS = new Set(['nitro-injector', 'phase-drive']);
+const MOBILITY_WEAPON_PART_IDS = new Set([
+  'nitro-injector',
+  'phase-drive',
+]);
 
 function storeGroupForPart(def: PartDefinition): StoreGroup {
   if (def.category === 'movement' || MOBILITY_WEAPON_PART_IDS.has(def.id)) {
@@ -2042,6 +2047,14 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       // Weapons have unlimited ammo now — fuel is the managed resource.
       ['Ammo', 'Unlimited'],
     );
+    if ((def.weapon.splashRadiusM ?? 0) > 0) {
+      labels.push([
+        'Splash',
+        `${formatStat(def.weapon.splashDamage ?? 0)} dmg / ${formatStat(
+          def.weapon.splashRadiusM ?? 0,
+        )} m`,
+      ]);
+    }
   }
   if (def.ability?.kind === 'freeze') {
     labels.push(
@@ -2055,6 +2068,21 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
     labels.push(
       ['Ability', 'Shield'],
       ['Effect', 'Invulnerable'],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'zap') {
+    labels.push(
+      ['Ability', 'Tesla Blast'],
+      ['Blast', `${formatStat(def.ability.baseDamage ?? 0)} DMG`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'charm') {
+    labels.push(
+      ['Ability', 'Mind Control'],
+      ['Controls', `${formatStat(def.ability.baseTargets ?? 0)} zombies`],
       ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
@@ -2077,6 +2105,14 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }
+  if (def.ability?.kind === 'rocket') {
+    labels.push(
+      ['Ability', 'Rocket'],
+      ['Blast', `${formatStat(def.ability.baseDamage ?? 0)} DMG`],
+      ['Radius', `${formatStat(def.ability.rangeM ?? 0)} M`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
   if (def.ability?.kind === 'phase') {
     labels.push(
       ['Ability', 'Phase'],
@@ -2091,6 +2127,14 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Damage', `x${formatStat(def.ability.baseDamageMultiplier ?? 1)}`],
       ['Reach', `x${formatStat(def.ability.rangeMultiplier ?? 1)}`],
       ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'thump') {
+    labels.push(
+      ['Ability', 'Thump'],
+      ['Knockback', `${formatStat(def.ability.baseDamage ?? 0)} M/S`],
+      ['Radius', `${formatStat(def.ability.rangeM ?? 0)} M`],
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }

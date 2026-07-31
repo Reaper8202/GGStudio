@@ -26,6 +26,8 @@ describe('run score', () => {
       kamikaze: 15,
       behemoth: 80,
       zamboni: 35,
+      // A boss replaces its whole wave's horde, so it pays out like one.
+      boss: 500,
     });
 
     for (const [kind, baseScore] of Object.entries(SCORE_PER_KILL)) {

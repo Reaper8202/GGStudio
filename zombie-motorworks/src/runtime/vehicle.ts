@@ -381,15 +381,13 @@ export class RuntimeVehicle {
 
   /**
    * The speed ceiling in force this step: the engine-derived cap, lifted while
-   * an overdrive surge runs but never past the hard limit that keeps the
-   * solver stable.
+   * an overdrive surge runs but never past the hard limit that keeps the solver
+   * stable.
    */
   private currentSpeedCeiling(): number {
-    if (this.overdriveTimer <= 0) return this.topSpeedCap;
-    return Math.min(
-      HARD_MAX_SPEED_MPS,
-      this.topSpeedCap * this.overdriveSpeedMultiplier,
-    );
+    const lift = this.overdriveTimer > 0 ? this.overdriveSpeedMultiplier : 1;
+    if (lift <= 1) return this.topSpeedCap;
+    return Math.min(HARD_MAX_SPEED_MPS, this.topSpeedCap * lift);
   }
 
   /** True while the overdrive surge is running. */
@@ -870,9 +868,9 @@ export class RuntimeVehicle {
 
   /**
    * Overdrive as a propellant: while the surge runs the rig is shoved along
-   * its own heading whether or not the driver is on the throttle, so nitro
-   * still digs you out when you are stalled against a wall of zombies or
-   * coasting with your foot off the pedal.
+   * its own heading whether or not the driver is on the throttle, so the
+   * bottle still digs you out when you are stalled against a wall of zombies
+   * or coasting with your foot off the pedal.
    *
    * The shove is a centre-of-mass impulse flattened to the ground plane — off
    * the wheels entirely, so it works with the drive wheels stalled, and with

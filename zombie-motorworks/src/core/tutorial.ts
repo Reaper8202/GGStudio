@@ -27,7 +27,11 @@ export const SIMPLE_PART_IDS: readonly string[] = [
   'armour-plate',
   'cannon-heavy',
   'ice-cannon',
+  'tesla-coil',
   'shield-generator',
+  'mind-control-beam',
+  'missile-launcher',
+  'thumper',
   'pulse-emitter',
   'barrel-drum',
   'spike-ram',
@@ -89,6 +93,11 @@ export const KID_LABELS: Record<string, PartLabel> = {
     blurb:
       'Shoots chilly shards that slow zombies — hit its key to freeze them solid!',
   },
+  'tesla-coil': {
+    name: 'Tesla Coil',
+    blurb:
+      'Zaps zombies with blue lightning — hit its key for a big lightning blast!',
+  },
   'barrel-drum': {
     name: 'Grinder Drum',
     blurb: 'Spinning drum that munches zombies it touches!',
@@ -116,6 +125,18 @@ export const KID_LABELS: Record<string, PartLabel> = {
   'shield-generator': {
     name: 'Shield Bubble',
     blurb: 'Press its key for a blue bubble that keeps your truck safe for a bit!',
+  },
+  'mind-control-beam': {
+    name: 'Mind Control Beam',
+    blurb: 'Hit its key to make nearby zombies fight for you — until it wears off!',
+  },
+  'missile-launcher': {
+    name: 'Missile Launcher',
+    blurb: 'Fires splashy rockets. Hit its key for one BIG rocket on the crowd!',
+  },
+  thumper: {
+    name: 'Thumper',
+    blurb: 'Hit its key to SLAM the ground and blast nearby zombies away!',
   },
   'pulse-emitter': {
     name: 'Push Blaster',

@@ -227,6 +227,19 @@ export function defaultTuning(): DevTuningState {
         reward: ZAMBONI_REWARD,
         countOverride: null,
       },
+      // Inert: a boss reads every stat from its `BossDefinition` in
+      // `zombies/bossConfig.ts`, which stays the single source of truth for boss
+      // balance. This row exists only so the record stays exhaustive over
+      // ZombieKind, and `boss` is deliberately absent from KIND_ORDER so the
+      // panel never offers sliders that would do nothing.
+      boss: {
+        healthMult: 1,
+        speedMult: 1,
+        damageMult: 1,
+        attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+        reward: 0,
+        countOverride: null,
+      },
     },
     wave: {
       health: { perWave: 0.06, cap: 2.2 },
@@ -242,6 +255,9 @@ export function defaultTuning(): DevTuningState {
         kamikaze: { startWave: 4, base: 2, perStep: 1, every: 2, cap: 10 },
         behemoth: { startWave: 8, base: 1, perStep: 1, every: 6, cap: 3 },
         zamboni: { startWave: 9, base: 1, perStep: 1, every: 6, cap: 2 },
+        // Degenerate on purpose: boss waves short-circuit ahead of the curves in
+        // `zombieCompositionForWave`, so this is never consulted.
+        boss: { startWave: 1, base: 0, perStep: 0, every: 1, cap: 0 },
       },
       hordeInterval: 1.45,
       hordeSizeMin: 8,
