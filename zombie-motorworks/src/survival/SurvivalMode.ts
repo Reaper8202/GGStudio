@@ -75,6 +75,7 @@ import {
   setSfxVolume,
   syncDriveSfx,
   stopDriveSfx,
+  fadeOutDriveSfx,
   unlockAudio,
 } from '../app/sfx.ts';
 import type { RuntimePart } from '../runtime/assembler.ts';
@@ -1788,7 +1789,6 @@ export class SurvivalMode {
     );
     const driveTelemetry = this.vehicle.telemetry();
     syncDriveSfx({
-      rpm: driveTelemetry.rpm,
       speedKmh: driveTelemetry.speedKmh,
       throttle: this.controls.throttle,
       groundedWheels: driveTelemetry.groundedWheels,
@@ -2177,6 +2177,7 @@ export class SurvivalMode {
     this.zombies.clearLandmines();
     this.zombies.clearIceTrail();
     this.zombies.clearAcidPuddles();
+    fadeOutDriveSfx();
     this.phase = 'cleared';
     this.pointerFiring = false;
     this.keys.clear();
@@ -2328,6 +2329,7 @@ export class SurvivalMode {
 
   private queueGameOver(pendingMoneyDiscarded = 0): void {
     if (this.pendingTransition !== null || this.phase === 'gameOver') return;
+    fadeOutDriveSfx();
     this.phase = 'gameOver';
     this.controls.throttle = 0;
     this.controls.brake = 1;

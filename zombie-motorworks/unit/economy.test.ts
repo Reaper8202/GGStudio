@@ -25,9 +25,9 @@ function placed(defId: string, level?: number): PlacedPart {
 
 describe('economy helpers', () => {
   it('calculates investment, a floored half refund, and default level cost', () => {
-    expect(partInvestment(placed('turret', 3))).toBe(150 + 90 + 144);
-    expect(sellRefund(placed('turret', 3))).toBe(192);
-    expect(partInvestment(placed('turret'))).toBe(150);
+    expect(partInvestment(placed('turret', 3))).toBe(120 + 40 + 86);
+    expect(sellRefund(placed('turret', 3))).toBe(123);
+    expect(partInvestment(placed('turret'))).toBe(120);
   });
 
   it('prices a maxed turret as the upgrade chain and nothing more', () => {
@@ -37,15 +37,15 @@ describe('economy helpers', () => {
     // — there is no module surcharge left to account for.
     const maxed = placed('turret', MAX_PART_LEVEL);
 
-    expect(partInvestment(maxed)).toBe(150 + 90 + 144 + 230 + 369 + 590);
-    expect(partInvestment(maxed)).toBe(1573);
-    expect(sellRefund(maxed)).toBe(786);
+    expect(partInvestment(maxed)).toBe(120 + 40 + 86 + 184 + 295 + 472);
+    expect(partInvestment(maxed)).toBe(1197);
+    expect(sellRefund(maxed)).toBe(598);
   });
 
   it('refunds only the unlock spend when a part goes back to inventory', () => {
     // Returning a part hands back a base block, so the base price stays spent
     // and everything above it comes back in full.
-    expect(unlockInvestment(placed('turret', 3))).toBe(90 + 144);
+    expect(unlockInvestment(placed('turret', 3))).toBe(40 + 86);
     expect(unlockInvestment(placed('turret'))).toBe(0);
     expect(unlockInvestment(placed('turret', 3))).toBe(
       partInvestment(placed('turret', 3)) - placeCost('turret'),
@@ -55,7 +55,7 @@ describe('economy helpers', () => {
   it('returns the next upgrade price and stops at the maximum level', () => {
     expect(nextUpgrade(placed('turret'))).toEqual({
       targetLevel: 2,
-      price: 90,
+      price: 40,
     });
     expect(nextUpgrade(placed('turret', MAX_PART_LEVEL))).toBeNull();
   });
@@ -65,7 +65,7 @@ describe('economy helpers', () => {
     const originalUpgrade = fuelTank.upgrade;
     try {
       fuelTank.upgrade = undefined;
-      expect(partInvestment(placed('fuel-tank', 3))).toBe(20);
+      expect(partInvestment(placed('fuel-tank', 3))).toBe(16);
       expect(nextUpgrade(placed('fuel-tank'))).toBeNull();
     } finally {
       fuelTank.upgrade = originalUpgrade;
@@ -73,8 +73,8 @@ describe('economy helpers', () => {
   });
 
   it('exposes catalog purchase and unlock costs plus starter membership', () => {
-    expect(placeCost('engine-small')).toBe(60);
-    expect(unlockCost('frame-reinforced')).toBe(80);
+    expect(placeCost('engine-small')).toBe(48);
+    expect(unlockCost('frame-reinforced')).toBe(10);
     expect(unlockCost('turret')).toBe(0);
     expect(isStarterUnlocked('turret')).toBe(true);
     expect(isStarterUnlocked('cannon-heavy')).toBe(false);

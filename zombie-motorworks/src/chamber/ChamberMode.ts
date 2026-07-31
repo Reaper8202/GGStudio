@@ -495,7 +495,6 @@ export class ChamberMode {
     );
     const driveTelemetry = this.vehicle.telemetry();
     syncDriveSfx({
-      rpm: driveTelemetry.rpm,
       speedKmh: driveTelemetry.speedKmh,
       throttle: this.controls.throttle,
       groundedWheels: driveTelemetry.groundedWheels,
