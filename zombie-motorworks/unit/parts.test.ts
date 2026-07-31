@@ -175,7 +175,7 @@ describe('part catalog integrity', () => {
 
   it('defines the unique Mine Sweeper outside the starter catalog', () => {
     expect(PART_CATALOG['mine-sweeper']).toMatchObject({
-      cost: 180,
+      cost: 150,
       health: 90,
       massKg: 35,
       unique: true,

@@ -67,7 +67,7 @@ describe('analyzeVehicle mass properties', () => {
     const report = analyzeVehicle(bp, getPartDef);
 
     expect(report.totalMassKg).toBe(140);
-    expect(report.totalCost).toBe(30);
+    expect(report.totalCost).toBe(24);
     const masses = [
       ...placedCellMasses(getPartDef('chassis-core'), bp.parts[0]),
       ...placedCellMasses(getPartDef('frame-box'), bp.parts[1]),

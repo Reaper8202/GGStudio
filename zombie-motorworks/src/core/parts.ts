@@ -95,18 +95,18 @@ const YAW_ORIENTATIONS: OrientationIndex[] = [0, 1, 2, 3].map((quarter) =>
  * Every upgradeable part runs the same five-unlock chain (see
  * `core/partUpgrades.ts`), so the garage's star rating means the same thing on
  * a frame box as on a heavy cannon: one star per unlock bought, five at most.
- * `cost` is the part's shelf price; the first unlock asks a bit over half of it
- * and each one after that is 1.6x the last.
+ * `cost` is the part's shelf price; the first unlock asks a bit over half of
+ * it and each one after that is 1.6x the last — except the first two unlocks
+ * (level 2 and level 3) carry an extra discount applied in `upgradePrice`
+ * (see `core/upgrades.ts`), since those are the ones a new player pays for
+ * before they've built any real bankroll. Levels 4 and 5 pay the full curve.
  *
  * Separately, each non-starter part below also carries a one-time `unlockCost`
- * — the price to add it to the store before it can be bought at all. That used
- * to be picked independently of shelf price, which let the cheapest early
- * parts (a reinforced frame, an off-road wheel) cost more to unlock than a
- * late-game weapon costs to own outright. It now tracks `cost` directly:
- * roughly 1x for the cheap early tier that should never gate a new player,
- * climbing to ~1.3x for the weapons a full run builds toward. Defence parts
- * (armour) sit at the low end of that band so surviving isn't the thing
- * players are priced out of first.
+ * — the price to add it to the store before it can be bought at all, computed
+ * by `unlock()` below off `cost` directly: half of shelf price for the cheap
+ * early tier that should never gate a new player, climbing to 0.85x for the
+ * weapons a full run builds toward. Defence parts (armour) sit at the low end
+ * of that band so surviving isn't the thing players are priced out of first.
  */
 function upgrade(cost: number) {
   return {
@@ -114,6 +114,11 @@ function upgrade(cost: number) {
     basePrice: Math.round(cost * 0.6),
     priceGrowth: 1.6,
   };
+}
+
+function unlock(cost: number): number {
+  const ratio = cost <= 40 ? 0.5 : cost <= 180 ? 0.65 : 0.85;
+  return Math.round(cost * ratio);
 }
 
 export function wheelAxleWorld(orient: OrientationIndex): Vec3i {
@@ -154,8 +159,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: frameSockets(oneCell),
     massKg: 25,
     health: 150,
-    cost: 10,
-    upgrade: upgrade(10),
+    cost: 8,
+    upgrade: upgrade(8),
     reinforcement: 1,
   },
   'frame-reinforced': {
@@ -168,9 +173,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: frameSockets(oneCell),
     massKg: 85,
     health: 320,
-    cost: 25,
-    upgrade: upgrade(25),
-    unlockCost: 80,
+    cost: 20,
+    upgrade: upgrade(20),
+    unlockCost: unlock(20),
     reinforcement: 2,
   },
   'wheel-standard': {
@@ -189,8 +194,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     ],
     massKg: 28,
     health: 90,
-    cost: 18,
-    upgrade: upgrade(18),
+    cost: 14,
+    upgrade: upgrade(14),
     reinforcement: 1,
     wheel: {
       radius: 0.3,
@@ -226,9 +231,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     ],
     massKg: 44,
     health: 130,
-    cost: 32,
-    upgrade: upgrade(32),
-    unlockCost: 120,
+    cost: 26,
+    upgrade: upgrade(26),
+    unlockCost: unlock(26),
     reinforcement: 1,
     wheel: {
       radius: 0.42,
@@ -265,9 +270,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     ],
     massKg: 12,
     health: 45,
-    cost: 24,
-    upgrade: upgrade(24),
-    unlockCost: 90,
+    cost: 19,
+    upgrade: upgrade(19),
+    unlockCost: unlock(19),
     reinforcement: 1,
     wheel: {
       radius: 0.36,
@@ -305,9 +310,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     massKg: 190,
     // Stronger: a tracked rig should be the tankiest way to roll.
     health: 620,
-    cost: 85,
-    upgrade: upgrade(85),
-    unlockCost: 220,
+    cost: 70,
+    upgrade: upgrade(70),
+    unlockCost: unlock(70),
     reinforcement: 2.6,
     wheel: {
       // A smaller effective drive radius does two things at once: it lowers the
@@ -355,8 +360,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     }),
     massKg: 120,
     health: 120,
-    cost: 60,
-    upgrade: upgrade(60),
+    cost: 48,
+    upgrade: upgrade(48),
     reinforcement: 1,
     // Engines carry a small internal fuel reserve so an engine-only build can
     // still drive; fuel-tank blocks extend total onboard fuel from there.
@@ -386,8 +391,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: frameSockets(oneCell),
     massKg: 55,
     health: 80,
-    cost: 20,
-    upgrade: upgrade(20),
+    cost: 16,
+    upgrade: upgrade(16),
     reinforcement: 1,
     fuelCapacity: 50,
   },
@@ -401,9 +406,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: frameSockets(oneCell),
     massKg: 35,
     health: 90,
-    cost: 180,
-    upgrade: upgrade(120),
-    unlockCost: 180,
+    cost: 150,
+    upgrade: upgrade(100),
+    unlockCost: unlock(150),
     reinforcement: 1,
     unique: true,
   },
@@ -419,8 +424,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 85,
     health: 140,
-    cost: 150,
-    upgrade: upgrade(150),
+    cost: 120,
+    upgrade: upgrade(120),
     reinforcement: 1,
     weapon: {
       mountType: 'turret',
@@ -446,8 +451,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: frameSockets(oneCell),
     massKg: 95,
     health: 220,
-    cost: 50,
-    upgrade: upgrade(120),
+    cost: 40,
+    upgrade: upgrade(96),
     // Starter part (see STARTER_UNLOCKS) — no unlockCost, armour is available
     // to field from the very first build so defence is never gated behind
     // store cash on top of the shelf price.
@@ -474,9 +479,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     // that the extra surface zombies can reach does not make it fragile.
     massKg: 240,
     health: 300,
-    cost: 340,
-    upgrade: upgrade(340),
-    unlockCost: 400,
+    cost: 310,
+    upgrade: upgrade(310),
+    unlockCost: unlock(310),
     reinforcement: 1.25,
     weapon: {
       mountType: 'turret',
@@ -512,9 +517,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 110,
     health: 150,
-    cost: 300,
-    upgrade: upgrade(300),
-    unlockCost: 380,
+    cost: 270,
+    upgrade: upgrade(270),
+    unlockCost: unlock(270),
     reinforcement: 1.15,
     // Normal fire: an auto-aim cryo turret whose shards slow zombies on hit.
     // A control weapon, not a damage dealer — its damage is deliberately kept
@@ -558,9 +563,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 115,
     health: 150,
-    cost: 300,
-    upgrade: upgrade(300),
-    unlockCost: 550,
+    cost: 270,
+    upgrade: upgrade(270),
+    unlockCost: unlock(270),
     reinforcement: 1.15,
     // Normal fire: an auto-aim turret that snaps blue lightning zaps at zombies.
     weapon: {
@@ -598,9 +603,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     // Priced above the other early melee options: three blocks of armoured
     // drum that shreds on contact is a heavier commitment than a sniper or
     // flamethrower slot, so both its unlock and shelf price sit higher.
-    cost: 275,
-    upgrade: upgrade(275),
-    unlockCost: 250,
+    cost: 250,
+    upgrade: upgrade(250),
+    unlockCost: unlock(250),
     reinforcement: 1.5,
     melee: {
       damage: 45,
@@ -622,8 +627,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('spike-mount', 'frame', ORIGIN, 'nz')],
     massKg: 90,
     health: 130,
-    cost: 170,
-    upgrade: upgrade(170),
+    cost: 135,
+    upgrade: upgrade(135),
     reinforcement: 1,
     melee: {
       damage: 32,
@@ -653,8 +658,8 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     allowedOrientations: YAW_ORIENTATIONS,
     massKg: 85,
     health: 120,
-    cost: 150,
-    upgrade: upgrade(150),
+    cost: 120,
+    upgrade: upgrade(120),
     reinforcement: 1,
     melee: {
       damage: 20,
@@ -687,9 +692,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     // lets the rig keep pushing a full load instead of bogging down in it.
     massKg: 280,
     health: 380,
-    cost: 260,
-    upgrade: upgrade(260),
-    unlockCost: 340,
+    cost: 235,
+    upgrade: upgrade(235),
+    unlockCost: unlock(235),
     reinforcement: 2,
     // Driving the load into a wall is what the blade is *for*, so it takes a
     // fifth of what a collision would otherwise cost it. Without this the
@@ -731,9 +736,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 40,
     health: 90,
-    cost: 160,
-    upgrade: upgrade(160),
-    unlockCost: 170,
+    cost: 135,
+    upgrade: upgrade(135),
+    unlockCost: unlock(135),
     reinforcement: 1,
     weapon: {
       mountType: 'turret',
@@ -763,9 +768,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 130,
     health: 120,
-    cost: 200,
-    upgrade: upgrade(200),
-    unlockCost: 230,
+    cost: 170,
+    upgrade: upgrade(170),
+    unlockCost: unlock(170),
     reinforcement: 1,
     weapon: {
       mountType: 'fixed',
@@ -815,9 +820,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 120,
     health: 160,
-    cost: 320,
-    upgrade: upgrade(320),
-    unlockCost: 400,
+    cost: 290,
+    upgrade: upgrade(290),
+    unlockCost: unlock(290),
     reinforcement: 1.15,
     // Ability payload only (no `weapon`): SurvivalMode grants the vehicle
     // temporary invulnerability when this ability's slot key is pressed.
@@ -841,9 +846,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 105,
     health: 140,
-    cost: 320,
-    upgrade: upgrade(320),
-    unlockCost: 600,
+    cost: 290,
+    upgrade: upgrade(290),
+    unlockCost: unlock(290),
     reinforcement: 1.15,
     // Player-triggered active ability only (no `weapon` payload): the beam does
     // nothing on its own; SurvivalMode charms the nearest zombies off the Q key.
@@ -869,9 +874,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 160,
     health: 150,
-    cost: 340,
-    upgrade: upgrade(340),
-    unlockCost: 700,
+    cost: 310,
+    upgrade: upgrade(310),
+    unlockCost: unlock(310),
     reinforcement: 1.15,
     // Normal fire: an auto-aim turret lobbing small splash rockets at zombies.
     weapon: {
@@ -910,9 +915,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 110,
     health: 140,
-    cost: 300,
-    upgrade: upgrade(300),
-    unlockCost: 550,
+    cost: 270,
+    upgrade: upgrade(270),
+    unlockCost: unlock(270),
     reinforcement: 1.15,
     // Player-triggered active ability only (no `weapon` payload): SurvivalMode
     // shoves every nearby zombie radially outward off the Q key. `baseDamage`
@@ -938,9 +943,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 130,
     health: 150,
-    cost: 300,
-    upgrade: upgrade(300),
-    unlockCost: 380,
+    cost: 270,
+    upgrade: upgrade(270),
+    unlockCost: unlock(270),
     reinforcement: 1.15,
     // The panic button for a rig that has been swarmed: no aim, no travel
     // time, everything within the ring takes it at once.
@@ -966,9 +971,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 95,
     health: 120,
-    cost: 260,
-    upgrade: upgrade(260),
-    unlockCost: 340,
+    cost: 235,
+    upgrade: upgrade(235),
+    unlockCost: unlock(235),
     reinforcement: 1.1,
     // Multiplies drive torque rather than granting speed directly, so it pays
     // off exactly where ramming does: heavy rigs digging out of a crowd.
@@ -1002,9 +1007,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: hardpointsBelow(RAIL_2X1_CELLS),
     massKg: 85,
     health: 110,
-    cost: 280,
-    upgrade: upgrade(280),
-    unlockCost: 360,
+    cost: 250,
+    upgrade: upgrade(250),
+    unlockCost: unlock(250),
     reinforcement: 1.1,
     // The escape hatch nitro is not: no wind-up, no traction needed, and it
     // ignores the wall of bodies that has the rig pinned. The short cooldown is
