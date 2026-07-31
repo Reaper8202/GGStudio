@@ -577,6 +577,41 @@ export class VfxSystem {
     this.flash(x, y + 0.2, z, 0.4, 0.1, VFX_PALETTE.gore);
   }
 
+  /**
+   * A Zamboni Zombie died. It's a single static voxel mesh with no bodyparts
+   * to gib, so its death crumbles a small scatter of steel-and-ice chunks off
+   * the machine instead — `lit`-only and flash-free like `groundSmash`, so it
+   * reads as inert debris rather than gore.
+   */
+  zamboniCrumble(x: number, y: number, z: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const chunks = this.count(12, detail);
+    for (let i = 0; i < chunks; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(1.5, 4.5);
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.4);
+      this.spec.y = y + this.rand(-0.2, 0.7);
+      this.spec.z = z + this.randSigned(0.4);
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(1.5, 4);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.12, 0.22);
+      this.spec.endSize = this.spec.size * 0.85;
+      this.spec.lifeSeconds = this.rand(0.9, 1.5);
+      this.spec.colorStart = i % 2 === 0 ? VFX_PALETTE.steel : VFX_PALETTE.frost;
+      this.spec.colorEnd = VFX_PALETTE.iceDeep;
+      this.spec.gravity = -17;
+      this.spec.spin = 9;
+      this.spec.bounce = 0.28;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+  }
+
   // ----------------------------------------------------------------- guns ---
 
   /**
@@ -2680,8 +2715,9 @@ export class VfxSystem {
    * vehicle's normalised heading — particles run along it, so the departure and
    * the arrival both point the way the blink went.
    *
-   * Deliberately cold and colourless next to nitro's exhaust: the two abilities
-   * both move the rig forward, and they must never be confused on screen.
+   * Deliberately cold and colourless next to the overdrive exhaust: the two
+   * abilities both move the rig forward, and they must never be confused on
+   * screen.
    */
   phaseBurst(
     x: number,

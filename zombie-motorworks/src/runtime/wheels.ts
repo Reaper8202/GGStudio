@@ -30,11 +30,30 @@ export const MIRROR_PLANE_X_M = CELL_SIZE / 2;
 // engine force. Per-wheel and per-surface coefficients still preserve the
 // standard/off-road and asphalt/dirt/mud differences.
 const TIRE_LONGITUDINAL_GRIP_MULTIPLIER = 1.4;
-// Lateral grip holds harder and saturates later so the car actually follows
-// the steering into a corner instead of washing out into understeer.
-const TIRE_LATERAL_GRIP_MULTIPLIER = 1.9;
+// Lateral grip still holds harder than longitudinal so the car follows the
+// steering into a corner instead of washing out into understeer, but not by
+// as much as it used to: fLat is resolved along the STEERED wheel's own axle
+// (fwd/lat both rotate with steerAngle), so at any real lock angle a slice of
+// it — proportional to sin(steerAngle) — points straight backward along the
+// chassis instead of sideways, fighting that same wheel's own drive thrust.
+// At 1.9x, once lateral slip saturated that backward slice was large enough
+// to roughly cancel a driven+steered wheel's forward push outright: a
+// standalone port of this per-wheel force model (isolating it from the yaw
+// rotation and accel-driven rear weight transfer that a full chassis sim
+// also gets to lean on) shows an all-wheel-steer rig's speed pinned in a
+// 0.4-0.5 m/s band under full lock and full throttle indefinitely, and a
+// normal front-steer/rear-drive rig plateaued around 1-1.4 m/s — which reads
+// as "won't accelerate while turning from a stop", and at speed as bleeding
+// way more speed in a corner than a driven tire steering into its own thrust
+// should.
+const TIRE_LATERAL_GRIP_MULTIPLIER = 1.5;
 const LONG_SLIP_SATURATION = 1.15; // m/s of slip for full longitudinal force
-const LAT_SLIP_SATURATION = 0.7; // m/s lateral speed for full lateral force
+// Raised alongside the multiplier cut above: a higher saturation speed widens
+// the low-speed window where lateral grip (and therefore its backward-facing
+// slice under lock) ramps in gradually instead of slamming to full force the
+// instant a steered wheel has any sideways contact speed at all, which is
+// what turned "pull away while turning" into a hard wall around ~1 m/s.
+const LAT_SLIP_SATURATION = 1.3; // m/s lateral speed for full lateral force
 const WHEEL_REST_EPSILON = 0.001; // m/s
 const BRAKE_STOP_RESPONSE_STEPS = 1;
 const GRAVITY_MPS2 = 9.81;
@@ -220,6 +239,8 @@ export function stepWheels(
   input: WheelStepInput,
   dt: number,
   surfaceOf: (colliderHandle: number) => SurfaceKind,
+  /** Optional per-contact grip multiplier (0..1) from a dynamic hazard (e.g. an ice trail); null/absent means no override. */
+  hazardMuAt?: (point: Vec3) => number | null,
 ): WheelTelemetry {
   const rot = body.rotation();
   const bodyPos = body.translation();
@@ -348,8 +369,9 @@ export function stepWheels(
       body.applyImpulseAtPoint(scale(up, springForce * dt), sample.origin, true);
       const surfaceKind = surfaceOf(sample.hit.collider.handle);
       const surface = SURFACES[surfaceKind];
-      const muLong = w.wheelDef.frictionLong * surface.muLong * TIRE_LONGITUDINAL_GRIP_MULTIPLIER * input.env.gripLongMul;
-      let muLat = w.wheelDef.frictionLat * surface.muLat * TIRE_LATERAL_GRIP_MULTIPLIER * input.env.gripLatMul;
+      const hazardMul = hazardMuAt?.(contact) ?? 1;
+      const muLong = w.wheelDef.frictionLong * surface.muLong * hazardMul * TIRE_LONGITUDINAL_GRIP_MULTIPLIER * input.env.gripLongMul;
+      let muLat = w.wheelDef.frictionLat * surface.muLat * hazardMul * TIRE_LATERAL_GRIP_MULTIPLIER * input.env.gripLatMul;
       if (w.wheelDef.skidSteer) {
         // A commanded pivot requires the belt to shear sideways; retain full grip straight ahead.
         muLat *= 1 - 0.82 * Math.abs(input.steer);

@@ -7,7 +7,12 @@ import { VFX_PALETTE } from '../vfx/vfxConfig.ts';
  * unsupported weapon as a cannon or sniper.
  */
 export type TracerStyle =
-  'turret' | 'cannon-heavy' | 'ice-cannon' | 'sniper-light' | 'flamethrower';
+  | 'turret'
+  | 'cannon-heavy'
+  | 'ice-cannon'
+  | 'sniper-light'
+  | 'flamethrower'
+  | 'tesla-coil';
 
 export interface TracerStyleTuning {
   /** Full width of the coloured halo, in world metres. */
@@ -82,6 +87,18 @@ export const TRACER_STYLE_TUNING: Readonly<
     coreScale: 0.8,
     alpha: 0.55,
     color: VFX_PALETTE.ember,
+    coreColor: VFX_PALETTE.frost,
+  },
+  // Arc, not bullet: near-instant travel and a wide white-hot core over a blue
+  // halo, so a zap reads as electricity rather than a tracer round.
+  'tesla-coil': {
+    width: 0.2,
+    lifeSeconds: 0.14,
+    travelSeconds: 0.01,
+    tailScale: 0.85,
+    coreScale: 0.78,
+    alpha: 0.85,
+    color: VFX_PALETTE.ice,
     coreColor: VFX_PALETTE.frost,
   },
 };

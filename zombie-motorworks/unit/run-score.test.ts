@@ -37,7 +37,11 @@ function createHarness(wave = 1): ScoreHarness {
       onWaveCleared: vi.fn(),
     },
     waves: { recordZombieKilled: vi.fn() },
-    zombies: { clearLandmines: vi.fn() },
+    zombies: {
+      clearLandmines: vi.fn(),
+      clearIceTrail: vi.fn(),
+      clearAcidPuddles: vi.fn(),
+    },
     countdownOverlay: { style: { display: 'block' } },
     stuckPrompt: { classList: { remove: vi.fn() } },
   });

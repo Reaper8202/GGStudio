@@ -48,6 +48,9 @@ const SNAPSHOT_DESATURATION = 0.22;
  */
 const SNAPSHOT_TINT = [1.06, 1.02, 0.82] as const;
 const ZOMBIE_RADIUS_PX = 2.6;
+/** Boss marker: larger and amber so it stands out from the red horde dots. */
+const BOSS_MARKER_RADIUS_PX = 5.2;
+const BOSS_MARKER_COLOR = '#ffb428';
 const MINE_MARKER_RADIUS_PX = 4;
 const FUEL_MARKER_RADIUS_PX = 4.5;
 const FUEL_MARKER_COLOR = '#54e07a';
@@ -166,6 +169,7 @@ export class Minimap {
     zombies: readonly MinimapZombie[],
     mines?: readonly MinimapMine[],
     crates?: readonly MinimapCrate[],
+    boss?: MinimapZombie | null,
   ): void {
     const context = this.context;
     if (context === null) return;
@@ -208,6 +212,27 @@ export class Minimap {
     }
     context.fill();
     context.stroke();
+
+    // Boss marker, drawn after the batched horde pass so it reads on top of a
+    // crowd. Larger and amber so it is never mistaken for an ordinary dot.
+    if (boss) {
+      const point = worldToViewport(
+        boss.position.x,
+        boss.position.z,
+        vehicleX,
+        vehicleZ,
+        sizePx,
+      );
+      if (Math.hypot(point.x - half, point.y - half) <= cullRadiusPx) {
+        context.fillStyle = BOSS_MARKER_COLOR;
+        context.strokeStyle = 'rgba(48, 20, 4, 0.95)';
+        context.lineWidth = 1.2;
+        context.beginPath();
+        context.arc(point.x, point.y, BOSS_MARKER_RADIUS_PX, 0, Math.PI * 2);
+        context.fill();
+        context.stroke();
+      }
+    }
 
     if (crates !== undefined && crates.length > 0) {
       context.fillStyle = FUEL_MARKER_COLOR;

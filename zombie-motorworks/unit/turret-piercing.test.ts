@@ -14,9 +14,12 @@ import {
 import { applyZombieShot } from '../src/survival/SurvivalMode.ts';
 import type { Zombie, ZombieKind } from '../src/survival/zombies/Zombie.ts';
 import { ZombieSystem } from '../src/survival/zombies/ZombieSystem.ts';
+import { MAX_PART_LEVEL } from '../src/core/partUpgrades.ts';
 import {
   empShieldLeak,
   piercingDamageFraction,
+  turretEmpLevel,
+  turretPiercingLevel,
 } from '../src/core/turretModules.ts';
 
 interface FakeCollider {
@@ -167,6 +170,21 @@ describe('turret piercing rounds', () => {
     // The placed-part ladder jumps from piercing 1 to 3, so level 2 cannot be
     // exercised through a turret rig.
     expect(piercingDamageFraction(2)).toBe(0.45);
+  });
+
+  it('maps a real turret upgrade level onto both strength ladders', () => {
+    // The cases above set the strengths directly so they can cover values the
+    // ladder skips. This is the other half of that contract: which strengths a
+    // turret actually reaches by being upgraded. Both come off one level, so a
+    // turret that pierces necessarily has a strong coil too.
+    const levels = [1, 2, 3, 4, 5, 6];
+    expect(levels.map((level) => turretEmpLevel({ config: { level } }))).toEqual([
+      0, 0, 0, 1, 2, 3,
+    ]);
+    expect(
+      levels.map((level) => turretPiercingLevel({ config: { level } })),
+    ).toEqual([0, 0, 0, 0, 1, 3]);
+    expect(MAX_PART_LEVEL).toBe(levels.at(-1));
   });
 
   it('casts only once beyond the primary and excludes its collider', () => {

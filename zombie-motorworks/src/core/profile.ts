@@ -33,6 +33,7 @@ export const STARTER_UNLOCKS = [
   'turret',
   'spike-ram',
   'sawblade',
+  'armour-plate',
 ] as const;
 
 export const DEFAULT_MONEY = 200;

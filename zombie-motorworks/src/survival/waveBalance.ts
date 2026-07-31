@@ -6,6 +6,7 @@ import {
   zombieCompositionForWave,
 } from './WaveManager.ts';
 import type { WaveComposition } from './WaveManager.ts';
+import { bossForWave, isBossWave } from './zombies/bossConfig.ts';
 import {
   BASE_ZOMBIE_STATS,
   BEHEMOTH_HEALTH_MULTIPLIER,
@@ -22,6 +23,8 @@ import {
   THROWER_REWARD,
   WORKER_HEALTH_MULTIPLIER,
   WORKER_REWARD,
+  ZAMBONI_HEALTH_MULTIPLIER,
+  ZAMBONI_REWARD,
 } from './zombies/zombieConfig.ts';
 
 export type SpecialistZombieKind =
@@ -31,7 +34,8 @@ export type SpecialistZombieKind =
   | 'worker'
   | 'phone-addict'
   | 'kamikaze'
-  | 'behemoth';
+  | 'behemoth'
+  | 'zamboni';
 
 const SPECIALIST_KINDS: readonly SpecialistZombieKind[] = [
   'gunslinger',
@@ -41,6 +45,7 @@ const SPECIALIST_KINDS: readonly SpecialistZombieKind[] = [
   'phone-addict',
   'kamikaze',
   'behemoth',
+  'zamboni',
 ];
 
 const COMPOSITION_LABELS: Record<keyof WaveComposition, [string, string]> = {
@@ -52,6 +57,8 @@ const COMPOSITION_LABELS: Record<keyof WaveComposition, [string, string]> = {
   'phone-addict': ['phone-addict', 'phone-addicts'],
   kamikaze: ['kamikaze', 'kamikazes'],
   behemoth: ['behemoth', 'behemoths'],
+  zamboni: ['zamboni', 'zambonis'],
+  boss: ['boss', 'bosses'],
 };
 
 const THREAT_WARNINGS: Record<SpecialistZombieKind, string> = {
@@ -60,25 +67,41 @@ const THREAT_WARNINGS: Record<SpecialistZombieKind, string> = {
     'Necromancers next — they stop and raise ranged throwers. Kill them mid-cast.',
   thrower: 'Ranged throwers next!',
   worker: 'Mine-laying workers next — mines go hidden from wave 8',
+  // No wave number in the copy: boss waves shift when each specialist first
+  // reaches the field, and this warning always fires on the wave before.
   'phone-addict':
-    'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage before wave 10.',
+    'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage now.',
   kamikaze: 'Kamikazes incoming — small, fast, and they explode on contact.',
   behemoth:
     'Behemoths incoming — they hit like a wrecking ball. Watch the red ring and keep moving.',
+  zamboni:
+    "Zambonis incoming — they won't attack, but they'll ice the ground behind them. Watch your grip.",
 };
 
-/** Specialist kinds that first appear on the requested wave. */
+/**
+ * Specialist kinds that first appear on the requested wave. The comparison
+ * skips back over boss waves, which field no specialists at all — otherwise
+ * every specialist would re-announce itself as new on the wave after each boss.
+ */
 export function newThreatsForWave(wave: number): SpecialistZombieKind[] {
-  const previous = zombieCompositionForWave(wave - 1);
+  let previousWave = wave - 1;
+  while (previousWave > 0 && isBossWave(previousWave)) previousWave -= 1;
+  const previous = zombieCompositionForWave(previousWave);
   const current = zombieCompositionForWave(wave);
   return SPECIALIST_KINDS.filter(
     (kind) => previous[kind] === 0 && current[kind] > 0,
   );
 }
 
-/** Player-facing warnings for specialists introduced by a wave. */
+/**
+ * Player-facing warnings for a wave. The boss warning is prepended rather than
+ * derived from `newThreatsForWave`, because bosses recur every fifth wave
+ * instead of unlocking once the way specialists do.
+ */
 export function threatWarningsForWave(wave: number): string[] {
-  return newThreatsForWave(wave).map((kind) => THREAT_WARNINGS[kind]);
+  const warnings = newThreatsForWave(wave).map((kind) => THREAT_WARNINGS[kind]);
+  const boss = bossForWave(wave);
+  return boss ? [boss.warning, ...warnings] : warnings;
 }
 
 /** Exact, compact composition with zero-count kinds omitted. */
@@ -107,6 +130,10 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
   const composition = zombieCompositionForWave(wave);
   const healthMultiplier = healthMultiplierForWave(wave);
   const baseHealth = BASE_ZOMBIE_STATS.health * healthMultiplier;
+  // A boss scales its own base health by the same wave multiplier, so its row
+  // stays comparable with the horde it replaces.
+  const boss = bossForWave(wave);
+  const bossHp = boss ? composition.boss * boss.baseHealth * healthMultiplier : 0;
   const effectiveTotalHp = Math.round(
     composition.walker * baseHealth +
       composition.gunslinger * baseHealth * GUNSLINGER_HEALTH_MULTIPLIER +
@@ -117,7 +144,9 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
         baseHealth *
         PHONE_ADDICT_HEALTH_MULTIPLIER +
       composition.kamikaze * baseHealth * KAMIKAZE_HEALTH_MULTIPLIER +
-      composition.behemoth * baseHealth * BEHEMOTH_HEALTH_MULTIPLIER,
+      composition.behemoth * baseHealth * BEHEMOTH_HEALTH_MULTIPLIER +
+      composition.zamboni * baseHealth * ZAMBONI_HEALTH_MULTIPLIER +
+      bossHp,
   );
   const totalPossibleReward =
     composition.walker * BASE_ZOMBIE_STATS.reward +
@@ -128,6 +157,8 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
     composition['phone-addict'] * PHONE_ADDICT_REWARD +
     composition.kamikaze * KAMIKAZE_REWARD +
     composition.behemoth * BEHEMOTH_REWARD +
+    composition.zamboni * ZAMBONI_REWARD +
+    composition.boss * (boss?.reward ?? 0) +
     waveRewardForWave(wave);
 
   return {

@@ -112,6 +112,8 @@ export interface TracerShot {
   slowFactor: number;
   /** Seconds the cryo slow lasts; 0 = none. */
   slowDurationSeconds: number;
+  /** Tracer rendering style of the firing weapon; 'electric' draws blue zaps. */
+  tracerStyle?: 'electric';
   /** Blast radius around `to`; 0 = no explosion. */
   splashRadiusM: number;
   /** Blast damage at the centre, falling off to 0 at the rim; 0 = none. */
@@ -447,6 +449,7 @@ export function stepWeapons(
         pierceTo,
         slowFactor: wpn.def.slowFactor ?? 0,
         slowDurationSeconds: wpn.def.slowDurationSeconds ?? 0,
+        tracerStyle: wpn.def.tracerStyle,
         splashRadiusM: wpn.def.splashRadiusM ?? 0,
         splashDamage: wpn.def.splashDamage ?? 0,
         overcharged: overcharge !== null,

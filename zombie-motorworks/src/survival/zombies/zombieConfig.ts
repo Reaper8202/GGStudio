@@ -24,6 +24,10 @@ export const ZOMBIE_POOL_COUNTS = {
   'phone-addict': 8,
   kamikaze: 16,
   behemoth: 5,
+  zamboni: 4,
+  // Boss waves summon one boss; the spare slot is headroom for a future
+  // encounter that fields two. Idle slots are parked bodies and cost nothing.
+  boss: 2,
 } as const;
 export const ZOMBIE_POOL_SIZE = Object.values(ZOMBIE_POOL_COUNTS).reduce(
   (total, count) => total + count,
@@ -342,6 +346,43 @@ export const BEHEMOTH_SMASH_VFX_RADIUS = 2.6;
 /** Ground warning ring colour while it winds up — distinct from the Worker's amber and the Necromancer's violet. */
 export const BEHEMOTH_RING_COLOR = 0xff3020;
 
+// Zamboni: unrigged single-mesh vehicle-zombie (zamboni.glb). It never
+// targets or attacks the vehicle — it patrols between arena spawn points,
+// laying a continuous ice hazard line behind it, and only reacts to being
+// shot, rammed, or meleed like any other zombie. Tanky, like the machine it
+// is, but not sluggish — it needs to actually catch up to where the vehicle
+// has been driving.
+export const ZAMBONI_HEALTH_MULTIPLIER = 5;
+export const ZAMBONI_SPEED_MULTIPLIER = 0.65;
+export const ZAMBONI_REWARD = 22;
+export const ZAMBONI_VISUAL_HEIGHT = 1.65; // pre-baseScale model height, m
+/** Distance to a patrol waypoint that counts as "arrived", world metres. */
+export const ZAMBONI_WAYPOINT_ARRIVAL_M = 3;
+/**
+ * The source model bakes noticeably lighter paint than the rest of the horde
+ * — this multiplies every material's base colour down before it ever meets
+ * the vertex-colour tint, so it reads as part of the same night graveyard.
+ */
+export const ZAMBONI_COLOR_DARKEN = 0.55;
+
+// Ice trail: a pooled hazard trail the Zamboni Zombie lays behind itself, as
+// a continuous thick line of joined segments rather than a series of
+// separate blobs — the zombie emits a new segment every time it has moved
+// `ICE_TRAIL_EMIT_DISTANCE_M`, connecting it to its last emission point, so
+// consecutive segments always share an endpoint. Segments are permanent for
+// the wave — they never fade or expire on their own — and are only cleared
+// when the wave completes or the run resets, the same lifecycle as
+// `Landmines`.
+export const ICE_TRAIL_POOL_SIZE = 220;
+/** World-metre distance the Zamboni moves between one ice segment and the next. */
+export const ICE_TRAIL_EMIT_DISTANCE_M = 2;
+/** Full width of the line, world metres — also the hazard's contact width. */
+export const ICE_TRAIL_WIDTH_M = 2.2;
+export const ICE_TRAIL_HEIGHT_M = 0.03;
+export const ICE_TRAIL_COLOR = 0xbfe9ff;
+/** Grip multiplier applied on top of the terrain underneath a patch. */
+export const ICE_TRAIL_GRIP_MULTIPLIER = 0.2;
+
 // Phone Addict: projectile-proof zombie (PhoneAddict voxel pck). A personal
 // bubble shield absorbs every gun hit — only flame, ramming, and grinder
 // contact hurt it.
@@ -400,7 +441,12 @@ export const SHIELD_FLASH_DURATION = 0.45;
 export const SHIELD_FLASH_MAX_OPACITY = 0.4;
 export const SHIELD_RADIUS = 1.3;
 
-export const PROJECTILE_POOL_SIZE = 24;
+/**
+ * Shared by thrower boxes and boss vials. `launch` silently drops a shot when
+ * the pool is full, so this has headroom for an enraged 3-vial barrage landing
+ * on top of a full thrower wave (the debug spawn-one-of-each path can mix them).
+ */
+export const PROJECTILE_POOL_SIZE = 32;
 export const PROJECTILE_HORIZONTAL_SPEED = 9; // m/s, still a dodgeable lob
 export const PROJECTILE_MIN_FLIGHT_TIME = 0.5;
 export const PROJECTILE_MAX_FLIGHT_TIME = 2.5;
@@ -409,6 +455,72 @@ export const PROJECTILE_HIT_RADIUS = 1.3;
 export const PROJECTILE_LIFETIME = 6;
 export const PROJECTILE_LAUNCH_HEIGHT = 1.2;
 export const PROJECTILE_SIZE = 0.5;
+
+// Vials: the boss projectile fired by a `vial` boss attack. Same pooled
+// ballistic system as the thrower's boxes — full gravity, tumbling in flight —
+// rather than the flattened, point-first needle bolt this replaced. Per-vial
+// damage comes from the BossDefinition (so it scales with the wave), not from a
+// constant here.
+/**
+ * Between the thrower's 9 m/s box and the needle boss's old 7 m/s bolt — a
+ * hand-thrown vial is heavier than a tumbling box but still a real throw, not a
+ * fired shot. The boss's own `attack.projectileSpeedMps` is the live value;
+ * this is the shared default.
+ */
+export const VIAL_HORIZONTAL_SPEED = 7.5; // m/s
+/**
+ * Wider clamps than the thrower's. Past `speed * MAX_FLIGHT_TIME` a shot would
+ * be forced to travel *faster* than its nominal speed to arrive in time, so the
+ * ceiling has to sit beyond the boss's working range (~16 m at 7.5 m/s = 2.13 s).
+ */
+export const VIAL_MIN_FLIGHT_TIME = 0.5;
+export const VIAL_MAX_FLIGHT_TIME = 3;
+/**
+ * Full gravity, same as the thrower's box (`BOX_PROJECTILE.gravityScale`): a
+ * hand-tossed vial should read as thrown, arcing high, not fired flat the way
+ * the needle it replaced did. See `launch()` in ThrowerProjectiles.ts for how
+ * this and `horizontalSpeed` together fix the arc height.
+ */
+export const VIAL_GRAVITY_SCALE = 1;
+/** Between the box's 1.3 and the old needle's 0.9 — a direct hit still matters, but less than the puddle. */
+export const VIAL_HIT_RADIUS = 1.1;
+export const VIAL_LIFETIME = 6;
+/** Small glass capsule, in world metres — the same shape the puddle-forming splash leaves behind. */
+export const VIAL_CAPSULE_RADIUS = 0.1;
+export const VIAL_CAPSULE_LENGTH = 0.22;
+/**
+ * Fraction of the boss's visual height, measured up from its feet, that a vial
+ * leaves from. Matches where `buildVialArm` hangs the prop, so the throw appears
+ * to come out of the raised arm rather than the boss's chest.
+ */
+export const VIAL_LAUNCH_HEIGHT_FRACTION = 0.78;
+
+// Acid puddles: what a vial leaves behind wherever it lands, vehicle or bare
+// ground. A flat ground disc with no Rapier body, ticked by ZombieSystem the
+// same way it ticks landmine proximity and boss slams — see `AcidPuddles.ts`.
+/**
+ * Comfortably above the largest number of puddles the alchemist can have alive
+ * at once: an enraged 3-vial barrage, plus the tail end of the volley before it
+ * (puddles at `poisonDamagePerSecond` * 5 s durations easily outlive the ~3.2 s
+ * gap between throws). Never needs to be huge — only one vial boss exists.
+ */
+export const ACID_PUDDLE_POOL_SIZE = 8;
+/** Sickly acid green, matching the boss's own tint so the puddle reads as "its" hazard. */
+export const ACID_PUDDLE_COLOR = 0x5cff2e;
+export const ACID_PUDDLE_OPACITY = 0.55;
+/** Last second of a puddle's life fades its opacity out, telegraphing it is about to clear. */
+export const ACID_PUDDLE_FADE_SECONDS = 1;
+/**
+ * Poison is ticked on a timer rather than applied every physics step (1/60 s).
+ * `applyDirectDamage` floors any nonzero hit to at least 1 HP — tuned for
+ * one-shot impacts like a ram or an explosion — so a per-frame dose would floor
+ * to 60 HP/s regardless of `poisonDamagePerSecond`. Half-second ticks deliver
+ * `poisonDamagePerSecond * 0.5`, comfortably above that floor for any sane DPS
+ * value, while still reading as continuous damage.
+ */
+export const ACID_POISON_TICK_SECONDS = 0.5;
+/** Circle segment count for the puddle disc — cheap and round enough at this size. */
+export const ACID_PUDDLE_SEGMENTS = 24;
 
 export const SCALE_VARIATION = 0.12;
 export const WALK_BOB_FREQUENCY = 9;

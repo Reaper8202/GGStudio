@@ -3,6 +3,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
 const templates = new Map<string, Promise<THREE.Group>>();
 
@@ -127,8 +128,16 @@ function correctVertexColors(object: THREE.Object3D): void {
  * bones are plain Object3Ds, so a clone keeps the names and pose code can find
  * them with `getObjectByName`.
  */
+/**
+ * Only the glb-pipeline's plain (unrigged) output is meshopt-compressed —
+ * the rigger writes its rigged exports uncompressed by design — but the
+ * decoder is harmless to register unconditionally, so every `.glb` here
+ * shares one loader instead of branching on which asset needs it.
+ */
+const glbLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+
 async function loadGlbObject(url: string): Promise<THREE.Object3D> {
-  const scene = (await new GLTFLoader().loadAsync(url)).scene;
+  const scene = (await glbLoader.loadAsync(url)).scene;
   correctVertexColors(scene);
   return scene;
 }

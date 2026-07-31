@@ -272,9 +272,54 @@ does not depend on the report.
 explicitly, so specialist availability is not random. A wave clears only after
 all scheduled assignments have spawned and the active pool count reaches zero.
 
-Enemy kinds are `walker`, `thrower`, `worker`, and `phone-addict`. Kind-specific
-health/speed/reward and hazard constants live in `zombieConfig.ts`. Progression
-warnings derive from the same composition functions in `waveBalance.ts`.
+Enemy kinds are `walker`, `thrower`, `worker`, `phone-addict`, and `boss`.
+Kind-specific health/speed/reward and hazard constants live in
+`zombieConfig.ts`. Progression warnings derive from the same composition
+functions in `waveBalance.ts`.
+
+Every wave that is a multiple of `BOSS_WAVE_INTERVAL` is a boss wave: the horde
+is replaced entirely by one boss, which heads the spawn queue. A boss is a
+pooled zombie of kind `boss` whose stats, attack, capsule size, and placeholder
+visual all come from a `BossDefinition` in `zombies/bossConfig.ts`;
+`WaveManager` selects it with `bossForWave` and hands it to
+`ZombieSystem.setBossDefinition` at wave start. `BOSS_ROTATION` is indexed by
+boss-wave number, so consecutive boss waves are different encounters. Adding a
+boss means adding a registry entry and putting its id into the rotation, not
+adding a class.
+
+`BossDefinition.attack` is a discriminated union. A `slam` boss closes to melee
+and damages every part inside a telegraphed ground ring; a `vial` boss holds at
+range, backs away when the rig closes inside its disengage ring, and lobs pooled
+projectiles that deal a small direct splash to the part they strike, fanning
+several per throw once below its phase-two health fraction. Both kinds route
+through the same `WindingUp` state; only the callback fired on completion
+differs (`onBossSlam` vs `onBossVials`). A new attack kind is therefore the one
+change that a new boss cannot make from the registry alone.
+
+Boss projectiles share the pooled ballistic system in `ThrowerProjectiles.ts`
+with the thrower. A `ProjectileSpec` carries per-shot speed, lifetime, damage,
+hit radius, and visual variant, so mixed projectiles coexist in one pool and the
+owning system's impact callback receives the damage per projectile rather than
+reading a global constant. Boss vial damage comes from the `BossDefinition` and
+so scales with the wave; the thrower's stays the flat tuner value.
+
+A vial's real payload is the puddle it leaves wherever it lands (vehicle or bare
+ground), not the direct splash: `ThrowerProjectiles.update`'s optional `onLand`
+callback fires once per despawning projectile with its `ProjectileSpec.puddle`
+payload, and `ZombieSystem` hands that to `AcidPuddles.spawn`, a small pooled
+system of flat ground discs (no Rapier body) mirroring `Landmines.ts`. Poison
+ticks on a half-second clock rather than every physics step — `applyDirectDamage`
+floors any nonzero hit to at least 1 HP, which would otherwise turn a per-frame
+dose into 60 HP/s regardless of the configured `poisonDamagePerSecond` — and when
+puddles overlap a part takes the strongest single puddle's dose, not the sum, so
+standing in a multi-puddle overlap is exactly as risky as standing in the
+strongest one. `The Alchemist` (`acid-alchemist`) is also the one boss whose body
+renders as a plain capsule rather than the shared voxel placeholder
+(`BossDefinition.bodyVisual: 'capsule'`), toggled in `Zombie.applyBossVisualSizing`.
+
+Because a boss occupies an ordinary pool slot, wave clear, kill accounting,
+weapon routing, and ability AoE need no boss-specific cases. Bosses do cap ram
+damage and resist knockback, so a high-speed ram cannot one-shot one.
 
 ## Runtime Damage Contract
 

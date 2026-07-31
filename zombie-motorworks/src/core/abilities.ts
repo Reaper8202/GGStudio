@@ -101,6 +101,30 @@ export function effectiveShield(
   };
 }
 
+/** Resolved zap-blast stats after applying a placed part's upgrade level. */
+export interface ZapStats {
+  /** Damage dealt to every zombie caught in the blast. */
+  damage: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+}
+
+/** Damage added to the zap blast per upgrade level beyond the first. */
+const ZAP_DAMAGE_PER_LEVEL = 25;
+
+/**
+ * Scales a zap ability by the placed part's upgrade level. Each level beyond the
+ * first adds {@link ZAP_DAMAGE_PER_LEVEL} blast damage; the cooldown is fixed.
+ * Level 1 → 90 dmg, level 5 → 190 (with the default tesla-coil payload).
+ */
+export function effectiveZap(def: AbilityDefinition, level = 1): ZapStats {
+  const steps = upgradeSteps(level);
+  return {
+    damage: (def.baseDamage ?? 0) + steps * ZAP_DAMAGE_PER_LEVEL,
+    cooldownSeconds: def.cooldownSeconds,
+  };
+}
+
 /**
  * Scales a pulse ability by the placed part's upgrade level. Each level beyond
  * the first adds a quarter of the base damage and half a metre of reach;
@@ -113,6 +137,65 @@ export function effectivePulse(def: AbilityDefinition, level = 1): PulseStats {
   return {
     damage: base + base * 0.25 * steps,
     radiusM: (def.rangeM ?? 0) + 0.5 * steps,
+    cooldownSeconds: def.cooldownSeconds,
+  };
+}
+
+/** Resolved mind-control stats after applying a placed part's upgrade level. */
+export interface CharmStats {
+  /** Number of zombies turned to your side by one activation. */
+  targets: number;
+  /** Seconds the charmed zombies fight for you before reverting to hostile. */
+  durationSeconds: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+  /** Metres from the vehicle within which zombies can be charmed. */
+  rangeM: number;
+}
+
+/** Charm duration added per upgrade level beyond the first. */
+const CHARM_SECONDS_PER_LEVEL = 2;
+
+/**
+ * Scales a charm ability by the placed part's upgrade level. The number of
+ * zombies charmed stays fixed (the headline "up to N"); each level beyond the
+ * first extends how long they fight for you by {@link CHARM_SECONDS_PER_LEVEL}.
+ * Level 1 → 12s, level 5 → 20s (with the default mind-control payload).
+ */
+export function effectiveCharm(def: AbilityDefinition, level = 1): CharmStats {
+  const steps = upgradeSteps(level);
+  return {
+    targets: def.baseTargets ?? 0,
+    durationSeconds: def.baseDurationSeconds + steps * CHARM_SECONDS_PER_LEVEL,
+    cooldownSeconds: def.cooldownSeconds,
+    rangeM: def.rangeM ?? 0,
+  };
+}
+
+/** Resolved big-rocket blast stats after applying a placed part's level. */
+export interface RocketStats {
+  /** Damage dealt to every zombie caught in the blast. */
+  damage: number;
+  /** Blast radius in metres. */
+  radiusM: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+}
+
+/** Damage added to the rocket blast per upgrade level beyond the first. */
+const ROCKET_DAMAGE_PER_LEVEL = 45;
+
+/**
+ * Scales a rocket ability by the placed part's upgrade level. Each level beyond
+ * the first adds {@link ROCKET_DAMAGE_PER_LEVEL} blast damage; the radius and
+ * cooldown are fixed. Level 1 → 170 dmg, level 5 → 350 (with the default
+ * missile-launcher payload).
+ */
+export function effectiveRocket(def: AbilityDefinition, level = 1): RocketStats {
+  const steps = upgradeSteps(level);
+  return {
+    damage: (def.baseDamage ?? 0) + steps * ROCKET_DAMAGE_PER_LEVEL,
+    radiusM: def.rangeM ?? 0,
     cooldownSeconds: def.cooldownSeconds,
   };
 }
@@ -155,6 +238,35 @@ export function effectiveHellfire(
     damageMultiplier: (def.baseDamageMultiplier ?? 1) + 0.2 * steps,
     rangeMultiplier: def.rangeMultiplier ?? 1,
     coneMultiplier: def.coneMultiplier ?? 1,
+    cooldownSeconds: def.cooldownSeconds,
+  };
+}
+
+/** Resolved Thumper shockwave stats after applying a placed part's level. */
+export interface ThumpStats {
+  /** Speed, m/s, every caught zombie is flung radially outward at. */
+  knockbackSpeed: number;
+  /** Radius in metres of the knockback circle around the vehicle. */
+  radiusM: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+}
+
+/** Knockback speed (m/s) added per upgrade level beyond the first. */
+const THUMP_KNOCKBACK_PER_LEVEL = 3;
+
+/**
+ * Scales a thump ability by the placed part's upgrade level. The radius stays a
+ * fixed, moderate circle; each level beyond the first adds
+ * {@link THUMP_KNOCKBACK_PER_LEVEL} m/s of knockback speed, so higher levels
+ * fling zombies harder. Level 1 → 14 m/s, level 5 → 26 (with the default
+ * thumper payload).
+ */
+export function effectiveThump(def: AbilityDefinition, level = 1): ThumpStats {
+  const steps = upgradeSteps(level);
+  return {
+    knockbackSpeed: (def.baseDamage ?? 0) + steps * THUMP_KNOCKBACK_PER_LEVEL,
+    radiusM: def.rangeM ?? 0,
     cooldownSeconds: def.cooldownSeconds,
   };
 }
@@ -324,6 +436,28 @@ export const ABILITY_KIND_META: Record<
     blurb:
       'Hold the nozzle wide open: a hotter, longer, wider sheet of flame that ' +
       'never pauses between bursts.',
+  },
+  zap: {
+    label: 'Tesla Blast',
+    glyph: '⚡',
+    blurb: 'Detonate a lightning blast that shocks every zombie in range.',
+  },
+  charm: {
+    label: 'Mind Control',
+    glyph: '☯',
+    blurb:
+      'Turn the nearest zombies to your side — they fight for you until the ' +
+      'hold wears off.',
+  },
+  rocket: {
+    label: 'Rocket',
+    glyph: '➤',
+    blurb: 'Launch a heavy rocket that detonates on the thickest of the horde.',
+  },
+  thump: {
+    label: 'Thump',
+    glyph: '◎',
+    blurb: 'Slam a shockwave outward that knocks every nearby zombie back.',
   },
 };
 

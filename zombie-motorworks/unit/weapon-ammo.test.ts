@@ -50,6 +50,13 @@ describe('unlimited weapons', () => {
     expect(cannon.piercingLevel).toBe(0);
   });
 
+  it('leaves an un-upgraded turret with neither unlock', () => {
+    const stock = createWeapon(part('blaster', 'turret'));
+
+    expect(stock.empLevel).toBe(0);
+    expect(stock.piercingLevel).toBe(0);
+  });
+
   it('never runs out of ammo — it fires as fast as its cooldown allows', () => {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const blasterPart = part('blaster', 'turret');

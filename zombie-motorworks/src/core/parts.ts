@@ -97,6 +97,16 @@ const YAW_ORIENTATIONS: OrientationIndex[] = [0, 1, 2, 3].map((quarter) =>
  * a frame box as on a heavy cannon: one star per unlock bought, five at most.
  * `cost` is the part's shelf price; the first unlock asks a bit over half of it
  * and each one after that is 1.6x the last.
+ *
+ * Separately, each non-starter part below also carries a one-time `unlockCost`
+ * — the price to add it to the store before it can be bought at all. That used
+ * to be picked independently of shelf price, which let the cheapest early
+ * parts (a reinforced frame, an off-road wheel) cost more to unlock than a
+ * late-game weapon costs to own outright. It now tracks `cost` directly:
+ * roughly 1x for the cheap early tier that should never gate a new player,
+ * climbing to ~1.3x for the weapons a full run builds toward. Defence parts
+ * (armour) sit at the low end of that band so surviving isn't the thing
+ * players are priced out of first.
  */
 function upgrade(cost: number) {
   return {
@@ -160,7 +170,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 320,
     cost: 25,
     upgrade: upgrade(25),
-    unlockCost: 150,
+    unlockCost: 80,
     reinforcement: 2,
   },
   'wheel-standard': {
@@ -218,7 +228,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 130,
     cost: 32,
     upgrade: upgrade(32),
-    unlockCost: 250,
+    unlockCost: 120,
     reinforcement: 1,
     wheel: {
       radius: 0.42,
@@ -257,7 +267,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 45,
     cost: 24,
     upgrade: upgrade(24),
-    unlockCost: 180,
+    unlockCost: 90,
     reinforcement: 1,
     wheel: {
       radius: 0.36,
@@ -297,7 +307,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 620,
     cost: 85,
     upgrade: upgrade(85),
-    unlockCost: 450,
+    unlockCost: 220,
     reinforcement: 2.6,
     wheel: {
       // A smaller effective drive radius does two things at once: it lowers the
@@ -393,7 +403,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 90,
     cost: 180,
     upgrade: upgrade(120),
-    unlockCost: 220,
+    unlockCost: 180,
     reinforcement: 1,
     unique: true,
   },
@@ -436,9 +446,11 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: frameSockets(oneCell),
     massKg: 95,
     health: 220,
-    cost: 120,
+    cost: 50,
     upgrade: upgrade(120),
-    unlockCost: 200,
+    // Starter part (see STARTER_UNLOCKS) — no unlockCost, armour is available
+    // to field from the very first build so defence is never gated behind
+    // store cash on top of the shelf price.
     reinforcement: 2.5,
     armour: {
       faceMounted: false,
@@ -464,7 +476,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 300,
     cost: 340,
     upgrade: upgrade(340),
-    unlockCost: 500,
+    unlockCost: 400,
     reinforcement: 1.25,
     weapon: {
       mountType: 'turret',
@@ -502,7 +514,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 150,
     cost: 300,
     upgrade: upgrade(300),
-    unlockCost: 600,
+    unlockCost: 380,
     reinforcement: 1.15,
     // Normal fire: an auto-aim cryo turret whose shards slow zombies on hit.
     // A control weapon, not a damage dealer — its damage is deliberately kept
@@ -533,6 +545,45 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       baseDurationSeconds: 4,
     },
   },
+  'tesla-coil': {
+    id: 'tesla-coil',
+    name: 'Tesla Coil',
+    category: 'weapon',
+    description:
+      'Arc emitter. Auto-fires blue lightning zaps that deal moderate damage. ' +
+      'Press Q to detonate a lightning blast around the vehicle, hitting every ' +
+      'zombie in a bubble-sized radius (14s cooldown); upgrades hit harder.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 115,
+    health: 150,
+    cost: 300,
+    upgrade: upgrade(300),
+    unlockCost: 550,
+    reinforcement: 1.15,
+    // Normal fire: an auto-aim turret that snaps blue lightning zaps at zombies.
+    weapon: {
+      mountType: 'turret',
+      aimMode: 'auto',
+      arcDeg: 360,
+      damageType: 'hitscan',
+      damage: 14,
+      fireRate: 3,
+      recoilImpulse: 30,
+      projectileSpeed: 200,
+      rangeM: 16,
+      tracerStyle: 'electric',
+    },
+    // Player-triggered active ability: a lightning blast around the vehicle,
+    // driven off Q by SurvivalMode independently of the normal fire above.
+    ability: {
+      kind: 'zap',
+      cooldownSeconds: 14,
+      baseDurationSeconds: 0,
+      baseDamage: 90,
+    },
+  },
   'barrel-drum': {
     id: 'barrel-drum',
     name: 'Barrel Drum',
@@ -544,9 +595,12 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: frameSockets([v(-1, 0, 0), ORIGIN, v(1, 0, 0)]),
     massKg: 240,
     health: 360,
-    cost: 200,
-    upgrade: upgrade(200),
-    unlockCost: 400,
+    // Priced above the other early melee options: three blocks of armoured
+    // drum that shreds on contact is a heavier commitment than a sniper or
+    // flamethrower slot, so both its unlock and shelf price sit higher.
+    cost: 275,
+    upgrade: upgrade(275),
+    unlockCost: 250,
     reinforcement: 1.5,
     melee: {
       damage: 45,
@@ -635,7 +689,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 380,
     cost: 260,
     upgrade: upgrade(260),
-    unlockCost: 480,
+    unlockCost: 340,
     reinforcement: 2,
     // Driving the load into a wall is what the blade is *for*, so it takes a
     // fifth of what a collision would otherwise cost it. Without this the
@@ -677,9 +731,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 40,
     health: 90,
-    cost: 220,
-    upgrade: upgrade(220),
-    unlockCost: 350,
+    cost: 160,
+    upgrade: upgrade(160),
+    unlockCost: 170,
     reinforcement: 1,
     weapon: {
       mountType: 'turret',
@@ -709,9 +763,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 130,
     health: 120,
-    cost: 260,
-    upgrade: upgrade(260),
-    unlockCost: 450,
+    cost: 200,
+    upgrade: upgrade(200),
+    unlockCost: 230,
     reinforcement: 1,
     weapon: {
       mountType: 'fixed',
@@ -763,7 +817,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 160,
     cost: 320,
     upgrade: upgrade(320),
-    unlockCost: 650,
+    unlockCost: 400,
     reinforcement: 1.15,
     // Ability payload only (no `weapon`): SurvivalMode grants the vehicle
     // temporary invulnerability when this ability's slot key is pressed.
@@ -771,6 +825,104 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       kind: 'shield',
       cooldownSeconds: 25,
       baseDurationSeconds: 4,
+    },
+  },
+  'mind-control-beam': {
+    id: 'mind-control-beam',
+    name: 'Mind Control Beam',
+    category: 'weapon',
+    description:
+      'Psychic emitter. It never shoots on its own — press Q to mind-control ' +
+      'up to 5 nearby zombies into fighting for you for a while, then the ' +
+      'control wears off and they turn hostile again (28s cooldown); upgrades ' +
+      'keep them on your side longer.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 105,
+    health: 140,
+    cost: 320,
+    upgrade: upgrade(320),
+    unlockCost: 600,
+    reinforcement: 1.15,
+    // Player-triggered active ability only (no `weapon` payload): the beam does
+    // nothing on its own; SurvivalMode charms the nearest zombies off the Q key.
+    ability: {
+      kind: 'charm',
+      cooldownSeconds: 28,
+      rangeM: 14,
+      baseTargets: 5,
+      baseDurationSeconds: 12,
+    },
+  },
+  'missile-launcher': {
+    id: 'missile-launcher',
+    name: 'Missile Launcher',
+    category: 'weapon',
+    description:
+      'Rocket battery. Auto-fires small rockets that burst for splash damage ' +
+      'on impact. Press Q to launch one big rocket that drops on the thickest ' +
+      'part of the horde for massive blast damage (18s cooldown); upgrades hit ' +
+      'harder.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 160,
+    health: 150,
+    cost: 340,
+    upgrade: upgrade(340),
+    unlockCost: 700,
+    reinforcement: 1.15,
+    // Normal fire: an auto-aim turret lobbing small splash rockets at zombies.
+    weapon: {
+      mountType: 'turret',
+      aimMode: 'auto',
+      arcDeg: 360,
+      damageType: 'projectile',
+      damage: 10,
+      fireRate: 1.2,
+      recoilImpulse: 60,
+      projectileSpeed: 90,
+      rangeM: 22,
+      splashRadiusM: 2.6,
+      splashDamage: 14,
+    },
+    // Player-triggered active ability: SurvivalMode launches a big rocket that
+    // detonates a high-damage blast on the densest cluster off the Q key.
+    ability: {
+      kind: 'rocket',
+      cooldownSeconds: 18,
+      baseDurationSeconds: 0,
+      rangeM: 5,
+      baseDamage: 170,
+    },
+  },
+  'thumper': {
+    id: 'thumper',
+    name: 'Thumper',
+    category: 'weapon',
+    description:
+      'Ground-pound slammer. Press Q to blast a shockwave outward that knocks ' +
+      'every zombie in a moderate circle away from you (12s cooldown); upgrades ' +
+      'crank up the knockback so they get flung harder and farther.',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 110,
+    health: 140,
+    cost: 300,
+    upgrade: upgrade(300),
+    unlockCost: 550,
+    reinforcement: 1.15,
+    // Player-triggered active ability only (no `weapon` payload): SurvivalMode
+    // shoves every nearby zombie radially outward off the Q key. `baseDamage`
+    // carries the level-1 knockback speed (m/s); `rangeM` is the blast radius.
+    ability: {
+      kind: 'thump',
+      cooldownSeconds: 12,
+      baseDurationSeconds: 0,
+      rangeM: 5,
+      baseDamage: 14,
     },
   },
   'pulse-emitter': {
@@ -788,7 +940,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 150,
     cost: 300,
     upgrade: upgrade(300),
-    unlockCost: 600,
+    unlockCost: 380,
     reinforcement: 1.15,
     // The panic button for a rig that has been swarmed: no aim, no travel
     // time, everything within the ring takes it at once.
@@ -816,7 +968,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 120,
     cost: 260,
     upgrade: upgrade(260),
-    unlockCost: 520,
+    unlockCost: 340,
     reinforcement: 1.1,
     // Multiplies drive torque rather than granting speed directly, so it pays
     // off exactly where ramming does: heavy rigs digging out of a crowd.
@@ -852,7 +1004,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 110,
     cost: 280,
     upgrade: upgrade(280),
-    unlockCost: 560,
+    unlockCost: 360,
     reinforcement: 1.1,
     // The escape hatch nitro is not: no wind-up, no traction needed, and it
     // ignores the wall of bodies that has the rig pinned. The short cooldown is

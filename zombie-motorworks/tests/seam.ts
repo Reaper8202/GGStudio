@@ -57,6 +57,12 @@ declare global {
         phase: 'countdown' | 'active' | 'cleared' | 'gameOver';
         partHp: Record<string, number>;
         integrityPct: number;
+        boss: {
+          id: string;
+          name: string;
+          health: number;
+          maxHealth: number;
+        } | null;
         vehiclePos: [number, number, number];
         rotation: [number, number, number, number];
         angvel: [number, number, number];
