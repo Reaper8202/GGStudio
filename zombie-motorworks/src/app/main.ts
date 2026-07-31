@@ -18,9 +18,22 @@ async function boot(): Promise<void> {
     return;
   }
 
-  const { App } = await import('./App.ts');
-  const app = new App(el);
-  await app.start();
+  const sdk = await import('./crazyGamesSdk.ts');
+  const sdkReadyAtBoot = await sdk.initCrazyGamesForBoot();
+  if (sdkReadyAtBoot) await sdk.startCrazyGamesLoading();
+
+  let app: import('./App.ts').App;
+  try {
+    const [{ App }, { setPlatformAudioMuted }] = await Promise.all([
+      import('./App.ts'),
+      import('./sfx.ts'),
+    ]);
+    sdk.subscribeCrazyGamesAudioMute(setPlatformAudioMuted);
+    app = new App(el);
+    await app.start();
+  } finally {
+    if (sdkReadyAtBoot) await sdk.stopCrazyGamesLoading();
+  }
 
   // Read every parameter before rewriting the URL below, so stripping the
   // share code cannot take the debug seam down with it.

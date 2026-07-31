@@ -4,28 +4,28 @@
 > edit by hand. Search this file for a path or exported symbol; do not read
 > it end to end as routine task setup.
 
-- Source Modules: 114
-- Source lines: 48,951
-- Test files scanned: 103
+- Source Modules: 115
+- Source lines: 49,461
+- Test files scanned: 105
 
 ## Largest Modules
 
 | Module | LOC |
 | --- | ---: |
-| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 3913 |
+| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 3987 |
 | [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) | 3178 |
 | [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 2859 |
 | [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 2531 |
 | [`src/editor/ui.ts`](../../src/editor/ui.ts) | 2187 |
 | [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 1897 |
-| [`src/app/App.ts`](../../src/app/App.ts) | 1420 |
+| [`src/app/App.ts`](../../src/app/App.ts) | 1428 |
 | [`src/editor/parts/upgradeKit.ts`](../../src/editor/parts/upgradeKit.ts) | 1221 |
+| [`src/app/sfx.ts`](../../src/app/sfx.ts) | 1191 |
 | [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 1123 |
-| [`src/app/sfx.ts`](../../src/app/sfx.ts) | 1068 |
 
 ## src/app
 
-### [`src/app/App.ts`](../../src/app/App.ts) (1420 LOC)
+### [`src/app/App.ts`](../../src/app/App.ts) (1428 LOC)
 
 - Exports: `App`, `buildStarterBlueprint`, `CheckpointRunState`, `createClearedWaveCheckpoint`, `createInitialRunCheckpoint`, `fullPartHp`, `prepareCheckpointForGarageFight`, `recordPhoneAddictKilled`, `recordWaveCleared`, `recoverRunFromCheckpoint`, `resetProfileForNewGame`, `resetProfileForNewRun`, `RunCheckpoint`, `runStateFromCheckpoint`, `savedRunFromCheckpoint`
 - Imports: `src/app/TitleScreen.ts`, `src/app/crazyGamesSdk.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/app/runSaveStore.ts`, `src/app/sfx.ts`, `src/chamber/ChamberMode.ts`, `src/core/analysis.ts`, `src/core/biomes.ts`, `src/core/blueprint.ts`, `src/core/commands.ts`, `src/core/economy.ts`, `src/core/grid.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/placement.ts`, `src/core/profile.ts`, `src/core/rng.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/core/upgrades.ts`, `src/editor/EditorMode.ts`, `src/editor/ui.ts`, `src/runtime/vehicle.ts`, `src/survival/SurvivalMode.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/devMode.ts`
@@ -33,10 +33,10 @@
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/app.test.ts`, `unit/biome-selection.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-reset.test.ts`, `unit/share-code.test.ts`, `unit/wave-jump.test.ts`, `unit/wheels-steering.test.ts`
 
-### [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) (939 LOC)
+### [`src/app/TitleScreen.ts`](../../src/app/TitleScreen.ts) (978 LOC)
 
 - Exports: `formatRelativeDate`, `TitleScreen`, `TitleScreenHandlers`
-- Imports: `src/app/App.ts`, `src/app/badgeGallery.css`, `src/app/badgeStore.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/app/sfx.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/editor/EditorMode.ts`, `src/editor/meshes.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/ui/leaderboardTable.ts`
+- Imports: `src/app/App.ts`, `src/app/badgeGallery.css`, `src/app/badgeStore.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/app/sfx.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/editor/EditorMode.ts`, `src/editor/meshes.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/ui/audioVolumeControl.ts`, `src/ui/leaderboardTable.ts`
 - Imported by: `src/app/App.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/leaderboard-rows.test.ts`
@@ -49,9 +49,9 @@
 - External packages: none
 - Direct tests: `unit/badge-store.test.ts`
 
-### [`src/app/crazyGamesSdk.ts`](../../src/app/crazyGamesSdk.ts) (182 LOC)
+### [`src/app/crazyGamesSdk.ts`](../../src/app/crazyGamesSdk.ts) (363 LOC)
 
-- Exports: `encryptScore`, `initCrazyGames`, `isCrazyGamesAvailable`, `submitCrazyGamesScore`
+- Exports: `encryptScore`, `initCrazyGames`, `initCrazyGamesForBoot`, `isCrazyGamesAvailable`, `setCrazyGamesGameplayActive`, `startCrazyGamesLoading`, `stopCrazyGamesLoading`, `submitCrazyGamesScore`, `subscribeCrazyGamesAudioMute`
 - Imports: none
 - Imported by: `src/app/App.ts`
 - External packages: none
@@ -65,7 +65,7 @@
 - External packages: none
 - Direct tests: `unit/leaderboard-store.test.ts`
 
-### [`src/app/main.ts`](../../src/app/main.ts) (46 LOC)
+### [`src/app/main.ts`](../../src/app/main.ts) (59 LOC)
 
 - Exports: none
 - Imports: `src/style.css`, `src/ui/ui-system.css`
@@ -89,9 +89,9 @@
 - External packages: none
 - Direct tests: `unit/run-save.test.ts`
 
-### [`src/app/sfx.ts`](../../src/app/sfx.ts) (1068 LOC)
+### [`src/app/sfx.ts`](../../src/app/sfx.ts) (1191 LOC)
 
-- Exports: `disposeSfx`, `isSfxMuted`, `playDamageNumberSfx`, `playExplosionSfx`, `playImpactSfx`, `playSceneryImpactSfx`, `playSfx`, `playVehicleDamageSfx`, `playWeaponSfx`, `playZombieSfx`, `setSfxMuted`, `SFX_MUTED_STORAGE_KEY`, `SfxListener`, `SfxName`, `startGarageMusic`, `stopDriveSfx`, `stopGarageMusic`, `syncDriveSfx`, `unlockAudio`
+- Exports: `disposeSfx`, `getMusicVolume`, `getSfxVolume`, `isSfxMuted`, `MUSIC_VOLUME_STORAGE_KEY`, `playDamageNumberSfx`, `playExplosionSfx`, `playImpactSfx`, `playSceneryImpactSfx`, `playSfx`, `playVehicleDamageSfx`, `playWeaponSfx`, `playZombieSfx`, `setMusicVolume`, `setPlatformAudioMuted`, `setSfxVolume`, `SFX_MUTED_STORAGE_KEY`, `SFX_VOLUME_STORAGE_KEY`, `SfxListener`, `SfxName`, `startGarageMusic`, `stopDriveSfx`, `stopGarageMusic`, `syncDriveSfx`, `unlockAudio`
 - Imports: `src/survival/zombies/ZombieSystem.ts`
 - Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/chamber/ChamberMode.ts`, `src/survival/SurvivalMode.ts`, `src/survival/WaveClearCard.ts`
 - External packages: none
@@ -587,10 +587,10 @@
 - External packages: `three`
 - Direct tests: none
 
-### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (3913 LOC)
+### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (3987 LOC)
 
 - Exports: `applyZombieShot`, `createWaveClearPayload`, `SurvivalCallbacks`, `SurvivalMode`, `SurvivalPhase`, `SurvivalTelemetry`, `WaveClearPayload`
-- Imports: `src/app/badgeStore.ts`, `src/app/sfx.ts`, `src/core/abilities.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/waveTimeline.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/DamageNumbers.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/PhaseGhosts.ts`, `src/survival/Tracers.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveClearCard.ts`, `src/survival/WaveManager.ts`, `src/survival/WaveTimelineHud.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/AbilityBar.ts`, `src/ui/ScopeCursor.ts`, `src/ui/leaderboardTable.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
+- Imports: `src/app/badgeStore.ts`, `src/app/sfx.ts`, `src/core/abilities.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/waveTimeline.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/DamageNumbers.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/PhaseGhosts.ts`, `src/survival/Tracers.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveClearCard.ts`, `src/survival/WaveManager.ts`, `src/survival/WaveTimelineHud.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/AbilityBar.ts`, `src/ui/ScopeCursor.ts`, `src/ui/audioVolumeControl.ts`, `src/ui/leaderboardTable.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
 - Imported by: `src/app/App.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/ice-cannon-slow.test.ts`, `unit/pending-rewards.test.ts`, `unit/run-checkpoint.test.ts`, `unit/run-score.test.ts`, `unit/turret-piercing.test.ts`
@@ -902,6 +902,14 @@
 - Imported by: `src/chamber/ChamberMode.ts`, `src/survival/SurvivalMode.ts`
 - External packages: none
 - Direct tests: none
+
+### [`src/ui/audioVolumeControl.ts`](../../src/ui/audioVolumeControl.ts) (72 LOC)
+
+- Exports: `AudioVolumeControl`, `AudioVolumeControlClasses`, `AudioVolumeControlOptions`, `createAudioVolumeControl`
+- Imports: none
+- Imported by: `src/app/TitleScreen.ts`, `src/survival/SurvivalMode.ts`
+- External packages: none
+- Direct tests: `unit/audio-volume-control.test.ts`
 
 ### [`src/ui/leaderboardTable.ts`](../../src/ui/leaderboardTable.ts) (91 LOC)
 

@@ -16,7 +16,26 @@ routing, `ARCHITECTURE.md` for design rationale, and
 | Saved-run compatibility    | `src/core/runSave.ts`, `src/app/runSaveStore.ts`                      | `unit/run-save.test.ts`                                                                |
 | Wave composition/tuning    | `src/survival/WaveManager.ts`, `src/survival/zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/wave-balance.test.ts`, `unit/zombie-balance.test.ts`       |
 | Survival phase behavior    | `src/survival/SurvivalMode.ts`                                        | `tests/runloop.spec.ts`, `tests/failure.spec.ts`, `tests/combat.spec.ts`               |
+| CrazyGames platform state  | `src/app/crazyGamesSdk.ts`                                            | `unit/crazygames-sdk.test.ts`, `unit/audio-volume.test.ts`                             |
 | Browser verification Seam  | `src/app/App.ts` (`debugSeam`), `tests/seam.ts`                       | affected Playwright specs                                                              |
+
+## CrazyGames Platform Contract
+
+`main.ts` begins SDK v3 initialization before importing the application. A
+three-second boot watchdog prevents a slow or unavailable CDN from blocking the
+game, but does not cancel the underlying attempt. Failed initialization is
+released after a cooldown so later gameplay or score calls can retry.
+
+- Loading events bracket application Module loading only when the SDK became
+  ready during boot.
+- App owns gameplay reporting for Title, Garage, and Test Chamber. Survival
+  reports its phase/settings changes through `onGameplayActiveChanged`.
+- Gameplay starts for Garage, Test Chamber, countdown, and active waves. It
+  stops for Title, Survival settings, cleared-wave cards, and game over.
+- Focus, blur, and visibility changes are not forwarded; CrazyGames owns them.
+- `game.settings.muteAudio` overrides the live SFX/music mix without changing
+  stored player volumes.
+- The disabled environment and every SDK/network failure are non-fatal.
 
 ## Blueprint Contract
 
@@ -232,6 +251,7 @@ functions.
 | `onGameOver`                  | End run and show failure summary          | Receives discarded pending amount                      |
 | `onResetWave`                 | Rebuild from checkpoint                   | Must not use live HP/rewards                           |
 | `onSaveAndQuit`               | Persist checkpoint and show Title         | Must not use live wave snapshot beyond display context |
+| `onGameplayActiveChanged`     | Report Survival play/break state to SDK   | Phase/settings-derived; no focus/visibility forwarding |
 
 Changing this sequence requires updates to the run checkpoint, pending reward,
 run-save, and Playwright run-loop tests.

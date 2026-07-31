@@ -5,7 +5,8 @@
  */
 
 const CRAZYGAMES_SDK_URL = 'https://sdk.crazygames.com/crazygames-sdk-v3.js';
-const CRAZYGAMES_LOAD_TIMEOUT_MS = 3_000;
+const CRAZYGAMES_BOOT_WAIT_MS = 3_000;
+const CRAZYGAMES_RETRY_COOLDOWN_MS = 2_000;
 const AES_GCM_IV_BYTES = 12;
 const AES_KEY_BYTES = 32;
 
@@ -20,8 +21,26 @@ interface CrazyGamesUserSdk {
   ) => Promise<unknown> | unknown;
 }
 
+interface CrazyGamesGameSettings {
+  readonly muteAudio?: boolean;
+}
+
+type CrazyGamesSettingsListener = (settings: CrazyGamesGameSettings) => void;
+
+interface CrazyGamesGameSdk {
+  readonly settings?: CrazyGamesGameSettings;
+  addSettingsChangeListener?: (listener: CrazyGamesSettingsListener) => void;
+  removeSettingsChangeListener?: (listener: CrazyGamesSettingsListener) => void;
+  gameplayStart?: () => Promise<unknown> | unknown;
+  gameplayStop?: () => Promise<unknown> | unknown;
+  loadingStart?: () => Promise<unknown> | unknown;
+  loadingStop?: () => Promise<unknown> | unknown;
+}
+
 interface CrazyGamesSdk {
   init?: () => Promise<unknown>;
+  environment?: string;
+  game?: CrazyGamesGameSdk;
   user?: CrazyGamesUserSdk;
 }
 
@@ -35,16 +54,47 @@ declare global {
 
 let initialization: Promise<boolean> | undefined;
 let available = false;
+let nextRetryAt = 0;
+let loadingScript: HTMLScriptElement | null = null;
+let scriptLoad: Promise<boolean> | undefined;
+let settingsGame: CrazyGamesGameSdk | null = null;
+let platformMuted = false;
+let gameplayWanted = false;
+let gameplayReported = false;
+let gameplaySync: Promise<void> | undefined;
+let loadingReported = false;
+
+const muteListeners = new Set<(muted: boolean) => void>();
+
+function currentSdk(): CrazyGamesSdk | undefined {
+  return typeof window === 'undefined' ? undefined : window.CrazyGames?.SDK;
+}
+
+function usableSdk(): CrazyGamesSdk | undefined {
+  const sdk = currentSdk();
+  return sdk?.environment === 'local' || sdk?.environment === 'crazygames'
+    ? sdk
+    : undefined;
+}
 
 function loadCrazyGamesScript(): Promise<boolean> {
-  return new Promise((resolve) => {
+  if (currentSdk()?.environment === 'disabled') return Promise.resolve(false);
+  if (usableSdk() !== undefined) return Promise.resolve(true);
+  if (scriptLoad !== undefined) return scriptLoad;
+
+  const attempt = new Promise<boolean>((resolve) => {
     let settled = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let script: HTMLScriptElement | null = null;
 
     const finish = (loaded: boolean): void => {
       if (settled) return;
       settled = true;
-      if (timeout !== undefined) clearTimeout(timeout);
+      if (!loaded && script !== null) {
+        script.onload = null;
+        script.onerror = null;
+        script.remove?.();
+        if (loadingScript === script) loadingScript = null;
+      }
       resolve(loaded);
     };
 
@@ -54,13 +104,12 @@ function loadCrazyGamesScript(): Promise<boolean> {
         return;
       }
 
-      const script = document.createElement('script');
+      script = document.createElement('script');
       script.src = CRAZYGAMES_SDK_URL;
       script.async = true;
       script.onload = () => finish(true);
       script.onerror = () => finish(false);
-
-      timeout = setTimeout(() => finish(false), CRAZYGAMES_LOAD_TIMEOUT_MS);
+      loadingScript = script;
 
       const parent = document.head ?? document.documentElement;
       if (parent === null) {
@@ -72,33 +121,165 @@ function loadCrazyGamesScript(): Promise<boolean> {
       finish(false);
     }
   });
+  scriptLoad = attempt.finally(() => {
+    scriptLoad = undefined;
+  });
+  return scriptLoad;
+}
+
+function publishPlatformMute(muted: boolean): void {
+  if (platformMuted === muted) return;
+  platformMuted = muted;
+  for (const listener of muteListeners) listener(platformMuted);
+}
+
+const onSettingsChanged: CrazyGamesSettingsListener = (settings): void => {
+  publishPlatformMute(settings.muteAudio === true);
+};
+
+function attachSettingsListener(game: CrazyGamesGameSdk | undefined): void {
+  if (settingsGame !== game) {
+    settingsGame?.removeSettingsChangeListener?.(onSettingsChanged);
+    settingsGame = game ?? null;
+    settingsGame?.addSettingsChangeListener?.(onSettingsChanged);
+  }
+  publishPlatformMute(game?.settings?.muteAudio === true);
+}
+
+async function reportGameplayState(sdk: CrazyGamesSdk): Promise<void> {
+  const game = sdk.game;
+  const desired = gameplayWanted;
+  if (desired === gameplayReported) return;
+  const report = desired ? game?.gameplayStart : game?.gameplayStop;
+  if (report === undefined) return;
+  try {
+    await report.call(game);
+    gameplayReported = desired;
+  } catch {
+    // The disabled environment and temporary SDK failures must not stop play.
+  }
 }
 
 async function initializeCrazyGames(): Promise<boolean> {
   try {
     if (typeof window === 'undefined') return false;
-    if (!(await loadCrazyGamesScript())) return false;
+    if (usableSdk() === undefined && !(await loadCrazyGamesScript())) {
+      nextRetryAt = Date.now() + CRAZYGAMES_RETRY_COOLDOWN_MS;
+      return false;
+    }
 
-    const sdk = window.CrazyGames?.SDK;
+    const sdk = usableSdk();
     if (sdk?.init === undefined) return false;
 
-    await sdk?.init?.();
+    await sdk.init();
     available = true;
+    nextRetryAt = 0;
+    attachSettingsListener(sdk.game);
+    await reportGameplayState(sdk);
+    return true;
+  } catch {
+    nextRetryAt = Date.now() + CRAZYGAMES_RETRY_COOLDOWN_MS;
+    return false;
+  }
+}
+
+/**
+ * Loads and initializes the CrazyGames SDK. Concurrent calls share one attempt;
+ * a failed attempt is released after a short cooldown so a late network or SDK
+ * recovery can succeed on the next lifecycle event or score submission.
+ */
+export function initCrazyGames(): Promise<boolean> {
+  if (available) return Promise.resolve(true);
+  if (initialization !== undefined) return initialization;
+  if (Date.now() < nextRetryAt) return Promise.resolve(false);
+  const attempt = initializeCrazyGames();
+  initialization = attempt.finally(() => {
+    initialization = undefined;
+  });
+  return initialization;
+}
+
+/**
+ * Give the SDK a short chance to initialize before booting the game. The
+ * underlying initialization is deliberately left alive after this watchdog;
+ * a slow CDN response can still complete and service later lifecycle/score calls.
+ */
+export async function initCrazyGamesForBoot(): Promise<boolean> {
+  const initializationAttempt = initCrazyGames();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      initializationAttempt,
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), CRAZYGAMES_BOOT_WAIT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+/** True once init succeeded. */
+export function isCrazyGamesAvailable(): boolean {
+  return available;
+}
+
+/** Subscribe to the platform-level audio override; current state is emitted immediately. */
+export function subscribeCrazyGamesAudioMute(
+  listener: (muted: boolean) => void,
+): () => void {
+  muteListeners.add(listener);
+  listener(platformMuted);
+  void initCrazyGames();
+  return () => muteListeners.delete(listener);
+}
+
+/**
+ * Report whether the player is actively playing rather than in a menu, pause,
+ * result card, or another gameplay break. Calls are coalesced and
+ * the most recent desired state wins even while SDK initialization is pending.
+ */
+export function setCrazyGamesGameplayActive(active: boolean): void {
+  gameplayWanted = Boolean(active);
+  if (gameplaySync !== undefined) return;
+  gameplaySync = (async () => {
+    let before: boolean;
+    do {
+      before = gameplayWanted;
+      if (await initCrazyGames()) {
+        const sdk = usableSdk();
+        if (sdk) await reportGameplayState(sdk);
+      }
+    } while (before !== gameplayWanted);
+  })().finally(() => {
+    gameplaySync = undefined;
+  });
+}
+
+export async function startCrazyGamesLoading(): Promise<boolean> {
+  if (!(await initCrazyGames())) return false;
+  const game = usableSdk()?.game;
+  if (loadingReported || game?.loadingStart === undefined) return false;
+  try {
+    await game.loadingStart();
+    loadingReported = true;
     return true;
   } catch {
     return false;
   }
 }
 
-/** Loads and initializes the CrazyGames SDK. Resolves false when unavailable. */
-export function initCrazyGames(): Promise<boolean> {
-  initialization ??= initializeCrazyGames();
-  return initialization;
-}
-
-/** True once init succeeded. */
-export function isCrazyGamesAvailable(): boolean {
-  return available;
+export async function stopCrazyGamesLoading(): Promise<boolean> {
+  if (!(await initCrazyGames())) return false;
+  const game = usableSdk()?.game;
+  if (!loadingReported || game?.loadingStop === undefined) return false;
+  try {
+    await game.loadingStop();
+    loadingReported = false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function decodeEncryptionKey(
@@ -170,7 +351,7 @@ export async function submitCrazyGamesScore(score: number): Promise<boolean> {
     if (!encryptionKey || !(await initCrazyGames())) return false;
 
     const encryptedScore = await encryptScore(score, encryptionKey);
-    const user = window.CrazyGames?.SDK?.user;
+    const user = usableSdk()?.user;
     if (encryptedScore === null || user?.submitScore === undefined)
       return false;
 

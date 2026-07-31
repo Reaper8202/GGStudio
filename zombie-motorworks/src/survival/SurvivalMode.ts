@@ -61,7 +61,8 @@ import { buildWaveTimeline, type WaveTimeline } from '../core/waveTimeline.ts';
 import { randomSeed } from '../core/rng.ts';
 import { badgeStore } from '../app/badgeStore.ts';
 import {
-  isSfxMuted,
+  getMusicVolume,
+  getSfxVolume,
   playDamageNumberSfx,
   playExplosionSfx,
   playImpactSfx,
@@ -70,7 +71,8 @@ import {
   playVehicleDamageSfx,
   playWeaponSfx,
   playZombieSfx,
-  setSfxMuted,
+  setMusicVolume,
+  setSfxVolume,
   syncDriveSfx,
   stopDriveSfx,
   unlockAudio,
@@ -87,6 +89,10 @@ import type { TracerShot } from '../runtime/weapons.ts';
 import { wheelVisualCentre } from '../runtime/wheels.ts';
 import { createToggle } from '../ui/system.ts';
 import { AbilityBar, type AbilitySlotView } from '../ui/AbilityBar.ts';
+import {
+  createAudioVolumeControl,
+  type AudioVolumeControl,
+} from '../ui/audioVolumeControl.ts';
 import { ScopeCursor } from '../ui/ScopeCursor.ts';
 import { buildLeaderboardTable } from '../ui/leaderboardTable.ts';
 import { VfxSystem } from '../vfx/VfxSystem.ts';
@@ -292,6 +298,8 @@ export interface SurvivalCallbacks {
    * checkpoint rather than this live vehicle state.
    */
   onSaveAndQuit(snapshot: { wave: number; kills: number; score: number }): void;
+  /** True only while this mode is an unpaused playable encounter. */
+  onGameplayActiveChanged?(active: boolean): void;
 }
 
 export interface WaveClearPayload {
@@ -463,7 +471,8 @@ interface SurvivalUi {
   settingsOverlay: HTMLDivElement;
   settingsButton: HTMLButtonElement;
   settingsEyebrow: HTMLSpanElement;
-  settingsSoundButton: HTMLButtonElement;
+  settingsSfxVolumeControl: AudioVolumeControl;
+  settingsMusicVolumeControl: AudioVolumeControl;
   spawnCheatButton: HTMLButtonElement;
   settingsStatus: HTMLDivElement;
 }
@@ -629,7 +638,8 @@ export class SurvivalMode {
   private readonly settingsOverlay: HTMLDivElement;
   private readonly settingsButton: HTMLButtonElement;
   private readonly settingsEyebrow: HTMLSpanElement;
-  private readonly settingsSoundButton: HTMLButtonElement;
+  private readonly settingsSfxVolumeControl: AudioVolumeControl;
+  private readonly settingsMusicVolumeControl: AudioVolumeControl;
   private readonly spawnCheatButton: HTMLButtonElement;
   private readonly settingsStatus: HTMLDivElement;
 
@@ -899,7 +909,8 @@ export class SurvivalMode {
     this.settingsOverlay = builtUi.settingsOverlay;
     this.settingsButton = builtUi.settingsButton;
     this.settingsEyebrow = builtUi.settingsEyebrow;
-    this.settingsSoundButton = builtUi.settingsSoundButton;
+    this.settingsSfxVolumeControl = builtUi.settingsSfxVolumeControl;
+    this.settingsMusicVolumeControl = builtUi.settingsMusicVolumeControl;
     this.spawnCheatButton = builtUi.spawnCheatButton;
     this.settingsStatus = builtUi.settingsStatus;
     this.minimap = new Minimap(
@@ -1315,14 +1326,33 @@ export class SurvivalMode {
     );
     settingsHeader.append(settingsHeading, closeSettingsButton);
 
-    const soundOn = !isSfxMuted();
-    const settingsSoundButton = document.createElement('button');
-    settingsSoundButton.type = 'button';
-    settingsSoundButton.className =
-      'ui-button ui-button--medium survival-settings__cheat-toggle survival-settings__sound';
-    settingsSoundButton.textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
-    settingsSoundButton.setAttribute('aria-pressed', String(soundOn));
-    settingsSoundButton.addEventListener('click', this.onSoundToggle);
+    const audioControls = document.createElement('div');
+    audioControls.className = 'survival-settings__audio';
+    const volumeClasses = {
+      row: 'survival-settings__volume-row',
+      input: 'survival-settings__volume',
+      output: 'survival-settings__volume-value',
+    } as const;
+    const settingsSfxVolumeControl = createAudioVolumeControl({
+      label: 'Sound effects',
+      classes: volumeClasses,
+    });
+    const settingsMusicVolumeControl = createAudioVolumeControl({
+      label: 'Music',
+      classes: volumeClasses,
+    });
+    audioControls.append(
+      settingsSfxVolumeControl.row,
+      settingsMusicVolumeControl.row,
+    );
+    settingsSfxVolumeControl.input.addEventListener(
+      'input',
+      this.onSfxVolumeInput,
+    );
+    settingsMusicVolumeControl.input.addEventListener(
+      'input',
+      this.onMusicVolumeInput,
+    );
 
     const cheatsToggle = createToggle('Enable Cheats');
     cheatsToggle.classList.add('survival-settings__cheat-toggle');
@@ -1401,7 +1431,7 @@ export class SurvivalMode {
     settingsStatus.setAttribute('role', 'status');
     settingsPanel.append(
       settingsHeader,
-      settingsSoundButton,
+      audioControls,
       cheatsToggle,
       cheatActions,
       garageSection,
@@ -1450,7 +1480,8 @@ export class SurvivalMode {
       settingsOverlay,
       settingsButton,
       settingsEyebrow,
-      settingsSoundButton,
+      settingsSfxVolumeControl,
+      settingsMusicVolumeControl,
       spawnCheatButton,
       settingsStatus,
     };
@@ -1461,6 +1492,7 @@ export class SurvivalMode {
     this.settingsOpen = open;
     this.settingsOverlay.hidden = !open;
     this.settingsEyebrow.textContent = `Wave ${this.currentWave}`;
+    this.syncVolumeControls();
     this.settingsButton.setAttribute('aria-expanded', String(open));
     this.spawnCheatButton.disabled = this.phase !== 'active';
     this.keys.clear();
@@ -1469,6 +1501,7 @@ export class SurvivalMode {
     this.controls.manualAim = false;
     this.accumulator = 0;
     this.lastTime = performance.now();
+    this.syncGameplayActivity();
   }
 
   private unlockAudioFromInput(): void {
@@ -1477,15 +1510,32 @@ export class SurvivalMode {
     unlockAudio();
   }
 
-  private readonly onSoundToggle = (): void => {
+  private syncVolumeControls(): void {
+    const sfxPercent = Math.round(getSfxVolume() * 100);
+    const musicPercent = Math.round(getMusicVolume() * 100);
+    this.settingsSfxVolumeControl.setPercent(sfxPercent);
+    this.settingsMusicVolumeControl.setPercent(musicPercent);
+  }
+
+  private syncGameplayActivity(): void {
+    this.callbacks.onGameplayActiveChanged?.(
+      !this.settingsOpen &&
+        (this.phase === 'countdown' || this.phase === 'active'),
+    );
+  }
+
+  private readonly onSfxVolumeInput = (): void => {
     if (this.disposed) return;
     this.unlockAudioFromInput();
-    const muted = !isSfxMuted();
-    setSfxMuted(muted);
-    const soundOn = !muted;
-    this.settingsSoundButton.textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
-    this.settingsSoundButton.setAttribute('aria-pressed', String(soundOn));
-    if (soundOn) playSfx('uiClick');
+    setSfxVolume(Number(this.settingsSfxVolumeControl.input.value) / 100);
+    this.syncVolumeControls();
+  };
+
+  private readonly onMusicVolumeInput = (): void => {
+    if (this.disposed) return;
+    this.unlockAudioFromInput();
+    setMusicVolume(Number(this.settingsMusicVolumeControl.input.value) / 100);
+    this.syncVolumeControls();
   };
 
   private readonly onSpawnEveryZombie = (): void => {
@@ -2048,6 +2098,7 @@ export class SurvivalMode {
     this.mineWarningPulsed = new WeakSet<object>();
     this.mineWarningPulseSeconds = 0;
     this.integrityFill.style.boxShadow = '';
+    this.syncGameplayActivity();
   }
 
   private setCurrentWave(wave: number): void {
@@ -2075,6 +2126,7 @@ export class SurvivalMode {
     playSfx('waveStart');
     this.resetWaveStats();
     this.waves.startWave(this.currentWave);
+    this.syncGameplayActivity();
   }
 
   private resetWaveStats(): void {
@@ -2130,6 +2182,7 @@ export class SurvivalMode {
     this.keys.clear();
     this.countdownOverlay.style.display = 'none';
     this.stuckPrompt.classList.remove('is-visible');
+    this.syncGameplayActivity();
   }
 
   private addPendingWaveKillReward(amount: number): void {
@@ -2287,6 +2340,7 @@ export class SurvivalMode {
     this.waveClearCard.hide();
     this.stuckPrompt.classList.remove('is-visible');
     this.stopVehicleMotion();
+    this.syncGameplayActivity();
     this.pendingTransition = {
       kind: 'gameOver',
       run: this.currentRunState(),
@@ -3241,7 +3295,10 @@ export class SurvivalMode {
         side: THREE.DoubleSide,
         depthWrite: false,
       });
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), material);
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 24, 16),
+        material,
+      );
       mesh.name = 'charm-pulse';
       this.vehicleGroup.add(mesh);
       this.charmPulse = mesh;
@@ -3351,11 +3408,20 @@ export class SurvivalMode {
         side: THREE.DoubleSide,
         depthWrite: false,
       });
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), material);
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 20, 14),
+        material,
+      );
       mesh.name = 'rocket-blast';
       mesh.visible = false;
       this.scene.add(mesh);
-      slot = { mesh, material, ttl: 0, duration: durationSeconds, radius: radiusM };
+      slot = {
+        mesh,
+        material,
+        ttl: 0,
+        duration: durationSeconds,
+        radius: radiusM,
+      };
       this.explosions[this.explosionCursor] = slot;
     }
     this.explosionCursor =
@@ -3676,6 +3742,7 @@ export class SurvivalMode {
     this.waveClearCard.hide();
     this.resetWaveStats();
     this.waves.startWave(this.currentWave);
+    this.syncGameplayActivity();
   }
 
   debugKillAllZombies(): void {
@@ -3821,7 +3888,14 @@ export class SurvivalMode {
       'pointerdown',
       this.onFireDown,
     );
-    this.settingsSoundButton.removeEventListener('click', this.onSoundToggle);
+    this.settingsSfxVolumeControl.input.removeEventListener(
+      'input',
+      this.onSfxVolumeInput,
+    );
+    this.settingsMusicVolumeControl.input.removeEventListener(
+      'input',
+      this.onMusicVolumeInput,
+    );
     this.ui.removeEventListener('click', this.onUiButtonClick, true);
     this.fuelPickups.dispose();
     this.zombies.setDamageListener(null);

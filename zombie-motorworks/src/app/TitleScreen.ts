@@ -16,6 +16,10 @@ import {
 } from '../survival/arena/recipes/index.ts';
 import type { SavedRun } from '../core/runSave.ts';
 import { leaderboardRows, type LeaderboardRow } from '../core/leaderboard.ts';
+import {
+  createAudioVolumeControl,
+  type AudioVolumeControl,
+} from '../ui/audioVolumeControl.ts';
 import { buildLeaderboardTable } from '../ui/leaderboardTable.ts';
 import { BADGES } from '../core/badges.ts';
 import {
@@ -25,7 +29,14 @@ import {
 } from './badgeStore.ts';
 import { leaderboardStore } from './leaderboardStore.ts';
 import { profileStore } from './profileStore.ts';
-import { isSfxMuted, playSfx, setSfxMuted, unlockAudio } from './sfx.ts';
+import {
+  getMusicVolume,
+  getSfxVolume,
+  playSfx,
+  setMusicVolume,
+  setSfxVolume,
+  unlockAudio,
+} from './sfx.ts';
 // buildStarterBlueprint is a plain function export; the cross-import back
 // into App.ts is safe because it is only invoked at call time, well after
 // both modules have finished linking.
@@ -292,7 +303,26 @@ export class TitleScreen {
   private readonly settingsButton = document.createElement('button');
   private readonly settingsOverlay = document.createElement('div');
   private readonly settingsCloseButton = document.createElement('button');
-  private readonly soundButton = document.createElement('button');
+  private readonly sfxVolumeControl: AudioVolumeControl =
+    createAudioVolumeControl({
+      label: 'Sound effects',
+      classes: {
+        row: 'title-settings__row',
+        label: 'title-settings__label',
+        input: 'title-settings__volume',
+        output: 'title-settings__volume-value',
+      },
+    });
+  private readonly musicVolumeControl: AudioVolumeControl =
+    createAudioVolumeControl({
+      label: 'Music',
+      classes: {
+        row: 'title-settings__row',
+        label: 'title-settings__label',
+        input: 'title-settings__volume',
+        output: 'title-settings__volume-value',
+      },
+    });
   private readonly confirmation = document.createElement('div');
   private readonly confirmButton = document.createElement('button');
   private readonly cancelButton = document.createElement('button');
@@ -417,13 +447,18 @@ export class TitleScreen {
     event.preventDefault();
   };
 
-  private readonly onSoundToggle = (): void => {
+  private readonly onSfxVolumeInput = (): void => {
     if (this.disposed) return;
     this.unlockAudioFromInput();
-    const soundOn = isSfxMuted();
-    setSfxMuted(!soundOn);
-    this.syncSoundButton();
-    if (soundOn) playSfx('uiClick');
+    setSfxVolume(Number(this.sfxVolumeControl.input.value) / 100);
+    this.syncVolumeControls();
+  };
+
+  private readonly onMusicVolumeInput = (): void => {
+    if (this.disposed) return;
+    this.unlockAudioFromInput();
+    setMusicVolume(Number(this.musicVolumeControl.input.value) / 100);
+    this.syncVolumeControls();
   };
 
   /** Arrows move between rows, as a radiogroup is expected to. */
@@ -611,22 +646,20 @@ export class TitleScreen {
     const settingsTitle = document.createElement('h2');
     settingsTitle.id = 'title-settings-title';
     settingsTitle.textContent = 'SETTINGS';
-    const settingsRow = document.createElement('div');
-    settingsRow.className = 'title-settings__row';
-    const soundLabel = document.createElement('span');
-    soundLabel.className = 'title-settings__label';
-    soundLabel.textContent = 'Audio';
-    this.soundButton.type = 'button';
-    this.soundButton.className = 'title-settings__toggle';
-    settingsRow.append(soundLabel, this.soundButton);
-    this.syncSoundButton();
+    const volumeControls = document.createElement('div');
+    volumeControls.className = 'title-settings__volume-controls';
+    volumeControls.append(
+      this.sfxVolumeControl.row,
+      this.musicVolumeControl.row,
+    );
+    this.syncVolumeControls();
     const settingsActions = document.createElement('div');
     settingsActions.className = 'title-settings__actions';
     this.settingsCloseButton.type = 'button';
     this.settingsCloseButton.className = 'primary';
     this.settingsCloseButton.textContent = 'Back to Title';
     settingsActions.appendChild(this.settingsCloseButton);
-    settingsDialog.append(settingsTitle, settingsRow, settingsActions);
+    settingsDialog.append(settingsTitle, volumeControls, settingsActions);
     this.settingsOverlay.appendChild(settingsDialog);
 
     this.panel.append(
@@ -684,7 +717,12 @@ export class TitleScreen {
       this.onSettingsOverlayPointerDown,
     );
     this.listen(this.settingsOverlay, 'keydown', this.onSettingsKeyDown);
-    this.listen(this.soundButton, 'click', this.onSoundToggle);
+    this.listen(this.sfxVolumeControl.input, 'input', this.onSfxVolumeInput);
+    this.listen(
+      this.musicVolumeControl.input,
+      'input',
+      this.onMusicVolumeInput,
+    );
     this.listen(this.confirmButton, 'click', this.onConfirmClick);
     this.listen(this.cancelButton, 'click', this.onCancelClick);
 
@@ -836,10 +874,11 @@ export class TitleScreen {
     this.arena = this.buildBackdropArena();
   }
 
-  private syncSoundButton(): void {
-    const soundOn = !isSfxMuted();
-    this.soundButton.textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
-    this.soundButton.setAttribute('aria-pressed', String(soundOn));
+  private syncVolumeControls(): void {
+    const sfxPercent = Math.round(getSfxVolume() * 100);
+    const musicPercent = Math.round(getMusicVolume() * 100);
+    this.sfxVolumeControl.setPercent(sfxPercent);
+    this.musicVolumeControl.setPercent(musicPercent);
   }
 
   private unlockAudioFromInput(): void {

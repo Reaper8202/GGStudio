@@ -69,10 +69,16 @@ recordings and be edited to fit this game's timing.
 | Zombies                | Every archetype has a spatialised ability signature: walker flesh/melee, gunslinger pistol action, thrower launch and debris impact, necromancer phase/electric summon, worker mine mechanism, Phone Addict shield crackle, kamikaze warning ticks/explosion, and behemoth ground slam. Vocal pitch also follows archetype. |
 | Ice/electric abilities | Recorded ice breaks and source effects derived from electrical recordings.                                                                                                                                                                                                                                                  |
 | Fuel, garage, UI       | A real cash-register bell for purchases; recorded clicks on enabled buttons; and a dedicated 0.4-second upgrade reward built from a mechanism transient and tightly faded bell interval. Confirmed actions retain their own semantic cue over the tactile click.                                                            |
-| Garage music           | Original 24-second industrial loop at 80 BPM: minor-key engine-room drone, restrained bass pulse, sparse metal-like plucks, synthetic workshop percussion, and a filtered CC0 engine texture. It fades with Garage entry/exit and shares the existing sound toggle.                                                         |
+| Garage music           | Original 24-second industrial loop at 80 BPM: minor-key engine-room drone, restrained bass pulse, sparse metal-like plucks, synthetic workshop percussion, and a filtered CC0 engine texture. It fades with Garage entry/exit and uses the independent music-volume channel.                                                |
 | Damage and run state   | Floating damage numbers get rate-limited flesh confirmations, with a firmer kill downbeat. Vehicle health loss remains a separate severity-scaled chassis impact. Countdown, wave start, mine warning, recovery jump, invalid ability use, and game over each have concise state feedback.                                  |
 
 ## Mix and performance rules
+
+- Sound effects and garage music use independent persistent volume controls.
+  Music bypasses the SFX presence/compression chain so either channel can be
+  adjusted without changing the character of the other.
+- CrazyGames' platform mute overrides both live channels without overwriting
+  either stored volume; unmuting restores the player's exact mix.
 
 - Cap simultaneous one-shots and rate-limit high-frequency events.
 - Attenuate zombie sounds with distance and pan relative to camera heading.

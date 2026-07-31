@@ -356,9 +356,9 @@ body,
 }
 
 .title-settings__row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(100px, auto) minmax(120px, 1fr) 42px;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   margin-top: 18px;
   padding-top: 14px;
@@ -372,14 +372,15 @@ body,
   text-transform: uppercase;
 }
 
-.title-settings__toggle {
-  min-width: 130px;
+.title-settings__volume {
+  width: 100%;
+  accent-color: var(--ui-signal);
 }
 
-.title-settings__toggle[aria-pressed='true'] {
-  border-color: var(--ui-signal);
-  background: var(--ui-signal-dark);
+.title-settings__volume-value {
   color: var(--ui-text);
+  font: var(--ui-text-11)/1 var(--ui-font-body);
+  text-align: right;
 }
 
 .title-settings__actions {
@@ -2165,7 +2166,6 @@ button:disabled {
   display: none;
 }
 
-
 .selected-panel {
   position: absolute;
   top: 72px;
@@ -3123,6 +3123,8 @@ button:disabled {
 
 .survival-settings {
   width: min(470px, 94vw);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
   padding: 20px;
   background: var(--panel-bg-strong);
   box-shadow:
@@ -3153,6 +3155,35 @@ button:disabled {
   font: 400 var(--ui-text-28)/1 var(--ui-font-display);
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.survival-settings__audio {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--ui-edge);
+}
+
+.survival-settings__volume-row {
+  display: grid;
+  grid-template-columns: minmax(105px, auto) minmax(120px, 1fr) 42px;
+  align-items: center;
+  gap: 12px;
+  color: var(--ui-text);
+  font: 400 var(--ui-text-12)/1 var(--ui-font-display);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.survival-settings__volume {
+  width: 100%;
+  accent-color: var(--ui-signal);
+}
+
+.survival-settings__volume-value {
+  color: var(--ui-text-muted);
+  font: var(--ui-text-10)/1 var(--ui-font-body);
+  text-align: right;
 }
 
 .survival-settings__cheat-toggle {
@@ -4534,6 +4565,16 @@ button:disabled {
 
   .title-settings-dialog {
     padding: 18px;
+  }
+
+  .title-settings__row,
+  .survival-settings__volume-row {
+    grid-template-columns: 1fr 42px;
+  }
+
+  .title-settings__label,
+  .survival-settings__volume-row > span {
+    grid-column: 1 / -1;
   }
 
   .title-settings__actions button {

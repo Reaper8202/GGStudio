@@ -108,18 +108,29 @@ The diagram shows allowed conceptual dependencies, not every import. `app`
 composes all modes. `editor` and `survival` may use shared UI and rendering
 helpers. `core` stays engine- and browser-independent.
 
-| Module | Owns | Must not own |
-| --- | --- | --- |
-| `src/core/` | Types, catalog, blueprint operations, placement, structure, analysis, commands, codecs, profile/run data, upgrades, economy, tutorial predicates, turret-module rules, surfaces, biome definitions | Three.js/Rapier objects, DOM, localStorage |
-| `src/runtime/` | Rapier vehicle assembly, wheels, drivetrain, damage, detachment, weapon stepping | Mode transitions, profile persistence, DOM |
-| `src/editor/` | Garage scene, placement/selection input, Store/Inventory UI, repair UI, tutorial overlay, blueprint-slot Adapter | Survival progression or run-save policy |
-| `src/chamber/` | Disposable test-drive world, scenarios, chamber HUD/camera | Persistent blueprint mutation |
-| `src/survival/` | Biome arenas and recipes, waves, zombie pool/AI, specialists, mines, auto-aim, minimap, combat HUD, alert stack and damage vignette, victory/game-over presentation | Browser persistence and profile ownership |
-| `src/vfx/` | Pooled voxel particle layers and every effect emitter (melee shred, gibs, muzzles, impacts, fire, explosions), plus the shot-to-effect mapping | Gameplay state, damage, or anything a mode must read back |
-| `src/app/` | Boot, renderer, title/mode lifecycle, active Blueprint, Profile, command history, Run Checkpoint, storage Adapters, debug Seam | Duplicated physics or balance formulas |
-| `src/ui/` | Shared DOM primitives and the UI museum | Gameplay state |
+| Module          | Owns                                                                                                                                                                                               | Must not own                                              |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `src/core/`     | Types, catalog, blueprint operations, placement, structure, analysis, commands, codecs, profile/run data, upgrades, economy, tutorial predicates, turret-module rules, surfaces, biome definitions | Three.js/Rapier objects, DOM, localStorage                |
+| `src/runtime/`  | Rapier vehicle assembly, wheels, drivetrain, damage, detachment, weapon stepping                                                                                                                   | Mode transitions, profile persistence, DOM                |
+| `src/editor/`   | Garage scene, placement/selection input, Store/Inventory UI, repair UI, tutorial overlay, blueprint-slot Adapter                                                                                   | Survival progression or run-save policy                   |
+| `src/chamber/`  | Disposable test-drive world, scenarios, chamber HUD/camera                                                                                                                                         | Persistent blueprint mutation                             |
+| `src/survival/` | Biome arenas and recipes, waves, zombie pool/AI, specialists, mines, auto-aim, minimap, combat HUD, alert stack and damage vignette, victory/game-over presentation                                | Browser persistence and profile ownership                 |
+| `src/vfx/`      | Pooled voxel particle layers and every effect emitter (melee shred, gibs, muzzles, impacts, fire, explosions), plus the shot-to-effect mapping                                                     | Gameplay state, damage, or anything a mode must read back |
+| `src/app/`      | Boot, renderer, title/mode lifecycle, CrazyGames SDK boundary, active Blueprint, Profile, command history, Run Checkpoint, storage Adapters, debug Seam                                            | Duplicated physics or balance formulas                    |
+| `src/ui/`       | Shared DOM primitives and the UI museum                                                                                                                                                            | Gameplay state                                            |
 
 ## Lifecycle Contracts
+
+### CrazyGames Platform
+
+- Boot starts CrazyGames SDK v3 initialization before loading the main game
+  Modules. A short boot watchdog keeps a blocked CDN from preventing play, while
+  the live initialization remains retryable for later lifecycle and score calls.
+- `App` reports Garage, Test Chamber, Survival countdown, and active waves as
+  gameplay. Title, Survival settings, wave-clear cards, and game over are
+  gameplay breaks. Browser focus/visibility is left to the platform SDK.
+- CrazyGames' platform mute is a transient mix override. It never rewrites the
+  player's persistent SFX or music volume.
 
 ### Garage and Test Chamber
 
@@ -184,14 +195,15 @@ helpers. `core` stays engine- and browser-independent.
 
 ## Persistence
 
-| Storage key                                   | Codec/Adapter                                             | Current payload                                                                                               |
-| --------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `scraprig.profile.v1`                         | `src/core/profile.ts` / `src/app/profileStore.ts`         | Profile schema 1: money, unlocks, inventory, current blueprint name, preferred biome, highest cleared wave, Phone Addict kills |
-| `scraprig.blueprints.v1`                      | `src/core/serialize.ts` / `src/editor/EditorMode.ts`      | Named Blueprint slots; Blueprint schema 4 with migrations from schemas 1-3                                    |
-| `scraprig.run.v1`                             | `src/core/runSave.ts` / `src/app/runSaveStore.ts`         | Saved Run schema 5; decoder migrates valid schema-1 to schema-4 saves                                         |
-| `scraprig.leaderboard.v1`                     | `src/core/leaderboard.ts` / `src/app/leaderboardStore.ts` | Top 10 completed runs ranked by score, wave, kills, then completion time                                      |
-| `scraprig.tutorial-done`                      | `src/editor/EditorMode.ts`                                | Existing editor tutorial completion flag                                                                      |
-| `scraprig.help-seen`, `scraprig.welcome-seen` | `src/editor/ui.ts`                                        | Presentation-only acknowledgement flags                                                                       |
+| Storage key                                    | Codec/Adapter                                             | Current payload                                                                                                                |
+| ---------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `scraprig.profile.v1`                          | `src/core/profile.ts` / `src/app/profileStore.ts`         | Profile schema 1: money, unlocks, inventory, current blueprint name, preferred biome, highest cleared wave, Phone Addict kills |
+| `scraprig.blueprints.v1`                       | `src/core/serialize.ts` / `src/editor/EditorMode.ts`      | Named Blueprint slots; Blueprint schema 4 with migrations from schemas 1-3                                                     |
+| `scraprig.run.v1`                              | `src/core/runSave.ts` / `src/app/runSaveStore.ts`         | Saved Run schema 5; decoder migrates valid schema-1 to schema-4 saves                                                          |
+| `scraprig.leaderboard.v1`                      | `src/core/leaderboard.ts` / `src/app/leaderboardStore.ts` | Top 10 completed runs ranked by score, wave, kills, then completion time                                                       |
+| `scraprig.tutorial-done`                       | `src/editor/EditorMode.ts`                                | Existing editor tutorial completion flag                                                                                       |
+| `scraprig.help-seen`, `scraprig.welcome-seen`  | `src/editor/ui.ts`                                        | Presentation-only acknowledgement flags                                                                                        |
+| `scraprig.sfx.volume`, `scraprig.music.volume` | `src/app/sfx.ts`                                          | Independent 0-1 sound-effect and garage-music levels; legacy `scraprig.sfx.muted` seeds both when unset                        |
 
 Decoders validate persisted input and normalize or reject malformed values.
 Storage access failures must not make the in-memory game unusable.
@@ -238,35 +250,36 @@ Storage access failures must not make the in-memory game unusable.
 Start with the first file and the named tests. Open supporting files only when
 the task crosses their Interface.
 
-| Task | Start here | Supporting Modules | Tests |
-| --- | --- | --- | --- |
-| Catalog part/stats/cost | `src/core/parts.ts` | `types.ts`, `upgrades.ts` | `unit/parts.test.ts`, `unit/upgrades.test.ts` |
-| Grid/orientation/mirroring | `src/core/grid.ts` | `types.ts`, `placement.ts` | `unit/grid.test.ts`, `unit/placement.test.ts` |
-| Placement/build validation | `src/core/placement.ts` | `structural.ts`, `wheelLayout.ts` | `unit/placement.test.ts`, `unit/structural.test.ts` |
-| Vehicle analysis/metrics | `src/core/analysis.ts` | `mass.ts`, `upgrades.ts`, `wheelLayout.ts` | `unit/analysis.test.ts` |
-| Blueprint schema/migration | `src/core/serialize.ts` | `types.ts`, `blueprint.ts` | `unit/serialize.test.ts`, `unit/blueprint.test.ts` |
-| Profile/inventory/unlocks | `src/core/profile.ts` | `app/profileStore.ts`, `editor/EditorMode.ts` | `unit/profile.test.ts`, `unit/profile-store.test.ts`, `unit/store-flow.test.ts` |
-| Economy/repair/upgrades | `src/core/economy.ts` | `upgrades.ts`, `partUpgrades.ts`, `editor/EditorMode.ts`, `app/App.ts` | `unit/economy.test.ts`, `unit/repair.test.ts`, `unit/store-flow.test.ts` |
-| Upgrade unlock names/icons/visuals | `src/core/partUpgrades.ts` | `editor/parts/upgradeKit.ts`, `editor/ui.ts` | `unit/part-upgrades.test.ts` |
-| Garage input/placement | `src/editor/EditorMode.ts` | `editor/meshes.ts`, `editor/overlays.ts` | `tests/editor.spec.ts` |
-| Garage DOM/store/inspector | `src/editor/ui.ts` | `EditorMode.ts`, `style.css`, `ui/system.ts` | `unit/store-flow.test.ts`, `tests/editor.spec.ts` |
-| Test-drive physics | `src/chamber/ChamberMode.ts` | `runtime/vehicle.ts`, `runtime/assembler.ts` | `tests/drive.spec.ts`, `tests/collision.spec.ts` |
-| Vehicle handling/wheels | `src/runtime/vehicle.ts` | `wheels.ts`, `drivetrain.ts`, `mass.ts` | `unit/wheel-*.test.ts`, `tests/drive.spec.ts`, `tests/reverse.spec.ts` |
-| Weapons/modules/ammo | `src/runtime/weapons.ts` | `core/turretModules.ts`, `survival/AutoAim.ts` | `unit/turret-*.test.ts`, `unit/weapon-ammo.test.ts`, `tests/combat.spec.ts` |
-| Particles/effects | `src/vfx/VfxSystem.ts` | `vfx/VoxelParticles.ts`, `vfx/vfxConfig.ts`, `vfx/shotVfx.ts` | `unit/vfx.test.ts` |
-| HUD alerts/damage vignette | `src/survival/vehicleWarnings.ts` | `survival/WarningHud.ts`, `SurvivalMode.ts`, `style.css` | `unit/vehicle-warnings.test.ts` |
-| Run checkpoint/rewards/save | `src/app/App.ts` | `core/runSave.ts`, `app/runSaveStore.ts`, `SurvivalMode.ts` | `unit/run-checkpoint.test.ts`, `unit/pending-rewards.test.ts`, `unit/run-save.test.ts`, `tests/runloop.spec.ts` |
-| Wave balance/composition | `src/survival/WaveManager.ts` | `waveBalance.ts`, `zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/wave-balance.test.ts`, `unit/zombie-balance.test.ts` |
-| Zombie AI/specialists | `src/survival/zombies/Zombie.ts` | `ZombieSystem.ts`, `Landmines.ts`, `ThrowerProjectiles.ts` | `unit/landmines.test.ts`, `tests/combat.spec.ts` |
-| Boss roster/encounters | `src/survival/zombies/bossConfig.ts` | `Zombie.ts`, `ZombieSystem.ts`, `WaveManager.ts`, `SurvivalMode.ts` | `unit/boss-waves.test.ts`, `unit/boss-balance.test.ts`, `tests/boss.spec.ts` |
-| Zombie/boss projectiles | `src/survival/zombies/ThrowerProjectiles.ts` | `ZombieSystem.ts`, `zombieConfig.ts`, `bossConfig.ts`, `AcidPuddles.ts` | `unit/vial-projectiles.test.ts` |
-| Survival HUD/transitions | `src/survival/SurvivalMode.ts` | `App.ts`, `WaveManager.ts`, `style.css` | `unit/summaries.test.ts`, `tests/runloop.spec.ts`, `tests/failure.spec.ts` |
-| Minimap/mine detection | `src/survival/Minimap.ts` | `arena/Arena.ts`, `Landmines.ts`, `turretModules.ts` | `unit/minimap.test.ts`, `unit/landmines.test.ts` |
-| Biome recipes/arena generation | `src/survival/arena/recipes/index.ts` | `arena/ArenaBuilder.ts`, `core/biomes.ts`, `core/rng.ts` | `unit/biome-recipes.test.ts`, `unit/arena.test.ts`, `unit/arena-perimeter.test.ts` |
-| Surface grip/biome handling | `src/core/surfaces.ts` | `core/biomes.ts`, `runtime/wheels.ts`, `runtime/vehicle.ts` | `unit/surfaces.test.ts`, `unit/biome-hazard.test.ts`, `unit/biome-selection.test.ts` |
-| Tutorial | `src/core/tutorial.ts` | `editor/TutorialOverlay.ts`, `EditorMode.ts`, `ui.ts` | `unit/tutorial.test.ts`, `tests/tutorial.spec.ts` |
-| Title/resume flow | `src/app/TitleScreen.ts` | `App.ts`, `runSaveStore.ts` | `tests/title.spec.ts`, `unit/app.test.ts` |
-| Debug/browser Seam | `src/app/App.ts` (`installDebugSeam`) | `tests/seam.ts` | the affected Playwright spec |
+| Task                               | Start here                                   | Supporting Modules                                                      | Tests                                                                                                           |
+| ---------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Catalog part/stats/cost            | `src/core/parts.ts`                          | `types.ts`, `upgrades.ts`                                               | `unit/parts.test.ts`, `unit/upgrades.test.ts`                                                                   |
+| Grid/orientation/mirroring         | `src/core/grid.ts`                           | `types.ts`, `placement.ts`                                              | `unit/grid.test.ts`, `unit/placement.test.ts`                                                                   |
+| Placement/build validation         | `src/core/placement.ts`                      | `structural.ts`, `wheelLayout.ts`                                       | `unit/placement.test.ts`, `unit/structural.test.ts`                                                             |
+| Vehicle analysis/metrics           | `src/core/analysis.ts`                       | `mass.ts`, `upgrades.ts`, `wheelLayout.ts`                              | `unit/analysis.test.ts`                                                                                         |
+| Blueprint schema/migration         | `src/core/serialize.ts`                      | `types.ts`, `blueprint.ts`                                              | `unit/serialize.test.ts`, `unit/blueprint.test.ts`                                                              |
+| Profile/inventory/unlocks          | `src/core/profile.ts`                        | `app/profileStore.ts`, `editor/EditorMode.ts`                           | `unit/profile.test.ts`, `unit/profile-store.test.ts`, `unit/store-flow.test.ts`                                 |
+| Economy/repair/upgrades            | `src/core/economy.ts`                        | `upgrades.ts`, `partUpgrades.ts`, `editor/EditorMode.ts`, `app/App.ts`  | `unit/economy.test.ts`, `unit/repair.test.ts`, `unit/store-flow.test.ts`                                        |
+| Upgrade unlock names/icons/visuals | `src/core/partUpgrades.ts`                   | `editor/parts/upgradeKit.ts`, `editor/ui.ts`                            | `unit/part-upgrades.test.ts`                                                                                    |
+| Garage input/placement             | `src/editor/EditorMode.ts`                   | `editor/meshes.ts`, `editor/overlays.ts`                                | `tests/editor.spec.ts`                                                                                          |
+| Garage DOM/store/inspector         | `src/editor/ui.ts`                           | `EditorMode.ts`, `style.css`, `ui/system.ts`                            | `unit/store-flow.test.ts`, `tests/editor.spec.ts`                                                               |
+| Test-drive physics                 | `src/chamber/ChamberMode.ts`                 | `runtime/vehicle.ts`, `runtime/assembler.ts`                            | `tests/drive.spec.ts`, `tests/collision.spec.ts`                                                                |
+| Vehicle handling/wheels            | `src/runtime/vehicle.ts`                     | `wheels.ts`, `drivetrain.ts`, `mass.ts`                                 | `unit/wheel-*.test.ts`, `tests/drive.spec.ts`, `tests/reverse.spec.ts`                                          |
+| Weapons/modules/ammo               | `src/runtime/weapons.ts`                     | `core/turretModules.ts`, `survival/AutoAim.ts`                          | `unit/turret-*.test.ts`, `unit/weapon-ammo.test.ts`, `tests/combat.spec.ts`                                     |
+| Particles/effects                  | `src/vfx/VfxSystem.ts`                       | `vfx/VoxelParticles.ts`, `vfx/vfxConfig.ts`, `vfx/shotVfx.ts`           | `unit/vfx.test.ts`                                                                                              |
+| HUD alerts/damage vignette         | `src/survival/vehicleWarnings.ts`            | `survival/WarningHud.ts`, `SurvivalMode.ts`, `style.css`                | `unit/vehicle-warnings.test.ts`                                                                                 |
+| Run checkpoint/rewards/save        | `src/app/App.ts`                             | `core/runSave.ts`, `app/runSaveStore.ts`, `SurvivalMode.ts`             | `unit/run-checkpoint.test.ts`, `unit/pending-rewards.test.ts`, `unit/run-save.test.ts`, `tests/runloop.spec.ts` |
+| Wave balance/composition           | `src/survival/WaveManager.ts`                | `waveBalance.ts`, `zombies/zombieConfig.ts`                             | `unit/waves.test.ts`, `unit/wave-balance.test.ts`, `unit/zombie-balance.test.ts`                                |
+| Zombie AI/specialists              | `src/survival/zombies/Zombie.ts`             | `ZombieSystem.ts`, `Landmines.ts`, `ThrowerProjectiles.ts`              | `unit/landmines.test.ts`, `tests/combat.spec.ts`                                                                |
+| Boss roster/encounters             | `src/survival/zombies/bossConfig.ts`         | `Zombie.ts`, `ZombieSystem.ts`, `WaveManager.ts`, `SurvivalMode.ts`     | `unit/boss-waves.test.ts`, `unit/boss-balance.test.ts`, `tests/boss.spec.ts`                                    |
+| Zombie/boss projectiles            | `src/survival/zombies/ThrowerProjectiles.ts` | `ZombieSystem.ts`, `zombieConfig.ts`, `bossConfig.ts`, `AcidPuddles.ts` | `unit/vial-projectiles.test.ts`                                                                                 |
+| Survival HUD/transitions           | `src/survival/SurvivalMode.ts`               | `App.ts`, `WaveManager.ts`, `style.css`                                 | `unit/summaries.test.ts`, `tests/runloop.spec.ts`, `tests/failure.spec.ts`                                      |
+| Minimap/mine detection             | `src/survival/Minimap.ts`                    | `arena/Arena.ts`, `Landmines.ts`, `turretModules.ts`                    | `unit/minimap.test.ts`, `unit/landmines.test.ts`                                                                |
+| Biome recipes/arena generation     | `src/survival/arena/recipes/index.ts`        | `arena/ArenaBuilder.ts`, `core/biomes.ts`, `core/rng.ts`                | `unit/biome-recipes.test.ts`, `unit/arena.test.ts`, `unit/arena-perimeter.test.ts`                              |
+| Surface grip/biome handling        | `src/core/surfaces.ts`                       | `core/biomes.ts`, `runtime/wheels.ts`, `runtime/vehicle.ts`             | `unit/surfaces.test.ts`, `unit/biome-hazard.test.ts`, `unit/biome-selection.test.ts`                            |
+| Tutorial                           | `src/core/tutorial.ts`                       | `editor/TutorialOverlay.ts`, `EditorMode.ts`, `ui.ts`                   | `unit/tutorial.test.ts`, `tests/tutorial.spec.ts`                                                               |
+| Title/resume flow                  | `src/app/TitleScreen.ts`                     | `App.ts`, `runSaveStore.ts`                                             | `tests/title.spec.ts`, `unit/app.test.ts`                                                                       |
+| CrazyGames SDK/lifecycle           | `src/app/crazyGamesSdk.ts`                   | `main.ts`, `App.ts`, `SurvivalMode.ts`, `sfx.ts`                        | `unit/crazygames-sdk.test.ts`, `unit/audio-volume.test.ts`                                                      |
+| Debug/browser Seam                 | `src/app/App.ts` (`installDebugSeam`)        | `tests/seam.ts`                                                         | the affected Playwright spec                                                                                    |
 
 ## Documentation Update Rule
 

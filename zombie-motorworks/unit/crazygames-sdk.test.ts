@@ -8,6 +8,20 @@ interface FakeScript {
 }
 
 interface StubSdkOptions {
+  environment?: string;
+  game?: {
+    settings?: { muteAudio?: boolean };
+    addSettingsChangeListener?: (
+      listener: (settings: { muteAudio?: boolean }) => void,
+    ) => void;
+    removeSettingsChangeListener?: (
+      listener: (settings: { muteAudio?: boolean }) => void,
+    ) => void;
+    gameplayStart?: () => Promise<unknown> | unknown;
+    gameplayStop?: () => Promise<unknown> | unknown;
+    loadingStart?: () => Promise<unknown> | unknown;
+    loadingStop?: () => Promise<unknown> | unknown;
+  };
   init?: () => Promise<unknown>;
   submitScore?: (submission: {
     encryptedScore: string;
@@ -24,16 +38,20 @@ function installSdkEnvironment(options: StubSdkOptions): {
   appendedScripts: FakeScript[];
 } {
   const appendedScripts: FakeScript[] = [];
-  vi.stubGlobal('window', {
-    CrazyGames: {
-      SDK: {
-        init: options.init,
-        user: {
-          submitScore: options.submitScore,
-        },
-      },
+  const sdk = {
+    environment: options.environment ?? 'local',
+    game: options.game,
+    init: options.init,
+    user: {
+      submitScore: options.submitScore,
     },
-  });
+  };
+  const fakeWindow: {
+    CrazyGames?: {
+      SDK: typeof sdk;
+    };
+  } = {};
+  vi.stubGlobal('window', fakeWindow);
   vi.stubGlobal('document', {
     createElement: () => ({
       async: false,
@@ -45,7 +63,10 @@ function installSdkEnvironment(options: StubSdkOptions): {
     head: {
       appendChild(script: FakeScript) {
         appendedScripts.push(script);
-        queueMicrotask(() => script.onload?.());
+        queueMicrotask(() => {
+          fakeWindow.CrazyGames = { SDK: sdk };
+          script.onload?.();
+        });
         return script;
       },
     },
@@ -69,6 +90,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -138,6 +160,29 @@ describe('CrazyGames SDK wrapper', () => {
     expect(appendedScripts).toHaveLength(1);
   });
 
+  it('boots after the watchdog without cancelling late SDK initialization', async () => {
+    vi.useFakeTimers();
+    let releaseInit: (() => void) | undefined;
+    const init = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseInit = resolve;
+        }),
+    );
+    installSdkEnvironment({ init });
+    const sdk = await import('../src/app/crazyGamesSdk.ts');
+
+    const bootAttempt = sdk.initCrazyGamesForBoot();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await expect(bootAttempt).resolves.toBe(false);
+
+    releaseInit?.();
+    await expect(sdk.initCrazyGames()).resolves.toBe(true);
+    expect(sdk.isCrazyGamesAvailable()).toBe(true);
+  });
+
   it('round-trips the CrazyGames AES-GCM score payload', async () => {
     const { encryptScore } = await import('../src/app/crazyGamesSdk.ts');
     const base64Key = encryptionKey();
@@ -163,5 +208,91 @@ describe('CrazyGames SDK wrapper', () => {
     );
 
     expect(new TextDecoder().decode(plaintext)).toBe('98765');
+  });
+
+  it('reports loading/gameplay state once and follows platform mute changes', async () => {
+    const gameplayStart = vi.fn();
+    const gameplayStop = vi.fn();
+    const loadingStart = vi.fn();
+    const loadingStop = vi.fn();
+    let settingsListener:
+      ((settings: { muteAudio?: boolean }) => void) | undefined;
+    installSdkEnvironment({
+      environment: 'local',
+      init: vi.fn().mockResolvedValue(undefined),
+      game: {
+        settings: { muteAudio: true },
+        addSettingsChangeListener: vi.fn((listener) => {
+          settingsListener = listener;
+        }),
+        gameplayStart,
+        gameplayStop,
+        loadingStart,
+        loadingStop,
+      },
+    });
+    const sdk = await import('../src/app/crazyGamesSdk.ts');
+    const muteListener = vi.fn();
+    const unsubscribe = sdk.subscribeCrazyGamesAudioMute(muteListener);
+
+    await expect(sdk.initCrazyGames()).resolves.toBe(true);
+    expect(muteListener).toHaveBeenLastCalledWith(true);
+    settingsListener?.({ muteAudio: false });
+    expect(muteListener).toHaveBeenLastCalledWith(false);
+
+    expect(await sdk.startCrazyGamesLoading()).toBe(true);
+    expect(await sdk.startCrazyGamesLoading()).toBe(false);
+    expect(await sdk.stopCrazyGamesLoading()).toBe(true);
+    expect(loadingStart).toHaveBeenCalledOnce();
+    expect(loadingStop).toHaveBeenCalledOnce();
+
+    sdk.setCrazyGamesGameplayActive(true);
+    await vi.waitFor(() => expect(gameplayStart).toHaveBeenCalledOnce());
+    sdk.setCrazyGamesGameplayActive(true);
+    await Promise.resolve();
+    expect(gameplayStart).toHaveBeenCalledOnce();
+    sdk.setCrazyGamesGameplayActive(false);
+    await vi.waitFor(() => expect(gameplayStop).toHaveBeenCalledOnce());
+
+    unsubscribe();
+    settingsListener?.({ muteAudio: true });
+    expect(muteListener).toHaveBeenCalledTimes(3);
+  });
+
+  it('retries initialization after a failed attempt', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const init = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce(undefined);
+    const { appendedScripts } = installSdkEnvironment({ init });
+    const { initCrazyGames } = await import('../src/app/crazyGamesSdk.ts');
+
+    await expect(initCrazyGames()).resolves.toBe(false);
+    vi.setSystemTime(4_000);
+    await expect(initCrazyGames()).resolves.toBe(true);
+    expect(init).toHaveBeenCalledTimes(2);
+    expect(appendedScripts).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it('does not call game APIs in the disabled environment', async () => {
+    const gameplayStart = vi.fn();
+    vi.stubGlobal('window', {
+      CrazyGames: {
+        SDK: {
+          environment: 'disabled',
+          init: vi.fn(),
+          game: { gameplayStart },
+        },
+      },
+    });
+    const sdk = await import('../src/app/crazyGamesSdk.ts');
+
+    await expect(sdk.initCrazyGames()).resolves.toBe(false);
+    sdk.setCrazyGamesGameplayActive(true);
+    await Promise.resolve();
+    expect(gameplayStart).not.toHaveBeenCalled();
   });
 });

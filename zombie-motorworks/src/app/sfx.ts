@@ -40,6 +40,13 @@ export type SfxName =
   | 'selfDestructBlast';
 
 export const SFX_MUTED_STORAGE_KEY = 'scraprig.sfx.muted';
+export const SFX_VOLUME_STORAGE_KEY = 'scraprig.sfx.volume';
+export const MUSIC_VOLUME_STORAGE_KEY = 'scraprig.music.volume';
+
+const DEFAULT_SFX_VOLUME = 1;
+const DEFAULT_MUSIC_VOLUME = 1;
+const SFX_MASTER_GAIN = 0.94;
+const GARAGE_MUSIC_GAIN = 0.22;
 
 type AudioContextGlobal = typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
@@ -170,7 +177,9 @@ interface PlayOptions {
 }
 
 let audioContext: AudioContext | null = null;
-let muted: boolean | undefined;
+let sfxVolume: number | undefined;
+let musicVolume: number | undefined;
+let platformAudioMuted = false;
 let activeVoices = 0;
 let driveVoice: DriveVoice | null = null;
 let flameVoice: FlameVoice | null = null;
@@ -186,6 +195,63 @@ const lastCueAt = new Map<string, number>();
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function normalizeVolume(value: number, fallback: number): number {
+  return clamp(Number.isFinite(value) ? value : fallback, 0, 1);
+}
+
+function effectiveSfxVolume(): number {
+  return platformAudioMuted ? 0 : getSfxVolume();
+}
+
+function effectiveMusicVolume(): number {
+  return platformAudioMuted ? 0 : getMusicVolume();
+}
+
+function initializeStoredVolumes(): void {
+  if (sfxVolume !== undefined && musicVolume !== undefined) return;
+  let legacyMuted = false;
+  let storedSfx: string | null = null;
+  let storedMusic: string | null = null;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      legacyMuted = localStorage.getItem(SFX_MUTED_STORAGE_KEY) === 'true';
+      storedSfx = localStorage.getItem(SFX_VOLUME_STORAGE_KEY);
+      storedMusic = localStorage.getItem(MUSIC_VOLUME_STORAGE_KEY);
+    }
+  } catch {
+    // Storage failure falls back to a usable in-memory mix.
+  }
+  const legacyFallback = legacyMuted ? 0 : 1;
+  sfxVolume = normalizeVolume(
+    storedSfx === null ? legacyFallback : Number(storedSfx),
+    DEFAULT_SFX_VOLUME,
+  );
+  musicVolume = normalizeVolume(
+    storedMusic === null ? legacyFallback : Number(storedMusic),
+    DEFAULT_MUSIC_VOLUME,
+  );
+}
+
+function persistVolume(key: string, value: number): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, String(value));
+    }
+  } catch {
+    // Storage failure must not affect the live mix.
+  }
+}
+
+function persistLegacyMute(value: boolean): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SFX_MUTED_STORAGE_KEY, String(value));
+    }
+  } catch {
+    // Storage failure must not affect the live mix.
+  }
 }
 
 function disconnectMasterBus(): void {
@@ -229,7 +295,7 @@ function sfxOutput(context: AudioContext): AudioNode {
     compressor.ratio.value = 2.2;
     compressor.attack.value = 0.004;
     compressor.release.value = 0.09;
-    output.gain.value = 0.94;
+    output.gain.value = SFX_MASTER_GAIN * effectiveSfxVolume();
 
     input.connect(highpass);
     highpass.connect(presence);
@@ -457,7 +523,7 @@ function stopGarageMusicVoice(fadeSeconds = 0.35): void {
 function ensureGarageMusic(context: AudioContext): void {
   if (
     !garageMusicWanted ||
-    isSfxMuted() ||
+    effectiveMusicVolume() <= 0 ||
     context.state !== 'running' ||
     garageMusicVoice?.context === context
   ) {
@@ -479,9 +545,12 @@ function ensureGarageMusic(context: AudioContext): void {
     source.loop = true;
     gain.gain.value = 0;
     source.connect(gain);
-    gain.connect(sfxOutput(context));
+    gain.connect(context.destination);
     source.start();
-    gain.gain.linearRampToValueAtTime(0.22, context.currentTime + 1.2);
+    gain.gain.linearRampToValueAtTime(
+      GARAGE_MUSIC_GAIN * getMusicVolume(),
+      context.currentTime + 1.2,
+    );
     garageMusicVoice = { context, source, gain };
   } catch {
     // Music is presentation-only; editor operation must remain unaffected.
@@ -996,36 +1065,90 @@ export function stopGarageMusic(): void {
   stopGarageMusicVoice();
 }
 
-export function setSfxMuted(value: boolean): void {
-  muted = value;
-  if (value) {
+export function getSfxVolume(): number {
+  initializeStoredVolumes();
+  return sfxVolume ?? DEFAULT_SFX_VOLUME;
+}
+
+export function setSfxVolume(value: number): void {
+  const previous = getSfxVolume();
+  sfxVolume = normalizeVolume(value, previous);
+  persistVolume(SFX_VOLUME_STORAGE_KEY, sfxVolume);
+  // Keep the legacy key truthful for older builds that may read the same save.
+  persistLegacyMute(sfxVolume <= 0);
+
+  const context = audioContext;
+  if (masterBus && context && masterBus.context === context) {
+    masterBus.output.gain.setTargetAtTime(
+      SFX_MASTER_GAIN * effectiveSfxVolume(),
+      context.currentTime,
+      0.015,
+    );
+  }
+  if (effectiveSfxVolume() <= 0) {
     stopDriveVoice();
     stopFlameVoice();
-    stopGarageMusicVoice(0.08);
-  } else {
+  } else if (previous <= 0) {
     if (latestDriveInput) syncDriveSfx(latestDriveInput);
-    const context = getAudioContext();
-    if (context) ensureGarageMusic(context);
-  }
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(SFX_MUTED_STORAGE_KEY, String(value));
-    }
-  } catch {
-    // Storage failure must not affect the live mix.
   }
 }
 
-export function isSfxMuted(): boolean {
-  if (muted !== undefined) return muted;
-  try {
-    muted =
-      typeof localStorage !== 'undefined' &&
-      localStorage.getItem(SFX_MUTED_STORAGE_KEY) === 'true';
-  } catch {
-    muted = false;
+export function getMusicVolume(): number {
+  initializeStoredVolumes();
+  return musicVolume ?? DEFAULT_MUSIC_VOLUME;
+}
+
+export function setMusicVolume(value: number): void {
+  const previous = getMusicVolume();
+  musicVolume = normalizeVolume(value, previous);
+  persistVolume(MUSIC_VOLUME_STORAGE_KEY, musicVolume);
+
+  const voice = garageMusicVoice;
+  if (effectiveMusicVolume() <= 0) {
+    stopGarageMusicVoice(0.08);
+    return;
   }
-  return muted;
+  if (voice) {
+    voice.gain.gain.setTargetAtTime(
+      GARAGE_MUSIC_GAIN * effectiveMusicVolume(),
+      voice.context.currentTime,
+      0.03,
+    );
+    return;
+  }
+  const context = audioContext;
+  if (previous <= 0 && context) ensureGarageMusic(context);
+}
+
+export function isSfxMuted(): boolean {
+  return effectiveSfxVolume() <= 0;
+}
+
+/**
+ * CrazyGames' platform mute overrides the live mix without rewriting either
+ * player preference. Clearing it restores the exact saved levels.
+ */
+export function setPlatformAudioMuted(value: boolean): void {
+  const next = Boolean(value);
+  if (platformAudioMuted === next) return;
+  platformAudioMuted = next;
+
+  const context = audioContext;
+  if (masterBus && context && masterBus.context === context) {
+    masterBus.output.gain.setTargetAtTime(
+      SFX_MASTER_GAIN * effectiveSfxVolume(),
+      context.currentTime,
+      0.015,
+    );
+  }
+  if (platformAudioMuted) {
+    stopDriveVoice();
+    stopFlameVoice();
+    stopGarageMusicVoice(0.08);
+    return;
+  }
+  if (latestDriveInput && getSfxVolume() > 0) syncDriveSfx(latestDriveInput);
+  if (context && getMusicVolume() > 0) ensureGarageMusic(context);
 }
 
 export function unlockAudio(): void {

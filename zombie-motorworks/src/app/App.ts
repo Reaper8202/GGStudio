@@ -52,7 +52,10 @@ import type { SavedRun } from '../core/runSave.ts';
 import { randomSeed } from '../core/rng.ts';
 import { DEFAULT_BIOME_ID } from '../survival/arena/recipes/index.ts';
 import { isDevMode, waveJumpTarget } from '../survival/devtuning/devMode.ts';
-import { submitCrazyGamesScore } from './crazyGamesSdk.ts';
+import {
+  setCrazyGamesGameplayActive,
+  submitCrazyGamesScore,
+} from './crazyGamesSdk.ts';
 import { leaderboardStore } from './leaderboardStore.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
 import { runSaveStore } from './runSaveStore.ts';
@@ -557,10 +560,12 @@ export class App {
     this.pendingEditorNotice = undefined;
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
     startGarageMusic();
+    setCrazyGamesGameplayActive(true);
   }
 
   private showTitle(hasSave = this.hasStoredSave()): void {
     if (this.activeRun && this.inBuildPhase) return;
+    setCrazyGamesGameplayActive(false);
     stopGarageMusic();
     this.disposeTitle();
     this.title = new TitleScreen(
@@ -679,6 +684,7 @@ export class App {
       this.openEditor(),
     );
     this.chamber.resize(this.root.clientWidth, this.root.clientHeight);
+    setCrazyGamesGameplayActive(true);
   }
 
   /**
@@ -758,6 +764,7 @@ export class App {
   }
 
   private enterSurvival(bp: VehicleBlueprint, run: RunState): void {
+    setCrazyGamesGameplayActive(true);
     stopGarageMusic();
     this.editor?.persistGarage();
     this.bp = bp;
@@ -813,6 +820,7 @@ export class App {
         this.markProfileDirty();
       },
       onSaveAndQuit: () => this.saveAndQuitRun(),
+      onGameplayActiveChanged: (active) => setCrazyGamesGameplayActive(active),
     });
     this.survival.resize(this.root.clientWidth, this.root.clientHeight);
   }

@@ -30,38 +30,38 @@ cross-mode ordering and browser persistence stay in `app`.
 
 ## Module Map
 
-| Module | Main responsibility | Important Interfaces |
-| --- | --- | --- |
-| `src/core/types.ts` | Serializable vehicle vocabulary | `VehicleBlueprint`, `PlacedPart`, `PartDefinition`, grid/vector/config types |
-| `src/core/parts.ts` | Immutable part catalog | `PART_CATALOG`, `getPartDef` |
-| `src/core/blueprint.ts` | Blueprint creation and immutable edits | add/remove/replace/prune helpers |
-| `src/core/grid.ts` | Canonical 24-orientation integer transforms | compose, mirror, transform helpers |
-| `src/core/placement.ts` | Occupancy, bounds, mount, and play-gate validation | `canPlacePart`, `validateBlueprint` |
-| `src/core/structural.ts` | Socket graph, root reachability, and islands | `deriveConnections`, `computeIslands` |
-| `src/core/analysis.ts` | Player-facing vehicle metrics and warnings | `analyzeVehicle` |
-| `src/core/commands.ts` | Reversible Blueprint transactions with wallet deltas | `CommandHistory`, editor commands |
-| `src/core/serialize.ts` | Blueprint schema validation and migrations | `serializeBlueprint`, `deserializeBlueprint` |
-| `src/core/profile.ts` | Profile data, defaults, progression, codec | `PlayerProfile`, profile encode/decode |
-| `src/core/runSave.ts` | Run-save schema and migration | `SavedRun`, run encode/decode |
-| `src/core/economy.ts` | Purchase, investment, refund, repair math | pure economy helpers and `RunState` |
-| `src/core/upgrades.ts` | Effective stat and upgrade-price resolution | `getEffectiveDef`, `upgradePrice` |
-| `src/core/turretModules.ts` | Turret module levels, gates, prices, effects | module state/effect helpers |
-| `src/runtime/assembler.ts` | Blueprint-to-Rapier construction | `assembleVehicle`, runtime part/wheel records |
-| `src/runtime/vehicle.ts` | Fixed-step vehicle facade | controls, telemetry, damage, resources, weapons |
-| `src/runtime/wheels.ts` | Raycast suspension and steering | wheel step and telemetry helpers |
-| `src/runtime/drivetrain.ts` | Torque/power distribution | drivetrain step helpers |
-| `src/runtime/damage.ts` | Part HP and structural resolution | damage application and debris results |
-| `src/runtime/weapons.ts` | Runtime weapon creation and stepping | aim input, ammo, tracer results |
-| `src/editor/EditorMode.ts` | Garage scene and editor orchestration | `EditorMode`, store/upgrade preview helpers |
-| `src/editor/ui.ts` | Garage DOM Adapter | `buildEditorUI`, UI handler/data Interfaces |
-| `src/chamber/ChamberMode.ts` | Disposable test-drive mode | `ChamberMode`, scenarios |
-| `src/survival/SurvivalMode.ts` | Combat scene and phase orchestration | `SurvivalMode`, callbacks, telemetry |
-| `src/survival/WaveManager.ts` | Pure wave formulas plus spawn scheduling | composition/multiplier helpers, `WaveManager` |
-| `src/survival/waveBalance.ts` | Readable/reportable view of wave math | reports, composition labels, threat warnings |
-| `src/survival/zombies/` | Pool, AI, specialist behavior, projectiles, mines | `ZombieSystem` and specialist Modules |
-| `src/app/App.ts` | Composition root and lifecycle owner | mode transitions, Run Checkpoint, debug Seam |
-| `src/app/profileStore.ts` | Profile storage Adapter | `ProfileStore` |
-| `src/app/runSaveStore.ts` | Run storage Adapter | `RunSaveStore` |
+| Module                         | Main responsibility                                  | Important Interfaces                                                         |
+| ------------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `src/core/types.ts`            | Serializable vehicle vocabulary                      | `VehicleBlueprint`, `PlacedPart`, `PartDefinition`, grid/vector/config types |
+| `src/core/parts.ts`            | Immutable part catalog                               | `PART_CATALOG`, `getPartDef`                                                 |
+| `src/core/blueprint.ts`        | Blueprint creation and immutable edits               | add/remove/replace/prune helpers                                             |
+| `src/core/grid.ts`             | Canonical 24-orientation integer transforms          | compose, mirror, transform helpers                                           |
+| `src/core/placement.ts`        | Occupancy, bounds, mount, and play-gate validation   | `canPlacePart`, `validateBlueprint`                                          |
+| `src/core/structural.ts`       | Socket graph, root reachability, and islands         | `deriveConnections`, `computeIslands`                                        |
+| `src/core/analysis.ts`         | Player-facing vehicle metrics and warnings           | `analyzeVehicle`                                                             |
+| `src/core/commands.ts`         | Reversible Blueprint transactions with wallet deltas | `CommandHistory`, editor commands                                            |
+| `src/core/serialize.ts`        | Blueprint schema validation and migrations           | `serializeBlueprint`, `deserializeBlueprint`                                 |
+| `src/core/profile.ts`          | Profile data, defaults, progression, codec           | `PlayerProfile`, profile encode/decode                                       |
+| `src/core/runSave.ts`          | Run-save schema and migration                        | `SavedRun`, run encode/decode                                                |
+| `src/core/economy.ts`          | Purchase, investment, refund, repair math            | pure economy helpers and `RunState`                                          |
+| `src/core/upgrades.ts`         | Effective stat and upgrade-price resolution          | `getEffectiveDef`, `upgradePrice`                                            |
+| `src/core/turretModules.ts`    | Turret module levels, gates, prices, effects         | module state/effect helpers                                                  |
+| `src/runtime/assembler.ts`     | Blueprint-to-Rapier construction                     | `assembleVehicle`, runtime part/wheel records                                |
+| `src/runtime/vehicle.ts`       | Fixed-step vehicle facade                            | controls, telemetry, damage, resources, weapons                              |
+| `src/runtime/wheels.ts`        | Raycast suspension and steering                      | wheel step and telemetry helpers                                             |
+| `src/runtime/drivetrain.ts`    | Torque/power distribution                            | drivetrain step helpers                                                      |
+| `src/runtime/damage.ts`        | Part HP and structural resolution                    | damage application and debris results                                        |
+| `src/runtime/weapons.ts`       | Runtime weapon creation and stepping                 | aim input, ammo, tracer results                                              |
+| `src/editor/EditorMode.ts`     | Garage scene and editor orchestration                | `EditorMode`, store/upgrade preview helpers                                  |
+| `src/editor/ui.ts`             | Garage DOM Adapter                                   | `buildEditorUI`, UI handler/data Interfaces                                  |
+| `src/chamber/ChamberMode.ts`   | Disposable test-drive mode                           | `ChamberMode`, scenarios                                                     |
+| `src/survival/SurvivalMode.ts` | Combat scene and phase orchestration                 | `SurvivalMode`, callbacks, telemetry                                         |
+| `src/survival/WaveManager.ts`  | Pure wave formulas plus spawn scheduling             | composition/multiplier helpers, `WaveManager`                                |
+| `src/survival/waveBalance.ts`  | Readable/reportable view of wave math                | reports, composition labels, threat warnings                                 |
+| `src/survival/zombies/`        | Pool, AI, specialist behavior, projectiles, mines    | `ZombieSystem` and specialist Modules                                        |
+| `src/app/App.ts`               | Composition root and lifecycle owner                 | mode transitions, Run Checkpoint, CrazyGames gameplay state, debug Seam      |
+| `src/app/profileStore.ts`      | Profile storage Adapter                              | `ProfileStore`                                                               |
+| `src/app/runSaveStore.ts`      | Run storage Adapter                                  | `RunSaveStore`                                                               |
 
 ## Blueprint Pipeline
 
@@ -110,13 +110,13 @@ root-attached part IDs when creating the next checkpoint.
 
 Rapier groups use `(membership << 16) | filter`.
 
-| Group | Membership | Purpose |
-| --- | ---: | --- |
-| Terrain | `0x0001` | Fixed chamber and graveyard colliders; suspension-ray target |
-| Vehicle | `0x0002` | Attached non-wheel part colliders and damage contacts |
-| Wheel | `0x0004` | Attached mass-only colliders; physical contacts filtered out |
-| Debris | `0x0008` | Detached structural islands |
-| Zombie | `0x0010` | Dynamic pooled zombie bodies |
+| Group   | Membership | Purpose                                                      |
+| ------- | ---------: | ------------------------------------------------------------ |
+| Terrain |   `0x0001` | Fixed chamber and graveyard colliders; suspension-ray target |
+| Vehicle |   `0x0002` | Attached non-wheel part colliders and damage contacts        |
+| Wheel   |   `0x0004` | Attached mass-only colliders; physical contacts filtered out |
+| Debris  |   `0x0008` | Detached structural islands                                  |
+| Zombie  |   `0x0010` | Dynamic pooled zombie bodies                                 |
 
 Weapon rays query the groups appropriate to their damage mode. Wheel rays query
 terrain only. Collision-group changes have a large blast radius and require
@@ -249,11 +249,11 @@ physics or state setup; retain visible assertions for user-facing workflows.
 Three orchestration files contain most cross-Module ordering. Search by symbol
 instead of reading them front to back:
 
-| File | Search targets by concern |
-| --- | --- |
-| `src/app/App.ts` | `openEditor`, `enterChamber`, `startRun`, `resumeRun`, `enterSurvival`, `commitClearedWaveCheckpoint`, `enterBuildPhase`, `finishRun`, `repairPart`, `saveAndQuitRun`, `debugSeam` |
-| `src/editor/EditorMode.ts` | exported store/preview helpers, `exec`, `buyUpgrade`, `repairPart`, `sellPart`, `buyAndArmPart`, `placeGhost`, selection methods, `persistGarage`, `refresh` |
-| `src/survival/SurvivalMode.ts` | `SurvivalCallbacks`, `buildUI`, `stepFixed`, `onWaveComplete`, pending reward methods, `queueCompletedStepTransition`, `showVictory`, `queueGameOver`, `syncHud`, debug methods |
+| File                           | Search targets by concern                                                                                                                                                          |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/app/App.ts`               | `openEditor`, `enterChamber`, `startRun`, `resumeRun`, `enterSurvival`, `commitClearedWaveCheckpoint`, `enterBuildPhase`, `finishRun`, `repairPart`, `saveAndQuitRun`, `debugSeam` |
+| `src/editor/EditorMode.ts`     | exported store/preview helpers, `exec`, `buyUpgrade`, `repairPart`, `sellPart`, `buyAndArmPart`, `placeGhost`, selection methods, `persistGarage`, `refresh`                       |
+| `src/survival/SurvivalMode.ts` | `SurvivalCallbacks`, `buildUI`, `stepFixed`, `onWaveComplete`, pending reward methods, `queueCompletedStepTransition`, `showVictory`, `queueGameOver`, `syncHud`, debug methods    |
 
 These files are integration owners, so callback order is part of their
 Interface. If they are later split, use domain-owned deep Modules with small
