@@ -65,6 +65,9 @@ Rules:
 - an optional semantic SFX callback for tactile button feedback, successful
   garage actions, and denials; App maps those cues to presentation assets
 
+App owns the Garage music lifecycle: it starts the loop after constructing an
+Editor and stops it before switching to Title, Test Chamber, or Survival.
+
 Editor responsibilities:
 
 - Validate and execute Blueprint changes.

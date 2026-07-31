@@ -57,7 +57,12 @@ import { leaderboardStore } from './leaderboardStore.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
 import { runSaveStore } from './runSaveStore.ts';
 import { TitleScreen } from './TitleScreen.ts';
-import { playSfx, type SfxName } from './sfx.ts';
+import {
+  playSfx,
+  startGarageMusic,
+  stopGarageMusic,
+  type SfxName,
+} from './sfx.ts';
 
 const EDITOR_SFX: Record<EditorSfxCue, SfxName> = {
   click: 'uiClick',
@@ -551,10 +556,12 @@ export class App {
     );
     this.pendingEditorNotice = undefined;
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
+    startGarageMusic();
   }
 
   private showTitle(hasSave = this.hasStoredSave()): void {
     if (this.activeRun && this.inBuildPhase) return;
+    stopGarageMusic();
     this.disposeTitle();
     this.title = new TitleScreen(
       this.root,
@@ -663,6 +670,7 @@ export class App {
   }
 
   private enterChamber(bp: VehicleBlueprint): void {
+    stopGarageMusic();
     this.bp = bp;
     this.savedView = this.editor?.viewState();
     this.editor?.dispose();
@@ -750,6 +758,7 @@ export class App {
   }
 
   private enterSurvival(bp: VehicleBlueprint, run: RunState): void {
+    stopGarageMusic();
     this.editor?.persistGarage();
     this.bp = bp;
     this.savedView = this.editor?.viewState();

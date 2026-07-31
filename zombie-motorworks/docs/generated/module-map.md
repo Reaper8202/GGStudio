@@ -5,7 +5,7 @@
 > it end to end as routine task setup.
 
 - Source Modules: 111
-- Source lines: 45,710
+- Source lines: 45,813
 - Test files scanned: 99
 
 ## Largest Modules
@@ -18,14 +18,14 @@
 | [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) | 2434 |
 | [`src/editor/ui.ts`](../../src/editor/ui.ts) | 2143 |
 | [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 1512 |
-| [`src/app/App.ts`](../../src/app/App.ts) | 1411 |
+| [`src/app/App.ts`](../../src/app/App.ts) | 1420 |
 | [`src/editor/parts/upgradeKit.ts`](../../src/editor/parts/upgradeKit.ts) | 1221 |
 | [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 1122 |
-| [`src/app/sfx.ts`](../../src/app/sfx.ts) | 969 |
+| [`src/app/sfx.ts`](../../src/app/sfx.ts) | 1063 |
 
 ## src/app
 
-### [`src/app/App.ts`](../../src/app/App.ts) (1411 LOC)
+### [`src/app/App.ts`](../../src/app/App.ts) (1420 LOC)
 
 - Exports: `App`, `buildStarterBlueprint`, `CheckpointRunState`, `createClearedWaveCheckpoint`, `createInitialRunCheckpoint`, `fullPartHp`, `prepareCheckpointForGarageFight`, `recordPhoneAddictKilled`, `recordWaveCleared`, `recoverRunFromCheckpoint`, `resetProfileForNewGame`, `resetProfileForNewRun`, `RunCheckpoint`, `runStateFromCheckpoint`, `savedRunFromCheckpoint`
 - Imports: `src/app/TitleScreen.ts`, `src/app/crazyGamesSdk.ts`, `src/app/leaderboardStore.ts`, `src/app/profileStore.ts`, `src/app/runSaveStore.ts`, `src/app/sfx.ts`, `src/chamber/ChamberMode.ts`, `src/core/analysis.ts`, `src/core/biomes.ts`, `src/core/blueprint.ts`, `src/core/commands.ts`, `src/core/economy.ts`, `src/core/grid.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/placement.ts`, `src/core/profile.ts`, `src/core/rng.ts`, `src/core/runSave.ts`, `src/core/serialize.ts`, `src/core/types.ts`, `src/core/upgrades.ts`, `src/editor/EditorMode.ts`, `src/editor/ui.ts`, `src/runtime/vehicle.ts`, `src/survival/SurvivalMode.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/devMode.ts`
@@ -89,9 +89,9 @@
 - External packages: none
 - Direct tests: `unit/run-save.test.ts`
 
-### [`src/app/sfx.ts`](../../src/app/sfx.ts) (969 LOC)
+### [`src/app/sfx.ts`](../../src/app/sfx.ts) (1063 LOC)
 
-- Exports: `disposeSfx`, `isSfxMuted`, `playDamageNumberSfx`, `playExplosionSfx`, `playImpactSfx`, `playSceneryImpactSfx`, `playSfx`, `playVehicleDamageSfx`, `playWeaponSfx`, `playZombieSfx`, `setSfxMuted`, `SFX_MUTED_STORAGE_KEY`, `SfxListener`, `SfxName`, `stopDriveSfx`, `syncDriveSfx`, `unlockAudio`
+- Exports: `disposeSfx`, `isSfxMuted`, `playDamageNumberSfx`, `playExplosionSfx`, `playImpactSfx`, `playSceneryImpactSfx`, `playSfx`, `playVehicleDamageSfx`, `playWeaponSfx`, `playZombieSfx`, `setSfxMuted`, `SFX_MUTED_STORAGE_KEY`, `SfxListener`, `SfxName`, `startGarageMusic`, `stopDriveSfx`, `stopGarageMusic`, `syncDriveSfx`, `unlockAudio`
 - Imports: `src/survival/zombies/ZombieSystem.ts`
 - Imported by: `src/app/App.ts`, `src/app/TitleScreen.ts`, `src/chamber/ChamberMode.ts`, `src/survival/SurvivalMode.ts`, `src/survival/WaveClearCard.ts`
 - External packages: none

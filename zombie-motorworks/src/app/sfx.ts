@@ -98,6 +98,7 @@ const LOOP_URLS = {
   surfaceSand: audioUrl('surface-sand-loop.ogg'),
   surfaceSnow: audioUrl('surface-snow-loop.ogg'),
   flamethrower: audioUrl('flamethrower-loop.ogg'),
+  garageMusic: audioUrl('garage-theme.ogg'),
 } as const;
 
 const ALL_URLS = [
@@ -139,6 +140,12 @@ interface FlameVoice {
   stopTimer: ReturnType<typeof globalThis.setTimeout> | null;
 }
 
+interface MusicVoice {
+  context: AudioContext;
+  source: AudioBufferSourceNode;
+  gain: GainNode;
+}
+
 interface MasterBus {
   context: AudioContext;
   input: GainNode;
@@ -167,6 +174,8 @@ let muted: boolean | undefined;
 let activeVoices = 0;
 let driveVoice: DriveVoice | null = null;
 let flameVoice: FlameVoice | null = null;
+let garageMusicVoice: MusicVoice | null = null;
+let garageMusicWanted = false;
 let masterBus: MasterBus | null = null;
 let latestDriveInput: DriveSfxInput | null = null;
 let variationCursor = 0;
@@ -412,6 +421,70 @@ function stopFlameVoice(): void {
     voice.gain.disconnect();
   } catch {
     // The owning context may already be closed.
+  }
+}
+
+function stopGarageMusicVoice(fadeSeconds = 0.35): void {
+  const voice = garageMusicVoice;
+  garageMusicVoice = null;
+  if (!voice) return;
+  try {
+    const now = voice.context.currentTime;
+    const stopAt = now + Math.max(0, fadeSeconds);
+    voice.gain.gain.cancelScheduledValues(now);
+    voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
+    voice.gain.gain.linearRampToValueAtTime(0, stopAt);
+    voice.source.stop(stopAt + 0.02);
+    voice.source.onended = () => {
+      try {
+        voice.source.disconnect();
+        voice.gain.disconnect();
+      } catch {
+        // The owning context may already be closed.
+      }
+    };
+  } catch {
+    try {
+      voice.source.stop();
+      voice.source.disconnect();
+      voice.gain.disconnect();
+    } catch {
+      // The owning context may already be closed.
+    }
+  }
+}
+
+function ensureGarageMusic(context: AudioContext): void {
+  if (
+    !garageMusicWanted ||
+    isSfxMuted() ||
+    context.state !== 'running' ||
+    garageMusicVoice?.context === context
+  ) {
+    return;
+  }
+  if (garageMusicVoice) stopGarageMusicVoice(0);
+  const buffer = buffers.get(LOOP_URLS.garageMusic);
+  if (!buffer) {
+    void loadUrl(context, LOOP_URLS.garageMusic).then(() =>
+      ensureGarageMusic(context),
+    );
+    return;
+  }
+
+  try {
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    source.buffer = buffer;
+    source.loop = true;
+    gain.gain.value = 0;
+    source.connect(gain);
+    gain.connect(sfxOutput(context));
+    source.start();
+    gain.gain.linearRampToValueAtTime(0.22, context.currentTime + 1.2);
+    garageMusicVoice = { context, source, gain };
+  } catch {
+    // Music is presentation-only; editor operation must remain unaffected.
   }
 }
 
@@ -905,13 +978,29 @@ export function stopDriveSfx(): void {
   latestDriveInput = null;
 }
 
+export function startGarageMusic(): void {
+  garageMusicWanted = true;
+  const context = getAudioContext();
+  if (!context) return;
+  preload(context);
+  ensureGarageMusic(context);
+}
+
+export function stopGarageMusic(): void {
+  garageMusicWanted = false;
+  stopGarageMusicVoice();
+}
+
 export function setSfxMuted(value: boolean): void {
   muted = value;
   if (value) {
     stopDriveVoice();
     stopFlameVoice();
-  } else if (latestDriveInput) {
-    syncDriveSfx(latestDriveInput);
+    stopGarageMusicVoice(0.08);
+  } else {
+    if (latestDriveInput) syncDriveSfx(latestDriveInput);
+    const context = getAudioContext();
+    if (context) ensureGarageMusic(context);
   }
   try {
     if (typeof localStorage !== 'undefined') {
@@ -942,7 +1031,10 @@ export function unlockAudio(): void {
     if (context.state === 'suspended') {
       void context.resume().then(() => {
         if (latestDriveInput) syncDriveSfx(latestDriveInput);
+        ensureGarageMusic(context);
       });
+    } else {
+      ensureGarageMusic(context);
     }
   } catch {
     // Browsers without a usable Web Audio implementation stay silent.
@@ -954,6 +1046,8 @@ export function disposeSfx(): void {
   audioContext = null;
   stopDriveVoice();
   stopFlameVoice();
+  garageMusicWanted = false;
+  stopGarageMusicVoice(0);
   disconnectMasterBus();
   latestDriveInput = null;
   activeVoices = 0;
