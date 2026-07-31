@@ -1,0 +1,13 @@
+{
+  "name": "ggstudio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo root. Each game owns its own package.json; this one exists so a host that starts at the repo root can find its way into one.",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "install:game": "npm --prefix zombie-motorworks ci",
+    "build": "npm --prefix zombie-motorworks run build"
+  }
+}

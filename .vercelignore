@@ -1,0 +1,19 @@
+# The deploy builds one game. Everything below is another project in this
+# monorepo, or weight the build never reads.
+comfy-zoo/
+glb-pipeline/
+glb-rigger/
+saved/
+Shared/
+Subway/
+test-results/
+
+zombie-motorworks/docs/
+zombie-motorworks/tests/
+zombie-motorworks/unit/
+zombie-motorworks/playwright-report/
+zombie-motorworks/test-results/
+zombie-motorworks/*.mjs
+!zombie-motorworks/scripts/*.mjs
+zombie-motorworks/necromancer.html
+zombie-motorworks/portrait.html
