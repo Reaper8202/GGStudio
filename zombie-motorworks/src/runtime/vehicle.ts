@@ -90,6 +90,8 @@ export interface VehicleTelemetry {
   shotsThisStep: TracerShot[];
   /** Cumulative rounds fired across every weapon this run (weapons are unlimited). */
   totalShotsFired: number;
+  /** Worst (lowest) per-wheel hazard grip multiplier this step; 1 when no wheel is on a hazard. */
+  hazardMul: number;
 }
 
 export interface RuntimePartTarget {
@@ -1090,8 +1092,10 @@ export class RuntimeVehicle {
     let alive = 0;
     let detached = 0;
     let wheelSlip = 0;
+    let hazardMul = 1;
     for (const contact of this.lastWheelTelemetry.contacts) {
       wheelSlip = Math.max(wheelSlip, contact.slip);
+      hazardMul = Math.min(hazardMul, contact.hazardMul);
     }
     for (const [, p] of this.assembled.parts) {
       if (p.alive && !p.detached) alive++;
@@ -1111,6 +1115,7 @@ export class RuntimeVehicle {
       detachedParts: detached,
       shotsThisStep: this.lastShots,
       totalShotsFired: this.weapons.reduce((sum, w) => sum + w.shotsFired, 0),
+      hazardMul,
     };
   }
 

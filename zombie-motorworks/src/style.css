@@ -1123,7 +1123,8 @@ canvas.viewport {
 
 button,
 select,
-input[type='text'] {
+input[type='text'],
+input[type='number'] {
   background: var(--ui-surface-3);
   color: var(--text);
   border: 1px solid var(--ui-edge);
@@ -3290,6 +3291,22 @@ button:disabled {
   white-space: normal;
 }
 
+.survival-settings__skip-wave {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+}
+
+.survival-settings__skip-wave input {
+  width: 72px;
+  min-height: 48px;
+  text-align: center;
+}
+
+.survival-settings__skip-wave .ui-button {
+  flex: 1;
+}
+
 .survival-settings__reset {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3368,17 +3385,23 @@ button:disabled {
 
 /* Boss health bar. Sits directly under the wave counter and is revealed only
    while a boss is alive; hidden entirely on ordinary waves. */
+/* Panel-less, like `.wave-timeline` — it floats over the road in the rail's
+   spot, so it leans on the ink outline below for legibility instead of a
+   filled card. */
 .survival-boss-hud {
+  --survival-boss-hud-outline:
+    -1px 0 0 var(--ui-ink), 1px 0 0 var(--ui-ink), 0 -1px 0 var(--ui-ink),
+    0 1px 0 var(--ui-ink), 0 2px 0 rgb(0 0 0 / 0.5);
+
   position: absolute;
   top: 74px;
   left: 50%;
   z-index: 16;
   display: grid;
-  width: min(520px, calc(100vw - 32px));
+  width: min(360px, calc(100vw - 20px));
   place-items: center;
   gap: 6px;
-  padding: 9px 15px 10px;
-  background: var(--panel-bg-strong);
+  pointer-events: none;
   transform: translateX(-50%);
 }
 
@@ -3391,6 +3414,7 @@ button:disabled {
   color: var(--ui-danger);
   font: 400 var(--ui-text-14)/1 var(--ui-font-display);
   letter-spacing: 0.1em;
+  text-shadow: var(--survival-boss-hud-outline);
   text-transform: uppercase;
 }
 
@@ -3399,7 +3423,10 @@ button:disabled {
   height: 14px;
   padding: 2px;
   background: var(--ui-recess);
-  box-shadow: inset 2px 2px 0 var(--ui-black);
+  box-shadow:
+    inset 2px 2px 0 var(--ui-black),
+    0 0 0 1px var(--ui-edge),
+    2px 3px 0 rgb(0 0 0 / 0.45);
 }
 
 .survival-boss-hud__fill {
@@ -3418,6 +3445,7 @@ button:disabled {
   color: var(--ui-text-muted);
   font: var(--ui-text-10)/1 var(--ui-font-body);
   letter-spacing: 0.08em;
+  text-shadow: var(--survival-boss-hud-outline);
 }
 
 .survival-driver-hud {
@@ -4171,6 +4199,22 @@ button:disabled {
   left: 14px;
   width: 6px;
   height: 6px;
+}
+
+.survival-warning__icon--traction::before {
+  top: 17px;
+  left: 5px;
+  width: 24px;
+  height: 11px;
+  border-radius: 50%;
+}
+
+.survival-warning__icon--traction::after {
+  top: 4px;
+  left: 13px;
+  width: 8px;
+  height: 12px;
+  clip-path: polygon(50% 0%, 100% 65%, 50% 100%, 0% 65%);
 }
 
 .survival-warning__icon--hull::before {

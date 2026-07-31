@@ -2630,6 +2630,48 @@ export class VfxSystem {
   }
 
   /**
+   * One puff of the vial boss's trailing gas cloud, vented repeatedly by
+   * `GasTrail` along the hazard chain behind it — slow, drifting motes rather
+   * than a burst, so consecutive puffs blend into one hanging cloud that
+   * reads as smoke pouring off the boss. This is the trail's only visual;
+   * nothing is drawn on the ground, so the puffs carry it alone: they live
+   * long, grow large, and barely move.
+   */
+  bossGasWisp(x: number, y: number, z: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const wisps = this.count(7, detail);
+    for (let i = 0; i < wisps; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * this.rand(0, 1.5);
+      this.spec.y = y + this.rand(0, 0.5);
+      this.spec.z = z + Math.sin(angle) * this.rand(0, 1.5);
+      // Light outward drift with little drag to kill it, so the cloud keeps
+      // widening the whole time it hangs instead of stalling where it spawned.
+      this.spec.vx = Math.cos(angle) * this.rand(0.5, 1.3);
+      this.spec.vy = this.rand(0.35, 0.9);
+      this.spec.vz = Math.sin(angle) * this.rand(0.5, 1.3);
+      this.spec.size = this.rand(0.22, 0.4);
+      this.spec.endSize = this.spec.size * this.rand(2.6, 3.8);
+      this.spec.lifeSeconds = this.rand(1.6, 2.6);
+      this.spec.colorStart = VFX_PALETTE.acidSmoke;
+      this.spec.colorEnd = VFX_PALETTE.acidFade;
+      this.spec.gravity = 0.5;
+      this.spec.drag = 1.2;
+      this.spec.spin = 1.5;
+      // The `glow` layer, for its additive blend: that is what makes the cloud
+      // see-through and lets the densest overlaps bloom toward white. It only
+      // blew out to solid white before because `acid` itself is a bright
+      // colour — `acidSmoke` is dim enough that it takes real depth of gas to
+      // get there, which is exactly the read we want.
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
    * Overdrive kicking in: a hard shove of exhaust out the back of the rig.
    * `dirX/dirZ` is the vehicle's normalised forward heading — the flare fires
    * against it, so the boost reads as thrust.

@@ -11,7 +11,7 @@
 export type WarningSeverity = 'critical' | 'caution';
 
 /** Chooses the pictogram; each value has a matching CSS modifier. */
-export type WarningIcon = 'tire' | 'hull' | 'fuel' | 'engine' | 'weapon';
+export type WarningIcon = 'tire' | 'hull' | 'fuel' | 'engine' | 'weapon' | 'traction';
 
 export interface VehicleWarning {
   /** Stable key, so the renderer can diff without rebuilding the DOM. */
@@ -40,6 +40,8 @@ export interface VehicleWarningInput {
   /** Weapon parts the build started with, and how many still work. */
   readonly weaponCount: number;
   readonly liveWeaponCount: number;
+  /** Worst current per-wheel hazard grip multiplier (0..1); 1 when no wheel is on a hazard. */
+  readonly hazardMul: number;
 }
 
 /** A tire below this fraction of its health is flagged as failing. */
@@ -52,6 +54,12 @@ export const HULL_CAUTION_PCT = 50;
 /** Fuel fractions for the low and reserve warnings. */
 export const FUEL_CAUTION_FRACTION = 0.25;
 export const FUEL_CRITICAL_FRACTION = 0.1;
+/**
+ * A hazard multiplier below this reads as "on a hazard" — both the ice trail's
+ * (0.2) and the acid puddle's (0.35) values sit well under it, so this only
+ * needs to reject floating-point noise off a clean 1.
+ */
+export const TRACTION_CAUTION_MUL = 0.99;
 
 /** Most display slots the HUD should ever fill at once. */
 export const MAX_VISIBLE_WARNINGS = 3;
@@ -104,6 +112,18 @@ export function activeVehicleWarnings(
       icon: 'tire',
       title: 'Tire Damage',
       detail: `${cautionTires} ${plural(cautionTires, 'tire')} running low`,
+    });
+  }
+
+  // --- Traction. A hazard patch (ice, acid) underfoot, not damage — cleared
+  // the instant the last grounded wheel leaves it, same as the poison tick.
+  if (input.hazardMul < TRACTION_CAUTION_MUL) {
+    caution.push({
+      id: 'traction-hazard',
+      severity: 'caution',
+      icon: 'traction',
+      title: 'Traction Loss',
+      detail: 'Wheels bogged down — grip reduced',
     });
   }
 

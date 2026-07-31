@@ -27,9 +27,22 @@ Minecraft-style characters get away with rigid limbs.
 
 ## Rig definition
 
-Each joint has a model-space position, a parent, and a `tip`. The bone is the
-segment `pos -> tip`; every triangle is assigned to whichever bone segment its
-centroid is nearest.
+Each joint has a position, a parent, and a `tip`. The bone is the segment
+`pos -> tip`; every triangle is assigned to whichever bone segment its centroid
+is nearest.
+
+**Positions are mesh-local, not world.** `mergeGeometry` reads `POSITION`
+straight off the primitive and never applies the node's transform, so if the
+source node carries a scale — the pipeline's do; the Alchemist's is 0.9474 —
+coordinates read off a `render_ortho.py` render come out too small, because that
+script renders world space. Divide by the node scale, or measure the primitive
+directly. A few percent of skew still segments *plausibly*, which is exactly why
+it is worth checking rather than eyeballing: dump the node with
+
+```sh
+node -e 'const b=require("fs").readFileSync(process.argv[1]);
+  console.log(JSON.parse(b.slice(20,20+b.readUInt32LE(12)).toString()).nodes[0])' MODEL.glb
+```
 
 ```json
 {
@@ -73,7 +86,18 @@ Lessons that cost iterations:
   the hair and rotating it swivels hair off the face.
 - **Overrides are the escape hatch.** The tome hangs nearer the coat than the
   hand carrying it, so distance alone splits it. A box in `overrides` forces it
-  onto `armL_fore`.
+  onto `armL_fore`. The Alchemist needs two, and both are the same shape of
+  problem — a part that is geometrically nearer a bone it does not belong to:
+  its jaw juts forward and *down* past the neck pivot, so distance welded the
+  chin to the torso; and its apron's lower corners sit nearer a thigh than the
+  hips bone on the centre line, so each leg tore off a wedge of skirt and
+  flapped it.
+- **Pivot a robe's legs at the hem, not the pelvis.** Where the Necromancer's
+  open coat lets its legs pivot high, the Alchemist wears a closed apron down to
+  mid-thigh. Its `hips` bone therefore runs *downward* from the belt to the hem
+  and owns the whole skirt, and the thighs start below it. The visible leg is
+  only the bottom fifth of the model — which the walk curves have to account
+  for, since a short leg makes a normal stride read as gliding.
 
 Rig configs are **not** interchangeable between models. The depth-7 voxel
 Necromancer is 1.90 tall rather than 2.00, narrower, and has lost the tome —
@@ -104,14 +128,40 @@ once.** The model faces **+Z**, so:
 - Positive swings it **back**.
 - The character's right hand is on **-X**.
 
-Blender's glTF importer preserves local transforms on all non-root nodes, so a
-Blender local-X rotation equals the glTF one and signs transfer to three.js
-unchanged. The root node (`hips`) is the exception — it absorbs the Y-up→Z-up
-conversion, so don't reason about its rotation from a Blender render.
+Only **X** transfers to Blender unchanged. The importer bakes the Y-up→Z-up
+conversion into the hierarchy, so a node's local axes are Blender's world axes:
+local X = glTF X, but local **Y = glTF −Z** and local **Z = glTF Y**. Confirmed
+by dumping `matrix_local` after import — `armR_upper`'s glTF offset
+`(-0.235, 0.41, -0.03)` arrives as Blender `(-0.235, 0.01, 0.41)`.
+
+Composition order differs too. Three.js's default `'XYZ'` Euler is the matrix
+`Rx·Ry·Rz`, applying **Z to the vector first**; Blender's `'XYZ'` is the
+opposite. Applying glTF Z, then Y, then X means applying Blender Y, then Z, then
+X — order `'YZX'`.
+
+So a glTF `(rx, ry, rz)` goes into Blender as
+
+```python
+obj.rotation_mode = 'YZX'
+obj.rotation_euler = (rx, -rz, ry)
+```
+
+which is what `verify/render_pose.py` now does. Both conversions are invisible
+for a pose that only sets `rx`, which is every rig before the Alchemist — that
+is why this went unnoticed, and why a two-axis pose rendered as a completely
+different pose than the game played.
 
 To re-derive: rotate a bone in Blender, convert world position back to glTF
 (`x=x, y=z, z=-y`), and compare against `Rx(θ)` applied to the child's local
 offset. They matched exactly.
+
+Better still, skip Blender for the load-bearing check. `Zombie.applyRigPose`
+writes plain Euler rotations onto plain `Object3D`s, so the same hierarchy can
+be rebuilt from the GLB's node offsets in bare Node with three.js's math and the
+world position of each hand and foot read out directly. That is how the
+Alchemist's clips were verified — a render tells you a pose looks odd, forward
+kinematics tells you the hand is 0.83 behind the body when it should be in
+front.
 
 ## Verifying
 
@@ -178,6 +228,25 @@ segmentation live. State deep-links: `?model=voxel&clip=cast&speed=0.5`.
 
 Like `portrait.html`, the preview is a dev-server tool and is not part of the
 production build.
+
+### A T-pose bind changes the rules
+
+`alchemistPose.ts` is the odd one out. Its source model was authored in a clean
+T-pose, so the bind pose has both arms straight out sideways — meaning **every**
+pose has to drive the arms down itself, via `rz` on `armX_upper` (positive for
+the right arm, negative for the left, since they point opposite ways along X).
+Consequences worth knowing before rigging another T-pose model:
+
+- The shared all-bind `REST_POSE` is *wrong* for such a rig. It needs a real
+  `restPose()`, wired through `RigClips.rest`, or the boss stands around like a
+  scarecrow whenever it is not walking or attacking.
+- `rz` drops the arm and `rx` then sweeps it through the sagittal plane, which
+  only works because three.js applies Z first (see the rotation convention
+  above). It is the one rig here where the Euler order is load bearing.
+- An overhand throw is one *monotonic* sweep of `rx`: rest 0 → cocked 2.7 →
+  released 4.8 → `TAU`, which is rest again one revolution on. Blending the arm
+  back toward 0 at the end instead plays the throw in reverse; the follow-through
+  has to keep going the same way round.
 
 ## Known non-issues
 

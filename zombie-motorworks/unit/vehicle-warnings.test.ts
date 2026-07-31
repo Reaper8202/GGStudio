@@ -24,6 +24,7 @@ function healthy(
     liveEngineCount: 1,
     weaponCount: 2,
     liveWeaponCount: 2,
+    hazardMul: 1,
     ...overrides,
   };
 }

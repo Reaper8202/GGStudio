@@ -222,6 +222,8 @@ export interface WheelContactSample {
   /** Combined slip magnitude, already normalised to roughly 0..1. */
   slip: number;
   loadN: number;
+  /** Grip multiplier (0..1) this contact got from `hazardMuAt`; 1 outside every hazard. */
+  hazardMul: number;
 }
 
 export interface WheelTelemetry {
@@ -385,7 +387,7 @@ export function stepWheels(
       if (atRest) w.omega = 0;
       const slip = w.omega * w.radius - vLong;
       const slipMagnitude = Math.min(1, Math.hypot(slip / LONG_SLIP_SATURATION, vLat / LAT_SLIP_SATURATION));
-      contacts.push({ partId: w.partId, point: contact, surface: surfaceKind, slip: slipMagnitude, loadN: springForce });
+      contacts.push({ partId: w.partId, point: contact, surface: surfaceKind, slip: slipMagnitude, loadN: springForce, hazardMul });
       let fLong = atRest ? 0 : muLong * springForce * clamp(slip / LONG_SLIP_SATURATION, -1, 1);
       if (!atRest && w.braking && input.brake > 0) {
         const brakeAmount = clamp(input.brake, 0, 1);

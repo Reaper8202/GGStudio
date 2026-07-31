@@ -346,6 +346,24 @@ export const BEHEMOTH_SMASH_VFX_RADIUS = 2.6;
 /** Ground warning ring colour while it winds up — distinct from the Worker's amber and the Necromancer's violet. */
 export const BEHEMOTH_RING_COLOR = 0xff3020;
 
+/**
+ * Steps per second for the Alchemist boss's walk. Slower than the Necromancer's
+ * 1.05 would suggest for its speed, because the rig's legs pivot at the apron
+ * hem rather than the pelvis (see `glb-rigger/green-alchemist.rig.json`): the
+ * visible leg is short, so a brisk cadence reads as scurrying rather than as
+ * the deliberate stalk the boss is meant to have.
+ */
+export const ALCHEMIST_WALK_CADENCE = 0.95;
+
+/**
+ * How far past its hold range a vial boss will follow the vehicle before it
+ * gives up on the throw and goes back to chasing. Far larger than the ordinary
+ * `ZOMBIE_ATTACK_EXIT_MARGIN`, because a vial boss's cooldown only advances
+ * while it is in the attack state: a narrow margin let any moving vehicle keep
+ * knocking it back to chasing and reset its progress, so it barely threw at all.
+ */
+export const VIAL_ATTACK_EXIT_MARGIN = 12;
+
 // Zamboni: unrigged single-mesh vehicle-zombie (zamboni.glb). It never
 // targets or attacks the vehicle — it patrols between arena spawn points,
 // laying a continuous ice hazard line behind it, and only reacts to being
@@ -382,6 +400,36 @@ export const ICE_TRAIL_HEIGHT_M = 0.03;
 export const ICE_TRAIL_COLOR = 0xbfe9ff;
 /** Grip multiplier applied on top of the terrain underneath a patch. */
 export const ICE_TRAIL_GRIP_MULTIPLIER = 0.2;
+
+// Gas trail: the vial boss's toxic wake. Its hazard shape is the same
+// joined-segment chain `ICE_TRAIL_*` uses for the Zamboni, but the trail has
+// no ground geometry at all — nothing is drawn on the floor. What the player
+// sees is smoke: `GasTrail` keeps venting VFX puffs out of the boss along the
+// chain while each segment is young, so the hazard reads as a drifting cloud
+// hanging in the air behind it. Pure damage, no grip penalty —
+// `ACID_PUDDLE_GRIP_MULTIPLIER` already covers "stuck in acid".
+export const GAS_TRAIL_POOL_SIZE = 64;
+/** World-metre distance the boss moves between one gas segment and the next. */
+export const GAS_TRAIL_EMIT_DISTANCE_M = 1;
+/** Full width of the trail, world metres — the hazard's contact width. */
+export const GAS_TRAIL_WIDTH_M = 3;
+/** Height the smoke puffs are born at, roughly the boss's waist. */
+export const GAS_TRAIL_HEIGHT_M = 0.5;
+/** How long a single segment stays dangerous. Long enough for the cloud to stretch well behind the boss. */
+export const GAS_TRAIL_LIFETIME_SECONDS = 12;
+/**
+ * Seconds between one segment venting a puff and the next. Only the youngest
+ * segments vent (see below), so this is the per-segment rate, not the trail's.
+ */
+export const GAS_PUFF_INTERVAL_SECONDS = 0.35;
+/**
+ * A segment only vents while it is this young — older stretches of the trail
+ * are still poisonous but have stopped producing new smoke, so the cloud
+ * thins out behind the boss instead of every live segment puffing forever.
+ */
+export const GAS_PUFF_EMIT_WINDOW_SECONDS = 1.8;
+/** Slightly gentler than a puddle's tick — this is incidental exposure from standing near the boss, not committing to a puddle. */
+export const GAS_TRAIL_DAMAGE_PER_SECOND = 8;
 
 // Phone Addict: projectile-proof zombie (PhoneAddict voxel pck). A personal
 // bubble shield absorbs every gun hit — only flame, ramming, and grinder
@@ -500,27 +548,70 @@ export const VIAL_LAUNCH_HEIGHT_FRACTION = 0.78;
 // same way it ticks landmine proximity and boss slams — see `AcidPuddles.ts`.
 /**
  * Comfortably above the largest number of puddles the alchemist can have alive
- * at once: an enraged 3-vial barrage, plus the tail end of the volley before it
- * (puddles at `poisonDamagePerSecond` * 5 s durations easily outlive the ~3.2 s
- * gap between throws). Never needs to be huge — only one vial boss exists.
+ * at once: an enraged 3-vial barrage every `intervalSeconds` (1.2 s), each
+ * puddle now living `puddleDurationSeconds` (30 s) — worst case that's
+ * `3 * ceil(30 / 1.2)` = 75 overlapping puddles before the oldest expire.
+ * Only one vial boss exists, so this never needs to scale further.
  */
-export const ACID_PUDDLE_POOL_SIZE = 8;
+export const ACID_PUDDLE_POOL_SIZE = 80;
 /** Sickly acid green, matching the boss's own tint so the puddle reads as "its" hazard. */
 export const ACID_PUDDLE_COLOR = 0x5cff2e;
 export const ACID_PUDDLE_OPACITY = 0.55;
 /** Last second of a puddle's life fades its opacity out, telegraphing it is about to clear. */
 export const ACID_PUDDLE_FADE_SECONDS = 1;
 /**
+ * Grip multiplier (0..1) applied to every wheel touching a puddle, the same
+ * hook `IceTrail.muAt` uses. Deliberately well above the ice trail's 0.2:
+ * acid is not meant to make the car skate, it is meant to make it struggle —
+ * the wheels still bite enough to steer, they just cannot put power down, so
+ * acceleration out of a puddle is sluggish. The actual loss of speed comes
+ * from `ACID_PUDDLE_DRAG_PER_SECOND` below.
+ */
+export const ACID_PUDDLE_GRIP_MULTIPLIER = 0.45;
+/**
+ * Horizontal velocity damping (per second, applied exponentially) while the
+ * chassis is over any puddle — this is what actively drags the car down as it
+ * crosses one, rather than merely letting it coast through on momentum. At
+ * 2.4 a car entering at full speed sheds roughly half its speed per crossing
+ * second and recovers the moment it is clear.
+ */
+export const ACID_PUDDLE_DRAG_PER_SECOND = 2.4;
+/**
  * Poison is ticked on a timer rather than applied every physics step (1/60 s).
  * `applyDirectDamage` floors any nonzero hit to at least 1 HP — tuned for
  * one-shot impacts like a ram or an explosion — so a per-frame dose would floor
- * to 60 HP/s regardless of `poisonDamagePerSecond`. Half-second ticks deliver
- * `poisonDamagePerSecond * 0.5`, comfortably above that floor for any sane DPS
- * value, while still reading as continuous damage.
+ * to 60 HP/s regardless of the source's DPS. Half-second ticks deliver
+ * `damagePerSecond * 0.5`, comfortably above that floor for any sane DPS
+ * value, while still reading as continuous damage. Only the boss's gas trail
+ * feeds this now — puddles are a handling hazard, not a damage one.
  */
 export const ACID_POISON_TICK_SECONDS = 0.5;
 /** Circle segment count for the puddle disc — cheap and round enough at this size. */
 export const ACID_PUDDLE_SEGMENTS = 24;
+/**
+ * How far each puddle's outline wobbles off a true circle, as a fraction of
+ * its radius — a splash landing never stamps out a perfect disc.
+ */
+export const ACID_PUDDLE_BLOB_JITTER = 0.22;
+
+// Bubbling: small toxic bubbles that pop up inside every live puddle. They
+// spawn from whichever puddle rolled them and then live independently, so a
+// puddle despawning early just leaves its last few bubbles to finish out —
+// no back-reference needed, the same trick `AcidPuddles.pool` itself uses.
+/** Comfortably covers ~8 puddles bubbling concurrently at the tuned rate below. */
+export const ACID_BUBBLE_POOL_SIZE = 48;
+/** Lighter, hotter green than the puddle itself so a bubble reads as popping out of it. */
+export const ACID_BUBBLE_COLOR = 0xaaff66;
+export const ACID_BUBBLE_OPACITY = 0.85;
+export const ACID_BUBBLE_LIFE_MIN = 0.3;
+export const ACID_BUBBLE_LIFE_MAX = 0.55;
+export const ACID_BUBBLE_RADIUS_MIN = 0.045;
+export const ACID_BUBBLE_RADIUS_MAX = 0.11;
+/** How high a bubble drifts above the puddle surface over its lifetime. */
+export const ACID_BUBBLE_RISE_HEIGHT = 0.05;
+/** Seconds between a puddle rolling a new bubble; scaled down for bigger puddles. */
+export const ACID_BUBBLE_INTERVAL_MIN = 0.1;
+export const ACID_BUBBLE_INTERVAL_MAX = 0.22;
 
 export const SCALE_VARIATION = 0.12;
 export const WALK_BOB_FREQUENCY = 9;

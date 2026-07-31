@@ -1,0 +1,131 @@
+{
+  "name": "green-alchemist",
+  "note": [
+    "Coordinates are MESH-LOCAL, not world: mergeGeometry reads POSITION straight",
+    "off the primitive and never applies the node transform, and this model's node",
+    "carries scale 0.9474. Numbers read off render_ortho.py (which renders world",
+    "space) therefore come out ~5.6% small here and have to be divided by that",
+    "scale. Measured directly off the primitive: 1.617 tall, feet at y=-0.809,",
+    "T-pose arms outstretched to x=+-1.0, z spans +-0.356.",
+    "Unlike every other rig here the source is a clean T-pose, so the arms run",
+    "along X rather than hanging down: armX_upper and armX_fore are horizontal",
+    "bones, and alchemistPose.ts has to rotate a resting arm down about Z itself.",
+    "The character faces +Z, so its right hand is on -X. The head juts forward to",
+    "z~0.2 well ahead of the spine, the still apparatus hangs off the back at",
+    "z=-0.356, and the vial harness sits on the chest at z=+0.356.",
+    "Each bone is the segment from `pos` to `tip`; triangles are assigned to",
+    "the nearest bone, with `radius` biasing which bone wins contested mass",
+    "(bigger radius = greedier)."
+  ],
+  "joints": [
+    {
+      "comment": "Root, and the bone that owns the apron. It runs DOWN from the belt to the hem rather than up like a normal pelvis, because the skirt is one closed shell from y=0.01 to y=-0.485 that the thighs would otherwise tear in half.",
+      "name": "hips",
+      "parent": null,
+      "pos": [0.0, 0.01, -0.02],
+      "tip": [0.0, -0.445, -0.01],
+      "radius": 1.15
+    },
+    {
+      "comment": "Greedy, and long: it holds the still hanging off the back at z=-0.356, which is further from the spine than anything else on the model and would otherwise fragment across the arms.",
+      "name": "torso",
+      "parent": "hips",
+      "pos": [0.0, 0.01, -0.02],
+      "tip": [0.0, 0.635, 0.0],
+      "radius": 1.55
+    },
+    {
+      "comment": "Pivots at the neck (y=0.69), which is where a head turn should hinge, and stays slim (radius 1.0) so it does not reach back and claim the pack. The jaw juts forward and DOWN past this pivot; the override below is what gives it back.",
+      "name": "head",
+      "parent": "torso",
+      "pos": [0.0, 0.69, 0.11],
+      "tip": [0.0, 0.82, 0.23],
+      "radius": 1.0
+    },
+    {
+      "name": "armR_upper",
+      "parent": "torso",
+      "pos": [-0.235, 0.42, -0.03],
+      "tip": [-0.615, 0.405, -0.03],
+      "radius": 0.9
+    },
+    {
+      "name": "armR_fore",
+      "parent": "armR_upper",
+      "pos": [-0.615, 0.405, -0.03],
+      "tip": [-1.0, 0.395, -0.02],
+      "radius": 0.95
+    },
+    {
+      "name": "armL_upper",
+      "parent": "torso",
+      "pos": [0.235, 0.42, -0.03],
+      "tip": [0.615, 0.405, -0.03],
+      "radius": 0.9
+    },
+    {
+      "name": "armL_fore",
+      "parent": "armL_upper",
+      "pos": [0.615, 0.405, -0.03],
+      "tip": [1.0, 0.395, -0.02],
+      "radius": 0.95
+    },
+    {
+      "comment": "Legs pivot at the hem, not at the pelvis: everything above y=-0.485 is apron, so a thigh rooted any higher claims skirt. The visible leg really is only the bottom fifth of the model.",
+      "name": "legR_thigh",
+      "parent": "hips",
+      "pos": [-0.155, -0.485, 0.0],
+      "tip": [-0.165, -0.62, -0.02],
+      "radius": 0.85
+    },
+    {
+      "name": "legR_shin",
+      "parent": "legR_thigh",
+      "pos": [-0.165, -0.62, -0.02],
+      "tip": [-0.178, -0.75, -0.05],
+      "radius": 0.9
+    },
+    {
+      "name": "footR",
+      "parent": "legR_shin",
+      "pos": [-0.178, -0.75, -0.05],
+      "tip": [-0.195, -0.81, 0.03],
+      "radius": 1.0
+    },
+    {
+      "name": "legL_thigh",
+      "parent": "hips",
+      "pos": [0.155, -0.485, 0.0],
+      "tip": [0.165, -0.62, -0.02],
+      "radius": 0.85
+    },
+    {
+      "name": "legL_shin",
+      "parent": "legL_thigh",
+      "pos": [0.165, -0.62, -0.02],
+      "tip": [0.178, -0.75, -0.05],
+      "radius": 0.9
+    },
+    {
+      "name": "footL",
+      "parent": "legL_shin",
+      "pos": [0.178, -0.75, -0.05],
+      "tip": [0.195, -0.81, 0.03],
+      "radius": 1.0
+    }
+  ],
+  "overrides": [
+    {
+      "comment": "The head's jaw juts forward to z=0.34 and hangs down to y=0.54, well below the neck pivot at 0.69, so distance sliced the face in half and left the chin welded to the torso. Nothing else on the model reaches past z=0.24 inside |x|<0.14 at this height — the chest front stops at z=0.217 — so the box catches the jaw and only the jaw.",
+      "bone": "head",
+      "min": [-0.14, 0.54, 0.24],
+      "max": [0.14, 0.72, 0.4]
+    },
+    {
+      "comment": "The apron's lower corners sit closer to a thigh bone than to the hips bone running down the centre line, so distance alone gave each thigh a wedge of skirt reaching up to y=-0.32 — and the skirt then flapped with the legs. This band is solid apron and nothing else (the legs do not separate until y=-0.5), so force all of it onto hips.",
+      "bone": "hips",
+      "min": [-0.28, -0.49, -0.17],
+      "max": [0.28, -0.25, 0.17]
+    }
+  ]
+}

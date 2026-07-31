@@ -10,11 +10,26 @@ import {
   shootPose,
   walkPose as gunWalkPose,
 } from '../../zombie-motorworks/src/tools/gunslingerPose.ts';
+import {
+  restPose as alchemistRestPose,
+  throwPose,
+  throwRecoverPose,
+  walkPose as alchemistWalkPose,
+} from '../../zombie-motorworks/src/tools/alchemistPose.ts';
 import type { CharacterPose } from '../../zombie-motorworks/src/tools/rigPose.ts';
 
 const CLIPS: Record<string, Record<string, (t: number) => CharacterPose>> = {
   necromancer: { walk: walkPose, cast: castPose },
   gunslinger: { walk: gunWalkPose, shoot: shootPose },
+  // The alchemist's bind pose is a T, so `rest` is a real clip here rather
+  // than the do-nothing pose it would be on the other rigs — rendering this
+  // one is how you check the arms come down at all.
+  alchemist: {
+    rest: alchemistRestPose,
+    walk: alchemistWalkPose,
+    throw: throwPose,
+    recover: throwRecoverPose,
+  },
 };
 
 const degrees = (radians: number): string => ((radians * 180) / Math.PI).toFixed(3);

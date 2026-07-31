@@ -20,6 +20,13 @@ import {
   SHOT_R as GUNSLINGER_SHOT_PROGRESS,
   walkPose as gunslingerWalkPose,
 } from '../../tools/gunslingerPose.ts';
+import {
+  mergePoses,
+  restPose as alchemistRestPose,
+  throwPose as alchemistThrowPose,
+  throwRecoverPose as alchemistRecoverPose,
+  walkPose as alchemistWalkPose,
+} from '../../tools/alchemistPose.ts';
 import { runPose as kamikazeRunPose } from '../../tools/kamikazePose.ts';
 import {
   castPose,
@@ -44,9 +51,13 @@ import {
   BOSS_RING_OPACITY,
   DEFAULT_BOSS_ASSET,
   type BossDefinition,
+  type BossEncounter,
+  type BossPoseSet,
   type BossVialAttack,
+  type EliteBossSpec,
 } from './bossConfig.ts';
 import {
+  ALCHEMIST_WALK_CADENCE,
   BEHEMOTH_ATTACK_EXIT_MARGIN,
   BEHEMOTH_RING_COLOR,
   BEHEMOTH_SMASH_VFX_RADIUS,
@@ -64,6 +75,7 @@ import {
   GUNSLINGER_SCOPE_ICON_SIZE,
   GUNSLINGER_SHOT_FLASH_SECONDS,
   GUNSLINGER_TELEGRAPH_OPACITY,
+  GAS_TRAIL_EMIT_DISTANCE_M,
   GUNSLINGER_TELEGRAPH_SECONDS,
   GUNSLINGER_VISUAL_HEIGHT,
   GUNSLINGER_WALK_CADENCE,
@@ -109,6 +121,7 @@ import {
   WORKER_RING_MAX_RATE,
   WORKER_RING_MIN_RATE,
   WORKER_RING_OPACITY,
+  VIAL_ATTACK_EXIT_MARGIN,
   WORKER_VISUAL_HEIGHT,
   ZAMBONI_COLOR_DARKEN,
   ZAMBONI_VISUAL_HEIGHT,
@@ -122,7 +135,7 @@ import { devTuning } from '../devtuning/DevTuning.ts';
 
 const ZOMBIE_GROUPS =
   (GROUP_ZOMBIE << 16) | (GROUP_TERRAIN | GROUP_VEHICLE | GROUP_ZOMBIE);
-const ZOMBIE_ASSET_ROOT = `${import.meta.env.BASE_URL}assets/zombies`;
+export const ZOMBIE_ASSET_ROOT = `${import.meta.env.BASE_URL}assets/zombies`;
 const OBSTACLE_FILTER_GROUPS = (GROUP_ZOMBIE << 16) | GROUP_TERRAIN;
 /**
  * Resting self-lit level for a textured model. It is modulated by the model's
@@ -236,6 +249,30 @@ const KIND_MODELS: Partial<Record<ZombieKind, KindModel>> = {
 /** The numbered Zed exports share one voxel grid, so they need no fitting. */
 const ZED_MODEL_SCALE = 0.23;
 
+/** Reused by the boss height fit, which runs on spawn rather than per frame. */
+const BOSS_FIT_SCRATCH = new THREE.Vector3();
+
+/**
+ * Which model file a zombie shows, relative to the zombie asset root.
+ *
+ * Pure and exported purely so the boss case can be tested. A boss pool slot is
+ * built before the wave decides which boss fills it, so it preloads
+ * `DEFAULT_BOSS_ASSET` and must switch to the definition's own `assetName` once
+ * it has one. That indirection has been quietly flattened to a hard-coded
+ * placeholder once already, and nothing failed — the wave-10 boss just silently
+ * went back to being a scaled-up walker. `unit/zombie-models.test.ts` is the
+ * guard.
+ */
+export function modelFileFor(
+  kind: ZombieKind,
+  index: number,
+  bossDef: BossDefinition | null,
+): string {
+  if (kind === 'boss') return bossDef?.assetName ?? DEFAULT_BOSS_ASSET;
+  const kindModel = KIND_MODELS[kind];
+  return kindModel ? kindModel.file(index) : `Zed_${(index % 6) + 1}`;
+}
+
 /**
  * Pose curves for the rigged GLB kinds. Every rig in `glb-rigger` shares one
  * bone vocabulary, so a kind only has to name which curves drive it.
@@ -247,6 +284,20 @@ interface RigClips {
   ) => CharacterPose;
   /** One-shot clip driven by 0..1 channel progress, for kinds that channel. */
   readonly channel?: (progress: number) => CharacterPose;
+  /**
+   * Pose held while standing still with nothing else to play. Omitted by every
+   * rig whose bind pose already IS its resting pose, which is all of them bar
+   * the alchemist — that model was authored in a T-pose, so leaving its bones
+   * at bind leaves both arms stuck straight out sideways.
+   */
+  readonly rest?: () => CharacterPose;
+  /**
+   * Follow-through played over the walk for `recoverSeconds` after a channel
+   * releases, so the clip does not cut from mid-swing straight back to a walk
+   * cycle. Upper body only; the walk keeps the legs.
+   */
+  readonly recover?: (progress: number) => CharacterPose;
+  readonly recoverSeconds?: number;
   readonly cadence: number;
 }
 
@@ -269,6 +320,28 @@ const RIG_CLIPS: Partial<Record<ZombieKind, RigClips>> = {
     walk: behemothWalkPose,
     channel: behemothSmashPose,
     cadence: BEHEMOTH_WALK_CADENCE,
+  },
+};
+
+/**
+ * Pose curves for a classic boss, which `RIG_CLIPS` cannot cover: every boss
+ * shares the one `'boss'` kind, so there is nothing per-boss to key on. The
+ * definition names its `poseSet` instead, and a boss that names none renders
+ * its model unanimated the way a boss with an unrigged placeholder always has.
+ */
+const BOSS_RIG_CLIPS: Record<BossPoseSet, RigClips> = {
+  alchemist: {
+    walk: alchemistWalkPose,
+    // Driven by wind-up progress rather than by the attack cycle, so the vial
+    // leaves the hand on the frame the arm reaches full extension — see
+    // `bossWindupProgress`.
+    channel: alchemistThrowPose,
+    rest: alchemistRestPose,
+    recover: alchemistRecoverPose,
+    // Comfortably shorter than the 3.2 s throw interval, so the follow-through
+    // has always finished before the next wind-up starts.
+    recoverSeconds: 0.45,
+    cadence: ALCHEMIST_WALK_CADENCE,
   },
 };
 
@@ -583,6 +656,14 @@ export class Zombie {
    */
   onLayIce: ((zombie: Zombie, fromX: number, fromZ: number) => void) | null =
     null;
+  /**
+   * Set by ZombieSystem; fired every `GAS_TRAIL_EMIT_DISTANCE_M` the vial boss
+   * moves, with its previous emission point, so the callback can lay one
+   * connected gas segment from there to its current position. Same shape as
+   * `onLayIce`.
+   */
+  onGasTrail: ((zombie: Zombie, fromX: number, fromZ: number) => void) | null =
+    null;
   readonly kind: ZombieKind;
 
   private readonly visualRoot = new THREE.Group();
@@ -602,6 +683,15 @@ export class Zombie {
 
   /** The loaded voxel model, kept so a boss can resize it once it knows its definition. */
   private loadedModel: THREE.Object3D | null = null;
+  /**
+   * Boss slots only: which `assetName` the slot is currently showing. A boss
+   * pool slot is built before the wave picks which boss fills it, so it
+   * preloads `DEFAULT_BOSS_ASSET`; this is what lets `applyBossBody` notice on
+   * spawn that the boss actually wants a different model and reload. Without
+   * it the slot keeps the placeholder for its whole life and every boss looks
+   * like a scaled-up walker.
+   */
+  private loadedBossAssetName: string | null = null;
   /**
    * Boss slots only: the same primitive capsule every zombie starts with,
    * kept alive (and re-parented after the model loads) instead of being
@@ -684,10 +774,19 @@ export class Zombie {
   /** Zamboni only: where its ice trail last emitted a segment from. */
   private iceTrailLastX = 0;
   private iceTrailLastZ = 0;
+  /** Vial boss only: where its gas trail last emitted a segment from. */
+  private gasTrailLastX = 0;
+  private gasTrailLastZ = 0;
   private hammerPivot: THREE.Group | null = null;
   private vialArmPivot: THREE.Group | null = null;
-  /** Live definition while a boss is active; null for every ordinary zombie. */
+  /** Live definition while a classic boss is active; null for every other zombie. */
   private bossDef: BossDefinition | null = null;
+  /**
+   * Set only on the one ordinary-kind spawn tagged as this wave's elite boss.
+   * Every part of its behaviour still runs as an ordinary zombie of its kind —
+   * this only adds a health/reward boost and a label for the HUD.
+   */
+  private eliteBoss: EliteBossSpec | null = null;
   private windupTimer = 0;
   /** Seconds left in the current raise channel; 0 when not channelling. */
   private summonTimer = 0;
@@ -733,6 +832,12 @@ export class Zombie {
   private rigWalkTime = 0;
   /** Pose curves for this zombie's model; null until a rigged one loads. */
   private rigClips: RigClips | null = null;
+  /**
+   * Seconds left of the follow-through after a boss releases its attack, while
+   * `RigClips.recover` plays over the walk. Counts down in `updateVisuals`, so
+   * it stops with the rest of the animation when the game is paused.
+   */
+  private rigRecoverTimer = 0;
   /** Resting emissive for whichever model this zombie actually loaded. */
   private baseEmissive = BASE_EMISSIVE;
   private visualOpacity = 1;
@@ -1006,6 +1111,16 @@ export class Zombie {
     return this.bossDef;
   }
 
+  /**
+   * Identity for the HUD/telemetry, for either a classic boss or an elite one —
+   * null for every zombie that isn't currently tagged as the wave's boss.
+   */
+  get bossLabel(): { id: string; name: string } | null {
+    if (this.bossDef) return { id: this.bossDef.id, name: this.bossDef.name };
+    if (this.eliteBoss) return { id: this.eliteBoss.id, name: this.eliteBoss.name };
+    return null;
+  }
+
   /** Wave-scaled damage one boss slam deals to each part inside its radius. */
   get slamDamage(): number {
     return this.bossDef ? this.attackDamage : 0;
@@ -1058,6 +1173,16 @@ export class Zombie {
     // Local units are world metres for a boss, so the model offset, telegraph
     // ring, and hammer can all be authored directly in metres.
     this.baseScale = 1;
+    // The shared boss slot is still showing whatever it last loaded — the
+    // DEFAULT_BOSS_ASSET placeholder on a fresh slot, or the previous boss's
+    // model on a recycled one. Only a `bodyVisual: 'model'` boss whose
+    // `assetName` actually differs needs its model swapped out.
+    if (
+      def.bodyVisual === 'model' &&
+      this.loadedBossAssetName !== def.assetName
+    ) {
+      this.loadVoxelVisual();
+    }
     this.applyBossVisualSizing();
   }
 
@@ -1074,6 +1199,12 @@ export class Zombie {
     const slam = def.attack.kind === 'slam';
     // Both props are built for every boss pool slot, because the kind is known
     // before the definition is. Only the one this boss actually swings is shown.
+    // Both props hang off a fixed shoulder point on the pool slot, not off a
+    // bone, so they only make sense on a boss with no model to animate. A
+    // `bodyVisual: 'model'` boss swings its own rigged arm instead (see
+    // BOSS_RIG_CLIPS), and leaving the prop on would park a floating capsule
+    // beside a boss already miming the throw.
+    const showProps = def.bodyVisual === 'capsule';
     if (this.hammerPivot) {
       // Shoulder height, out to the side and slightly forward. The hammer is
       // authored for a 4.2 m boss and scales with any other.
@@ -1083,7 +1214,7 @@ export class Zombie {
         def.visualHeightM * 0.18,
       );
       this.hammerPivot.scale.setScalar(def.visualHeightM / 4.2);
-      this.hammerPivot.visible = slam;
+      this.hammerPivot.visible = slam && showProps;
     }
     if (this.vialArmPivot) {
       // Held further out and higher than the hammer, on a gaunt boss's long arm.
@@ -1093,7 +1224,7 @@ export class Zombie {
         def.visualHeightM * 0.1,
       );
       this.vialArmPivot.scale.setScalar(def.visualHeightM / 5.5);
-      this.vialArmPivot.visible = !slam;
+      this.vialArmPivot.visible = !slam && showProps;
     }
 
     const widthScale = def.visualWidthScale ?? 1;
@@ -1107,9 +1238,17 @@ export class Zombie {
     if (!primitiveBody && this.loadedModel) {
       const bounds = new THREE.Box3().setFromObject(this.loadedModel);
       const height = Math.max(1e-3, bounds.max.y - bounds.min.y);
-      // setFromObject already includes the model's current scale, so divide it
-      // back out to get the factor that lands on the target height.
-      const current = this.loadedModel.scale.y || 1;
+      // setFromObject measures through EVERY ancestor transform, not just the
+      // model's own, so the divisor has to be the model's world scale. Using
+      // its local scale here was a real bug: this runs from the async load
+      // callback, which lands part-way through the spawn ramp, where
+      // `updateVisuals` has left `root.scale` somewhere in lerp(0.05, 1). The
+      // measured height came back shrunk by that factor and the fit was
+      // inflated by its reciprocal — up to 20x if the model arrived on the
+      // first frame — and nothing re-fitted afterwards, so the boss simply
+      // stayed huge for the rest of the fight.
+      const current =
+        this.loadedModel.getWorldScale(BOSS_FIT_SCRATCH).y || 1;
       const fit = (def.visualHeightM / height) * current;
       // Non-uniform on purpose: the height fit alone would make a tall boss read
       // as a scaled-up walker. Squashing width is what makes it look gaunt.
@@ -1227,17 +1366,22 @@ export class Zombie {
     healthMultiplier: number,
     speedMultiplier: number,
     attackDamageMultiplier: number,
-    boss: BossDefinition | null = null,
+    boss: BossEncounter | null = null,
   ): void {
     if (this.disposed) return;
     this.active = true;
     this.state = ZombieState.Spawning;
     const base = devTuning.base;
-    // A boss takes every stat from its definition rather than the dev-tuner
-    // per-kind row; the wave multipliers still apply so a wave-20 boss is
-    // meaningfully tougher than a wave-5 one. Base speed is still the tuner's,
-    // so the boss's speedMultiplier stays relative to the horde it replaces.
-    this.bossDef = this.kind === 'boss' ? boss : null;
+    // A classic boss takes every stat from its definition rather than the
+    // dev-tuner per-kind row; the wave multipliers still apply so a wave-20
+    // boss is meaningfully tougher than a wave-5 one. Base speed is still the
+    // tuner's, so the boss's speedMultiplier stays relative to the horde it
+    // replaces. An elite boss is the opposite: it is an ordinary kind, so it
+    // takes the normal per-kind row and only stacks a health multiplier and a
+    // reward override on top — everything else about it, including its
+    // animation and attack, is indistinguishable from an ordinary one.
+    this.bossDef = this.kind === 'boss' && boss?.style === 'classic' ? boss.definition : null;
+    this.eliteBoss = boss?.style === 'elite' && this.kind === boss.elite.kind ? boss.elite : null;
     if (this.bossDef) {
       this.health = this.bossDef.baseHealth * healthMultiplier;
       this.moveSpeed =
@@ -1248,12 +1392,16 @@ export class Zombie {
       this.applyBossBody(this.bossDef);
     } else {
       const stats = devTuning.types[this.kind];
-      this.health = base.health * healthMultiplier * stats.healthMult;
+      this.health =
+        base.health *
+        healthMultiplier *
+        stats.healthMult *
+        (this.eliteBoss?.healthMultiplier ?? 1);
       this.moveSpeed = base.speed * speedMultiplier * stats.speedMult;
       this.attackDamage =
         base.attackDamage * attackDamageMultiplier * stats.damageMult;
       this.attackInterval = stats.attackInterval;
-      this.reward = stats.reward;
+      this.reward = this.eliteBoss?.reward ?? stats.reward;
     }
     this.spawnHealth = this.health;
     this.windupTimer = 0;
@@ -1271,6 +1419,8 @@ export class Zombie {
     this.plantTimer = 0;
     this.iceTrailLastX = position.x;
     this.iceTrailLastZ = position.z;
+    this.gasTrailLastX = position.x;
+    this.gasTrailLastZ = position.z;
     if (this.kind === 'zamboni') this.pickPatrolTarget();
     this.ringPhase = 0;
     if (this.ringMesh) this.ringMesh.visible = false;
@@ -1283,6 +1433,8 @@ export class Zombie {
     this.sigilFade = 0;
     if (this.sigilGroup) this.sigilGroup.visible = false;
     this.lungeTimer = 0;
+    // A recycled boss never arrives still finishing the last one's throw.
+    this.rigRecoverTimer = 0;
     this.hitFlashTimer = 0;
     this.blinkTimer = 0;
     this.blinkWasOn = false;
@@ -1363,14 +1515,18 @@ export class Zombie {
       return;
     }
     const stats = devTuning.types[this.kind];
-    const newFull = base.health * healthMultiplier * stats.healthMult;
+    const newFull =
+      base.health *
+      healthMultiplier *
+      stats.healthMult *
+      (this.eliteBoss?.healthMultiplier ?? 1);
     this.spawnHealth = newFull;
     this.health = Math.max(1e-3, newFull * fraction);
     this.moveSpeed = base.speed * speedMultiplier * stats.speedMult;
     this.attackDamage =
       base.attackDamage * attackDamageMultiplier * stats.damageMult;
     this.attackInterval = stats.attackInterval;
-    this.reward = stats.reward;
+    this.reward = this.eliteBoss?.reward ?? stats.reward;
   }
 
   /** Apply speed-scaled vehicle damage and a real Rapier knockback impulse. */
@@ -1752,6 +1908,7 @@ export class Zombie {
     }
 
     this.lungeTimer = Math.max(0, this.lungeTimer - dt);
+    this.rigRecoverTimer = Math.max(0, this.rigRecoverTimer - dt);
     if (this.blinkMesh && this.blinkMaterial) {
       const running = this.state === ZombieState.Chasing && this.isAlive;
       this.blinkMesh.visible = running;
@@ -1796,10 +1953,21 @@ export class Zombie {
           // weight shift under every zombie visual, rigged or voxel.
           if (this.rigClips) {
             this.rigWalkTime += dt;
+            const walk = this.rigClips.walk(this.rigWalkTime, {
+              cadence: this.rigClips.cadence,
+            });
+            // A boss that just released a throw is already walking again, so
+            // the follow-through plays over the walk rather than instead of it:
+            // the arms finish the throw while the legs carry it away.
+            const recover = this.rigClips.recover;
+            const recoverSeconds = this.rigClips.recoverSeconds ?? 0;
             this.applyRigPose(
-              this.rigClips.walk(this.rigWalkTime, {
-                cadence: this.rigClips.cadence,
-              }),
+              recover && this.rigRecoverTimer > 0 && recoverSeconds > 0
+                ? mergePoses(
+                    walk,
+                    recover(1 - this.rigRecoverTimer / recoverSeconds),
+                  )
+                : walk,
             );
           }
         } else {
@@ -1835,8 +2003,18 @@ export class Zombie {
               this.kind === 'behemoth'
             ) {
               this.applyRigPose(channel(this.behemothPoseProgress()));
+            } else if (
+              channel &&
+              this.state === ZombieState.WindingUp &&
+              this.bossDef
+            ) {
+              // A boss telegraphs during WindingUp, not during Attacking —
+              // Attacking is only the cooldown it stands through. Driving the
+              // clip off the wind-up is what lands the release on the frame
+              // `stepWindingUp` actually throws the vial.
+              this.applyRigPose(channel(this.bossWindupProgress()));
             } else {
-              this.applyRigPose(REST_POSE);
+              this.applyRigPose(this.rigClips.rest?.() ?? REST_POSE);
             }
           }
         }
@@ -2177,6 +2355,18 @@ export class Zombie {
       this.stepRoaming(dt, separationX, separationZ);
       return;
     }
+    if (this.kind === 'boss') {
+      // Runs regardless of which movement branch follows below (approach,
+      // retreat, or the switch into Attacking) — the trail only cares that
+      // the boss moved, not why.
+      const traveledX = this.position.x - this.gasTrailLastX;
+      const traveledZ = this.position.z - this.gasTrailLastZ;
+      if (Math.hypot(traveledX, traveledZ) >= GAS_TRAIL_EMIT_DISTANCE_M) {
+        this.onGasTrail?.(this, this.gasTrailLastX, this.gasTrailLastZ);
+        this.gasTrailLastX = this.position.x;
+        this.gasTrailLastZ = this.position.z;
+      }
+    }
     const target = this.vehicleTarget;
     if (target.partId === null) {
       this.zeroHorizontalVelocity();
@@ -2220,8 +2410,12 @@ export class Zombie {
         this.retreating = true;
         away = -1;
       } else if (target.distance <= vial.rangeM) {
+        // Deliberately does NOT reset attackTimer. A kiting boss crosses this
+        // line constantly — every time the rig drifts in or out of its 14 m
+        // hold — and re-arming the full interval on each crossing meant the
+        // countdown almost never ran out, so it stood there and never threw.
+        // stepWindingUp is what re-arms it, once a throw has actually gone off.
         this.state = ZombieState.Attacking;
-        this.attackTimer = this.attackInterval;
         this.zeroHorizontalVelocity();
         return;
       }
@@ -2417,8 +2611,17 @@ export class Zombie {
     // definition's reach rather than the shared melee one.
     const committed = this.kind === 'gunslinger' && this.gunslingerAimLocked;
     if (!committed) {
+      // A vial boss gets a deliberately fat margin. Its cooldown only counts
+      // down inside Attacking, so bouncing back to Chasing on a small overshoot
+      // discarded the progress it had made and the throw kept being deferred —
+      // a rig that simply kept driving could stall it almost indefinitely.
+      // Overshooting its hold range now just means the vial is lobbed at wherever
+      // the vehicle got to; only genuinely breaking away puts it back to chasing.
       const exitRange = this.bossDef
-        ? this.bossDef.attack.rangeM + ZOMBIE_ATTACK_EXIT_MARGIN
+        ? this.bossDef.attack.rangeM +
+          (this.vialAttack !== null
+            ? VIAL_ATTACK_EXIT_MARGIN
+            : ZOMBIE_ATTACK_EXIT_MARGIN)
         : this.kind === 'thrower'
           ? devTuning.specialist.throwerAttackRange + THROWER_ATTACK_EXIT_MARGIN
           : this.kind === 'gunslinger'
@@ -2556,9 +2759,25 @@ export class Zombie {
     } else {
       this.onBossSlam?.(this);
     }
+    // The pose was at full extension on this exact frame; hand it to the
+    // follow-through so the arm finishes its arc over the walk that follows,
+    // instead of cutting from mid-throw straight into a walk cycle.
+    this.rigRecoverTimer = this.rigClips?.recoverSeconds ?? 0;
     this.lungeTimer = LUNGE_DURATION;
     this.attackTimer = this.attackInterval;
     this.state = ZombieState.Chasing;
+  }
+
+  /**
+   * Pose progress across a boss's wind-up, 0 at the moment it commits and 1 on
+   * the frame `stepWindingUp` fires the attack. Reading the same timer the
+   * attack itself resolves on is what keeps the release and the projectile on
+   * one clock rather than two hand-matched durations.
+   */
+  private bossWindupProgress(): number {
+    const windup = this.bossDef?.attack.windupSeconds ?? 0;
+    if (windup <= 0) return 1;
+    return clamp(1 - this.windupTimer / windup, 0, 1);
   }
 
   /**
@@ -3042,11 +3261,11 @@ export class Zombie {
     // fixed height per kind, while a boss's height comes from its live
     // BossDefinition, so applyBossVisualSizing owns the fitting instead.
     const boss = this.kind === 'boss';
-    const file = boss
-      ? DEFAULT_BOSS_ASSET
-      : kindModel
-        ? kindModel.file(this.index)
-        : `Zed_${(this.index % 6) + 1}`;
+    // Pool construction preloads DEFAULT_BOSS_ASSET before any BossDefinition
+    // is known; once a boss with its own asset actually spawns into this shared
+    // slot, applyBossBody calls this again with bossDef set and the real model
+    // takes over.
+    const file = modelFileFor(this.kind, this.index, this.bossDef);
     const url = `${ZOMBIE_ASSET_ROOT}/${file}`;
     void instantiateVoxelAsset(url, true)
       .then((model) => {
@@ -3055,10 +3274,11 @@ export class Zombie {
           return;
         }
         if (boss) {
-          // The placeholder is a Zed export, so it starts at the shared Zed
-          // scale. Height and ground offset depend on the definition, which is
-          // not known until the wave starts; applyBossVisualSizing handles both
-          // and is called again from applyBossBody on spawn.
+          // Only a starting point: applyBossVisualSizing re-fits by bounds and
+          // divides whatever scale is here back out, so it works for a Zed
+          // placeholder and a bounds-fit boss asset alike. Height and ground
+          // offset depend on the definition, which is not known until the wave
+          // starts, so that call is what actually sizes this.
           model.scale.setScalar(ZED_MODEL_SCALE);
         } else if (kindModel) {
           // These models' voxel grids differ from the Zed exports; scale by
@@ -3103,9 +3323,17 @@ export class Zombie {
             this.loadedMaterials.push(material);
           }
         });
+        const previousModel = this.loadedModel;
         this.visualRoot.clear();
         this.visualRoot.add(model);
         this.loadedModel = model;
+        if (boss) this.loadedBossAssetName = file;
+        // A reload swapped a shared boss slot from one asset to another;
+        // clear() only detached the old model, it never freed its GPU
+        // resources, so that is on us once nothing still references it.
+        if (previousModel && previousModel !== model) {
+          disposeModelMaterials(previousModel);
+        }
         // clear() detached everything else parented under visualRoot: a boss's
         // props, its capsule body (for a `bodyVisual: 'capsule'` boss, which
         // never actually shows this model), and the kamikaze's blink sphere all
@@ -3149,8 +3377,20 @@ export class Zombie {
       this.rigBones.set(name, node);
       this.rigRestRotations.set(name, node.rotation.clone());
     }
+    // A boss's clips come from its definition, not its kind: every classic boss
+    // shares the one `'boss'` kind, so `RIG_CLIPS` has nothing to key on.
     this.rigClips =
-      this.rigBones.size > 0 ? (RIG_CLIPS[this.kind] ?? null) : null;
+      this.rigBones.size === 0
+        ? null
+        : this.bossDef
+          ? this.bossDef.poseSet
+            ? BOSS_RIG_CLIPS[this.bossDef.poseSet]
+            : null
+          : (RIG_CLIPS[this.kind] ?? null);
+    // A T-pose rig is wrong-looking in bind, so put it into its rest pose
+    // immediately rather than leaving one frame of splayed arms up between the
+    // model arriving and the first updateVisuals.
+    if (this.rigClips?.rest) this.applyRigPose(this.rigClips.rest());
   }
 
   /** Write one pose onto the cached bones; a no-op for unrigged kinds. */

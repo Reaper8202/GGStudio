@@ -15,15 +15,18 @@ import {
 import type { RuntimeVehicle } from '../../runtime/vehicle.ts';
 import { vehicleImpactMassFactor } from '../../core/mass.ts';
 import type { MeleeVfxKind, VfxSystem } from '../../vfx/VfxSystem.ts';
+import { preloadVoxelAsset } from '../VoxelAssetLoader.ts';
 import {
   Zombie,
   ZombieState,
+  ZOMBIE_ASSET_ROOT,
   type Vector3Like,
   type ZombieKind,
   type ZombieKilledCallback,
 } from './Zombie.ts';
 import { IceTrail } from './IceTrail.ts';
-import type { BossDefinition } from './bossConfig.ts';
+import { GasTrail } from './GasTrail.ts';
+import type { BossEncounter } from './bossConfig.ts';
 import { Landmines, type MineSnapshot } from './Landmines.ts';
 import { AcidPuddles } from './AcidPuddles.ts';
 import {
@@ -34,6 +37,7 @@ import {
 } from './ThrowerProjectiles.ts';
 import {
   ACID_POISON_TICK_SECONDS,
+  ACID_PUDDLE_DRAG_PER_SECOND,
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
   LANDMINE_BLAST_RADIUS,
@@ -240,6 +244,7 @@ export class ZombieSystem {
   private readonly landmines: Landmines;
   private readonly iceTrail: IceTrail;
   private readonly acidPuddles: AcidPuddles;
+  private readonly gasTrail: GasTrail;
   /** Counts down to the next poison application; see `tickAcidPoison`. */
   private acidTickTimer = ACID_POISON_TICK_SECONDS;
   /** Reused because this callback runs on the fixed-step combat path. */
@@ -299,14 +304,7 @@ export class ZombieSystem {
     puddle: ProjectileSpec['puddle'],
   ): void => {
     if (!puddle) return;
-    this.acidPuddles.spawn(
-      x,
-      y,
-      z,
-      puddle.radiusM,
-      puddle.durationSeconds,
-      puddle.poisonDamagePerSecond,
-    );
+    this.acidPuddles.spawn(x, y, z, puddle.radiusM, puddle.durationSeconds);
   };
   /** Mine trigger checks the vehicle proximity; blast damage then uses its own radius. */
   private readonly tryMineDetonation = (
@@ -358,7 +356,7 @@ export class ZombieSystem {
   private speedMultiplier = 1;
   private attackDamageMultiplier = 1;
   /** Set by WaveManager at wave start; null on ordinary horde waves. */
-  private bossDefinition: BossDefinition | null = null;
+  private bossEncounter: BossEncounter | null = null;
   private mineRevealRadiusM = 0;
   private currentWave = 1;
   private damageListener: ((report: ZombieDamageReport) => void) | null = null;
@@ -383,6 +381,12 @@ export class ZombieSystem {
     this.landmines = new Landmines(scene);
     this.iceTrail = new IceTrail(scene);
     this.acidPuddles = new AcidPuddles(scene);
+    this.gasTrail = new GasTrail();
+    // The trail draws nothing itself — every visible wisp of it comes out of
+    // this hook, so an unavailable VfxSystem simply leaves the hazard unseen.
+    this.gasTrail.setPuffEmitter(
+      vfx === null ? null : (x, y, z) => vfx.bossGasWisp(x, y, z),
+    );
     const poolKinds: ZombieKind[] = [];
     for (const [kind, count] of Object.entries(ZOMBIE_POOL_COUNTS) as [
       ZombieKind,
@@ -434,6 +438,9 @@ export class ZombieSystem {
           zamboni.position.x,
           zamboni.position.z,
         );
+      zombie.onGasTrail = (boss, fromX, fromZ) => {
+        this.gasTrail.drop(fromX, fromZ, boss.position.x, boss.position.z);
+      };
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -455,16 +462,44 @@ export class ZombieSystem {
   }
 
   /** Applies to bosses spawned after this call; null clears the boss for the wave. */
-  setBossDefinition(definition: BossDefinition | null): void {
-    this.bossDefinition = definition;
+  setBossEncounter(encounter: BossEncounter | null): void {
+    this.bossEncounter = encounter;
+    // The director sets the encounter when the boss wave begins, but the boss
+    // itself only spawns once the wave actually places it — enough of a head
+    // start to fetch a multi-megabyte model. Skipping this does not break
+    // anything, it just means the boss is visibly the placeholder walker,
+    // scaled to full boss height, for the first seconds of the fight.
+    if (encounter?.style === 'classic' && encounter.definition.bodyVisual === 'model') {
+      preloadVoxelAsset(
+        `${ZOMBIE_ASSET_ROOT}/${encounter.definition.assetName}`,
+      );
+    }
   }
 
-  /** The live boss, for the HUD health bar and minimap marker. */
+  /**
+   * The live boss, for the HUD health bar and minimap marker — whichever
+   * zombie is currently tagged as this wave's boss, classic or elite.
+   */
   activeBoss(): Zombie | null {
     for (const zombie of this.pool) {
-      if (zombie.kind === 'boss' && zombie.isAlive) return zombie;
+      if (zombie.isAlive && zombie.bossLabel) return zombie;
     }
     return null;
+  }
+
+  /**
+   * The boss encounter to hand `Zombie.spawn` for one horde-slot request, or
+   * null if this particular kind isn't this wave's boss. A classic boss only
+   * ever fills `kind === 'boss'`; an elite only ever fills its own kind — and
+   * since a boss wave zeroes every other specialist curve (see
+   * `zombieCompositionForWave`), that kind's only spawn request all wave is
+   * the elite itself.
+   */
+  private bossEncounterFor(kind: ZombieKind): BossEncounter | null {
+    const encounter = this.bossEncounter;
+    if (!encounter) return null;
+    if (encounter.style === 'classic') return kind === 'boss' ? encounter : null;
+    return kind === encounter.elite.kind ? encounter : null;
   }
 
   /**
@@ -686,7 +721,7 @@ export class ZombieSystem {
         this.healthMultiplier,
         this.speedMultiplier,
         this.attackDamageMultiplier,
-        kind === 'boss' ? this.bossDefinition : null,
+        this.bossEncounterFor(kind),
       );
       this.resetWatchdog(zombie);
       this.emitSfx('spawn', zombie);
@@ -738,27 +773,51 @@ export class ZombieSystem {
       radiusM: this.mineRevealRadiusM,
     });
     this.acidPuddles.update(dt);
+    this.gasTrail.update(dt);
+    this.applyAcidDrag(dt, vehiclePosition);
     this.tickAcidPoison(dt);
     this.rebuildAliveTargets();
   }
 
   /**
-   * Grip multiplier (0..1) from any ice patch under this ground point; null
-   * outside every patch. Read by `RuntimeVehicle.preStep` per wheel contact.
+   * Grip multiplier (0..1) from any ice patch or acid puddle under this
+   * ground point; null outside every hazard. Read by `RuntimeVehicle.preStep`
+   * per wheel contact. The two never tune to the same value, so where they'd
+   * ever overlap the lower (worse) one wins — same overlap rule the ice trail
+   * itself already uses between its own segments.
    */
   hazardMuAt(x: number, z: number): number | null {
-    return this.iceTrail.muAt(x, z);
+    const ice = this.iceTrail.muAt(x, z);
+    const acid = this.acidPuddles.muAt(x, z);
+    if (ice === null) return acid;
+    if (acid === null) return ice;
+    return Math.min(ice, acid);
+  }
+
+  /**
+   * Acid puddles cost speed, not health: while the chassis is over one, bleed
+   * its horizontal velocity off exponentially so crossing a puddle visibly
+   * drags the car down instead of it coasting straight through. The wheels'
+   * own `ACID_PUDDLE_GRIP_MULTIPLIER` then makes climbing back up to speed
+   * sluggish until it is clear. Vertical velocity is left alone — this is
+   * sticky ground, not a downward pull.
+   */
+  private applyAcidDrag(dt: number, position: { x: number; z: number }): void {
+    if (!this.acidPuddles.containsPoint(position.x, position.z)) return;
+    const velocity = this.vehicle.body.linvel();
+    const retained = Math.exp(-ACID_PUDDLE_DRAG_PER_SECOND * dt);
+    this.vehicle.body.setLinvel(
+      { x: velocity.x * retained, y: velocity.y, z: velocity.z * retained },
+      true,
+    );
   }
 
   /**
    * Poison ticks on a clock instead of every physics step; see
    * `ACID_POISON_TICK_SECONDS` for why (the direct-damage floor would otherwise
-   * turn any nonzero per-frame dose into 60 HP/s). When puddles overlap, a part
-   * takes the strongest single puddle's dose, not the sum of every puddle
-   * covering it — parking in a triple-overlap should be exactly as risky as
-   * parking in one puddle, not triply lethal. That is the only overlap rule
-   * this boss needs: puddles never grow or merge, so the worst a player can
-   * do is stand in the strongest patch on the ground.
+   * turn any nonzero per-frame dose into 60 HP/s). Only the boss's gas trail
+   * feeds this — puddles are a pure handling hazard now (see `applyAcidDrag`),
+   * so the trail is the one thing on the ground that can still hurt a part.
    */
   private tickAcidPoison(dt: number): void {
     this.acidTickTimer -= dt;
@@ -766,23 +825,14 @@ export class ZombieSystem {
     // Accumulate rather than reset to a flat constant, so a slow frame does not
     // shift the tick phase — same pattern the attack-interval timers use.
     this.acidTickTimer += ACID_POISON_TICK_SECONDS;
-    const puddles = this.acidPuddles.activePuddles();
-    if (puddles.length === 0) return;
     for (const anchor of this.vehicleAnchors) {
       if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
         continue;
-      let maxDps = 0;
-      for (const puddle of puddles) {
-        if (puddle.poisonDamagePerSecond <= maxDps) continue;
-        const dx = anchor.worldX - puddle.x;
-        const dz = anchor.worldZ - puddle.z;
-        if (dx * dx + dz * dz > puddle.radiusM * puddle.radiusM) continue;
-        maxDps = puddle.poisonDamagePerSecond;
-      }
-      if (maxDps > 0) {
+      const dps = this.gasTrail.dpsAt(anchor.worldX, anchor.worldZ);
+      if (dps > 0) {
         this.vehicle.applyDirectDamage(
           anchor.partId,
-          maxDps * ACID_POISON_TICK_SECONDS,
+          dps * ACID_POISON_TICK_SECONDS,
         );
       }
     }
@@ -804,6 +854,12 @@ export class ZombieSystem {
   clearAcidPuddles(): void {
     if (this.disposed) return;
     this.acidPuddles.despawnAll();
+  }
+
+  /** SurvivalMode clears the boss's residual gas trail the moment a wave completes. */
+  clearGasTrail(): void {
+    if (this.disposed) return;
+    this.gasTrail.despawnAll();
   }
 
   /**
@@ -1176,11 +1232,12 @@ export class ZombieSystem {
     this.landmines.despawnAll();
     this.iceTrail.despawnAll();
     this.acidPuddles.despawnAll();
+    this.gasTrail.despawnAll();
     this.acidTickTimer = ACID_POISON_TICK_SECONDS;
     for (const zombie of this.pool) zombie.forceReturnToPool();
     this.healthMultiplier = 1;
     this.speedMultiplier = 1;
-    this.bossDefinition = null;
+    this.bossEncounter = null;
     this.activeScratch.length = 0;
     this.aliveTargets.length = 0;
     this.separationX.fill(0);
@@ -1198,6 +1255,7 @@ export class ZombieSystem {
     this.landmines.dispose();
     this.iceTrail.dispose();
     this.acidPuddles.dispose();
+    this.gasTrail.dispose();
     for (const zombie of this.pool) zombie.dispose();
     this.pool.length = 0;
     this.colliderToZombie.clear();

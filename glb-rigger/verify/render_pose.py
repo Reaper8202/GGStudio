@@ -2,6 +2,26 @@
 
 Usage: ... -- MODEL.glb OUT.png VIEW "bone:rx,ry,rz" "bone:rx,ry,rz" ...
 Angles are degrees about the node's local axes, matching glTF node rotations.
+
+A glTF (rx, ry, rz) does NOT go straight onto obj.rotation_euler. Two separate
+conversions are needed, and both are invisible for a pose that only sets rx —
+which is every rig here before the alchemist, and why this went unnoticed.
+
+1. AXES. The importer bakes the Y-up -> Z-up conversion into the hierarchy, so
+   a node's local axes are Blender's world axes: local X = glTF X, but local
+   Y = glTF -Z and local Z = glTF Y. Confirmed by dumping matrix_local after
+   import: armR_upper's offset is glTF (-0.235, 0.41, -0.03) and imports as
+   Blender (-0.235, 0.01, 0.41). So glTF ry drives Blender's Z and glTF rz
+   drives Blender's Y, negated.
+
+2. ORDER. Three.js — which is what actually plays these poses in game —
+   composes its default 'XYZ' Euler as Rx*Ry*Rz, applying Z to the vector
+   FIRST. Blender's 'XYZ' is the opposite composition. Applying glTF Z, then
+   Y, then X means applying Blender Y, then Z, then X: order 'YZX'.
+
+Together: rotation_mode = 'YZX', rotation_euler = (rx, -rz, ry). Verified by
+rendering a single armR_upper rz: it drops the arm to the model's side, where
+the unconverted form swung it forward instead.
 """
 import sys, math, bpy, mathutils
 
@@ -20,12 +40,13 @@ for spec in poses:
         missing.append(name)
         continue
     rx, ry, rz = (math.radians(float(a)) for a in angles.split(","))
-    # Compose onto whatever the node already carries from the file.
-    obj.rotation_mode = 'XYZ'
+    # Compose onto whatever the node already carries from the file. See the
+    # module docstring for the axis swap and the 'YZX' order.
+    obj.rotation_mode = 'YZX'
     obj.rotation_euler = (
         obj.rotation_euler.x + rx,
-        obj.rotation_euler.y + ry,
-        obj.rotation_euler.z + rz,
+        obj.rotation_euler.y - rz,
+        obj.rotation_euler.z + ry,
     )
     applied.append(name)
 

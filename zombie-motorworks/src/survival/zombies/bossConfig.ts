@@ -1,15 +1,26 @@
 /**
- * Boss registry. A boss is a pooled `Zombie` of kind `'boss'` driven entirely by
- * one of these definitions, so adding a boss means adding a `BOSS_DEFINITIONS`
- * entry and pushing its id into `BOSS_ROTATION` — no new class and no new
- * branch, unless the boss needs an attack kind that does not exist yet.
+ * Boss registry. Two different things both count as "a boss" here:
+ *
+ * - A **classic** boss is a pooled `Zombie` of kind `'boss'` driven entirely by
+ *   one of the `BOSS_DEFINITIONS` below — its own attack, its own hitbox, its
+ *   own placeholder or primitive body. Adding one means adding a definition and
+ *   pushing its id into `BOSS_ROTATION`, no new class and no new branch, unless
+ *   the boss needs an attack kind that does not exist yet.
+ * - An **elite** boss is just an ordinary zombie kind (a real Behemoth, with
+ *   its real model, animation, attack, and VFX) spawned with boosted health and
+ *   reward and tagged as the wave's boss for the HUD. It exists so a boss can
+ *   reuse a kind's already-built behaviour wholesale instead of re-implementing
+ *   a look-alike inside the classic system.
+ *
+ * `bossForWave` returns a `BossEncounter` that tells the wave director and the
+ * pool which of the two a given boss wave is.
  *
  * Wave scaling multipliers are never imported here; `Zombie.spawn` receives them
  * from `WaveManager` and applies them to these base values. That keeps this
  * module free of the `WaveManager -> bossConfig` import cycle.
  */
 
-export type BossId = 'hammer-brute' | 'acid-alchemist';
+export type BossId = 'acid-alchemist';
 
 /**
  * Wind-up melee. The boss plants itself inside `rangeM`, telegraphs for
@@ -47,9 +58,10 @@ export interface BossSlamAttack {
  * A vial that actually strikes the vehicle in flight deals `damage` on the
  * spot, but that is the minor payload: wherever a vial ends up — vehicle or
  * bare ground — it bursts into a puddle of radius `puddleRadiusM` that lingers
- * for `puddleDurationSeconds` and ticks `poisonDamagePerSecond` into every part
- * still standing in it. Driving out stops the tick immediately; the puddle
- * itself never chases.
+ * for `puddleDurationSeconds`. A puddle does no damage at all; it is a
+ * movement hazard, killing wheel grip and actively dragging the vehicle's
+ * speed down for as long as it is inside one. Driving out restores handling
+ * immediately; the puddle itself never chases.
  *
  * Below `phaseTwoHealthFraction` of its spawn health each throw becomes
  * `enragedVialCount` vials fanned across `enragedSpreadDeg`, centred on the
@@ -86,7 +98,11 @@ export interface BossVialAttack {
   readonly puddleRadiusM: number;
   /** Seconds a puddle persists before it evaporates. */
   readonly puddleDurationSeconds: number;
-  /** Poison damage/second applied to every part standing inside a puddle. */
+  /**
+   * Legacy poison rate. Puddles no longer damage anything — the boss's gas
+   * trail is its damage-over-time source — so this only survives as tuning
+   * history for how hard a puddle used to bite.
+   */
   readonly poisonDamagePerSecond: number;
 }
 
@@ -96,6 +112,14 @@ export interface BossVialAttack {
  * moment the wind-up completes.
  */
 export type BossAttack = BossSlamAttack | BossVialAttack;
+
+/**
+ * Names a family of pose curves a boss's rig can be driven by. One per rigged
+ * boss model, since the curves are authored against that model's proportions —
+ * `glb-rigger` gives every rig the same thirteen bone names, but not the same
+ * bind pose, and the Alchemist's is a T-pose where the others hang their arms.
+ */
+export type BossPoseSet = 'alchemist';
 
 export interface BossDefinition {
   readonly id: BossId;
@@ -127,17 +151,30 @@ export interface BossDefinition {
    */
   readonly visualWidthScale?: number;
   /**
-   * `'model'` sizes and tints the shared voxel placeholder to this boss, same as
-   * every ordinary zombie. `'capsule'` never shows that model at all — the body
-   * stays the primitive capsule every zombie renders as before its model loads,
-   * tinted to `tint` — for a boss deliberately built from no art asset. Both
-   * still preload the same `DEFAULT_BOSS_ASSET`, since the two boss pool slots
-   * are shared and do not know in advance which definition will next occupy
-   * them; a capsule boss just leaves it loaded and hidden.
+   * `'model'` sizes and tints `assetName`'s model to this boss, same as every
+   * ordinary zombie. `'capsule'` never shows a model at all — the body stays
+   * the primitive capsule every zombie renders as before its model loads,
+   * tinted to `tint` — for a boss deliberately built from no art asset. Every
+   * boss pool slot still preloads `DEFAULT_BOSS_ASSET` at construction, since
+   * the slot is created before the wave picks which boss fills it;
+   * `Zombie.applyBossBody` swaps in the right model on spawn when `assetName`
+   * differs from what is already loaded.
    */
   readonly bodyVisual: 'model' | 'capsule';
-  /** Placeholder model under `public/assets/zombies` until a boss asset exists. */
+  /** Model file under `public/assets/zombies` this boss shows when `bodyVisual` is `'model'`. */
   readonly assetName: string;
+  /**
+   * Which set of pose curves drives this boss's rig, resolved to actual
+   * functions by `BOSS_RIG_CLIPS` in `Zombie.ts`. Named here rather than keyed
+   * off the boss id over there so that adding a boss stays a matter of adding
+   * one entry to this file.
+   *
+   * Omit for a boss whose `assetName` is unrigged — it simply renders
+   * unanimated. Do NOT omit it for a rigged model: the bones would sit at their
+   * bind rotations, which for a model authored in a T-pose (the Alchemist)
+   * means it stands there with both arms straight out.
+   */
+  readonly poseSet?: BossPoseSet;
   readonly tint: number;
 }
 
@@ -145,9 +182,12 @@ export interface BossDefinition {
 export const BOSS_WAVE_INTERVAL = 5;
 
 /**
- * Model warmed into the boss pool slots at construction. Every boss shares one
- * placeholder today; a boss whose `assetName` differs re-sizes and re-tints on
- * spawn, so this only decides which model is preloaded.
+ * Model warmed into the boss pool slots at construction, before any
+ * `BossDefinition` is known. Whichever classic boss actually spawns into a slot
+ * swaps this out for its own `assetName`, which today always differs — the
+ * Alchemist has a real rigged asset — so this only decides what is preloaded,
+ * never what is seen. An elite boss (see `EliteBossSpec`) is a real zombie kind
+ * with its own model instead, so it never touches this.
  */
 export const DEFAULT_BOSS_ASSET = 'Zed_5';
 
@@ -179,43 +219,6 @@ export const BOSS_VIAL_PROP_COLOR = 0x74ff3a;
 export const BOSS_VIAL_RAISED_ANGLE = -1.35;
 
 export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
-  'hammer-brute': {
-    id: 'hammer-brute',
-    name: 'The Sledge',
-    warning:
-      'BOSS WAVE — The Sledge. Slow but brutal: stay out of the hammer ring.',
-    // ~1,116 HP at wave 5 after the 1.24x health multiplier, close to the
-    // effective total HP of the wave-4 horde it replaces.
-    baseHealth: 900,
-    // 1.76 m/s base — slower than a worker (0.85x), still closes the 18 m
-    // minimum spawn gap in roughly nine seconds.
-    speedMultiplier: 0.55,
-    reward: 150,
-    attack: {
-      kind: 'slam',
-      // Stops close, then slams a circle a metre wider than it walked in to, so
-      // the telegraphed ring genuinely covers the rig and driving out of it is a
-      // real dodge rather than a formality.
-      rangeM: 3.5,
-      radiusM: 4.5,
-      windupSeconds: 1.1,
-      // Over five times a walker's 10.5, enough to cripple a part per swing.
-      damage: 55,
-      intervalSeconds: 3,
-    },
-    knockbackResistance: 0.12,
-    // Roughly twenty-five rams to kill: ramming is chip damage, not the answer.
-    impactDamageCap: 45,
-    colliderRadiusM: 1,
-    colliderHalfHeightM: 1.1,
-    // Matches the capsule's full height, 2 * (halfHeight + radius).
-    visualHeightM: 4.2,
-    bodyVisual: 'model',
-    // Placeholder: an ordinary walker model, scaled up and darkened. Swap this
-    // for a dedicated boss asset when one exists; nothing else needs to change.
-    assetName: 'Zed_5',
-    tint: 0x2f3a2b,
-  },
   'acid-alchemist': {
     id: 'acid-alchemist',
     name: 'The Alchemist',
@@ -224,24 +227,25 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
     // ~3,781 HP at wave 10 after the 1.54x health multiplier, against the ~4,730
     // effective HP of the wave-9 horde it replaces. Deliberately a shade under a
     // full horde: the retreat means every point of its health takes longer to
-    // reach than a brute's does. The 0.80 ratio is The Sledge's (1,116 against
-    // wave 4's 1,416), so both bosses sit the same distance under their wave.
+    // reach than a melee boss's does.
     // Raised from 2,300 when the zamboni joined the wave-9 horde composition —
     // the boss has to track the wave it stands in for, or it reads as a speed
     // bump on the way to wave 11.
     baseHealth: 2455,
-    // 1.98 m/s base — quicker than The Sledge because it spends its time backing
-    // away, but still far short of a walker, so ramming it down always works.
+    // 1.98 m/s base — quicker than the elite Behemoth's 0.6x because it spends
+    // its time backing away, but still far short of a walker, so ramming it
+    // down always works.
     speedMultiplier: 0.62,
     reward: 280,
     attack: {
       kind: 'vial',
-      // Holds a metre past the thrower's 13 m, so the rig is already used to that
-      // being the range where things start shooting.
-      rangeM: 14,
+      // Well past the thrower's 13 m. A vial's arc caps out around 22 m (3 s
+      // max flight at 7.5 m/s), so this is about as far as it can throw and
+      // still land on you — beyond it the vials would fall short.
+      rangeM: 22,
       // Inside 8 m it breaks off; it will not fight at knife range.
       disengageRangeM: 8,
-      retreatRangeM: 13,
+      retreatRangeM: 15,
       // A hair longer than the needle boss's 0.45 s snap-shot: the vial is
       // visibly hefted overhead before it flies, reading as a heavier throw.
       windupSeconds: 0.55,
@@ -249,10 +253,11 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
       // small — under half a walker's 10.5 — because the puddle it leaves is
       // this boss's real damage, not the impact.
       damage: 9,
-      // Slightly slower than the needle boss's 2.6 s cadence: puddles linger
-      // after the throw, so pressure builds from ground denial over time
-      // rather than needing a fast rate of direct hits.
-      intervalSeconds: 3.2,
+      // Faster than the 3.2 s this used to be. Puddles now last 30 s, so at
+      // this cadence several are always overlapping and the arena genuinely
+      // starts closing in — which is the fight this boss is supposed to be.
+      // Still slow enough to read each throw as a wind-up.
+      intervalSeconds: 1.2,
       // Full-gravity lob (see VIAL_GRAVITY_SCALE) rather than the needle's
       // flattened arc — a hand-tossed vial should read as thrown, not fired.
       // Still under the thrower's 9 m/s: a heavier glass vial flies slower.
@@ -262,48 +267,103 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
       // more ground in puddles, not landing more concentrated impact damage.
       enragedSpreadDeg: 30,
       phaseTwoHealthFraction: 0.5,
-      // A metre smaller than The Sledge's 4.5 m slam circle: this hazard keeps
-      // punishing after the telegraph ends, so it earns a tighter footprint in
-      // exchange for outlasting the instant the slam resolves in.
+      // Roughly the elite Behemoth's own 3.4 m smash radius: this hazard keeps
+      // punishing after the telegraph ends, so it earns a comparable footprint
+      // in exchange for outlasting the instant the slam resolves in.
       puddleRadiusM: 3.2,
-      // Long enough that ignoring it is a real mistake, short enough (under two
-      // throw intervals) that the field never carpets itself in acid.
-      puddleDurationSeconds: 5,
-      // 10 * puddleDurationSeconds(5) = 50 total if a rig sat in one puddle for
-      // its whole life — in the same band as The Sledge's 55-per-swing direct
-      // hit, which is the right comparison: standing still in one is exactly as
-      // much a player mistake as tanking a hammer.
+      // Long enough (half a minute) that the ground genuinely fills in behind
+      // a sustained barrage rather than clearing itself before the next one
+      // lands — the puddle, not the throw, is meant to be the thing you're
+      // managing. Between ACID_PUDDLE_GRIP_MULTIPLIER and
+      // ACID_PUDDLE_DRAG_PER_SECOND, a field of these turns the arena into
+      // ground you have to route around instead of ground that hurts.
+      puddleDurationSeconds: 30,
+      // Unused: puddles deal no damage now. Kept so the tuning that follows a
+      // vial (radius, duration) still reads as one block.
       poisonDamagePerSecond: 10,
     },
-    // Skinnier than the brute, so a ram shifts it more and hurts it more.
+    // Gaunt and lightweight for a boss, so a ram shifts it more and hurts it more.
     knockbackResistance: 0.18,
     impactDamageCap: 55,
-    // Tall and narrow: a 5.5 m capsule only 0.9 m across.
+    // Tall and narrow: a 4 m capsule only 0.9 m across. The 5.5 m this used to
+    // be was sized for a featureless capsule, where height was the only cue
+    // that it was a boss at all; with the real model on it that reads as a
+    // giant. 4 m clears the Behemoth's 2.7 m by enough to be obviously the
+    // boss without towering over the arena.
     colliderRadiusM: 0.45,
-    colliderHalfHeightM: 2.3,
+    colliderHalfHeightM: 1.55,
     // Matches the capsule's full height, 2 * (halfHeight + radius).
-    visualHeightM: 5.5,
-    // The squash still applies to the fallback capsule body itself (see
-    // applyBossVisualSizing), so the alchemist keeps the same gaunt silhouette
-    // the needle boss had rather than reading as a fat green pill.
-    visualWidthScale: 0.55,
-    bodyVisual: 'capsule',
-    // No voxel placeholder: primitive geometry only, by design — a capsule body,
-    // capsule vials, and a flat ground disc for the puddle. assetName is unused
-    // for rendering when bodyVisual is 'capsule', but kept non-empty since the
-    // shared boss pool slot still preloads DEFAULT_BOSS_ASSET underneath it.
-    assetName: 'capsule-primitive',
-    // Sickly acid green, matching the vial and puddle colour so the whole boss
-    // reads as one toxic identity.
-    tint: 0x6fbf3f,
+    visualHeightM: 4,
+    // No width squash any more. It existed to keep the placeholder capsule from
+    // reading as a fat green pill; the real model is already gaunt, and
+    // applyBossVisualSizing applies this to the model too, so anything but 1
+    // would distort it. The pre-load fallback capsule is briefly rounder for it.
+    bodyVisual: 'model',
+    // The rigged Green Alchemist (glb-rigger/green-alchemist.rig.json). Its
+    // bind pose is a T, so unlike every other model here it looks wrong until
+    // a pose is applied — see BOSS_RIG_CLIPS in Zombie.ts, which is what makes
+    // sure a boss with a rigged model actually gets one.
+    assetName: 'green-alchemist.rigged.glb',
+    poseSet: 'alchemist',
+    // Left near-white so the model's own sickly green paint shows through
+    // undistorted, the same reason The Behemoth does not tint either.
+    tint: 0xffffff,
   },
 };
 
 /**
- * Boss order by boss-wave index. Push a new id here to put a boss into
+ * An elite boss is an ordinary zombie kind — its real model, animation,
+ * attack, and VFX, completely unmodified — spawned with boosted stats and
+ * tagged as the wave's boss. `Zombie` never branches on this; the kind's own
+ * existing behaviour runs as-is, `healthMultiplier` and `reward` are the only
+ * numbers the boss system adds on top.
+ */
+export interface EliteBossSpec {
+  /** The pool kind actually spawned; every part of it behaves exactly as usual. */
+  readonly kind: 'behemoth';
+  readonly id: string;
+  readonly name: string;
+  /** Countdown/victory banner copy for the wave this boss appears on. */
+  readonly warning: string;
+  /** Stacks on top of the kind's own health multiplier, so a boss-tier one is tougher than an ordinary one. */
+  readonly healthMultiplier: number;
+  /** Overrides the kind's own flat reward for this one kill. */
+  readonly reward: number;
+}
+
+export const ELITE_BOSSES: Record<'behemoth', EliteBossSpec> = {
+  behemoth: {
+    kind: 'behemoth',
+    id: 'behemoth-elite',
+    name: 'The Behemoth',
+    warning:
+      'BOSS WAVE — The Behemoth. Slow but brutal: stay out of the smash ring.',
+    // See `unit/boss-balance.test.ts` for the exact resulting HP at wave 5;
+    // this stacks on BEHEMOTH_HEALTH_MULTIPLIER, which already applies first.
+    healthMultiplier: 4,
+    reward: 150,
+  },
+};
+
+/**
+ * What a boss wave summons: either a classic pooled `'boss'` driven by a
+ * `BossDefinition`, or an elite — an ordinary kind spawned with boosted stats.
+ * `bossForWave` is the only place that produces one of these; everything else
+ * (the wave director, the pool, the HUD) branches on `style` rather than
+ * re-deriving which boss is which from the wave number.
+ */
+export type BossEncounter =
+  | { readonly style: 'classic'; readonly definition: BossDefinition }
+  | { readonly style: 'elite'; readonly elite: EliteBossSpec };
+
+/**
+ * Boss order by boss-wave index. Push a new entry here to put a boss into
  * rotation; the list cycles once every boss has been seen.
  */
-const BOSS_ROTATION: readonly BossId[] = ['hammer-brute', 'acid-alchemist'];
+const BOSS_ROTATION: readonly BossEncounter[] = [
+  { style: 'elite', elite: ELITE_BOSSES.behemoth },
+  { style: 'classic', definition: BOSS_DEFINITIONS['acid-alchemist'] },
+];
 
 function safeWaveNumber(wave: number): number {
   return Math.max(1, Math.floor(Number.isFinite(wave) ? wave : 1));
@@ -315,9 +375,19 @@ export function isBossWave(wave: number): boolean {
 }
 
 /** The boss for `wave`, or null when the wave is an ordinary horde wave. */
-export function bossForWave(wave: number): BossDefinition | null {
+export function bossForWave(wave: number): BossEncounter | null {
   const safeWave = safeWaveNumber(wave);
   if (safeWave % BOSS_WAVE_INTERVAL !== 0) return null;
   const bossIndex = safeWave / BOSS_WAVE_INTERVAL - 1;
-  return BOSS_DEFINITIONS[BOSS_ROTATION[bossIndex % BOSS_ROTATION.length]];
+  return BOSS_ROTATION[bossIndex % BOSS_ROTATION.length];
+}
+
+/** The player-facing name for a boss encounter, regardless of which style it is. */
+export function bossEncounterName(boss: BossEncounter): string {
+  return boss.style === 'classic' ? boss.definition.name : boss.elite.name;
+}
+
+/** The countdown/victory banner copy for a boss encounter. */
+export function bossEncounterWarning(boss: BossEncounter): string {
+  return boss.style === 'classic' ? boss.definition.warning : boss.elite.warning;
 }

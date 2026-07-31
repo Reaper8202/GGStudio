@@ -112,8 +112,10 @@ export class ChamberMode {
   private accumulator = 0;
   private lastTime = performance.now();
   private debugPaused = false;
+  private menuOpen = false;
   private hud!: HTMLDivElement;
   private banner!: HTMLDivElement;
+  private menuOverlay!: HTMLDivElement;
   private failTimers = { flipped: 0, noTraction: 0, airborne: 0 };
   private ui!: HTMLDivElement;
   private scopeCursor!: ScopeCursor;
@@ -129,6 +131,15 @@ export class ChamberMode {
   };
   private readonly keydown = (e: KeyboardEvent) => {
     unlockAudio();
+    if (e.key === 'Escape') {
+      this.setMenuOpen(!this.menuOpen);
+      e.preventDefault();
+      return;
+    }
+    if (this.menuOpen) {
+      e.preventDefault();
+      return;
+    }
     this.keys.add(e.key.toLowerCase());
     if (e.key.toLowerCase() === 'f') this.controls.fire = true;
   };
@@ -136,6 +147,15 @@ export class ChamberMode {
     this.keys.delete(e.key.toLowerCase());
     if (e.key.toLowerCase() === 'f') this.controls.fire = false;
   };
+
+  private setMenuOpen(open: boolean): void {
+    if (this.disposed) return;
+    this.menuOpen = open;
+    this.menuOverlay.hidden = !open;
+    this.keys.clear();
+    this.controls.fire = false;
+    this.lastTime = performance.now();
+  }
 
   constructor(
     private readonly container: HTMLElement,
@@ -414,6 +434,33 @@ export class ChamberMode {
       'position:absolute;left:50%;top:38%;transform:translateX(-50%);font-size:20px;font-weight:700;color:#ffb44d;display:none;padding:10px 18px';
     this.ui.appendChild(this.banner);
 
+    this.menuOverlay = document.createElement('div');
+    this.menuOverlay.hidden = true;
+    this.menuOverlay.style.cssText =
+      'position:absolute;inset:0;z-index:40;display:grid;place-items:center;background:rgb(4 5 4 / 0.72)';
+    const menuPanel = document.createElement('div');
+    menuPanel.className = 'panel';
+    menuPanel.style.cssText =
+      'display:flex;flex-direction:column;gap:10px;padding:20px;min-width:220px';
+    const menuTitle = document.createElement('div');
+    menuTitle.textContent = 'Paused';
+    menuTitle.style.cssText = 'font-size:20px;font-weight:700';
+    const resumeButton = document.createElement('button');
+    resumeButton.textContent = 'Resume';
+    resumeButton.className = 'primary';
+    resumeButton.addEventListener('click', () => this.setMenuOpen(false));
+    const backToEditorFromMenu = document.createElement('button');
+    backToEditorFromMenu.textContent = '← Back to editor';
+    backToEditorFromMenu.addEventListener('click', () =>
+      this.onBackToEditor(),
+    );
+    menuPanel.append(menuTitle, resumeButton, backToEditorFromMenu);
+    this.menuOverlay.appendChild(menuPanel);
+    this.menuOverlay.addEventListener('pointerdown', (event) => {
+      if (event.target === this.menuOverlay) this.setMenuOpen(false);
+    });
+    this.ui.appendChild(this.menuOverlay);
+
     this.renderer.domElement.addEventListener('pointermove', this.onAim);
     this.renderer.domElement.addEventListener('pointerdown', this.onFireDown);
     this.renderer.domElement.addEventListener('pointerup', this.onFireUp);
@@ -433,6 +480,7 @@ export class ChamberMode {
   };
 
   private onFireDown = (): void => {
+    if (this.menuOpen) return;
     unlockAudio();
     this.controls.fire = true;
   };
@@ -454,7 +502,7 @@ export class ChamberMode {
     const now = performance.now();
     let frameDt = (now - this.lastTime) / 1000;
     this.lastTime = now;
-    if (this.debugPaused) {
+    if (this.debugPaused || this.menuOpen) {
       this.renderer.render(this.scene, this.camera);
       return;
     }

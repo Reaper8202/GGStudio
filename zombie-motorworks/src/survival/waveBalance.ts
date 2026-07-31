@@ -6,7 +6,12 @@ import {
   zombieCompositionForWave,
 } from './WaveManager.ts';
 import type { WaveComposition } from './WaveManager.ts';
-import { bossForWave, isBossWave } from './zombies/bossConfig.ts';
+import {
+  bossEncounterWarning,
+  bossForWave,
+  isBossWave,
+  type BossEncounter,
+} from './zombies/bossConfig.ts';
 import {
   BASE_ZOMBIE_STATS,
   BEHEMOTH_HEALTH_MULTIPLIER,
@@ -101,7 +106,7 @@ export function newThreatsForWave(wave: number): SpecialistZombieKind[] {
 export function threatWarningsForWave(wave: number): string[] {
   const warnings = newThreatsForWave(wave).map((kind) => THREAT_WARNINGS[kind]);
   const boss = bossForWave(wave);
-  return boss ? [boss.warning, ...warnings] : warnings;
+  return boss ? [bossEncounterWarning(boss), ...warnings] : warnings;
 }
 
 /** Exact, compact composition with zero-count kinds omitted. */
@@ -126,6 +131,24 @@ export interface WaveBalanceReport {
   totalPossibleReward: number;
 }
 
+/**
+ * The HP a boss encounter's one kill contributes at wave-one scale — a
+ * classic boss reads it straight off its definition; an elite boss stacks its
+ * multiplier on top of the ordinary kind's own health the same way
+ * `Zombie.spawn` does, since it never gets a `baseHealth` of its own.
+ */
+function bossBaseHealth(boss: BossEncounter): number {
+  return boss.style === 'classic'
+    ? boss.definition.baseHealth
+    : BASE_ZOMBIE_STATS.health *
+        BEHEMOTH_HEALTH_MULTIPLIER *
+        boss.elite.healthMultiplier;
+}
+
+function bossReward(boss: BossEncounter): number {
+  return boss.style === 'classic' ? boss.definition.reward : boss.elite.reward;
+}
+
 export function waveBalanceReport(wave: number): WaveBalanceReport {
   const composition = zombieCompositionForWave(wave);
   const healthMultiplier = healthMultiplierForWave(wave);
@@ -133,7 +156,9 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
   // A boss scales its own base health by the same wave multiplier, so its row
   // stays comparable with the horde it replaces.
   const boss = bossForWave(wave);
-  const bossHp = boss ? composition.boss * boss.baseHealth * healthMultiplier : 0;
+  const bossHp = boss
+    ? composition.boss * bossBaseHealth(boss) * healthMultiplier
+    : 0;
   const effectiveTotalHp = Math.round(
     composition.walker * baseHealth +
       composition.gunslinger * baseHealth * GUNSLINGER_HEALTH_MULTIPLIER +
@@ -158,7 +183,7 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
     composition.kamikaze * KAMIKAZE_REWARD +
     composition.behemoth * BEHEMOTH_REWARD +
     composition.zamboni * ZAMBONI_REWARD +
-    composition.boss * (boss?.reward ?? 0) +
+    (boss ? composition.boss * bossReward(boss) : 0) +
     waveRewardForWave(wave);
 
   return {

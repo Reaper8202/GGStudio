@@ -152,6 +152,16 @@ export class WaveTimelineHud {
     this.scoreValue.textContent = value.toLocaleString();
   }
 
+  /**
+   * Hides just the icon rail — the wave/score head and the kill-progress bar
+   * stay up — so a boss health bar can take the rail's place without also
+   * covering the score.
+   */
+  setRailHidden(hidden: boolean): void {
+    if (this.rail.hidden === hidden) return;
+    this.rail.hidden = hidden;
+  }
+
   dispose(): void {
     this.root.remove();
     this.root.replaceChildren();

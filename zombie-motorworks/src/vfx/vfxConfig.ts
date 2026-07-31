@@ -59,6 +59,19 @@ export const VFX_PALETTE = {
   necroDeep: 0x2c0a52,
   /** Kamikaze's chest-light blink — the one thing that reads as "about to go off". */
   kamikazeWarn: 0xff2a00,
+  /** Matches the Alchemist boss's own tint and its acid puddles — one family for every toxin. */
+  acid: 0x9dff5c,
+  acidDeep: 0x2e5c14,
+  /**
+   * The Alchemist's gas cloud, on the additive `glow` layer. Deliberately dim
+   * and only lightly saturated: additive blending sums overlapping puffs, so a
+   * bright green here clipped to flat white after two or three of them. At
+   * this value a thin wisp reads as translucent haze and only a deep, dense
+   * pocket of gas brightens toward white.
+   */
+  acidSmoke: 0x4f7a45,
+  /** Near-black tail for the gas puffs — on the glow layer black is a clean fade-out. */
+  acidFade: 0x101a0c,
 } as const;
 
 /**

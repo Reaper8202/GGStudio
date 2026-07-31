@@ -475,6 +475,7 @@ interface SurvivalUi {
   settingsSfxVolumeControl: AudioVolumeControl;
   settingsMusicVolumeControl: AudioVolumeControl;
   spawnCheatButton: HTMLButtonElement;
+  skipWaveInput: HTMLInputElement;
   settingsStatus: HTMLDivElement;
 }
 
@@ -642,6 +643,7 @@ export class SurvivalMode {
   private readonly settingsSfxVolumeControl: AudioVolumeControl;
   private readonly settingsMusicVolumeControl: AudioVolumeControl;
   private readonly spawnCheatButton: HTMLButtonElement;
+  private readonly skipWaveInput: HTMLInputElement;
   private readonly settingsStatus: HTMLDivElement;
 
   private accumulator = 0;
@@ -913,6 +915,7 @@ export class SurvivalMode {
     this.settingsSfxVolumeControl = builtUi.settingsSfxVolumeControl;
     this.settingsMusicVolumeControl = builtUi.settingsMusicVolumeControl;
     this.spawnCheatButton = builtUi.spawnCheatButton;
+    this.skipWaveInput = builtUi.skipWaveInput;
     this.settingsStatus = builtUi.settingsStatus;
     this.minimap = new Minimap(
       this.ui,
@@ -1371,7 +1374,21 @@ export class SurvivalMode {
     infiniteMoneyButton.className = 'ui-button ui-button--medium';
     infiniteMoneyButton.textContent = 'Give Infinite Money';
     infiniteMoneyButton.addEventListener('click', this.onInfiniteMoney);
-    cheatActions.append(spawnCheatButton, infiniteMoneyButton);
+    const skipWaveRow = document.createElement('div');
+    skipWaveRow.className = 'survival-settings__skip-wave';
+    const skipWaveInput = document.createElement('input');
+    skipWaveInput.type = 'number';
+    skipWaveInput.min = '1';
+    skipWaveInput.step = '1';
+    skipWaveInput.value = String(this.currentWave);
+    skipWaveInput.setAttribute('aria-label', 'Wave to skip to');
+    const skipWaveButton = document.createElement('button');
+    skipWaveButton.type = 'button';
+    skipWaveButton.className = 'ui-button ui-button--medium';
+    skipWaveButton.textContent = 'Skip to Wave';
+    skipWaveButton.addEventListener('click', this.onSkipToWave);
+    skipWaveRow.append(skipWaveInput, skipWaveButton);
+    cheatActions.append(spawnCheatButton, infiniteMoneyButton, skipWaveRow);
     cheatsInput?.addEventListener('change', () => {
       cheatActions.hidden = !cheatsInput.checked;
       this.settingsStatus.textContent = cheatsInput.checked
@@ -1484,6 +1501,7 @@ export class SurvivalMode {
       settingsSfxVolumeControl,
       settingsMusicVolumeControl,
       spawnCheatButton,
+      skipWaveInput,
       settingsStatus,
     };
   }
@@ -1496,6 +1514,7 @@ export class SurvivalMode {
     this.syncVolumeControls();
     this.settingsButton.setAttribute('aria-expanded', String(open));
     this.spawnCheatButton.disabled = this.phase !== 'active';
+    if (open) this.skipWaveInput.value = String(this.currentWave);
     this.keys.clear();
     this.pointerFiring = false;
     this.controls.fire = false;
@@ -1563,6 +1582,16 @@ export class SurvivalMode {
     this.callbacks.onCheatInfiniteMoney();
     this.lastHudMoney = -1;
     this.settingsStatus.textContent = 'Money set to the maximum safe amount.';
+  };
+
+  private readonly onSkipToWave = (): void => {
+    if (this.disposed || this.phase === 'gameOver') return;
+    const requested = Math.floor(Number(this.skipWaveInput.value));
+    const wave = Number.isFinite(requested) ? Math.max(1, requested) : 1;
+    this.debugStartWave(wave);
+    this.settingsEyebrow.textContent = `Wave ${this.currentWave}`;
+    this.skipWaveInput.value = String(this.currentWave);
+    this.settingsStatus.textContent = `Jumped to Wave ${this.currentWave}.`;
   };
 
   private onResetWave(): void {
@@ -2177,6 +2206,7 @@ export class SurvivalMode {
     this.zombies.clearLandmines();
     this.zombies.clearIceTrail();
     this.zombies.clearAcidPuddles();
+    this.zombies.clearGasTrail();
     fadeOutDriveSfx();
     this.phase = 'cleared';
     this.pointerFiring = false;
@@ -3128,22 +3158,26 @@ export class SurvivalMode {
   /**
    * Boss health bar. Hidden whenever no boss is alive, so ordinary waves are
    * unchanged. Percentage is rounded before the guard so the DOM is touched at
-   * most a hundred times over the whole fight.
+   * most a hundred times over the whole fight. It takes over the wave
+   * timeline's icon rail for the duration of the fight — the wave/score head
+   * above it stays up, only the row of upcoming-wave icons hides to make room.
    */
   private syncBossHud(): void {
     const boss = this.zombies.activeBoss();
-    const def = boss?.bossDefinition ?? null;
-    if (!boss || !def || boss.maxHealth <= 0) {
+    const label = boss?.bossLabel ?? null;
+    if (!boss || !label || boss.maxHealth <= 0) {
       if (!this.bossHud.hidden) this.bossHud.hidden = true;
+      this.waveTimelineHud.setRailHidden(false);
       this.lastHudBossName = '';
       this.lastHudBossPct = -1;
       return;
     }
 
     if (this.bossHud.hidden) this.bossHud.hidden = false;
-    if (def.name !== this.lastHudBossName) {
-      this.lastHudBossName = def.name;
-      this.bossNameValue.textContent = def.name;
+    this.waveTimelineHud.setRailHidden(true);
+    if (label.name !== this.lastHudBossName) {
+      this.lastHudBossName = label.name;
+      this.bossNameValue.textContent = label.name;
     }
 
     const pct = Math.max(
@@ -3501,6 +3535,7 @@ export class SurvivalMode {
       liveEngineCount,
       weaponCount,
       liveWeaponCount,
+      hazardMul: telemetry.hazardMul,
     });
     this.warningHud.setWarnings(this.lastWarnings);
     this.warningHud.setCritical(integrityPct <= HULL_CRITICAL_PCT);
@@ -3814,7 +3849,7 @@ export class SurvivalMode {
     const rotation = this.vehicle.body.rotation();
     const angvel = this.vehicle.body.angvel();
     const boss = this.zombies.activeBoss();
-    const bossDef = boss?.bossDefinition ?? null;
+    const bossLabel = boss?.bossLabel ?? null;
     return {
       mode: 'survival',
       kills: this.kills,
@@ -3828,10 +3863,10 @@ export class SurvivalMode {
       partHp: this.vehicle.partHpSnapshot(),
       integrityPct: this.vehicle.integrityPct(),
       boss:
-        boss && bossDef
+        boss && bossLabel
           ? {
-              id: bossDef.id,
-              name: bossDef.name,
+              id: bossLabel.id,
+              name: bossLabel.name,
               health: boss.currentHealth,
               maxHealth: boss.maxHealth,
             }

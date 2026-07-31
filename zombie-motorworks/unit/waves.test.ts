@@ -17,18 +17,19 @@ describe('wave formulas', () => {
   it.each([
     {
       wave: 1,
-      zombies: 18,
+      zombies: 30,
       maxActive: 26,
-      healthMultiplier: 1,
+      healthMultiplier: 0.7,
       speedMultiplier: 1,
       attackDamageMultiplier: 1,
       reward: 50,
     },
     {
-      // Wave 5 is a boss wave: the horde is replaced by a single boss, while
-      // the difficulty multipliers and clear reward keep scaling normally.
+      // Wave 5 is a boss wave: a small walker-and-gunslinger horde still
+      // spawns alongside the boss, while the difficulty multipliers and
+      // clear reward keep scaling normally.
       wave: 5,
-      zombies: 1,
+      zombies: 29,
       maxActive: 34,
       healthMultiplier: 1.24,
       speedMultiplier: 1.1,
@@ -62,15 +63,14 @@ describe('wave formulas', () => {
   });
 
   it('scales walker counts to the 70 cap', () => {
-    // Sampled off boss waves, which field no walkers at all.
-    expect(zombieCompositionForWave(1).walker).toBe(18);
+    expect(zombieCompositionForWave(1).walker).toBe(30);
     expect(zombieCompositionForWave(6).walker).toBe(28);
     expect(zombieCompositionForWave(21).walker).toBe(70);
     expect(zombieCompositionForWave(51).walker).toBe(70);
   });
 
   it('caps health multiplier at 2.2x', () => {
-    expect(healthMultiplierForWave(1)).toBe(1);
+    expect(healthMultiplierForWave(1)).toBeCloseTo(0.7);
     expect(healthMultiplierForWave(10)).toBeCloseTo(1.54);
     expect(healthMultiplierForWave(21)).toBeCloseTo(2.2);
     expect(healthMultiplierForWave(50)).toBe(2.2);
@@ -138,7 +138,7 @@ describe('wave formulas', () => {
 
   it('unlocks sparse specialists at their progression milestones', () => {
     expect(zombieCompositionForWave(1)).toEqual({
-      walker: 18,
+      walker: 30,
       gunslinger: 0,
       necromancer: 0,
       thrower: 0,
@@ -203,7 +203,7 @@ describe('wave formulas', () => {
 
   it('does not unlock specialists before their milestone waves', () => {
     expect(zombieCompositionForWave(2)).toEqual({
-      walker: 26,
+      walker: 40,
       gunslinger: 0,
       necromancer: 0,
       worker: 0,
@@ -252,7 +252,7 @@ describe('wave formulas', () => {
       setWaveMultipliers: (...multipliers: number[]) => {
         waveMultipliers = multipliers;
       },
-      setBossDefinition: () => undefined,
+      setBossEncounter: () => undefined,
       getActiveCount: () => 0,
       trySpawnHorde: () => 0,
     } as unknown as ZombieSystem;
@@ -266,8 +266,9 @@ describe('wave formulas', () => {
     });
 
     waves.startWave(1);
-    expect(waveMultipliers).toEqual([1, 1, 1]);
-    expect(waves.prepareDebugKillAll()).toBe(18);
+    expect(waveMultipliers[0]).toBeCloseTo(0.7);
+    expect(waveMultipliers.slice(1)).toEqual([1, 1]);
+    expect(waves.prepareDebugKillAll()).toBe(30);
     expect(remaining).toBe(0);
     expect(completion).toEqual({ wave: 1, reward: 50 });
   });

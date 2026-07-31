@@ -11,7 +11,7 @@ describe('wave balance report', () => {
     expect(waveBalanceReport(1)).toEqual({
       wave: 1,
       composition: {
-        walker: 18,
+        walker: 30,
         gunslinger: 0,
         necromancer: 0,
         thrower: 0,
@@ -25,8 +25,8 @@ describe('wave balance report', () => {
       healthMultiplier: healthMultiplierForWave(1),
       speedMultiplier: speedMultiplierForWave(1),
       attackDamageMultiplier: attackDamageMultiplierForWave(1),
-      effectiveTotalHp: 720,
-      totalPossibleReward: 104,
+      effectiveTotalHp: 840,
+      totalPossibleReward: 140,
     });
   });
 
@@ -34,7 +34,7 @@ describe('wave balance report', () => {
     expect(waveBalanceReport(2)).toEqual({
       wave: 2,
       composition: {
-        walker: 26,
+        walker: 40,
         gunslinger: 0,
         necromancer: 0,
         thrower: 0,
@@ -48,8 +48,8 @@ describe('wave balance report', () => {
       healthMultiplier: healthMultiplierForWave(2),
       speedMultiplier: speedMultiplierForWave(2),
       attackDamageMultiplier: attackDamageMultiplierForWave(2),
-      effectiveTotalHp: 1102,
-      totalPossibleReward: 138,
+      effectiveTotalHp: 1357,
+      totalPossibleReward: 180,
     });
   });
 
@@ -57,7 +57,7 @@ describe('wave balance report', () => {
     expect(waveBalanceReport(3)).toEqual({
       wave: 3,
       composition: {
-        walker: 19,
+        walker: 32,
         gunslinger: 1,
         necromancer: 0,
         thrower: 1,
@@ -71,8 +71,8 @@ describe('wave balance report', () => {
       healthMultiplier: healthMultiplierForWave(3),
       speedMultiplier: speedMultiplierForWave(3),
       attackDamageMultiplier: attackDamageMultiplierForWave(3),
-      effectiveTotalHp: 1004,
-      totalPossibleReward: 144,
+      effectiveTotalHp: 1396,
+      totalPossibleReward: 183,
     });
   });
 
@@ -145,20 +145,23 @@ describe('wave balance report', () => {
     });
   });
 
-  // Every fifth wave replaces the horde with one boss, so the report is a
-  // single boss HP figure plus the boss bounty and the ordinary clear bonus.
+  // Every fifth wave adds a boss on top of a small walker-and-gunslinger
+  // horde, so the report is the boss HP plus that horde's HP, plus the boss
+  // bounty, the horde's kill rewards, and the ordinary clear bonus.
   it.each([
-    // Waves 5 and 15 are The Sledge (900 base HP); wave 10 is The Alchemist,
-    // which carries 2,455 because it replaces the far larger wave-9 horde.
-    { wave: 5, effectiveTotalHp: 1116, totalPossibleReward: 240 },
-    { wave: 10, effectiveTotalHp: 3781, totalPossibleReward: 420 },
-    { wave: 15, effectiveTotalHp: 1656, totalPossibleReward: 340 },
+    // Waves 5 and 15 are the elite Behemoth (BEHEMOTH_HEALTH_MULTIPLIER * its
+    // own 4x elite multiplier, on top of BASE_ZOMBIE_STATS.health); wave 10 is
+    // The Alchemist, which carries 2,455 because it stands in for the far
+    // larger wave-9 horde.
+    { wave: 5, walker: 25, effectiveTotalHp: 2698, totalPossibleReward: 342 },
+    { wave: 10, walker: 40, effectiveTotalHp: 6577, totalPossibleReward: 567 },
+    { wave: 15, walker: 55, effectiveTotalHp: 6212, totalPossibleReward: 532 },
   ])('reports the exact boss wave $wave balance', (expected) => {
     expect(waveBalanceReport(expected.wave)).toEqual({
       wave: expected.wave,
       composition: {
-        walker: 0,
-        gunslinger: 0,
+        walker: expected.walker,
+        gunslinger: 3,
         necromancer: 0,
         thrower: 0,
         worker: 0,
@@ -182,6 +185,6 @@ describe('wave balance report', () => {
       0,
     );
 
-    expect(earlyWaveReward).toBe(581);
+    expect(earlyWaveReward).toBe(698);
   });
 });

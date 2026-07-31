@@ -177,6 +177,20 @@ function cloneMaterials(object: THREE.Object3D): void {
   });
 }
 
+/**
+ * Warm a model's template so a later `instantiateVoxelAsset` resolves from
+ * cache instead of a fetch. Fire-and-forget: a failure here is not worth
+ * surfacing, because the real load will report it.
+ *
+ * Worth doing for anything big that appears on a deadline. A boss's model is
+ * several megabytes and is only requested at the instant it spawns, so without
+ * this the boss stands there as the placeholder walker — fitted to its full
+ * boss height, so unmistakably wrong — for as long as the download takes.
+ */
+export function preloadVoxelAsset(baseUrl: string): void {
+  void templateFor(baseUrl).catch(() => undefined);
+}
+
 /** Loads each OBJ/MTL pair, FBX, or GLB once, then returns geometry-sharing clones. */
 export async function instantiateVoxelAsset(
   baseUrl: string,

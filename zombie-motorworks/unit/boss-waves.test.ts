@@ -10,25 +10,26 @@ import type { ZombieKind } from '../src/survival/zombies/Zombie.ts';
 import {
   BOSS_DEFINITIONS,
   BOSS_WAVE_INTERVAL,
+  ELITE_BOSSES,
   bossForWave,
   isBossWave,
-  type BossDefinition,
+  type BossEncounter,
 } from '../src/survival/zombies/bossConfig.ts';
 
 /** Fake pool that records what the director asked of it. */
 function fakeZombies(overrides: Partial<ZombieSystem> = {}): {
   zombies: ZombieSystem;
   spawned: ZombieKind[];
-  bossDefinitions: (BossDefinition | null)[];
+  bossEncounters: (BossEncounter | null)[];
   setActive: (count: number) => void;
 } {
   const spawned: ZombieKind[] = [];
-  const bossDefinitions: (BossDefinition | null)[] = [];
+  const bossEncounters: (BossEncounter | null)[] = [];
   let active = 0;
   const zombies = {
     setWaveMultipliers: () => undefined,
-    setBossDefinition: (definition: BossDefinition | null) => {
-      bossDefinitions.push(definition);
+    setBossEncounter: (encounter: BossEncounter | null) => {
+      bossEncounters.push(encounter);
     },
     getActiveCount: () => active,
     trySpawnHorde: (kinds: readonly ZombieKind[]) => {
@@ -41,7 +42,7 @@ function fakeZombies(overrides: Partial<ZombieSystem> = {}): {
   return {
     zombies,
     spawned,
-    bossDefinitions,
+    bossEncounters,
     setActive: (count: number) => {
       active = count;
     },
@@ -72,18 +73,23 @@ describe('boss wave scheduling', () => {
   it('cycles the rotation so every boss recurs', () => {
     const bossWaves = [5, 10, 15, 20, 25].map((wave) => bossForWave(wave));
     for (const boss of bossWaves) expect(boss).not.toBeNull();
-    // With one boss registered every boss wave is the same encounter; once a
-    // second is added this asserts the rotation advances rather than sticks.
-    const distinct = new Set(bossWaves.map((boss) => boss?.id));
-    expect(distinct.size).toBe(
-      Math.min(bossWaves.length, Object.keys(BOSS_DEFINITIONS).length),
+    // One classic boss, one elite boss registered: this asserts the rotation
+    // advances between the two rather than sticking on one.
+    const distinct = new Set(
+      bossWaves.map((boss) =>
+        boss?.style === 'classic' ? boss.definition.id : boss?.elite.id,
+      ),
     );
+    const registered =
+      Object.keys(BOSS_DEFINITIONS).length + Object.keys(ELITE_BOSSES).length;
+    expect(distinct.size).toBe(Math.min(bossWaves.length, registered));
   });
 
-  it('replaces the whole horde with a single boss', () => {
-    expect(zombieCompositionForWave(5)).toEqual({
-      walker: 0,
-      gunslinger: 0,
+  it('keeps every specialist curve at zero but still fields a horde around the boss', () => {
+    const composition = zombieCompositionForWave(5);
+    expect(composition).toEqual({
+      walker: composition.walker,
+      gunslinger: 3,
       necromancer: 0,
       thrower: 0,
       worker: 0,
@@ -93,40 +99,53 @@ describe('boss wave scheduling', () => {
       zamboni: 0,
       boss: 1,
     });
-    expect(zombieCountForWave(5)).toBe(1);
-    expect(zombieCountForWave(10)).toBe(1);
+    expect(composition.walker).toBeGreaterThan(0);
+    expect(zombieCountForWave(5)).toBe(composition.walker + 3 + 1);
+    expect(zombieCountForWave(10)).toBeGreaterThan(1);
   });
 
   it('puts the boss at the head of the spawn queue', () => {
-    expect(spawnOrderForWave(5)).toEqual(['boss']);
+    // Wave 5's boss is the elite Behemoth: an ordinary kind under the hood, so
+    // the queue asks for 'behemoth' directly rather than for 'boss'.
+    expect(spawnOrderForWave(5)[0]).toBe('behemoth');
+    expect(spawnOrderForWave(5)).toContain('gunslinger');
+    expect(spawnOrderForWave(5)).toContain('walker');
+    // Wave 10's boss is the classic Alchemist, still its own pooled kind.
+    expect(spawnOrderForWave(10)[0]).toBe('boss');
     // Ordinary waves are untouched and still lead with walkers.
     expect(spawnOrderForWave(4)[0]).toBe('walker');
     expect(spawnOrderForWave(4)).not.toContain('boss');
   });
 
-  it('hands the wave boss to the pool at wave start', () => {
-    const { zombies, bossDefinitions } = fakeZombies();
+  it('hands the wave boss encounter to the pool at wave start', () => {
+    const { zombies, bossEncounters } = fakeZombies();
     const waves = new WaveManager(zombies, {
       onRemainingChanged: () => undefined,
       onWaveComplete: () => undefined,
     });
 
     waves.startWave(4);
-    expect(bossDefinitions.at(-1)).toBeNull();
+    expect(bossEncounters.at(-1)).toBeNull();
     waves.startWave(5);
-    expect(bossDefinitions.at(-1)).toBe(BOSS_DEFINITIONS['hammer-brute']);
+    expect(bossEncounters.at(-1)).toBe(bossForWave(5));
     waves.startWave(9);
-    expect(bossDefinitions.at(-1)).toBeNull();
+    expect(bossEncounters.at(-1)).toBeNull();
     waves.startWave(10);
-    expect(bossDefinitions.at(-1)).toBe(BOSS_DEFINITIONS['acid-alchemist']);
+    expect(bossEncounters.at(-1)).toBe(bossForWave(10));
   });
 
   it('alternates the two bosses across boss waves', () => {
     // Rotation index is wave / 5 - 1, so the pair alternates indefinitely.
-    expect(bossForWave(5)?.id).toBe('hammer-brute');
-    expect(bossForWave(10)?.id).toBe('acid-alchemist');
-    expect(bossForWave(15)?.id).toBe('hammer-brute');
-    expect(bossForWave(20)?.id).toBe('acid-alchemist');
+    expect(bossForWave(5)).toEqual({ style: 'elite', elite: ELITE_BOSSES.behemoth });
+    expect(bossForWave(10)).toEqual({
+      style: 'classic',
+      definition: BOSS_DEFINITIONS['acid-alchemist'],
+    });
+    expect(bossForWave(15)).toEqual({ style: 'elite', elite: ELITE_BOSSES.behemoth });
+    expect(bossForWave(20)).toEqual({
+      style: 'classic',
+      definition: BOSS_DEFINITIONS['acid-alchemist'],
+    });
   });
 
   it('does not clear a boss wave until the boss is dead', () => {
@@ -139,16 +158,21 @@ describe('boss wave scheduling', () => {
       },
     });
 
+    const total = zombieCountForWave(BOSS_WAVE_INTERVAL);
     waves.startWave(BOSS_WAVE_INTERVAL);
-    // Spawn the boss, then keep stepping while it is still standing.
-    waves.fixedUpdate(1);
-    expect(fake.spawned).toEqual(['boss']);
-    waves.fixedUpdate(1);
-    waves.fixedUpdate(1);
+    // Boss waves field a small horde alongside the boss, so drive enough
+    // ticks (at the shipped horde interval) to fully drain the queue
+    // regardless of the random horde size each tick draws.
+    for (let i = 0; i < 10 && fake.spawned.length < total; i++) {
+      waves.fixedUpdate(1.45);
+    }
+    // Wave 5 is the elite Behemoth boss wave, so the pool asks for 'behemoth'.
+    expect(fake.spawned).toContain('behemoth');
+    expect(fake.spawned.length).toBe(total);
     expect(completed).toBe(false);
-    expect(waves.remainingCount).toBe(1);
+    expect(waves.remainingCount).toBe(total);
 
-    // The boss dies: the wave may now clear.
+    // Everything dies: the wave may now clear.
     fake.setActive(0);
     waves.recordZombieKilled();
     expect(completed).toBe(true);

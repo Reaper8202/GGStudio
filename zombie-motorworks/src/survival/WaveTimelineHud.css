@@ -98,6 +98,11 @@
   align-items: center;
 }
 
+/* The base rule sets `display`, which would otherwise beat the UA [hidden] rule. */
+.wave-timeline__rail[hidden] {
+  display: none;
+}
+
 .wave-timeline__slot {
   position: relative;
   display: grid;

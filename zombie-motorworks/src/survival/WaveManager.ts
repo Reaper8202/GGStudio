@@ -40,35 +40,43 @@ function countFromCurve(
 }
 
 /**
- * Extra walkers layered onto waves 1-2 only, on top of the normal curve.
- * Every kill pays out, so this is really an early-money bump: with no
- * specialists in play yet (gunslinger/thrower don't start until wave 3),
- * more walkers just means more kill reward banked before the roster gets
- * complicated. Wave 2 gets the bigger add — by then the player has already
- * banked wave 1's clear reward and can put it toward more parts, so the
- * horde can absorb more bodies without touching the growth curve for every
- * wave after it.
+ * Extra walkers layered onto waves 1-3 only, on top of the normal curve.
+ * Every kill pays out, so this is really an early-money bump: with barely
+ * any specialists in play yet (gunslinger/thrower only just start at wave
+ * 3, one each), more walkers just means more kill reward banked before the
+ * roster gets complicated. Paired with `earlyWaveHealthDiscount` below —
+ * the swarm gets bigger at the same time each body gets easier to drop, so
+ * early waves read as "more zombies, more shootable" rather than a tougher
+ * fight.
  */
 function earlyWalkerBonus(safeWave: number): number {
-  if (safeWave === 1) return 5;
-  if (safeWave === 2) return 10;
+  if (safeWave === 1) return 17;
+  if (safeWave === 2) return 24;
+  if (safeWave === 3) return 13;
   return 0;
 }
 
 /**
  * Normals remain the overwhelming majority while specialists unlock slowly.
- * Every fifth wave replaces the horde entirely with a single boss, so the
- * encounter reads as a duel rather than a horde wave with an extra enemy. The
- * boss short-circuits ahead of the curves deliberately: a boss wave is a fixed
- * encounter, not a tunable composition, so the dev tuner's per-kind counts and
- * pins do not apply to it.
+ * Every fifth wave adds a boss duel on top of the horde rather than replacing
+ * it: the boss still short-circuits every other specialist curve (a boss wave
+ * is a fixed encounter for everything except the horde around it, so the dev
+ * tuner's per-kind counts and pins for those do not apply), but walkers still
+ * scale off the normal curve and three gunslingers are always mixed in, so a
+ * boss wave still reads as a wave with a boss in it rather than a walker-free
+ * arena.
  */
 export function zombieCompositionForWave(wave: number): WaveComposition {
   const safeWave = safeWaveNumber(wave);
+  const { composition } = devTuning.wave;
+  const { types } = devTuning;
+  const walkerCount =
+    countFromCurve(composition.walker, types.walker.countOverride, safeWave) +
+    (types.walker.countOverride === null ? earlyWalkerBonus(safeWave) : 0);
   if (isBossWave(safeWave)) {
     return {
-      walker: 0,
-      gunslinger: 0,
+      walker: walkerCount,
+      gunslinger: 3,
       necromancer: 0,
       thrower: 0,
       worker: 0,
@@ -79,12 +87,8 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
       boss: 1,
     };
   }
-  const { composition } = devTuning.wave;
-  const { types } = devTuning;
   return {
-    walker:
-      countFromCurve(composition.walker, types.walker.countOverride, safeWave) +
-      (types.walker.countOverride === null ? earlyWalkerBonus(safeWave) : 0),
+    walker: walkerCount,
     gunslinger: countFromCurve(
       composition.gunslinger,
       types.gunslinger.countOverride,
@@ -142,10 +146,25 @@ export function maxActiveZombiesForWave(wave: number): number {
   return Math.min(maxActiveBase + safeWave * maxActivePerWave, maxActiveCap);
 }
 
+/**
+ * Extra pushdown on the health curve for waves 1-3, tapering back to the
+ * normal curve by wave 4. The wave's zombies are almost entirely walkers
+ * this early (see `earlyWalkerBonus`), so this reads as "normals are
+ * squishier" even though it is applied ahead of the per-kind multiplier
+ * rather than gated to the walker kind specifically.
+ */
+function earlyWaveHealthDiscount(safeWave: number): number {
+  if (safeWave === 1) return 0.7;
+  if (safeWave === 2) return 0.8;
+  if (safeWave === 3) return 0.88;
+  return 1;
+}
+
 export function healthMultiplierForWave(wave: number): number {
   const safeWave = safeWaveNumber(wave);
   const { perWave, cap } = devTuning.wave.health;
-  return Math.min(1 + perWave * (safeWave - 1), cap);
+  const curve = Math.min(1 + perWave * (safeWave - 1), cap);
+  return curve * earlyWaveHealthDiscount(safeWave);
 }
 
 export function speedMultiplierForWave(wave: number): number {
@@ -188,8 +207,12 @@ function hordeSizeForWave(): number {
 export function spawnOrderForWave(wave: number): ZombieKind[] {
   const composition = zombieCompositionForWave(wave);
   // Bosses head the queue rather than joining the specialist interleave, so the
-  // health bar is up from the start of the wave whatever else is scheduled.
-  const bosses: ZombieKind[] = Array(composition.boss).fill('boss');
+  // health bar is up from the start of the wave whatever else is scheduled. An
+  // elite boss is an ordinary kind under the hood, so the queue asks the pool
+  // for that kind directly rather than for 'boss'.
+  const encounter = bossForWave(wave);
+  const bossKind: ZombieKind = encounter?.style === 'elite' ? encounter.elite.kind : 'boss';
+  const bosses: ZombieKind[] = Array(composition.boss).fill(bossKind);
   const specials: ZombieKind[] = [];
   for (const kind of [
     'gunslinger',
@@ -268,7 +291,7 @@ export class WaveManager {
       speedMultiplierForWave(this.waveNumber),
       attackDamageMultiplierForWave(this.waveNumber),
     );
-    this.zombies.setBossDefinition(bossForWave(this.waveNumber));
+    this.zombies.setBossEncounter(bossForWave(this.waveNumber));
     this.emitRemaining();
   }
 

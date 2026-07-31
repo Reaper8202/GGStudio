@@ -1,18 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOSS_DEFINITIONS,
+  ELITE_BOSSES,
   bossForWave,
   type BossDefinition,
 } from '../src/survival/zombies/bossConfig.ts';
 import {
   BASE_ZOMBIE_STATS,
-  PHONE_ADDICT_SPEED_MULTIPLIER,
+  BEHEMOTH_HEALTH_MULTIPLIER,
+  BEHEMOTH_REWARD,
+  BEHEMOTH_SPEED_MULTIPLIER,
+  BEHEMOTH_VISUAL_HEIGHT,
   PROJECTILE_HORIZONTAL_SPEED,
   THROWER_ATTACK_RANGE,
-  THROWER_SPEED_MULTIPLIER,
   VIAL_MAX_FLIGHT_TIME,
-  WORKER_REWARD,
-  WORKER_SPEED_MULTIPLIER,
   ZOMBIE_ATTACK_RANGE,
   ZOMBIE_POOL_COUNTS,
 } from '../src/survival/zombies/zombieConfig.ts';
@@ -116,41 +117,53 @@ describe('boss registry invariants', () => {
   );
 });
 
-describe('The Sledge', () => {
-  const sledge = BOSS_DEFINITIONS['hammer-brute'];
+describe('The Behemoth (elite boss)', () => {
+  const elite = ELITE_BOSSES.behemoth;
 
-  it('lumbers slower than every zombie that closes to melee', () => {
-    // The thrower is deliberately excluded: it is slower still, but it stops at
-    // 13 m and lobs, so its speed says nothing about a melee chase.
-    expect(sledge.speedMultiplier).toBeLessThan(WORKER_SPEED_MULTIPLIER);
-    expect(sledge.speedMultiplier).toBeLessThan(PHONE_ADDICT_SPEED_MULTIPLIER);
-    expect(sledge.speedMultiplier).toBeLessThan(0.75);
-    // Still fast enough to actually reach the player from the spawn ring.
-    expect(sledge.speedMultiplier).toBeGreaterThan(THROWER_SPEED_MULTIPLIER);
+  it('is a well-formed elite spec', () => {
+    expect(elite.kind).toBe('behemoth');
+    expect(elite.name.length).toBeGreaterThan(0);
+    expect(elite.warning.length).toBeGreaterThan(0);
+    // Stacks on top of the ordinary Behemoth's own multiplier, so it must be
+    // strictly tougher than a horde one, not just as tough.
+    expect(elite.healthMultiplier).toBeGreaterThan(1);
+    expect(elite.reward).toBeGreaterThan(0);
   });
 
-  it('hits far harder than a walker and pays far better than a worker', () => {
-    expect(sledge.attack.damage).toBeGreaterThan(
-      BASE_ZOMBIE_STATS.attackDamage * 4,
-    );
-    expect(sledge.reward).toBeGreaterThan(WORKER_REWARD * 5);
+  it('pays far better than an ordinary Behemoth kill', () => {
+    expect(elite.reward).toBeGreaterThan(BEHEMOTH_REWARD * 3);
   });
 
   it('carries roughly a full horde wave of health', () => {
-    // The wave-5 boss replaces the wave-4 horde, so its scaled health should sit
-    // in the same band rather than being a token or an unkillable wall.
-    const bossHp = sledge.baseHealth * healthMultiplierForWave(5);
+    // No separate baseHealth of its own: an elite boss is just a tougher
+    // instance of the real kind, so this mirrors the exact formula
+    // Zombie.spawn uses — base health times the kind's own multiplier times
+    // the elite's stacked multiplier. The wave-5 boss stands alongside the
+    // wave-4 horde's scale, so the result should sit in the same band rather
+    // than being a token or an unkillable wall.
+    const eliteBaseHealth =
+      BASE_ZOMBIE_STATS.health *
+      BEHEMOTH_HEALTH_MULTIPLIER *
+      elite.healthMultiplier;
+    const bossHp = eliteBaseHealth * healthMultiplierForWave(5);
     const previousHordeHp = waveBalanceReport(4).effectiveTotalHp;
     expect(bossHp).toBeGreaterThan(previousHordeHp * 0.75);
     expect(bossHp).toBeLessThan(previousHordeHp * 1.5);
   });
 
-  it('is the boss every fifth wave summons', () => {
-    expect(bossForWave(5)).toBe(sledge);
+  it('is the boss every fifth wave summons, alternating with The Alchemist', () => {
+    expect(bossForWave(5)).toEqual({ style: 'elite', elite });
+    expect(bossForWave(15)).toEqual({ style: 'elite', elite });
   });
 
-  it('shows a capsule body, not a primitive body like the alchemist', () => {
-    expect(sledge.bodyVisual).toBe('model');
+  it('is a real Behemoth — same model, animation, and smash attack as an ordinary one', () => {
+    // There is deliberately no boss-specific visual size, attack shape, or
+    // asset here: an elite boss reuses `KIND_MODELS.behemoth` and the kind's
+    // own attack AI wholesale (see `Zombie.spawn`), rather than the classic
+    // system's per-definition `visualHeightM`/`attack` fields.
+    expect(elite).not.toHaveProperty('visualHeightM');
+    expect(elite).not.toHaveProperty('attack');
+    expect(elite).not.toHaveProperty('assetName');
   });
 });
 
@@ -170,25 +183,34 @@ describe('The Alchemist', () => {
     expect(alchemist.attack.disengageRangeM).toBeGreaterThan(ZOMBIE_ATTACK_RANGE);
   });
 
-  it('moves faster than The Sledge but can still be run down', () => {
-    // It spends its time backing away, so it needs more speed than the brute —
-    // but staying under a walker guarantees a rig can always close on it.
-    expect(alchemist.speedMultiplier).toBeGreaterThan(
-      BOSS_DEFINITIONS['hammer-brute'].speedMultiplier,
-    );
+  it('moves faster than an ordinary Behemoth but can still be run down', () => {
+    // It spends its time backing away, so it needs more speed than a
+    // Behemoth — but staying under a walker guarantees a rig can always
+    // close on it.
+    expect(alchemist.speedMultiplier).toBeGreaterThan(BEHEMOTH_SPEED_MULTIPLIER);
     expect(alchemist.speedMultiplier).toBeLessThan(1);
   });
 
-  it('is tall and narrow rather than a second brute', () => {
-    const sledge = BOSS_DEFINITIONS['hammer-brute'];
-    expect(alchemist.visualHeightM).toBeGreaterThan(sledge.visualHeightM);
-    expect(alchemist.colliderRadiusM).toBeLessThan(sledge.colliderRadiusM);
-    // Without the width squash the capsule body would just look like a fat pill.
-    expect(alchemist.visualWidthScale).toBeLessThan(1);
+  it('towers over the horde', () => {
+    expect(alchemist.visualHeightM).toBeGreaterThan(BEHEMOTH_VISUAL_HEIGHT);
   });
 
-  it('renders as a primitive capsule, not the shared voxel placeholder', () => {
-    expect(alchemist.bodyVisual).toBe('capsule');
+  it('wears its own rigged model at its own proportions', () => {
+    expect(alchemist.bodyVisual).toBe('model');
+    expect(alchemist.assetName).toBe('green-alchemist.rigged.glb');
+    // `applyBossVisualSizing` applies the width squash to the model itself, not
+    // just to the pre-load fallback capsule, so a value here would stretch the
+    // art. It existed only while the boss was a bare capsule.
+    expect(alchemist.visualWidthScale).toBeUndefined();
+    // Its own paint is the point of having the model; a tint would wash it out.
+    expect(alchemist.tint).toBe(0xffffff);
+  });
+
+  it('names a pose set, since a rigged model left in bind is a T-pose', () => {
+    // Its rig is the only one authored from a T-pose, so unlike every other
+    // model here it renders visibly wrong — arms straight out to the sides —
+    // if nothing drives it. Naming the pose set is what wires the clips up.
+    expect(alchemist.poseSet).toBe('alchemist');
   });
 
   it('throws exactly three vials once past half health', () => {
@@ -198,17 +220,21 @@ describe('The Alchemist', () => {
   });
 
   it('carries roughly a full horde wave of health', () => {
-    // Same rule as The Sledge: the wave-10 boss replaces the wave-9 horde, so its
-    // scaled health should sit in that band rather than being a token or a wall.
+    // Same rule as the elite Behemoth: the wave-10 boss replaces the wave-9
+    // horde, so its scaled health should sit in that band rather than being a
+    // token or a wall.
     const bossHp = alchemist.baseHealth * healthMultiplierForWave(10);
     const previousHordeHp = waveBalanceReport(9).effectiveTotalHp;
     expect(bossHp).toBeGreaterThan(previousHordeHp * 0.75);
     expect(bossHp).toBeLessThan(previousHordeHp * 1.5);
   });
 
-  it('is the boss wave 10 summons, alternating with The Sledge', () => {
-    expect(bossForWave(10)).toBe(alchemist);
-    expect(bossForWave(15)).toBe(BOSS_DEFINITIONS['hammer-brute']);
-    expect(bossForWave(20)).toBe(alchemist);
+  it('is the boss wave 10 summons, alternating with the elite Behemoth', () => {
+    expect(bossForWave(10)).toEqual({ style: 'classic', definition: alchemist });
+    expect(bossForWave(15)).toEqual({
+      style: 'elite',
+      elite: ELITE_BOSSES.behemoth,
+    });
+    expect(bossForWave(20)).toEqual({ style: 'classic', definition: alchemist });
   });
 });
