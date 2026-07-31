@@ -40,8 +40,10 @@ const server = await createServer({
 let shipped;
 let candidate = null;
 let candidateName = '';
+let kinds = [];
 try {
   const lab = await server.ssrLoadModule('/src/survival/waveLab.ts');
+  kinds = lab.LAB_KINDS;
   shipped = { rows: lab.waveLabRows(lastWave), summary: null };
   shipped.summary = lab.summarize(shipped.rows);
 
@@ -61,7 +63,7 @@ try {
   await server.close();
 }
 
-const html = render(shipped, candidate, candidateName);
+const html = render(shipped, candidate, candidateName, kinds);
 await mkdir(dirname(outPath), { recursive: true });
 await writeFile(outPath, html, 'utf8');
 
@@ -148,7 +150,31 @@ function faults(summary) {
   ];
 }
 
-function render(shipped, candidate, candidateName) {
+/**
+ * Column heading for a kind. An unlisted kind falls back to its own name rather
+ * than disappearing, so shipping a zombie widens the table instead of hiding it.
+ *
+ * A function, not a const: `render` runs at the top of this file, above every
+ * declaration down here, and a `const` would still be in its dead zone.
+ */
+function kindLabel(kind) {
+  return (
+    {
+      walker: 'Walk',
+      gunslinger: 'Gun',
+      necromancer: 'Necro',
+      thrower: 'Throw',
+      worker: 'Work',
+      'phone-addict': 'Phone',
+      kamikaze: 'Kami',
+      behemoth: 'Behem',
+      zamboni: 'Zamb',
+      boss: 'Boss',
+    }[kind] ?? kind
+  );
+}
+
+function render(shipped, candidate, candidateName, kinds) {
   const rows = shipped.rows;
   const maxPop = Math.max(...rows.map((r) => r.population));
   const cards = faults(shipped.summary)
@@ -167,11 +193,16 @@ function render(shipped, candidate, candidateName) {
       const px = (n) => Math.max(1, Math.round((n / maxPop) * 118));
       const shown = Math.min(r.population, r.maxActive);
       const cell = (v, cls = '') => `<td class="${cls}">${v}</td>`;
-      return `          <tr${over ? ' data-band="over"' : ''}>
-            ${cell(r.wave)}${cell(r.counts.walker)}
-            ${cell(r.counts.thrower || '·', r.counts.thrower ? '' : 'dimmed')}
-            ${cell(r.counts.worker || '·', r.counts.worker ? '' : 'dimmed')}
-            ${cell(r.counts['phone-addict'] || '·', r.counts['phone-addict'] ? '' : 'dimmed')}
+      const band = r.isBossWave
+        ? ' data-band="boss"'
+        : over
+          ? ' data-band="over"'
+          : '';
+      const kindCells = kinds
+        .map((k) => cell(r.counts[k] || '·', r.counts[k] ? '' : 'dimmed'))
+        .join('');
+      return `          <tr${band}>
+            ${cell(r.isBossWave ? `${r.wave} ★` : r.wave)}${kindCells}
             ${cell(r.population)}${cell(r.maxActive, over ? 'over' : 'dimmed')}
             <td class="barcell"><span class="barwrap"><i class="bar cap" style="width:${px(shown)}px"></i>${
               over
@@ -276,6 +307,8 @@ function render(shipped, candidate, candidateName) {
   tbody td { padding:0.42rem 0.5rem; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
   tbody tr:hover td { background:var(--panel-2); }
   tbody tr[data-band="over"] td:first-child { color:var(--rust); font-weight:700; }
+  tbody tr[data-band="boss"] { background:color-mix(in srgb, var(--rust) 9%, transparent); }
+  tbody tr[data-band="boss"] td:first-child { color:var(--rust); font-weight:700; letter-spacing:0.04em; }
   td.over { color:var(--rust); font-weight:700; }
   td.dimmed { color:var(--dim); }
   .bar { display:inline-block; vertical-align:middle; height:9px; min-width:1px; background:var(--steel); }
@@ -328,7 +361,7 @@ ${cards}
       <table>
         <thead>
           <tr>
-            <th>Wave</th><th>Walk</th><th>Throw</th><th>Work</th><th>Phone</th>
+            <th>Wave</th>${kinds.map((k) => `<th>${esc(kindLabel(k))}</th>`).join('')}
             <th>Sent</th><th>Cap</th><th class="barcell">On screen vs sent</th>
             <th>Enemy HP</th><th>HP each</th><th>Spawn floor</th><th>Specialist</th>
             <th>Pay</th><th>Flat pay</th><th>$/HP</th>

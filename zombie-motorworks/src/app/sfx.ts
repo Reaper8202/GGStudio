@@ -760,6 +760,11 @@ function zombiePitch(kind: ZombieSfxReport['kind']): number {
       return 1.08;
     case 'phone-addict':
       return 1.14;
+    case 'zamboni':
+      // Machine-borne and heavier than a behemoth, so it sits under everything.
+      return 0.72;
+    case 'boss':
+      return 0.68;
     case 'walker':
       return 0.99 + Math.random() * 0.035;
   }

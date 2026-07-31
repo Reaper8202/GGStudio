@@ -22,8 +22,9 @@ import {
   wavePopulation,
   waveThreat,
 } from '../core/waveModel.ts';
-import type { KindProfiles } from '../core/waveModel.ts';
+import type { KindProfiles, ZombieKindProfile } from '../core/waveModel.ts';
 import { KIND_ORDER, devTuning } from './devtuning/DevTuning.ts';
+import { bossForWave } from './zombies/bossConfig.ts';
 import {
   attackDamageMultiplierForWave,
   healthMultiplierForWave,
@@ -44,9 +45,22 @@ import { ZOMBIE_POOL_COUNTS } from './zombies/zombieConfig.ts';
  * population but not in its specialist share, quietly reporting a wave as more
  * walker-heavy than it is.
  */
-export const SPECIALIST_KINDS: readonly string[] = KIND_ORDER.filter(
-  (kind) => kind !== 'walker',
-);
+export const SPECIALIST_KINDS: readonly string[] = [
+  ...KIND_ORDER.filter((kind) => kind !== 'walker'),
+  // `boss` is deliberately outside KIND_ORDER — it has no tuning sliders, since
+  // a boss wave is a fixed encounter rather than a composition. It still has to
+  // be named here, or a boss wave would read as 0% specialist.
+  'boss',
+];
+
+/**
+ * Every kind a wave can field, in report column order.
+ *
+ * Derived for the same reason as `SPECIALIST_KINDS`: a report with hand-listed
+ * columns quietly stops showing a kind the day it ships, which is the one day
+ * anybody needs to look at it.
+ */
+export const LAB_KINDS: readonly string[] = ['walker', ...SPECIALIST_KINDS];
 
 /**
  * Per-kind toughness and payout.
@@ -60,10 +74,14 @@ export const SPECIALIST_KINDS: readonly string[] = KIND_ORDER.filter(
  * Built from `KIND_ORDER` so a new kind is measured the moment it exists.
  * `waveThreat` skips kinds it has no profile for, so a missing entry would not
  * fail loudly — it would just report the wave as easier than it is.
+ *
+ * Bosses are wave-specific, which is why this takes a wave at all: each boss
+ * carries its own health and bounty, and the rotation hands out a different one
+ * every fifth wave.
  */
-export function kindProfiles(): KindProfiles {
+export function kindProfiles(wave: number): KindProfiles {
   const { types } = devTuning;
-  return Object.fromEntries(
+  const profiles: Record<string, ZombieKindProfile> = Object.fromEntries(
     KIND_ORDER.map((kind) => [
       kind,
       {
@@ -72,12 +90,26 @@ export function kindProfiles(): KindProfiles {
       },
     ]),
   );
+
+  const boss = bossForWave(wave);
+  if (boss !== null) {
+    // A boss ignores the per-kind tuning entirely: `Zombie.spawn` gives it
+    // `bossDef.baseHealth * waveMultiplier`. Expressing that as a multiplier
+    // over the walker's base health is what lets one threat formula price both.
+    profiles.boss = {
+      healthMultiplier: boss.baseHealth / devTuning.base.health,
+      reward: boss.reward,
+    };
+  }
+  return profiles;
 }
 
 /** One wave, measured. */
 export interface WaveLabRow {
   wave: number;
   counts: WaveComposition;
+  /** A duel with a single boss rather than a horde. Priced on its own terms. */
+  isBossWave: boolean;
   /** Zombies the wave asks for in total. */
   population: number;
   /** How many may exist at once. */
@@ -125,7 +157,7 @@ export function waveLabRow(wave: number): WaveLabRow {
   // cannot be handed straight to the model's kind-agnostic `Record` parameters.
   // Copying once here keeps the model free of the survival layer's kind union.
   const countMap: Record<string, number> = { ...counts };
-  const profiles = kindProfiles();
+  const profiles = kindProfiles(wave);
   const population = wavePopulation(countMap);
   const healthMultiplier = healthMultiplierForWave(wave);
   const threat = waveThreat(
@@ -142,6 +174,7 @@ export function waveLabRow(wave: number): WaveLabRow {
   return {
     wave,
     counts,
+    isBossWave: counts.boss > 0,
     population,
     maxActive: maxActiveZombiesForWave(wave),
     overflow: spawnOverflow(population, maxActiveZombiesForWave(wave)),
@@ -190,10 +223,16 @@ export function waveLabRows(lastWave = 20): WaveLabRow[] {
 export interface WaveLabSummary {
   /** First wave that asks for more zombies than can be on screen, or null. */
   firstOverflowWave: number | null;
-  /** How far pay-per-threat falls from the first wave to the last, as a ratio. */
+  /**
+   * How far pay-per-threat falls from the first wave to the last, as a ratio.
+   *
+   * Measured across horde waves only. A boss is one enormous enemy with a
+   * hand-set bounty, so folding it in would compare two different economies and
+   * report a drift the horde curve never produced.
+   */
   payDriftRatio: number;
   /**
-   * Walker share of the deepest wave measured, 0..1.
+   * Walker share of the deepest horde wave measured, 0..1.
    *
    * Peak share across the run would be useless: the first waves are all
    * walkers by design, so it reads 100% for any tuning. What matters is
@@ -224,8 +263,9 @@ function escalates(a: WaveLabRow, b: WaveLabRow): boolean {
 }
 
 export function summarize(rows: readonly WaveLabRow[]): WaveLabSummary {
-  const first = rows[0];
-  const last = rows[rows.length - 1];
+  const horde = rows.filter((row) => !row.isBossWave);
+  const first = horde[0];
+  const last = horde[horde.length - 1];
   if (first === undefined || last === undefined) {
     return {
       firstOverflowWave: null,
