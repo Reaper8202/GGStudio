@@ -107,6 +107,17 @@ export function effectivePartDef(
 }
 
 /**
+ * The first two unlocks (to level 2 and level 3) are the ones a new player
+ * pays for before they've built any real bankroll, so they carry an extra
+ * discount on top of the normal curve; levels 4 and 5 pay it in full.
+ */
+function earlyTierDiscount(targetLevel: number): number {
+  if (targetLevel === 2) return 0.55;
+  if (targetLevel === 3) return 0.75;
+  return 1;
+}
+
+/**
  * Price to reach `targetLevel`. Returns undefined for non-upgradeable parts;
  * target levels below 2 or non-integers throw RangeError.
  */
@@ -119,7 +130,9 @@ export function upgradePrice(
   }
   if (def.upgrade === undefined) return undefined;
   return Math.round(
-    def.upgrade.basePrice * def.upgrade.priceGrowth ** (targetLevel - 2),
+    def.upgrade.basePrice *
+      def.upgrade.priceGrowth ** (targetLevel - 2) *
+      earlyTierDiscount(targetLevel),
   );
 }
 

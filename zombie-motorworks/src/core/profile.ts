@@ -34,6 +34,10 @@ export const STARTER_UNLOCKS = [
   'spike-ram',
   'sawblade',
   'armour-plate',
+  // Flamethrower is one of the three weapons the new-game prompt offers, so
+  // it needs to be buyable at just its shelf price with no separate unlock
+  // fee from turn one — see WeaponPromptPreview.
+  'flamethrower',
 ] as const;
 
 export const DEFAULT_MONEY = 200;

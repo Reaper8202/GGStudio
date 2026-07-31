@@ -61,7 +61,7 @@ const SAMPLE_URLS = {
   mechanical: [audioUrl('mechanical-clunk.ogg')],
   pickup: [audioUrl('pickup-ding.ogg')],
   upgrade: [audioUrl('upgrade-confirm.ogg')],
-  cashRegister: [audioUrl('cash-register.ogg')],
+  cashRegister: [audioUrl('coin-clink.mp3')],
   waveChime: [audioUrl('wave-chime.ogg')],
   turret: [audioUrl('turret-shot-1.ogg'), audioUrl('turret-shot-2.ogg')],
   cannon: [audioUrl('cannon-shot-1.ogg'), audioUrl('cannon-shot-2.ogg')],
@@ -97,13 +97,14 @@ const SAMPLE_URLS = {
 type SampleCue = keyof typeof SAMPLE_URLS;
 
 const LOOP_URLS = {
+  // Real recorded engine RPM-band loops, prepared specifically for seamless
+  // looping (see LICENSES.md) — the standard racing-game technique is to
+  // crossfade a small set of purpose-built loops rather than repeat a single
+  // one-shot recording, which is what caused the previous "drive away" clip
+  // to sound like it was restarting every lap.
   engineIdle: audioUrl('engine-idle.ogg'),
-  engineMid: audioUrl('engine-mid.ogg'),
-  engineHigh: audioUrl('engine-high.ogg'),
+  engineRev: audioUrl('engine-mid.ogg'),
   tireSkid: audioUrl('tire-skid-loop.ogg'),
-  surfaceGravel: audioUrl('surface-gravel-loop.ogg'),
-  surfaceSand: audioUrl('surface-sand-loop.ogg'),
-  surfaceSnow: audioUrl('surface-snow-loop.ogg'),
   flamethrower: audioUrl('flamethrower-loop.ogg'),
   garageMusic: audioUrl('garage-theme.ogg'),
 } as const;
@@ -116,7 +117,6 @@ const ALL_URLS = [
 ];
 
 interface DriveSfxInput {
-  rpm: number;
   speedKmh: number;
   throttle: number;
   groundedWheels: number;
@@ -132,12 +132,8 @@ interface LoopLayer {
 interface DriveVoice {
   context: AudioContext;
   idle: LoopLayer;
-  mid: LoopLayer;
-  high: LoopLayer;
+  rev: LoopLayer;
   skid: LoopLayer;
-  gravel: LoopLayer;
-  sand: LoopLayer;
-  snow: LoopLayer;
 }
 
 interface FlameVoice {
@@ -188,6 +184,10 @@ let garageMusicWanted = false;
 let masterBus: MasterBus | null = null;
 let latestDriveInput: DriveSfxInput | null = null;
 let variationCursor = 0;
+// How "revved up" the engine currently is (0 idle, 1 fully revved), purely a
+// function of how long the throttle key has been held — winds up quickly on
+// press and winds back down slowly on release, independent of car speed.
+let driveRevEnvelope = 0;
 
 const buffers = new Map<string, AudioBuffer>();
 const loads = new Map<string, Promise<void>>();
@@ -442,38 +442,25 @@ function stopLoopLayer(layer: LoopLayer): void {
 
 function startDriveVoice(context: AudioContext): DriveVoice | null {
   const idle = buffers.get(LOOP_URLS.engineIdle);
-  const mid = buffers.get(LOOP_URLS.engineMid);
-  const high = buffers.get(LOOP_URLS.engineHigh);
+  const rev = buffers.get(LOOP_URLS.engineRev);
   const skid = buffers.get(LOOP_URLS.tireSkid);
-  const gravel = buffers.get(LOOP_URLS.surfaceGravel);
-  const sand = buffers.get(LOOP_URLS.surfaceSand);
-  const snow = buffers.get(LOOP_URLS.surfaceSnow);
-  if (!idle || !mid || !high || !skid || !gravel || !sand || !snow) {
-    return null;
-  }
+  if (!idle || !rev || !skid) return null;
   return {
     context,
     idle: createLoopLayer(context, idle),
-    mid: createLoopLayer(context, mid),
-    high: createLoopLayer(context, high),
+    rev: createLoopLayer(context, rev),
     skid: createLoopLayer(context, skid),
-    gravel: createLoopLayer(context, gravel),
-    sand: createLoopLayer(context, sand),
-    snow: createLoopLayer(context, snow),
   };
 }
 
 function stopDriveVoice(): void {
   const voice = driveVoice;
   driveVoice = null;
+  driveRevEnvelope = 0;
   if (!voice) return;
   stopLoopLayer(voice.idle);
-  stopLoopLayer(voice.mid);
-  stopLoopLayer(voice.high);
+  stopLoopLayer(voice.rev);
   stopLoopLayer(voice.skid);
-  stopLoopLayer(voice.gravel);
-  stopLoopLayer(voice.sand);
-  stopLoopLayer(voice.snow);
 }
 
 function stopFlameVoice(): void {
@@ -616,7 +603,7 @@ export function playSfx(name: SfxName, options: { pitch?: number } = {}): void {
       playCue('mechanical', { gain: 0.18, playbackRate: rate });
       break;
     case 'garagePurchase':
-      playCue('cashRegister', { gain: 0.3, playbackRate: rate });
+      playCue('cashRegister', { gain: 0.14, playbackRate: rate });
       break;
     case 'garageUpgrade':
       playCue('upgrade', { gain: 0.34, playbackRate: rate });
@@ -899,17 +886,17 @@ export function playZombieSfx(
 
   switch (report.event) {
     case 'spawn':
-      if (Math.random() < 0.22) playSpatial('zombieGrowl', 0.24);
+      if (Math.random() < 0.22) playSpatial('zombieGrowl', 0.12);
       break;
     case 'melee':
-      playSpatial('zombieAttack', 0.3);
+      playSpatial('zombieAttack', 0.15);
       break;
     case 'gunslinger':
       playSpatial('pistol', 0.4, 1);
       playSpatial('mechanical', 0.08, 1.18);
       break;
     case 'throw':
-      playSpatial('zombieAttack', 0.22);
+      playSpatial('zombieAttack', 0.11);
       playSpatial('phase', 0.1, 1.36);
       break;
     case 'projectileImpact':
@@ -932,7 +919,7 @@ export function playZombieSfx(
       break;
     case 'kamikaze':
       playSpatial('explosion', 0.62, 0.84);
-      playSpatial('zombieAttack', 0.16, 1.2);
+      playSpatial('zombieAttack', 0.08, 1.2);
       break;
     case 'behemoth':
       playSpatial('heavyImpact', 0.58, 0.74);
@@ -971,7 +958,6 @@ export function syncDriveSfx(input: DriveSfxInput): void {
   if (!voice) return;
 
   const now = context.currentTime;
-  const rpm = clamp(Number.isFinite(input.rpm) ? input.rpm : 0, 0, 9_000);
   const speed = clamp(
     Number.isFinite(input.speedKmh) ? input.speedKmh : 0,
     0,
@@ -987,24 +973,31 @@ export function syncDriveSfx(input: DriveSfxInput): void {
     0,
     1,
   );
-  const running = rpm > 250;
 
-  const rev = clamp((rpm - 650) / 5_800, 0, 1);
-  const idleWeight = clamp(1 - rev * 2, 0, 1);
-  const midWeight = 1 - Math.abs(rev - 0.5) * 2;
-  const highWeight = clamp((rev - 0.42) / 0.58, 0, 1);
-  const bed = running ? 0.09 + throttle * 0.055 : 0;
+  // The engine "revs" purely off the throttle key, never off car speed:
+  // winds up quickly on press, winds back down over about a second on
+  // release, same as a real driver lifting off the gas. Two purpose-built
+  // loop recordings (idle character + a throatier rev character) are
+  // equal-power crossfaded across that envelope, which is the standard
+  // racing-game technique for a few static loops reading as one continuous
+  // engine instead of two samples fighting each other.
+  const revTarget = throttle > 0 ? 1 : 0;
+  driveRevEnvelope +=
+    (revTarget - driveRevEnvelope) * (revTarget > driveRevEnvelope ? 0.12 : 0.05);
 
-  voice.idle.source.playbackRate.setTargetAtTime(0.96 + rev * 0.04, now, 0.06);
-  voice.mid.source.playbackRate.setTargetAtTime(0.97 + rev * 0.045, now, 0.06);
-  voice.high.source.playbackRate.setTargetAtTime(0.98 + rev * 0.05, now, 0.06);
-  voice.idle.gain.gain.setTargetAtTime(bed * idleWeight, now, 0.08);
-  voice.mid.gain.gain.setTargetAtTime(bed * midWeight, now, 0.08);
-  voice.high.gain.gain.setTargetAtTime(
-    bed * highWeight * (0.8 + throttle * 0.25),
+  const revAngle = driveRevEnvelope * (Math.PI / 2);
+  const idleWeight = Math.cos(revAngle);
+  const revWeight = Math.sin(revAngle);
+  const bed = driveRevEnvelope * 0.07;
+
+  voice.idle.source.playbackRate.setTargetAtTime(0.97, now, 0.1);
+  voice.rev.source.playbackRate.setTargetAtTime(
+    1 + driveRevEnvelope * 0.08,
     now,
-    0.07,
+    0.1,
   );
+  voice.idle.gain.gain.setTargetAtTime(bed * idleWeight, now, 0.05);
+  voice.rev.gain.gain.setTargetAtTime(bed * revWeight, now, 0.05);
 
   // Loose terrain produces crunch and spray, not the continuous asphalt
   // squeal that made ordinary steering sound like a permanent drift. Keep
@@ -1020,36 +1013,29 @@ export function syncDriveSfx(input: DriveSfxInput): void {
     0.06,
   );
   voice.skid.gain.gain.setTargetAtTime(0.1 * skidAmount, now, 0.08);
-
-  const rollingAmount =
-    input.groundedWheels > 0
-      ? clamp((speed - 4) / 52, 0, 1) * clamp(input.groundedWheels / 4, 0.35, 1)
-      : 0;
-  const surfaceRate = 0.82 + clamp(speed / 95, 0, 1) * 0.35;
-  voice.gravel.source.playbackRate.setTargetAtTime(surfaceRate, now, 0.08);
-  voice.sand.source.playbackRate.setTargetAtTime(surfaceRate * 0.9, now, 0.08);
-  voice.snow.source.playbackRate.setTargetAtTime(surfaceRate * 0.94, now, 0.08);
-  voice.gravel.gain.gain.setTargetAtTime(
-    input.terrain === 'gravel' ? rollingAmount * 0.075 : 0,
-    now,
-    0.12,
-  );
-  voice.sand.gain.gain.setTargetAtTime(
-    input.terrain === 'sand' ? rollingAmount * 0.06 : 0,
-    now,
-    0.12,
-  );
-  voice.snow.gain.gain.setTargetAtTime(
-    input.terrain === 'snow' ? rollingAmount * 0.065 : 0,
-    now,
-    0.12,
-  );
 }
 
 export function stopDriveSfx(): void {
   stopDriveVoice();
   stopFlameVoice();
   latestDriveInput = null;
+}
+
+/**
+ * Ramps the drive loops down to silence in place, without tearing down the
+ * underlying audio nodes. Physics ticks (and therefore syncDriveSfx calls)
+ * stop the instant a wave clears or the run ends, which would otherwise
+ * leave the engine loop frozen at its last volume instead of fading out.
+ */
+export function fadeOutDriveSfx(durationSeconds = 1.2): void {
+  const voice = driveVoice;
+  if (!voice) return;
+  const now = voice.context.currentTime;
+  const timeConstant = durationSeconds / 4;
+  for (const layer of [voice.idle, voice.rev, voice.skid]) {
+    layer.gain.gain.setTargetAtTime(0, now, timeConstant);
+  }
+  driveRevEnvelope = 0;
 }
 
 export function startGarageMusic(): void {

@@ -36,8 +36,8 @@ function previewBlueprint(): VehicleBlueprint {
 
 describe('atomic store and upgrade preview helpers', () => {
   it('totals the unchanged unlock and part prices for an atomic purchase', () => {
-    expect(atomicStorePurchaseTotal('frame-reinforced')).toBe(80 + 25);
-    expect(atomicStorePurchaseTotal('mine-sweeper')).toBe(180 + 180);
+    expect(atomicStorePurchaseTotal('frame-reinforced')).toBe(10 + 20);
+    expect(atomicStorePurchaseTotal('mine-sweeper')).toBe(98 + 150);
   });
 
   it('clones the blueprint and increments only the selected part level', () => {

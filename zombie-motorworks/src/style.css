@@ -931,6 +931,66 @@ canvas.viewport {
   margin-top: 18px;
 }
 
+.weapon-prompt {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.weapon-prompt__options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.weapon-prompt__option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 16px;
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-edge-soft);
+  color: var(--ui-text);
+  text-align: center;
+  cursor: pointer;
+}
+
+.weapon-prompt__option:hover,
+.weapon-prompt__option:focus-visible {
+  border-color: var(--gold);
+  background: var(--ui-surface-3);
+}
+
+.weapon-prompt__art {
+  width: 100%;
+  aspect-ratio: 1;
+  background: var(--ui-recess);
+  border: 1px solid var(--ui-edge);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
+}
+
+.weapon-prompt__preview {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.weapon-prompt__option strong {
+  font: 400 var(--ui-text-16)/1.2 var(--ui-font-display);
+  letter-spacing: 0.03em;
+}
+
+.weapon-prompt__option span {
+  color: var(--gold);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 540px) {
+  .weapon-prompt__options {
+    grid-template-columns: 1fr;
+  }
+}
+
 .editor-notice {
   position: absolute;
   top: 64px;

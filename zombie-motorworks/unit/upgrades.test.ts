@@ -47,8 +47,8 @@ describe('part upgrades', () => {
 
   it('computes upgrade prices and has defined no-metadata semantics', () => {
     const turret = getPartDef('turret');
-    expect(upgradePrice(turret, 2)).toBe(90);
-    expect(upgradePrice(turret, 3)).toBe(144);
+    expect(upgradePrice(turret, 2)).toBe(40);
+    expect(upgradePrice(turret, 3)).toBe(86);
     expect(() => upgradePrice(turret, 1)).toThrow(RangeError);
     expect(upgradePrice({ ...turret, upgrade: undefined }, 2)).toBeUndefined();
   });
