@@ -32,9 +32,13 @@ export interface DevTunerHost {
 
 const KIND_LABELS: Record<ZombieKind, string> = {
   walker: 'Walker',
+  gunslinger: 'Gunslinger',
+  necromancer: 'Necromancer',
   thrower: 'Thrower',
   worker: 'Worker',
   'phone-addict': 'Phone Addict',
+  kamikaze: 'Kamikaze',
+  behemoth: 'Behemoth',
 };
 
 interface FieldSpec {
@@ -327,7 +331,55 @@ export class DevTunerPanel {
     section.append(countField, auto);
 
     // Specialist knobs.
-    if (kind === 'thrower') {
+    if (kind === 'gunslinger') {
+      section.appendChild(groupLabel('Gunslinger specials'));
+      section.appendChild(
+        this.makeField({
+          label: 'Attack range (m)',
+          min: 3,
+          max: 25,
+          step: 0.5,
+          decimals: 1,
+          get: () => devTuning.specialist.gunslingerAttackRange,
+          set: (v) => (devTuning.specialist.gunslingerAttackRange = v),
+        }),
+      );
+    } else if (kind === 'necromancer') {
+      section.appendChild(groupLabel('Necromancer summons'));
+      section.appendChild(
+        this.makeField({
+          label: 'Summon range (m)',
+          min: 4,
+          max: 40,
+          step: 0.5,
+          decimals: 1,
+          get: () => devTuning.specialist.necromancerSummonRange,
+          set: (v) => (devTuning.specialist.necromancerSummonRange = v),
+        }),
+      );
+      section.appendChild(
+        this.makeField({
+          label: 'Channel time (s)',
+          min: 0.5,
+          max: 12,
+          step: 0.25,
+          decimals: 2,
+          get: () => devTuning.specialist.necromancerSummonSeconds,
+          set: (v) => (devTuning.specialist.necromancerSummonSeconds = v),
+        }),
+      );
+      section.appendChild(
+        this.makeField({
+          label: 'Walkers raised',
+          min: 0,
+          max: 10,
+          step: 1,
+          decimals: 0,
+          get: () => devTuning.specialist.necromancerSummonCount,
+          set: (v) => (devTuning.specialist.necromancerSummonCount = v),
+        }),
+      );
+    } else if (kind === 'thrower') {
       section.appendChild(groupLabel('Thrower specials'));
       section.appendChild(
         this.makeField({
@@ -383,6 +435,74 @@ export class DevTunerPanel {
           step: 1,
           get: () => devTuning.specialist.landmineDamage,
           set: (v) => (devTuning.specialist.landmineDamage = v),
+        }),
+      );
+    } else if (kind === 'kamikaze') {
+      section.appendChild(groupLabel('Kamikaze detonation'));
+      section.appendChild(
+        this.makeField({
+          label: 'Detonate range (m)',
+          min: 0.5,
+          max: 6,
+          step: 0.1,
+          decimals: 1,
+          get: () => devTuning.specialist.kamikazeDetonateRange,
+          set: (v) => (devTuning.specialist.kamikazeDetonateRange = v),
+        }),
+      );
+      section.appendChild(
+        this.makeField({
+          label: 'Blast damage',
+          min: 0,
+          max: 150,
+          step: 1,
+          get: () => devTuning.specialist.kamikazeExplosionDamage,
+          set: (v) => (devTuning.specialist.kamikazeExplosionDamage = v),
+        }),
+      );
+      section.appendChild(
+        this.makeField({
+          label: 'Blast radius (m)',
+          min: 0.5,
+          max: 10,
+          step: 0.1,
+          decimals: 1,
+          get: () => devTuning.specialist.kamikazeExplosionRadius,
+          set: (v) => (devTuning.specialist.kamikazeExplosionRadius = v),
+        }),
+      );
+    } else if (kind === 'behemoth') {
+      section.appendChild(groupLabel('Behemoth specials'));
+      section.appendChild(
+        this.makeField({
+          label: 'Attack range (m)',
+          min: 2,
+          max: 12,
+          step: 0.2,
+          decimals: 1,
+          get: () => devTuning.specialist.behemothAttackRange,
+          set: (v) => (devTuning.specialist.behemothAttackRange = v),
+        }),
+      );
+      section.appendChild(
+        this.makeField({
+          label: 'Smash damage',
+          min: 0,
+          max: 150,
+          step: 1,
+          get: () => devTuning.specialist.behemothSmashDamage,
+          set: (v) => (devTuning.specialist.behemothSmashDamage = v),
+        }),
+      );
+      section.appendChild(
+        this.makeField({
+          label: 'Smash radius (m)',
+          min: 0.5,
+          max: 10,
+          step: 0.1,
+          decimals: 1,
+          get: () => devTuning.specialist.behemothSmashRadius,
+          set: (v) => (devTuning.specialist.behemothSmashRadius = v),
         }),
       );
     }

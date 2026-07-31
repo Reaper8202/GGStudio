@@ -18,9 +18,13 @@ describe('run score', () => {
   it('awards the base kill table on wave 1', () => {
     expect(SCORE_PER_KILL).toEqual({
       walker: 10,
+      gunslinger: 20,
+      necromancer: 45,
       worker: 25,
       thrower: 30,
       'phone-addict': 20,
+      kamikaze: 15,
+      behemoth: 80,
     });
 
     for (const [kind, baseScore] of Object.entries(SCORE_PER_KILL)) {

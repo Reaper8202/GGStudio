@@ -63,11 +63,13 @@ export const AUTO_HOLD_SPEED = 1.5; // m/s
 
 /** Apply the parking brake only for the final low-speed part of a coast. */
 export function brakeInputWithAutoHold(
-  controls: Pick<VehicleControls, 'throttle' | 'reverse' | 'brake'>,
+  controls: Pick<VehicleControls, 'throttle' | 'reverse' | 'brake' | 'steer'>,
   forwardSpeed: number,
+  hasSkidSteer = false,
 ): number {
   const noDriveInput = controls.throttle <= 0 && (controls.reverse ?? 0) <= 0;
-  return controls.brake <= 0 && noDriveInput && Math.abs(forwardSpeed) < AUTO_HOLD_SPEED
+  const commandedPivot = hasSkidSteer && Math.abs(controls.steer) > 1e-3;
+  return controls.brake <= 0 && noDriveInput && !commandedPivot && Math.abs(forwardSpeed) < AUTO_HOLD_SPEED
     ? 1
     : controls.brake;
 }
@@ -108,14 +110,20 @@ interface RuntimeEngine {
 const SKID_STEER_BIAS = 0.9;
 // Torque each belt gets purely from steering, so a tracked rig can pivot with
 // the throttle shut instead of needing to roll first.
-const SKID_PIVOT_TORQUE = 1800; // N·m
+const MAX_SKID_YAW_RATE = 2.6; // rad/s, comfortably below YAW_RATE_SOFT_LIMIT.
+// Yaw-rate error that saturates the controller. Wide enough that the belts do
+// not chatter between full lock and full counter-lock near the target.
+const SKID_YAW_ERROR_SCALE = 1.2; // rad/s
+// Torque per unit of (mass · track): enough to reach the target rate promptly
+// without slamming the belts into their torque limit and spinning them up.
+const SKID_YAW_GAIN = 0.05;
+const EXCAVATOR_YAW_GAIN = 0.35;
 
 // Excavator mode: an all-tread rig (treads and no hub-steering wheels) should
 // spin on the spot like a tracked excavator. The inner belt counter-rotates
 // (bias > 1) and each side gets a strong opposing steer torque, so full lock
 // with the throttle shut rotates the chassis in place.
 const EXCAVATOR_SKID_STEER_BIAS = 1.85;
-const EXCAVATOR_PIVOT_TORQUE = 3400; // N·m
 
 /**
  * Rewrite drive torque for tread-style wheels so steering input turns into a
@@ -131,17 +139,45 @@ function applySkidSteer(
   driveTorques: Map<string, number>,
   steer: number,
   excavator: boolean,
+  mass: number,
+  trackWidth: number,
+  currentYawRate: number,
 ): void {
   if (Math.abs(steer) < 1e-3) return;
+  // Positive steer turns toward -x, which is a *negative* rotation about +Y,
+  // so the target yaw rate carries the opposite sign to the steer input.
+  // Getting this backwards turns the controller below into an open-loop
+  // accelerator that saturates and never corrects, which is what let a light
+  // two-belt rig spin at twice the global yaw limit.
+  const targetYaw = -steer * MAX_SKID_YAW_RATE;
   const bias = excavator ? EXCAVATOR_SKID_STEER_BIAS : SKID_STEER_BIAS;
-  const pivotTorque = excavator ? EXCAVATOR_PIVOT_TORQUE : SKID_PIVOT_TORQUE;
+  // `demand` is the controller output expressed back in steer-space: it starts
+  // at full lock, falls to zero as the rig reaches the commanded yaw rate, and
+  // goes negative to arrest an overshoot. Feeding it (rather than the raw steer
+  // input) into the differential is what makes belt count stop mattering — the
+  // rig holds a rate instead of accelerating for as long as the key is held.
+  const demand = clampNumber(
+    (currentYawRate - targetYaw) / SKID_YAW_ERROR_SCALE,
+    -1,
+    1,
+  );
+  const beltCount = drivenWheels.reduce(
+    (count, w) => count + (w.wheelDef.skidSteer && !w.broken ? 1 : 0),
+    0,
+  );
+  if (beltCount === 0) return;
+  // Authority scales with the rig it has to rotate, so a heavy six-belt hull
+  // and a light two-belt one arrive at the same yaw rate.
+  const controllerGain = excavator ? EXCAVATOR_YAW_GAIN : SKID_YAW_GAIN;
+  const controllerTorque =
+    (mass * Math.max(0.6, trackWidth) * controllerGain) / beltCount;
   for (const w of drivenWheels) {
     if (!w.wheelDef.skidSteer || w.broken) continue;
     const side = Math.sign(w.anchorLocal.x - MIRROR_PLANE_X_M);
     if (side === 0) continue; // Centreline belt has no side to favour.
     const base = driveTorques.get(w.partId) ?? 0;
     const biased =
-      base * (1 + side * steer * bias) + side * steer * pivotTorque;
+      base * (1 + side * demand * bias) + side * demand * controllerTorque;
     const limit = w.wheelDef.driveTorqueLimit;
     driveTorques.set(w.partId, Math.max(-limit, Math.min(limit, biased)));
   }
@@ -171,6 +207,9 @@ export function isAllTreadRig(
 // nothing to arrest it once wheels are unloaded/airborne. Only the yaw
 // (world Y) component is touched — x/z must stay free so a genuine
 // high-CoM rollover can still tip the vehicle over.
+// Surface-speed headroom a wheel keeps at a standstill, so it can still spin
+// up and break traction from rest.
+const SLIP_ALLOWANCE_MPS = 8;
 const YAW_RATE_SOFT_LIMIT = 3.5; // rad/s
 const YAW_RATE_PULLDOWN_PER_S = 6; // exponential decay rate while above the limit
 
@@ -569,7 +608,9 @@ export class RuntimeVehicle {
     const attached = this.attachedAliveIds();
     const forwardSpeed = this.forwardSpeed();
     const throttle = controls.throttle;
-    const brake = brakeInputWithAutoHold(controls, forwardSpeed);
+    const attachedWheelsForHold = this.assembled.wheels.filter((w) => !w.broken && attached.has(w.partId));
+    const hasSkidSteer = attachedWheelsForHold.some((w) => w.wheelDef.skidSteer);
+    const brake = brakeInputWithAutoHold(controls, forwardSpeed, hasSkidSteer);
     const steer = controls.steer;
     const reverseInput = throttle <= 0 ? (controls.reverse ?? 0) : 0;
     const reversing =
@@ -634,7 +675,15 @@ export class RuntimeVehicle {
     const driveTorques = new Map<string, number>();
     drivenWheels.forEach((w, i) => driveTorques.set(w.partId, torques[i]));
     if (liveEngines.length > 0) {
-      applySkidSteer(drivenWheels, driveTorques, steer, excavatorSteer);
+      applySkidSteer(
+        drivenWheels,
+        driveTorques,
+        steer,
+        excavatorSteer,
+        mass,
+        this.geom.track,
+        body.angvel().y,
+      );
     }
 
     this.lastWheelTelemetry = stepWheels(
@@ -642,7 +691,20 @@ export class RuntimeVehicle {
       this.assembled.body,
       this.assembled.wheels,
       this.geom,
-      { throttle, brake, steer, driveTorques, env },
+      {
+        throttle,
+        brake,
+        steer,
+        driveTorques,
+        env,
+        // Slip allowance tracks how fast the rig is actually going rather than
+        // its theoretical ceiling: enough headroom to spin up from rest and to
+        // break traction on purpose, without letting a belt reach a surface
+        // speed the vehicle could never use.
+        maxWheelSurfaceSpeed:
+          SLIP_ALLOWANCE_MPS +
+          1.5 * Math.hypot(velocityAtStart.x, velocityAtStart.z),
+      },
       dt,
       surfaceOf,
     );

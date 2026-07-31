@@ -205,6 +205,14 @@ Storage access failures must not make the in-memory game unusable.
 - VFX emitters must stay side-effect-free with respect to gameplay. Contact
   effects are paced by the impact cooldown that already gates the damage, not
   by a second timer that could drift from it.
+- Rigged GLB characters carry their paint in `COLOR_0` vertex colours instead of
+  a texture, and two separate things wash them out to near-white. `glb-pipeline`
+  writes sRGB values into a channel glTF defines as linear, so
+  `VoxelAssetLoader` decodes the attribute on load (the defect is documented in
+  the repo-root pipeline handbook, glb-pipeline.md); and the resting emissive
+  that tints the textured voxel zombies has no `emissiveMap` to modulate it on
+  an untextured model, so it lands as flat white and `Zombie.baseEmissive` drops
+  to zero for those. Vertex colours reach `color` only — never `emissive`.
 - `App.ts`, `EditorMode.ts`, and `SurvivalMode.ts` are large orchestration
   Modules. Changes that span them need one integration owner because callback
   ordering is part of their Interface.

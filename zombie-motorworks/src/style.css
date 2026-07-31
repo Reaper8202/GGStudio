@@ -854,7 +854,10 @@ canvas.viewport {
   margin-top: 3px;
 }
 
-.run-banner__repair {
+.run-banner__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
   grid-row: 1;
   grid-column: 2;
 }
@@ -944,6 +947,45 @@ canvas.viewport {
   box-shadow:
     5px 6px 0 rgb(0 0 0 / 0.38),
     inset 3px 0 0 var(--ui-rust-dark);
+}
+
+.share-hint {
+  margin: 0 0 8px;
+  color: var(--ui-muted, #9aa0a6);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.share-actions button {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* A build code is a long unbroken string: it must wrap inside the dock rather
+   than stretch the panel past the viewport on a phone. */
+.share-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: rgb(0 0 0 / 0.35);
+  border: 1px solid var(--ui-edge);
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+
+.share-panel .dock-panel__body > button {
+  width: 100%;
+  margin-top: 6px;
 }
 
 .palette {
@@ -4461,7 +4503,7 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .run-banner__repair {
+  .run-banner__actions {
     grid-row: auto;
     grid-column: 1;
   }

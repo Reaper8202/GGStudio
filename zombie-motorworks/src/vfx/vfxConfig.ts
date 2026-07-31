@@ -32,6 +32,8 @@ export const VFX_PALETTE = {
   smoke: 0x6e7379,
   smokeDark: 0x24282d,
   dust: 0x8b8577,
+  /** Broken ground/rubble chunk, for a physical ground-pound rather than a blast. */
+  rubble: 0x5c4d3d,
   brass: 0xd6a13c,
   /**
    * Ice Cannon turquoise. One family drives the whole weapon: its tracer, its
@@ -46,6 +48,17 @@ export const VFX_PALETTE = {
   shield: 0x35d7ff,
   /** Matches the Long Spikes pike. */
   steel: 0xb7bcc2,
+  /**
+   * Necromancer violet. The only purple in the game, so a purple glow anywhere
+   * on screen means one thing — something is raising the dead — the way
+   * turquoise means cold and orange means fire.
+   */
+  necro: 0x9b4dff,
+  /** Pale witch-light at the heart of a raise. */
+  necroPale: 0xe6ccff,
+  necroDeep: 0x2c0a52,
+  /** Kamikaze's chest-light blink — the one thing that reads as "about to go off". */
+  kamikazeWarn: 0xff2a00,
 } as const;
 
 /**

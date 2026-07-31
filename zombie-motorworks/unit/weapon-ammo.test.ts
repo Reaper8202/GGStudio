@@ -32,13 +32,16 @@ describe('unlimited weapons', () => {
   });
 
   it('carries module levels only for the turret mounting part', () => {
+    // EMP and piercing are unlocks on the turret's own upgrade chain (see
+    // turretModules.ts), so both come from the part's `level` alone — level 6
+    // is the top of both ladders at once.
     const blaster = createWeapon({
       ...part('blaster', 'turret'),
       config: { level: 6 },
     });
     const cannon = createWeapon({
       ...part('cannon', 'cannon-heavy'),
-      config: { level: 1 },
+      config: { level: 6 },
     });
 
     expect(blaster.empLevel).toBe(3);

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
@@ -20,6 +21,9 @@ function voxelMaterial(source: THREE.Material): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({
     color: original.color?.clone() ?? new THREE.Color(0xffffff),
     map: original.map ?? null,
+    // Pipeline GLBs carry their paint in COLOR_0 rather than a texture, so the
+    // flag has to survive the swap or the model comes through plain white.
+    vertexColors: original.vertexColors,
     emissive: 0x000000,
     flatShading: true,
     side: original.side,
@@ -52,10 +56,89 @@ async function loadFbxObject(url: string): Promise<THREE.Object3D> {
   return object;
 }
 
+/**
+ * glTF declares COLOR_0 to be linear, but the voxel pipeline bakes the source
+ * texture's sRGB texels straight into it. Three.js takes the spec at its word,
+ * so every value is re-encoded on the way to the screen and the whole model
+ * comes out pale and chalky — a 0.45 mid-tone displays as 0.70. Undoing that
+ * encode is what puts the paint back.
+ */
+function srgbToLinear(channel: number): number {
+  return channel < 0.04045
+    ? channel * 0.0773993808
+    : Math.pow(channel * 0.9478672986 + 0.0521327014, 2.4);
+}
+
+/**
+ * Voxel bakes come back flatter than the art they were sampled from, so the
+ * corrected colours get a deliberate push: saturation away from grey, and
+ * contrast around a dark pivot, since these models are lit by a night
+ * graveyard rather than a studio.
+ */
+const VERTEX_COLOR_SATURATION = 1.3;
+const VERTEX_COLOR_CONTRAST = 1.2;
+/** Linear-space mid-point the contrast stretch pivots around. */
+const VERTEX_COLOR_PIVOT = 0.16;
+
+function clamp01(value: number): number {
+  return value < 0 ? 0 : value > 1 ? 1 : value;
+}
+
+/** Rewrite one mesh's baked colours in place; the template is loaded once. */
+function correctVertexColors(object: THREE.Object3D): void {
+  const corrected = new Set<
+    THREE.BufferAttribute | THREE.InterleavedBufferAttribute
+  >();
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const colors = child.geometry.getAttribute('color');
+    if (!colors || corrected.has(colors)) return;
+    corrected.add(colors);
+    for (let i = 0; i < colors.count; i++) {
+      const r = srgbToLinear(colors.getX(i));
+      const g = srgbToLinear(colors.getY(i));
+      const b = srgbToLinear(colors.getZ(i));
+      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      colors.setXYZ(
+        i,
+        clamp01(
+          VERTEX_COLOR_PIVOT +
+            (luma + (r - luma) * VERTEX_COLOR_SATURATION - VERTEX_COLOR_PIVOT) *
+              VERTEX_COLOR_CONTRAST,
+        ),
+        clamp01(
+          VERTEX_COLOR_PIVOT +
+            (luma + (g - luma) * VERTEX_COLOR_SATURATION - VERTEX_COLOR_PIVOT) *
+              VERTEX_COLOR_CONTRAST,
+        ),
+        clamp01(
+          VERTEX_COLOR_PIVOT +
+            (luma + (b - luma) * VERTEX_COLOR_SATURATION - VERTEX_COLOR_PIVOT) *
+              VERTEX_COLOR_CONTRAST,
+        ),
+      );
+    }
+    colors.needsUpdate = true;
+  });
+}
+
+/**
+ * Rigged characters out of `glb-rigger` arrive as a named node hierarchy — the
+ * bones are plain Object3Ds, so a clone keeps the names and pose code can find
+ * them with `getObjectByName`.
+ */
+async function loadGlbObject(url: string): Promise<THREE.Object3D> {
+  const scene = (await new GLTFLoader().loadAsync(url)).scene;
+  correctVertexColors(scene);
+  return scene;
+}
+
 async function loadTemplate(baseUrl: string): Promise<THREE.Group> {
-  const object = baseUrl.endsWith('.fbx')
-    ? await loadFbxObject(baseUrl)
-    : await loadObjObject(baseUrl);
+  const object = baseUrl.endsWith('.glb')
+    ? await loadGlbObject(baseUrl)
+    : baseUrl.endsWith('.fbx')
+      ? await loadFbxObject(baseUrl)
+      : await loadObjObject(baseUrl);
   replaceMaterials(object);
 
   const bounds = new THREE.Box3().setFromObject(object);
@@ -85,7 +168,7 @@ function cloneMaterials(object: THREE.Object3D): void {
   });
 }
 
-/** Loads each OBJ/MTL pair or FBX once, then returns geometry-sharing clones. */
+/** Loads each OBJ/MTL pair, FBX, or GLB once, then returns geometry-sharing clones. */
 export async function instantiateVoxelAsset(
   baseUrl: string,
   uniqueMaterials = false,

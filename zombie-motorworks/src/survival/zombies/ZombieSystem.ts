@@ -33,6 +33,7 @@ import {
   MAXIMUM_SWARM_DRAG,
   MIN_IMPACT_SPEED,
   MIN_SPAWN_DISTANCE_FROM_VEHICLE,
+  NECROMANCER_SUMMON_RADIUS,
   PLOW_CRUSH_COOLDOWN_SECONDS,
   PLOW_HEIGHT_TOLERANCE_M,
   PLOW_HOLD_SECONDS,
@@ -269,6 +270,13 @@ export class ZombieSystem {
     }
     return detonated;
   };
+  /**
+   * Set by the owning mode; reports bodies that entered the arena without the
+   * wave director assigning them, so its remaining count can absorb them.
+   */
+  onZombiesRaised: ((count: number) => void) | null = null;
+  /** Set by the owning mode; reports where a behemoth's slam just landed. */
+  onBehemothSmash: ((x: number, y: number, z: number) => void) | null = null;
   private healthMultiplier = 1;
   private speedMultiplier = 1;
   private attackDamageMultiplier = 1;
@@ -314,6 +322,9 @@ export class ZombieSystem {
       zombie.onThrow = (thrower) => this.launchProjectileFrom(thrower);
       zombie.onPlantMine = (worker) =>
         this.landmines.plant(worker.position.x, worker.position.z);
+      zombie.onSummon = (necromancer) => this.raiseMinions(necromancer);
+      zombie.onExplode = (kamikaze) => this.detonateKamikaze(kamikaze);
+      zombie.onSmash = (behemoth) => this.smashAt(behemoth);
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -401,6 +412,128 @@ export class ZombieSystem {
       positions.push([position.x, position.y, position.z]);
     }
     return positions;
+  }
+
+  /**
+   * A necromancer's channel landing: throwers claw out of the ground in a ring
+   * around it. Raising the ranged kind is what makes the caster a threat rather
+   * than a body count — a completed channel plants three lobbers at the
+   * player's current position instead of three more things to run over. These
+   * are extra bodies the wave never assigned, so the count goes back to the
+   * director through `onZombiesRaised` — otherwise the wave would report itself
+   * complete while the raised group is still standing.
+   *
+   * Nothing is raised if the thrower pool is spent, which is what stops a group
+   * of casters from starving the horde they are supposed to reinforce.
+   */
+  private raiseMinions(necromancer: Zombie): void {
+    if (this.disposed) return;
+    const wanted = Math.max(
+      0,
+      Math.floor(devTuning.specialist.necromancerSummonCount),
+    );
+    let raised = 0;
+    // The ground goes purple under the caster the instant the group lands, on
+    // top of the per-body raises below.
+    this.vfx?.necroticSummonBurst(
+      necromancer.position.x,
+      necromancer.position.y - ZOMBIE_HALF_HEIGHT,
+      necromancer.position.z,
+      NECROMANCER_SUMMON_RADIUS,
+    );
+    for (let i = 0; i < wanted; i++) {
+      const minion = this.pool.find(
+        (candidate) => !candidate.active && candidate.kind === 'thrower',
+      );
+      if (!minion) break;
+
+      // Even spacing around the caster, jittered so repeat casts never lay the
+      // same figure on the ground twice.
+      const angle =
+        ((i + 0.5) / wanted) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+      const radius = NECROMANCER_SUMMON_RADIUS * (0.75 + Math.random() * 0.35);
+      this.spawnScratch.set(
+        necromancer.position.x + Math.cos(angle) * radius,
+        necromancer.position.y,
+        necromancer.position.z + Math.sin(angle) * radius,
+      );
+      minion.spawn(
+        this.spawnScratch,
+        this.healthMultiplier,
+        this.speedMultiplier,
+        this.attackDamageMultiplier,
+      );
+      this.resetWatchdog(minion);
+      this.vfx?.necroticRaise(
+        this.spawnScratch.x,
+        this.spawnScratch.y - ZOMBIE_HALF_HEIGHT,
+        this.spawnScratch.z,
+      );
+      raised++;
+    }
+    if (raised > 0) this.onZombiesRaised?.(raised);
+  }
+
+  /**
+   * A kamikaze's detonation landing: vehicle-part damage centred on where it
+   * went off, falling off linearly to zero at the blast radius — the same
+   * falloff `explodeAt` uses against zombies, so a part clipped at the rim of
+   * the blast takes far less than one caught at the centre. Triggered by the
+   * zombie's own AI reaching arm's length, not a vehicle-side trigger radius
+   * the way a landmine works. The explosion's look and the zombie's own death
+   * are already handled by `Zombie.die()`, which is what calls this — this
+   * only owns the side of the blast Zombie has no reach into: the vehicle it
+   * hit.
+   */
+  private detonateKamikaze(kamikaze: Zombie): void {
+    if (this.disposed) return;
+    const { x, y, z } = kamikaze.position;
+    const radius = devTuning.specialist.kamikazeExplosionRadius;
+    const radiusSq = radius * radius;
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      const dx = anchor.worldX - x;
+      const dy = anchor.worldY - y;
+      const dz = anchor.worldZ - z;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq > radiusSq) continue;
+      const falloff = 1 - Math.sqrt(distanceSq) / radius;
+      const damage = devTuning.specialist.kamikazeExplosionDamage * falloff;
+      if (damage <= 0) continue;
+      this.vehicle.applyDirectDamage(anchor.partId, damage);
+    }
+  }
+
+  /**
+   * A behemoth's slam landing: vehicle-part damage centred on where it
+   * stands, falling off linearly to zero at the blast radius — the same
+   * falloff shape `detonateKamikaze` uses. Unlike a kamikaze this doesn't
+   * kill the zombie or run once; it fires every time the wind-up completes,
+   * so the zombie's own presentation (the pose, the ring, the VFX burst) is
+   * already handled by `Zombie.stepAttacking`, which is what calls this —
+   * this only owns the side of the hit Zombie has no reach into: the vehicle
+   * it struck.
+   */
+  private smashAt(behemoth: Zombie): void {
+    if (this.disposed) return;
+    const { x, y, z } = behemoth.position;
+    this.onBehemothSmash?.(x, y, z);
+    const radius = devTuning.specialist.behemothSmashRadius;
+    const radiusSq = radius * radius;
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      const dx = anchor.worldX - x;
+      const dy = anchor.worldY - y;
+      const dz = anchor.worldZ - z;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq > radiusSq) continue;
+      const falloff = 1 - Math.sqrt(distanceSq) / radius;
+      const damage = devTuning.specialist.behemothSmashDamage * falloff;
+      if (damage <= 0) continue;
+      this.vehicle.applyDirectDamage(anchor.partId, damage);
+    }
   }
 
   /** Spawn the requested kinds around one eligible far-away anchor. */

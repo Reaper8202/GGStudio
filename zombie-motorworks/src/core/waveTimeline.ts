@@ -32,9 +32,13 @@ export interface WaveTimelineInput {
 
 /** Human-readable label per specialist kind, for tooltips and aria-labels. */
 export const THREAT_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  gunslinger: 'Gunslingers',
+  necromancer: 'Necromancers (raise throwers)',
   thrower: 'Throwers',
   worker: 'Mine layers',
   'phone-addict': 'Phone Addicts (shielded)',
+  kamikaze: 'Kamikazes (explode on contact)',
+  behemoth: 'Behemoths (ground-slam boss)',
 });
 
 export type WaveIconKind = 'zombie' | 'threat' | 'boss';
@@ -46,11 +50,13 @@ export type WaveIconKind = 'zombie' | 'threat' | 'boss';
  * carried by `node.state`, so a boss wave keeps its skull once it is behind
  * the player instead of collapsing into a generic "cleared" marker.
  *
- * Phone Addicts are the heaviest known specialist, so their introduction is
- * the boss icon, ranked ahead of ordinary specialist introductions.
+ * Phone Addicts and Behemoths are the heaviest known specialists, so either
+ * one's introduction is the boss icon, ranked ahead of ordinary specialist
+ * introductions.
  */
 export function waveIcon(node: TimelineNode): WaveIconKind {
-  if (node.threats.includes('phone-addict')) return 'boss';
+  if (node.threats.includes('phone-addict') || node.threats.includes('behemoth'))
+    return 'boss';
   if (node.isMilestone) return 'threat';
   return 'zombie';
 }

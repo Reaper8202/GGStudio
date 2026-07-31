@@ -23,7 +23,7 @@ import {
   waveThreat,
 } from '../core/waveModel.ts';
 import type { KindProfiles } from '../core/waveModel.ts';
-import { devTuning } from './devtuning/DevTuning.ts';
+import { KIND_ORDER, devTuning } from './devtuning/DevTuning.ts';
 import {
   attackDamageMultiplierForWave,
   healthMultiplierForWave,
@@ -36,8 +36,17 @@ import {
 import type { WaveComposition } from './WaveManager.ts';
 import { ZOMBIE_POOL_COUNTS } from './zombies/zombieConfig.ts';
 
-/** Kinds that are not plain walkers, in unlock order. */
-export const SPECIALIST_KINDS = ['thrower', 'worker', 'phone-addict'] as const;
+/**
+ * Every kind that is not a plain walker.
+ *
+ * Derived rather than listed, because a hand-written list is exactly what goes
+ * stale when a kind is added: an unlisted kind would be counted in the wave's
+ * population but not in its specialist share, quietly reporting a wave as more
+ * walker-heavy than it is.
+ */
+export const SPECIALIST_KINDS: readonly string[] = KIND_ORDER.filter(
+  (kind) => kind !== 'walker',
+);
 
 /**
  * Per-kind toughness and payout.
@@ -47,27 +56,22 @@ export const SPECIALIST_KINDS = ['thrower', 'worker', 'phone-addict'] as const;
  * `base.health * waveMultiplier * types[kind].healthMult`. The per-kind
  * constants in `zombieConfig` are only the seed values for those fields, so
  * applying them again here would double-count a tougher kind.
+ *
+ * Built from `KIND_ORDER` so a new kind is measured the moment it exists.
+ * `waveThreat` skips kinds it has no profile for, so a missing entry would not
+ * fail loudly — it would just report the wave as easier than it is.
  */
 export function kindProfiles(): KindProfiles {
   const { types } = devTuning;
-  return {
-    walker: {
-      healthMultiplier: types.walker.healthMult,
-      reward: types.walker.reward,
-    },
-    thrower: {
-      healthMultiplier: types.thrower.healthMult,
-      reward: types.thrower.reward,
-    },
-    worker: {
-      healthMultiplier: types.worker.healthMult,
-      reward: types.worker.reward,
-    },
-    'phone-addict': {
-      healthMultiplier: types['phone-addict'].healthMult,
-      reward: types['phone-addict'].reward,
-    },
-  };
+  return Object.fromEntries(
+    KIND_ORDER.map((kind) => [
+      kind,
+      {
+        healthMultiplier: types[kind].healthMult,
+        reward: types[kind].reward,
+      },
+    ]),
+  );
 }
 
 /** One wave, measured. */

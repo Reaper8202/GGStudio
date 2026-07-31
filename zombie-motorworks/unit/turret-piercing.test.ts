@@ -37,13 +37,13 @@ interface FiredShot {
   readonly shotsFired: number;
 }
 
-function turret(level: number): PlacedPart {
+function turret(): PlacedPart {
   return {
     id: 'turret',
     defId: 'turret',
     pos: { x: 0, y: 0, z: 0 },
     orient: 0,
-    config: { level },
+    config: {},
   };
 }
 
@@ -73,15 +73,14 @@ function fire(
       applyImpulseAtPoint: recoil,
     },
   } as unknown as AssembledVehicle;
-  const partLevel =
-    piercingLevel === 3 || empLevel === 3
-      ? 6
-      : piercingLevel === 1 || empLevel === 2
-        ? 5
-        : empLevel === 1
-          ? 4
-          : 1;
-  const weapon = createWeapon(turret(partLevel));
+  const weapon = createWeapon(turret());
+  // EMP/piercing level is normally derived from the turret's own upgrade
+  // level (see turretModules.ts), whose ladder skips some values — level 2
+  // secondary damage, for one, is unreachable from any turret level. This
+  // suite is about how a shot is composed once the weapon already carries a
+  // level, not about the ladder that assigns one, so it sets both directly.
+  weapon.empLevel = empLevel;
+  weapon.piercingLevel = piercingLevel;
   const result = stepWeapons(
     world,
     vehicle,

@@ -12,13 +12,18 @@ export const BASE_ZOMBIE_STATS = {
 /**
  * Large normal reserve plus small specialist reserves. The director requests
  * kinds explicitly, so pool makeup is gameplay balance rather than a hidden
- * spawn-order lottery.
+ * spawn-order lottery. The thrower reserve carries extra headroom because
+ * necromancer raises draw from it on top of whatever the wave itself spawns.
  */
 export const ZOMBIE_POOL_COUNTS = {
   walker: 58,
-  thrower: 14,
+  gunslinger: 10,
+  necromancer: 6,
+  thrower: 26,
   worker: 8,
   'phone-addict': 8,
+  kamikaze: 16,
+  behemoth: 5,
 } as const;
 export const ZOMBIE_POOL_SIZE = Object.values(ZOMBIE_POOL_COUNTS).reduce(
   (total, count) => total + count,
@@ -174,7 +179,170 @@ export const THROWER_ATTACK_EXIT_MARGIN = 2;
 export const THROWER_ATTACK_INTERVAL = 2.8;
 export const THROWER_VISUAL_HEIGHT = 1; // pre-baseScale model height, m
 
-// Phone Addict: projectile-proof zombie (PhoneAddict voxel pack). A personal
+// Gunslinger: the rigged GLB character (gunslinger.rigged.glb). Closes to
+// revolver range and stops instead of meleeing. One attack cycle is three
+// beats: draw the guns and level them, hold that aim while a line from the
+// barrel out to a predicted impact point locks in and sits static (a scope
+// icon marks the far end), then fire — the shot itself is the same line
+// flashing bright rather than a travelling projectile. Damage only lands if
+// the vehicle is still near the locked point when it fires, so a vehicle that
+// moved off it is a clean dodge. Slower and tougher than a walker to make up
+// for staying out of melee range.
+export const GUNSLINGER_HEALTH_MULTIPLIER = 1.8;
+export const GUNSLINGER_SPEED_MULTIPLIER = 0.8;
+export const GUNSLINGER_REWARD = 9;
+export const GUNSLINGER_VISUAL_HEIGHT = 1.6; // pre-baseScale model height, m
+/** Steps per second for its walk cycle; the rig's own stalking cadence. */
+export const GUNSLINGER_WALK_CADENCE = 1.4;
+/** Closing to this range commits it to the draw/aim/fire cycle instead of melee. */
+export const GUNSLINGER_ATTACK_RANGE = 16;
+export const GUNSLINGER_ATTACK_EXIT_MARGIN = 2;
+/** Guns rising from the holster to a level, held aim. */
+export const GUNSLINGER_DRAW_SECONDS = 0.3;
+/** How long the locked telegraph line sits static before the shot fires. */
+export const GUNSLINGER_TELEGRAPH_SECONDS = 1;
+/** Recoil beats plus holstering, once the shot is already away. */
+export const GUNSLINGER_RECOVER_SECONDS = 0.5;
+/** One full draw/telegraph/fire/holster cycle, seconds. */
+export const GUNSLINGER_ATTACK_INTERVAL =
+  GUNSLINGER_DRAW_SECONDS +
+  GUNSLINGER_TELEGRAPH_SECONDS +
+  GUNSLINGER_RECOVER_SECONDS;
+export const GUNSLINGER_TELEGRAPH_OPACITY = 0.85;
+/** How long the line flashes bright when the shot actually fires. */
+export const GUNSLINGER_SHOT_FLASH_SECONDS = 0.15;
+/** World-metre size of the small scope reticle marking the locked point. */
+export const GUNSLINGER_SCOPE_ICON_SIZE = 0.4;
+/** How close the vehicle must still be to the locked point for the shot to land. */
+export const GUNSLINGER_HIT_TOLERANCE = 0.9;
+/** Fixed length of the telegraph/shot line out from the muzzle; the scope icon sits at its far end. */
+export const GUNSLINGER_LINE_LENGTH = 25;
+/**
+ * Prediction lead, in seconds of the vehicle's current velocity — shorter than
+ * the telegraph hold itself, so the lock stays close to where the vehicle
+ * actually is rather than reaching far out ahead of it.
+ */
+export const GUNSLINGER_LEAD_SECONDS = 0.35;
+/**
+ * World-metre height above the capsule centre the raised guns fire from.
+ * Only a fallback: the muzzle is read off the right forearm bone (the
+ * revolver's rig mount) whenever the model has finished loading.
+ */
+export const GUNSLINGER_MUZZLE_HEIGHT =
+  -(ZOMBIE_HALF_HEIGHT + ZOMBIE_RADIUS) + GUNSLINGER_VISUAL_HEIGHT * 0.55;
+
+// Necromancer: the rigged GLB caster (necromancer.rigged.glb). It closes to
+// summon range, stands still through a telegraphed channel, and raises a group
+// of throwers out of the ground beside it. Slow, head and shoulders taller than
+// anything else in the horde, and expensive to ignore — every second it is left
+// alive is more ranged pressure, so it is worth killing before the fire it
+// calls in.
+export const NECROMANCER_HEALTH_MULTIPLIER = 4.2;
+export const NECROMANCER_SPEED_MULTIPLIER = 0.7;
+export const NECROMANCER_REWARD = 16;
+/**
+ * Pre-baseScale model height, m. Deliberately the tallest silhouette in the
+ * horde: with no always-on ground marker, size is what identifies the caster at
+ * a distance.
+ */
+export const NECROMANCER_VISUAL_HEIGHT = 2.45;
+/** Steps per second for its walk cycle; a slower shamble than the gunslinger. */
+export const NECROMANCER_WALK_CADENCE = 1.05;
+/** Closing to this range commits it to a channel. */
+export const NECROMANCER_SUMMON_RANGE = 18;
+/** How long it stands still to raise a group. */
+export const NECROMANCER_SUMMON_SECONDS = 3.2;
+/** Rest between channels, so one caster cannot chain-summon. */
+export const NECROMANCER_SUMMON_COOLDOWN = 9;
+/** Throwers raised per completed channel. */
+export const NECROMANCER_SUMMON_COUNT = 3;
+/** Radius of the ring the raised throwers claw out of, world metres. */
+export const NECROMANCER_SUMMON_RADIUS = 2.4;
+
+// Summoning sigil: a runic circle that burns into the ground under the caster
+// for the length of a channel and nothing else. The necromancer carries no
+// always-on halo, so purple on the ground means one thing only — a raise is
+// happening right now, at that spot.
+/** Radius of the sigil at full charge, world metres. */
+export const NECROMANCER_SIGIL_RADIUS = 2.6;
+export const NECROMANCER_SIGIL_OPACITY = 0.95;
+/** Sigil rotation, rad/s; the outer and inner rings counter-turn. */
+export const NECROMANCER_SIGIL_SPIN = 0.55;
+/** Fraction of the channel the sigil takes to open to full size. */
+export const NECROMANCER_SIGIL_OPEN_FRACTION = 0.22;
+/** Seconds between motes rising off the caster mid-channel. */
+export const NECROMANCER_CHANNEL_VFX_INTERVAL = 0.16;
+
+// Kamikaze: the small rigged GLB sprinter (kamikaze.rigged.glb). Fragile and
+// far faster than anything else in the horde, it beelines the vehicle and
+// detonates the instant it closes to arm's length rather than settling into
+// the ordinary melee attack loop — one hit either way, its own or a bullet's,
+// so it lives only a few seconds once it is in view.
+export const KAMIKAZE_HEALTH_MULTIPLIER = 0.5;
+export const KAMIKAZE_SPEED_MULTIPLIER = 1.85;
+export const KAMIKAZE_REWARD = 7;
+// Height 1.0 puts a thrower at ordinary adult height once baseScale is
+// applied (see THROWER_VISUAL_HEIGHT); kamikaze sits well under that so it
+// visibly reads as small, even in a crowd of walkers.
+export const KAMIKAZE_VISUAL_HEIGHT = 0.85; // pre-baseScale model height, m
+/** Strides per second for its sprint cycle; the rig's own frantic cadence. */
+export const KAMIKAZE_RUN_CADENCE = 2.6;
+/** Closing to this range detonates it — tighter than the ordinary melee range. */
+export const KAMIKAZE_DETONATE_RANGE = 1.4;
+/** Vehicle-part blast damage at the centre, falling off to zero at the radius below. */
+export const KAMIKAZE_EXPLOSION_DAMAGE = 42;
+export const KAMIKAZE_EXPLOSION_RADIUS = 2.6;
+/** Purely visual flash-sphere radius, independent of the damage falloff above. */
+export const KAMIKAZE_EXPLOSION_VFX_RADIUS = 2;
+
+// Kamikaze warning blink: a small pulsing glow while it is sprinting, so a
+// bomber lost in a crowd of walkers still reads as "about to go off" at a
+// glance rather than only once it is already on top of the vehicle.
+export const KAMIKAZE_BLINK_RADIUS = 0.1;
+export const KAMIKAZE_BLINK_INTERVAL = 0.3; // seconds per on/off cycle
+export const KAMIKAZE_BLINK_OPACITY = 1;
+
+// Behemoth: the rigged GLB boss (behemoth.rigged.glb). The toughest, rarest,
+// and slowest thing in the horde — it chases the vehicle and only commits to
+// a two-handed overhead wind-up (a red ground ring at its feet, the same
+// telegraph mechanism the Worker and Necromancer use) once it is within smash
+// range, then slams down for area damage around itself rather than a
+// single-part hit. Unlike the Worker's plant and the Necromancer's raise, the
+// wind-up itself is not committed — a vehicle that drives back out of range
+// mid-wind-up aborts the swing and sends it back to chasing, so staying
+// mobile is a real defence, not just a matter of dodging the final ring.
+export const BEHEMOTH_HEALTH_MULTIPLIER = 6;
+export const BEHEMOTH_SPEED_MULTIPLIER = 0.6;
+export const BEHEMOTH_REWARD = 24;
+export const BEHEMOTH_VISUAL_HEIGHT = 2.7; // pre-baseScale model height, m — the tallest silhouette in the horde
+/** Steps per second for its walk cycle; the rig's own lumbering shamble. */
+export const BEHEMOTH_WALK_CADENCE = 0.9;
+/** Closing to this range commits it to the wind-up/smash cycle. */
+export const BEHEMOTH_ATTACK_RANGE = 4.2;
+/** Wind-up aborts back to chasing once the vehicle clears this much past the attack range. */
+export const BEHEMOTH_ATTACK_EXIT_MARGIN = 1.2;
+/** Both arms rising overhead before the slam. */
+export const BEHEMOTH_WINDUP_SECONDS = 0.9;
+/** Stagger after the slam before it can chase again. */
+export const BEHEMOTH_RECOVER_SECONDS = 0.7;
+/**
+ * One full wind-up/slam/recover cycle, seconds. `behemothPose.ts`'s
+ * `smashPose` spends its own `SMASH_IMPACT` fraction of this on the wind-up
+ * and the rest on recovery, so the two files never need to agree on a
+ * separate hand-kept split.
+ */
+export const BEHEMOTH_ATTACK_INTERVAL =
+  BEHEMOTH_WINDUP_SECONDS + BEHEMOTH_RECOVER_SECONDS;
+/** AOE damage falloff radius around the impact point, world metres. */
+export const BEHEMOTH_SMASH_RADIUS = 3.4;
+/** Peak vehicle-part damage at the centre of the blast. */
+export const BEHEMOTH_SMASH_DAMAGE = 48;
+/** Purely visual blast size, independent of the damage falloff above. */
+export const BEHEMOTH_SMASH_VFX_RADIUS = 2.6;
+/** Ground warning ring colour while it winds up — distinct from the Worker's amber and the Necromancer's violet. */
+export const BEHEMOTH_RING_COLOR = 0xff3020;
+
+// Phone Addict: projectile-proof zombie (PhoneAddict voxel pck). A personal
 // bubble shield absorbs every gun hit — only flame, ramming, and grinder
 // contact hurt it.
 export const PHONE_ADDICT_HEALTH_MULTIPLIER = 1.2;

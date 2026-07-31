@@ -83,6 +83,17 @@ import {
 import type { PlayerProfile } from '../core/profile.ts';
 import { resolveHotbar, withHotbarSlot } from '../core/hotbar.ts';
 import { threatWarningsForWave } from '../survival/waveBalance.ts';
+import {
+  decodeShareCode,
+  encodeShareCode,
+  lockedDefIdsFor,
+  ShareCodeError,
+} from '../core/shareCode.ts';
+import {
+  buildShareLink,
+  extractShareCode,
+  sharedSlotName,
+} from './shareHelpers.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
@@ -249,6 +260,8 @@ export interface EditorModeContext {
     partHp(): Record<string, number>;
     repairPart(id: string): boolean;
     repairAll(): boolean;
+    /** Parts destroyed in a prior wave, not yet bought back and re-placed. */
+    missingParts(): PlacedPart[];
   };
   runSummary?: RunSummary;
 }
@@ -394,10 +407,15 @@ export class EditorMode {
       onUpgradePart: (partId) => this.buyUpgrade(partId),
       onRepairPart: (partId) => this.repairPart(partId),
       onRepairAll: () => this.repairAll(),
+      onRebuildCar: () => this.rebuildCar(),
       onDeleteSelected: () => this.deleteSelected(),
       onReturnSelected: () => this.returnSelectedToInventory(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onCancelTool: () => this.disarmTool(),
+      onCopyCode: () => this.copyShareText(encodeShareCode(this.bp), 'code'),
+      onCopyLink: () =>
+        this.copyShareText(buildShareLink(encodeShareCode(this.bp)), 'link'),
+      onImport: (input) => void this.importShareCode(input),
     });
 
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);
@@ -1053,6 +1071,42 @@ export class EditorMode {
     }
     this.refreshProfile();
     this.ui.setStatus(`Vehicle fully repaired (-$${plan.totalCost})`);
+    return true;
+  }
+
+  /**
+   * Only parts whose old cell is still free are restorable right now; one a
+   * player has since built over is silently left out of the cost and the
+   * action rather than blocking the rest of the rebuild.
+   */
+  private currentRebuildPlan(): { parts: PlacedPart[]; totalCost: number } | undefined {
+    if (!this.runRepair) return undefined;
+    const restorable = this.runRepair.missingParts().filter(
+      (part) =>
+        canPlacePart(this.bp, getPartDef, part.defId, part.pos, part.orient, part.config)
+          .ok,
+    );
+    return {
+      parts: restorable,
+      totalCost: restorable.reduce(
+        (sum, part) => sum + getPartDef(part.defId).cost,
+        0,
+      ),
+    };
+  }
+
+  private rebuildCar(): boolean {
+    const plan = this.currentRebuildPlan();
+    if (!plan || plan.parts.length === 0) return false;
+    if (!canAfford(this.profile.money, plan.totalCost)) {
+      this.deny(`Not enough money - need $${plan.totalCost}`);
+      return false;
+    }
+    const commands = plan.parts.map((part) =>
+      placeCommand(part, -getPartDef(part.defId).cost),
+    );
+    if (!this.exec(batchCommand('Rebuild Car', commands))) return false;
+    this.ui.setStatus(`Vehicle rebuilt (-$${plan.totalCost})`);
     return true;
   }
 
@@ -1840,6 +1894,7 @@ export class EditorMode {
 
   private refreshRunContext(): void {
     const plan = this.currentRepairPlan();
+    const rebuildPlan = this.currentRebuildPlan();
     const nextWave = (this.runContext?.wave ?? 0) + 1;
     const threatNotice = threatWarningsForWave(nextWave).join(' ');
     const nextWaveNotice = threatNotice || undefined;
@@ -1853,6 +1908,10 @@ export class EditorMode {
             canRepairAll:
               plan.totalCost > 0 &&
               canAfford(this.profile.money, plan.totalCost),
+            rebuildCost: rebuildPlan?.totalCost ?? 0,
+            canRebuildAll:
+              (rebuildPlan?.totalCost ?? 0) > 0 &&
+              canAfford(this.profile.money, rebuildPlan?.totalCost ?? 0),
             nextWaveNotice,
           }
         : undefined,
@@ -1894,15 +1953,126 @@ export class EditorMode {
     }
   }
 
+  /**
+   * Catalog parts this build uses that the player does not own. Deliberately
+   * filtered through `isUnlocked` rather than the raw profile list, so a part
+   * that costs nothing to unlock never reads as locked and strands an
+   * otherwise legal build on the bench.
+   */
+  private lockedParts(): string[] {
+    return lockedDefIdsFor(this.bp, this.profile.unlockedDefIds).filter(
+      (defId) => !this.isUnlocked(defId),
+    );
+  }
+
   private refreshAnalysis(): void {
     const report = analyzeVehicle(this.bp, getPartDef);
     const validation = validateBlueprint(this.bp, getPartDef);
     this.ui.setBuildSummary(report, validation.errors, report.warnings);
+    // A shared build arrives intact even when it names parts the player has
+    // not bought; those hold it off the field until they are, which keeps
+    // sharing frictionless without letting it skip progression.
+    const locked = this.lockedParts();
+    const blockedBy = validation.errors.map((e) => e.message);
+    if (locked.length > 0) {
+      blockedBy.push(
+        `Locked parts: ${locked.map((defId) => getPartDef(defId).name).join(', ')}`,
+      );
+    }
     this.ui.setTestDriveEnabled(
-      validation.errors.length === 0 && this.bp.parts.length > 0,
-      validation.errors.map((e) => e.message),
+      validation.errors.length === 0 &&
+        locked.length === 0 &&
+        this.bp.parts.length > 0,
+      blockedBy,
     );
     this.refreshOverlays();
+  }
+
+  private copyShareText(text: string, kind: 'code' | 'link'): void {
+    const label = kind === 'code' ? 'Build code' : 'Share link';
+    // execCommand is deprecated but remains the only copy path on insecure
+    // origins and older mobile browsers, where navigator.clipboard is absent.
+    const fallback = (): boolean => {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      let ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch {
+        ok = false;
+      }
+      area.remove();
+      return ok;
+    };
+    const done = (ok: boolean): void => {
+      this.ui.setStatus(ok ? `${label} copied` : `Could not copy ${label}`);
+    };
+    const clipboard = navigator.clipboard;
+    if (!clipboard?.writeText) {
+      done(fallback());
+      return;
+    }
+    void clipboard.writeText(text).then(
+      () => done(true),
+      () => done(fallback()),
+    );
+  }
+
+  /**
+   * Load a build from a pasted code or share link. The player chooses where it
+   * lands; a decode failure never opens the dialog.
+   */
+  async importShareCode(input: string): Promise<void> {
+    if (!input.trim()) return;
+    let imported: VehicleBlueprint;
+    try {
+      imported = decodeShareCode(extractShareCode(input));
+    } catch (error) {
+      this.ui.setStatus(
+        error instanceof ShareCodeError
+          ? `Could not read that build code: ${error.message}`
+          : 'Could not read that build code',
+      );
+      return;
+    }
+    const choice = await this.ui.askShareImportTarget(imported.name);
+    if (choice === 'cancel') return;
+    // A fresh id keeps the copy distinct from the sharer's build, and the
+    // suffixed name means importing can never quietly overwrite a save slot.
+    const name =
+      choice === 'new-slot'
+        ? sharedSlotName(imported.name, Object.keys(this.slots()))
+        : this.bp.name;
+    // Zero refund, unlike New Garage: importing is free, and the outgoing
+    // build is not sold. Refunding here would hand back the value of a build
+    // that "load as new slot" leaves sitting in its own save slot.
+    const previousSelection = [...this.selected];
+    this.selected.clear();
+    if (
+      !this.exec(
+        replaceBlueprintCommand(
+          { ...imported, id: crypto.randomUUID(), name },
+          0,
+          'Import shared build',
+        ),
+      )
+    ) {
+      for (const partId of previousSelection) this.selected.add(partId);
+      this.refreshSelectionUI();
+      this.ui.setStatus('Could not import that build');
+      return;
+    }
+    const locked = this.lockedParts();
+    this.ui.setStatus(
+      locked.length > 0
+        ? `Imported "${imported.name}" — buy ${locked.length} locked part${locked.length === 1 ? '' : 's'} to drive it`
+        : `Imported "${imported.name}"`,
+    );
   }
 
   private refreshOverlays(): void {

@@ -8,7 +8,7 @@ export interface AutomaticWheelLayout {
 
 /**
  * Which wheels actually receive drive torque: an explicit config.driven wins,
- * otherwise the automatic 2WD layout decides.
+ * otherwise the automatic all-wheel-drive layout decides.
  *
  * Both the runtime assembler and the editor's analysis read drive through
  * here, so the build report can never disagree with what the vehicle does.
@@ -32,7 +32,7 @@ export function resolveDrivenPartIds(
 }
 
 /**
- * Automatic steer + 2WD drive layout.
+ * Automatic steer + all-wheel-drive layout.
  *
  * Steering defaults to the wheels ahead of the axle midpoint (vehicle forward
  * is +Z). A wheel that sets config.steering explicitly always keeps its own
@@ -42,8 +42,8 @@ export function resolveDrivenPartIds(
  * non-steering and its lateral grip fights the wheel that still steers, which
  * reads in-game as the rig barely being able to turn.
  *
- * Drive torque goes to the two wheels farthest from the root chassis,
- * preferring wheels that do not steer.
+ * Drive torque defaults to every wheel. An explicit `driven: false` remains
+ * the opt-out for builds that deliberately want fewer driven wheels.
  */
 export function deriveAutomaticWheelLayout(
   blueprint: VehicleBlueprint,
@@ -80,25 +80,7 @@ export function deriveAutomaticWheelLayout(
     }
   }
 
-  const root = blueprint.parts.find(
-    (part) => getDef(part.defId).isRoot === true,
-  );
-  const reference = cellCentreM((root ?? wheels[0]!.part).pos);
-  const distanceSq = (wheel: (typeof wheels)[number]): number => {
-    const dx = wheel.centre.x - reference.x;
-    const dy = wheel.centre.y - reference.y;
-    const dz = wheel.centre.z - reference.z;
-    return dx * dx + dy * dy + dz * dz;
-  };
-
-  const driveOrder = [...wheels].sort(
-    (a, b) => distanceSq(b) - distanceSq(a) || a.part.id.localeCompare(b.part.id),
-  );
-  const nonSteering = driveOrder.filter(({ part }) => !steeringPartIds.has(part.id));
-  const candidates = [...nonSteering, ...driveOrder.filter(({ part }) => steeringPartIds.has(part.id))];
-  const driven = new Set(
-    candidates.slice(0, Math.min(2, wheels.length)).map(({ part }) => part.id),
-  );
+  const driven = new Set(wheels.map(({ part }) => part.id));
 
   return { drivenPartIds: driven, steeringPartIds };
 }

@@ -26,7 +26,7 @@ describe('wave formulas', () => {
     },
     {
       wave: 5,
-      zombies: 27,
+      zombies: 34,
       maxActive: 34,
       healthMultiplier: 1.24,
       speedMultiplier: 1.1,
@@ -125,42 +125,66 @@ describe('wave formulas', () => {
   it('unlocks sparse specialists at their progression milestones', () => {
     expect(zombieCompositionForWave(1)).toEqual({
       walker: 13,
+      gunslinger: 0,
+      necromancer: 0,
       thrower: 0,
       worker: 0,
       'phone-addict': 0,
+      kamikaze: 0,
+      behemoth: 0,
     });
     expect(zombieCompositionForWave(4)).toEqual({
       walker: 22,
+      gunslinger: 3,
+      necromancer: 0,
       thrower: 1,
       worker: 0,
       'phone-addict': 0,
+      kamikaze: 2,
+      behemoth: 0,
     });
     expect(zombieCompositionForWave(7)).toEqual({
       walker: 31,
+      gunslinger: 9,
+      necromancer: 1,
       thrower: 3,
       worker: 1,
       'phone-addict': 0,
+      kamikaze: 3,
+      behemoth: 0,
     });
     expect(zombieCompositionForWave(10)).toEqual({
       walker: 40,
+      gunslinger: 10,
+      necromancer: 1,
       thrower: 4,
       worker: 2,
       'phone-addict': 1,
+      kamikaze: 5,
+      behemoth: 1,
     });
     expect(zombieCompositionForWave(20)).toEqual({
       walker: 70,
+      gunslinger: 10,
+      necromancer: 3,
       thrower: 9,
       worker: 5,
       'phone-addict': 3,
+      kamikaze: 10,
+      behemoth: 3,
     });
   });
 
   it('does not unlock specialists before their milestone waves', () => {
     expect(zombieCompositionForWave(2)).toEqual({
       walker: 16,
+      gunslinger: 0,
+      necromancer: 0,
       worker: 0,
       thrower: 0,
       'phone-addict': 0,
+      kamikaze: 0,
+      behemoth: 0,
     });
   });
 
@@ -168,6 +192,12 @@ describe('wave formulas', () => {
     const lateWaveComposition = zombieCompositionForWave(10_000);
     expect(ZOMBIE_POOL_COUNTS.walker).toBeGreaterThanOrEqual(
       maxActiveZombiesForWave(10_000),
+    );
+    expect(ZOMBIE_POOL_COUNTS.gunslinger).toBeGreaterThanOrEqual(
+      lateWaveComposition.gunslinger,
+    );
+    expect(ZOMBIE_POOL_COUNTS.necromancer).toBeGreaterThanOrEqual(
+      lateWaveComposition.necromancer,
     );
     expect(ZOMBIE_POOL_COUNTS.thrower).toBeGreaterThanOrEqual(
       lateWaveComposition.thrower,
@@ -177,6 +207,12 @@ describe('wave formulas', () => {
     );
     expect(ZOMBIE_POOL_COUNTS['phone-addict']).toBeGreaterThanOrEqual(
       lateWaveComposition['phone-addict'],
+    );
+    expect(ZOMBIE_POOL_COUNTS.kamikaze).toBeGreaterThanOrEqual(
+      lateWaveComposition.kamikaze,
+    );
+    expect(ZOMBIE_POOL_COUNTS.behemoth).toBeGreaterThanOrEqual(
+      lateWaveComposition.behemoth,
     );
   });
 

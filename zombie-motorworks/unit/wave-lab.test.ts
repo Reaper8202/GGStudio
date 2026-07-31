@@ -6,6 +6,7 @@ import {
   waveLabRows,
 } from '../src/survival/waveLab.ts';
 import { devTuning, resetTuning } from '../src/survival/devtuning/DevTuning.ts';
+import { zombieCompositionForWave } from '../src/survival/WaveManager.ts';
 
 afterEach(() => {
   resetTuning();
@@ -26,17 +27,25 @@ describe('kind profiles', () => {
     devTuning.types.thrower.healthMult = 4;
     expect(kindProfiles().thrower.healthMultiplier).toBe(4);
   });
+
+  it('profiles every kind a wave can contain', () => {
+    // waveThreat skips kinds it has no profile for, so a kind missing here does
+    // not fail — it silently scores as zero threat and reports the wave as
+    // easier than it is. This is what a hand-written kind list gets wrong the
+    // moment a new zombie ships.
+    const profiles = kindProfiles();
+    for (const kind of Object.keys(zombieCompositionForWave(30))) {
+      expect(profiles[kind], `no profile for ${kind}`).toBeDefined();
+    }
+  });
 });
 
 describe('measuring a wave', () => {
   it('agrees with the shipped wave-one composition', () => {
     const row = waveLabRow(1);
-    expect(row.counts).toEqual({
-      walker: 13,
-      thrower: 0,
-      worker: 0,
-      'phone-addict': 0,
-    });
+    // Asserted kind by kind rather than against the whole object, so shipping a
+    // new zombie that wave one does not use cannot fail this.
+    expect(row.counts.walker).toBe(13);
     expect(row.population).toBe(13);
     // 13 walkers at 40hp, no wave multiplier yet.
     expect(row.threat).toBe(520);
@@ -51,9 +60,9 @@ describe('measuring a wave', () => {
 
   it('reports the surplus once the wave outgrows the cap', () => {
     const row = waveLabRow(10);
-    expect(row.population).toBe(47);
+    expect(row.population).toBe(64);
     expect(row.maxActive).toBe(44);
-    expect(row.overflow).toBe(3);
+    expect(row.overflow).toBe(20);
   });
 
   it('prices a wave by its own composition and clear bonus', () => {
@@ -65,8 +74,9 @@ describe('measuring a wave', () => {
   });
 
   it('charges spawn time for a wave too big to arrive at once', () => {
-    // Hordes average 11, so 47 zombies is five hordes: four waits of 1.25s.
-    expect(waveLabRow(10).spawnFloorSeconds).toBeCloseTo(5, 5);
+    // Hordes average 11, so 64 zombies is six hordes: five waits of 1.25s.
+    expect(waveLabRow(10).spawnFloorSeconds).toBeCloseTo(6.25, 5);
+    // 13 fits in two hordes: one wait, at the early 1.45s tempo.
     expect(waveLabRow(1).spawnFloorSeconds).toBeCloseTo(1.45, 5);
   });
 });
@@ -75,7 +85,7 @@ describe('run summary', () => {
   const rows = waveLabRows(20);
 
   it('finds the wave where zombies start queueing instead of appearing', () => {
-    expect(summarize(rows).firstOverflowWave).toBe(10);
+    expect(summarize(rows).firstOverflowWave).toBe(6);
   });
 
   it('reports how far the reward curve drifts behind the difficulty curve', () => {
@@ -83,10 +93,16 @@ describe('run summary', () => {
     expect(summarize(rows).payDriftRatio).toBeGreaterThan(2);
   });
 
-  it('shows walkers still dominating the deepest wave', () => {
-    expect(summarize(rows).lateWalkerShare).toBeCloseTo(70 / 87, 5);
+  it('shows walkers still the majority of the deepest wave', () => {
     const late = rows[19];
-    expect(1 - late.specialistShare).toBeGreaterThan(0.75);
+    expect(summarize(rows).lateWalkerShare).toBeCloseTo(
+      late.counts.walker / late.population,
+      5,
+    );
+    // Specialists have grown enough to be a third of a late wave, but walkers
+    // are still most of what a player is shooting at wave 20.
+    expect(summarize(rows).lateWalkerShare).toBeGreaterThan(0.5);
+    expect(late.specialistShare).toBeGreaterThan(0.3);
   });
 
   it('finds the wave after which nothing escalates', () => {

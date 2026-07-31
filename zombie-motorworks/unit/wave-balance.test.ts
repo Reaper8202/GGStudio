@@ -12,9 +12,13 @@ describe('wave balance report', () => {
       wave: 1,
       composition: {
         walker: 13,
+        gunslinger: 0,
+        necromancer: 0,
         thrower: 0,
         worker: 0,
         'phone-addict': 0,
+        kamikaze: 0,
+        behemoth: 0,
       },
       healthMultiplier: healthMultiplierForWave(1),
       speedMultiplier: speedMultiplierForWave(1),
@@ -29,9 +33,13 @@ describe('wave balance report', () => {
       wave: 2,
       composition: {
         walker: 16,
+        gunslinger: 0,
+        necromancer: 0,
         thrower: 0,
         worker: 0,
         'phone-addict': 0,
+        kamikaze: 0,
+        behemoth: 0,
       },
       healthMultiplier: healthMultiplierForWave(2),
       speedMultiplier: speedMultiplierForWave(2),
@@ -46,15 +54,19 @@ describe('wave balance report', () => {
       wave: 3,
       composition: {
         walker: 19,
+        gunslinger: 1,
+        necromancer: 0,
         thrower: 1,
         worker: 0,
         'phone-addict': 0,
+        kamikaze: 0,
+        behemoth: 0,
       },
       healthMultiplier: healthMultiplierForWave(3),
       speedMultiplier: speedMultiplierForWave(3),
       attackDamageMultiplier: attackDamageMultiplierForWave(3),
-      effectiveTotalHp: 923,
-      totalPossibleReward: 135,
+      effectiveTotalHp: 1004,
+      totalPossibleReward: 144,
     });
   });
 
@@ -63,15 +75,19 @@ describe('wave balance report', () => {
       wave: 4,
       composition: {
         walker: 22,
+        gunslinger: 3,
+        necromancer: 0,
         thrower: 1,
         worker: 0,
         'phone-addict': 0,
+        kamikaze: 2,
+        behemoth: 0,
       },
       healthMultiplier: healthMultiplierForWave(4),
       speedMultiplier: speedMultiplierForWave(4),
       attackDamageMultiplier: attackDamageMultiplierForWave(4),
-      effectiveTotalHp: 1114,
-      totalPossibleReward: 154,
+      effectiveTotalHp: 1416,
+      totalPossibleReward: 195,
     });
   });
 
@@ -80,15 +96,19 @@ describe('wave balance report', () => {
       wave: 7,
       composition: {
         walker: 31,
+        gunslinger: 9,
+        necromancer: 1,
         thrower: 3,
         worker: 1,
         'phone-addict': 0,
+        kamikaze: 3,
+        behemoth: 0,
       },
       healthMultiplier: healthMultiplierForWave(7),
       speedMultiplier: speedMultiplierForWave(7),
       attackDamageMultiplier: attackDamageMultiplierForWave(7),
-      effectiveTotalHp: 2018,
-      totalPossibleReward: 239,
+      effectiveTotalHp: 3210,
+      totalPossibleReward: 357,
     });
   });
 
@@ -97,15 +117,19 @@ describe('wave balance report', () => {
       wave: 10,
       composition: {
         walker: 40,
+        gunslinger: 10,
+        necromancer: 1,
         thrower: 4,
         worker: 2,
         'phone-addict': 1,
+        kamikaze: 5,
+        behemoth: 1,
       },
       healthMultiplier: healthMultiplierForWave(10),
       speedMultiplier: speedMultiplierForWave(10),
       attackDamageMultiplier: attackDamageMultiplierForWave(10),
-      effectiveTotalHp: 3092,
-      totalPossibleReward: 326,
+      effectiveTotalHp: 4983,
+      totalPossibleReward: 491,
     });
   });
 
@@ -114,24 +138,28 @@ describe('wave balance report', () => {
       wave: 15,
       composition: {
         walker: 55,
+        gunslinger: 10,
+        necromancer: 2,
         thrower: 7,
         worker: 3,
         'phone-addict': 2,
+        kamikaze: 7,
+        behemoth: 2,
       },
       healthMultiplier: healthMultiplierForWave(15),
       speedMultiplier: speedMultiplierForWave(15),
       attackDamageMultiplier: attackDamageMultiplierForWave(15),
-      effectiveTotalHp: 5336,
-      totalPossibleReward: 467,
+      effectiveTotalHp: 8420,
+      totalPossibleReward: 686,
     });
   });
 
-  it('offers 486 total reward across waves 1 through 4', () => {
+  it('offers 536 total reward across waves 1 through 4', () => {
     const earlyWaveReward = [1, 2, 3, 4].reduce(
       (total, wave) => total + waveBalanceReport(wave).totalPossibleReward,
       0,
     );
 
-    expect(earlyWaveReward).toBe(486);
+    expect(earlyWaveReward).toBe(536);
   });
 });

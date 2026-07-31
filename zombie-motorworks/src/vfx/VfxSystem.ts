@@ -1725,6 +1725,95 @@ export class VfxSystem {
     }
   }
 
+  /**
+   * A behemoth's two-handed slam landing. Deliberately built from the `lit`
+   * (matter) layer only — no `flash`, no `glow` spawns — so it reads as a
+   * physical ground-pound rather than a blast: broken rubble kicked outward
+   * in a ring that lands on the actual damage radius, a scatter of chunky
+   * debris thrown up from the impact point, and a low dust cloud settling
+   * over it. Nothing here is additive or bright, on purpose — the wind-up
+   * ring already owns "glowing warning"; this is the physical hit landing.
+   */
+  groundSmash(x: number, y: number, z: number, radius: number): void {
+    if (this.disposed || radius <= 0) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    // Shockwave: a ring of broken ground reaching the exact radius the hit
+    // damages, the same timing trick `selfDestruct`'s ring uses.
+    const ring = this.count(22, detail);
+    for (let i = 0; i < ring; i++) {
+      const angle = (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.15);
+      const life = this.rand(0.32, 0.48);
+      const speed = (radius / life) * this.rand(0.85, 1);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * 0.3;
+      this.spec.y = y + 0.08;
+      this.spec.z = z + Math.sin(angle) * 0.3;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(0.6, 2.2);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.14, 0.26);
+      this.spec.endSize = this.spec.size * 0.7;
+      this.spec.lifeSeconds = life;
+      this.spec.colorStart = i % 2 === 0 ? VFX_PALETTE.rubble : VFX_PALETTE.dust;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -16;
+      this.spec.spin = 10;
+      this.spec.bounce = 0.3;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+
+    // Chunky rubble thrown straight up off the impact point — bigger and
+    // fewer than an explosion's dirt, so it reads as broken chunks of ground
+    // rather than a spray.
+    const rubble = this.count(18, detail);
+    for (let i = 0; i < rubble; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(1.5, 5.5);
+      this.reset0();
+      this.spec.x = x + this.randSigned(radius * 0.3);
+      this.spec.y = y + 0.1;
+      this.spec.z = z + this.randSigned(radius * 0.3);
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(3.5, 8.5);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.14, 0.3);
+      this.spec.endSize = this.spec.size * 0.85;
+      this.spec.lifeSeconds = this.rand(1, 1.7);
+      this.spec.colorStart = i % 3 === 0 ? VFX_PALETTE.bone : VFX_PALETTE.rubble;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -22;
+      this.spec.spin = 11;
+      this.spec.bounce = 0.35;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+
+    // Low dust cloud settling over the crater — wider and flatter than a
+    // fireball's smoke column, since nothing here is burning.
+    const dust = this.count(10, detail);
+    for (let i = 0; i < dust; i++) {
+      this.reset0();
+      this.spec.x = x + this.randSigned(radius * 0.5);
+      this.spec.y = y + this.rand(0.05, 0.3);
+      this.spec.z = z + this.randSigned(radius * 0.5);
+      this.spec.vx = this.randSigned(1.8);
+      this.spec.vy = this.rand(0.4, 1.1);
+      this.spec.vz = this.randSigned(1.8);
+      this.spec.size = this.rand(0.3, 0.55);
+      this.spec.endSize = this.spec.size * 2.8;
+      this.spec.lifeSeconds = this.rand(1, 1.8);
+      this.spec.colorStart = VFX_PALETTE.dust;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = 0.6;
+      this.spec.drag = 2.4;
+      this.spec.spin = 1;
+      this.lit.spawn(this.take());
+    }
+  }
+
   /** Landmine or other blast: fireball core, radial sparks, dirt, and smoke. */
   explosion(x: number, y: number, z: number, radius: number): void {
     if (this.disposed) return;
@@ -2254,6 +2343,253 @@ export class VfxSystem {
       this.spec.gravity = -2.4;
       this.spec.drag = 2.2;
       this.spec.spin = 2;
+      this.lit.spawn(this.take());
+    }
+  }
+
+  /**
+   * A Necromancer mid-channel: witch-light drawn *up* out of the ground around
+   * its feet, and, as the cast charges, more of it turning with the sigil and
+   * getting pulled inward toward the caster. Cheap enough to run several times
+   * a second for the whole channel — the telegraph is that the purple keeps
+   * coming and keeps building, so the player learns to shoot the caster rather
+   * than the ring.
+   *
+   * `charge` is 0..1 channel progress; it drives how much of the effect runs,
+   * so the last second before a raise looks nothing like the first.
+   */
+  necroticChannel(x: number, y: number, z: number, charge = 0.5): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const motes = this.count(4 + 5 * charge, detail);
+    for (let i = 0; i < motes; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = this.rand(0.35, 1.05 + 1.2 * charge);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * radius;
+      this.spec.y = y + 0.05;
+      this.spec.z = z + Math.sin(angle) * radius;
+      // Almost no lateral drift, but a tangential kick that grows with the
+      // charge, so late in the cast the light climbs in a slow spiral.
+      const swirl = this.rand(0.6, 1.6) * charge;
+      this.spec.vx = Math.cos(angle) * this.rand(-0.3, 0.3) - Math.sin(angle) * swirl;
+      this.spec.vy = this.rand(1.1, 2.3 + 1.4 * charge);
+      this.spec.vz = Math.sin(angle) * this.rand(-0.3, 0.3) + Math.cos(angle) * swirl;
+      this.spec.size = this.rand(0.08, 0.16 + 0.06 * charge);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.5, 0.9);
+      this.spec.colorStart = VFX_PALETTE.necroPale;
+      this.spec.colorEnd = VFX_PALETTE.necro;
+      this.spec.gravity = 0;
+      this.spec.drag = 0.9;
+      this.spec.spin = 3;
+      this.glow.spawn(this.take());
+    }
+
+    // Second half of the cast only: witch-light falling *in* from above and
+    // converging on the caster. Reading the gather is what tells the player the
+    // raise is nearly out, without the caster having to change pose again.
+    if (charge < 0.45) return;
+    const gathered = this.count(2 + 3 * charge, detail);
+    for (let i = 0; i < gathered; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = this.rand(1.8, 3.2);
+      const height = this.rand(1.6, 3.4);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * radius;
+      this.spec.y = y + height;
+      this.spec.z = z + Math.sin(angle) * radius;
+      const pull = this.rand(2.4, 4.2);
+      this.spec.vx = -Math.cos(angle) * pull;
+      this.spec.vy = -height * 0.55;
+      this.spec.vz = -Math.sin(angle) * pull;
+      this.spec.size = this.rand(0.07, 0.14);
+      this.spec.endSize = 0.03;
+      this.spec.lifeSeconds = this.rand(0.4, 0.7);
+      this.spec.colorStart = VFX_PALETTE.necro;
+      this.spec.colorEnd = VFX_PALETTE.necroPale;
+      this.spec.gravity = 0;
+      this.spec.drag = 0.4;
+      this.spec.spin = 4;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
+   * The instant a channel lands, fired at the caster's feet before the bodies
+   * themselves come up. Everything the sigil has been gathering goes off at
+   * once: a white core, a column of witch-light up the caster, and a shockwave
+   * of purple thrown outward along the ground to the edge of the circle — which
+   * is exactly where the raised group then claws out.
+   */
+  necroticSummonBurst(
+    x: number,
+    y: number,
+    z: number,
+    radiusM: number,
+  ): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y + 0.5, z, radiusM * 0.5, 0.09, 0xffffff);
+    this.flash(x, y + 0.7, z, radiusM * 0.95, 0.2, VFX_PALETTE.necroPale);
+    this.flash(x, y + 1, z, radiusM * 1.6, 0.36, VFX_PALETTE.necro);
+
+    // Column: the gathered light discharged straight up through the caster.
+    const column = this.count(14, detail);
+    for (let i = 0; i < column; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * this.rand(0, 0.4);
+      this.spec.y = y + this.rand(0, 0.6);
+      this.spec.z = z + Math.sin(angle) * this.rand(0, 0.4);
+      this.spec.vx = Math.cos(angle) * this.rand(0.2, 0.9);
+      this.spec.vy = this.rand(5.5, 9.5);
+      this.spec.vz = Math.sin(angle) * this.rand(0.2, 0.9);
+      this.spec.size = this.rand(0.12, 0.24);
+      this.spec.endSize = 0.03;
+      this.spec.lifeSeconds = this.rand(0.5, 0.85);
+      this.spec.colorStart = VFX_PALETTE.necroPale;
+      this.spec.colorEnd = VFX_PALETTE.necro;
+      this.spec.gravity = -1.5;
+      this.spec.drag = 0.8;
+      this.spec.spin = 5;
+      this.glow.spawn(this.take());
+    }
+
+    // Ground shockwave: a flat, fast ring out to the summon radius. Low and
+    // wide, so it reads as the sigil discharging rather than as an explosion.
+    const wave = this.count(26, detail);
+    for (let i = 0; i < wave; i++) {
+      const angle = (i / Math.max(1, wave)) * Math.PI * 2 + this.randSigned(0.1);
+      const speed = radiusM * this.rand(2.6, 4.2);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * 0.3;
+      this.spec.y = y + 0.09;
+      this.spec.z = z + Math.sin(angle) * 0.3;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(0.2, 1);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.14, 0.26);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.3, 0.46);
+      this.spec.colorStart = VFX_PALETTE.necroPale;
+      this.spec.colorEnd = VFX_PALETTE.necroDeep;
+      this.spec.gravity = 0;
+      this.spec.drag = 2.4;
+      this.spec.spin = 6;
+      this.glow.spawn(this.take());
+    }
+
+    // Dirt lifted off the whole circle, so the discharge disturbs real ground.
+    const soil = this.count(12, detail);
+    for (let i = 0; i < soil; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = radiusM * this.rand(0.4, 1.05);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * radius;
+      this.spec.y = y + 0.08;
+      this.spec.z = z + Math.sin(angle) * radius;
+      this.spec.vx = Math.cos(angle) * this.rand(0.5, 2.2);
+      this.spec.vy = this.rand(2.6, 5.2);
+      this.spec.vz = Math.sin(angle) * this.rand(0.5, 2.2);
+      this.spec.size = this.rand(0.12, 0.22);
+      this.spec.endSize = this.spec.size * 0.8;
+      this.spec.lifeSeconds = this.rand(0.5, 0.9);
+      this.spec.colorStart = VFX_PALETTE.dust;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -14;
+      this.spec.drag = 0.6;
+      this.spec.spin = 5;
+      this.spec.bounce = 0.2;
+      this.lit.spawn(this.take());
+    }
+  }
+
+  /**
+   * One thrower clawing its way out where the Necromancer called it: a violet
+   * flash, a low ring of witch-light, a shaft of it dragged up out of the hole
+   * behind the body, and the grave dirt it came through. The dirt is the only
+   * earthy note in the effect, and it is what keeps the raise reading as *out
+   * of the ground* rather than as a teleport.
+   */
+  necroticRaise(x: number, y: number, z: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y + 0.3, z, 0.9, 0.1, VFX_PALETTE.necroPale);
+    this.flash(x, y + 0.4, z, 1.9, 0.22, VFX_PALETTE.necro);
+
+    // The shaft the body comes up through: a tight, fast plume that outlives
+    // the ring, so the eye is still on the spot once the zombie is standing.
+    const shaft = this.count(10, detail);
+    for (let i = 0; i < shaft; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * this.rand(0, 0.28);
+      this.spec.y = y + 0.05;
+      this.spec.z = z + Math.sin(angle) * this.rand(0, 0.28);
+      this.spec.vx = Math.cos(angle) * this.rand(0.1, 0.7);
+      this.spec.vy = this.rand(3.4, 6.2);
+      this.spec.vz = Math.sin(angle) * this.rand(0.1, 0.7);
+      this.spec.size = this.rand(0.1, 0.2);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.45, 0.75);
+      this.spec.colorStart = VFX_PALETTE.necroPale;
+      this.spec.colorEnd = VFX_PALETTE.necro;
+      this.spec.gravity = -2;
+      this.spec.drag = 1;
+      this.spec.spin = 5;
+      this.glow.spawn(this.take());
+    }
+
+    const ring = this.count(16, detail);
+    for (let i = 0; i < ring; i++) {
+      const angle =
+        (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.18);
+      const life = this.rand(0.32, 0.5);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * 0.25;
+      this.spec.y = y + 0.12;
+      this.spec.z = z + Math.sin(angle) * 0.25;
+      this.spec.vx = Math.cos(angle) * this.rand(2.2, 4);
+      this.spec.vy = this.rand(1.4, 3.2);
+      this.spec.vz = Math.sin(angle) * this.rand(2.2, 4);
+      this.spec.size = this.rand(0.12, 0.22);
+      this.spec.endSize = 0.03;
+      this.spec.lifeSeconds = life;
+      this.spec.colorStart = VFX_PALETTE.necroPale;
+      this.spec.colorEnd = VFX_PALETTE.necroDeep;
+      this.spec.gravity = 0;
+      this.spec.drag = 1.6;
+      this.spec.spin = 6;
+      this.glow.spawn(this.take());
+    }
+
+    const soil = this.count(9, detail);
+    for (let i = 0; i < soil; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(1.6, 4.5);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * this.rand(0.1, 0.5);
+      this.spec.y = y + 0.1;
+      this.spec.z = z + Math.sin(angle) * this.rand(0.1, 0.5);
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(2.4, 5);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.14, 0.26);
+      this.spec.endSize = this.spec.size * 0.8;
+      this.spec.lifeSeconds = this.rand(0.5, 0.9);
+      this.spec.colorStart = VFX_PALETTE.dust;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -13;
+      this.spec.drag = 0.6;
+      this.spec.spin = 5;
+      this.spec.bounce = 0.2;
       this.lit.spawn(this.take());
     }
   }
