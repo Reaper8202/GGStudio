@@ -1,6 +1,15 @@
 import type { ZombieKind } from '../zombies/Zombie.ts';
 import {
   BASE_ZOMBIE_STATS,
+  BEHEMOTH_ATTACK_INTERVAL,
+  BEHEMOTH_ATTACK_RANGE,
+  BEHEMOTH_HEALTH_MULTIPLIER,
+  BEHEMOTH_REWARD,
+  BEHEMOTH_SMASH_DAMAGE,
+  BEHEMOTH_SMASH_RADIUS,
+  BEHEMOTH_SPEED_MULTIPLIER,
+  GUNSLINGER_ATTACK_INTERVAL,
+  GUNSLINGER_ATTACK_RANGE,
   GUNSLINGER_HEALTH_MULTIPLIER,
   GUNSLINGER_REWARD,
   GUNSLINGER_SPEED_MULTIPLIER,
@@ -80,6 +89,7 @@ export interface WaveTuning {
 }
 
 export interface SpecialistTuning {
+  gunslingerAttackRange: number;
   throwerAttackRange: number;
   necromancerSummonRange: number;
   necromancerSummonSeconds: number;
@@ -91,6 +101,9 @@ export interface SpecialistTuning {
   kamikazeDetonateRange: number;
   kamikazeExplosionDamage: number;
   kamikazeExplosionRadius: number;
+  behemothAttackRange: number;
+  behemothSmashDamage: number;
+  behemothSmashRadius: number;
 }
 
 export interface CheatTuning {
@@ -122,6 +135,7 @@ const KIND_ORDER: readonly ZombieKind[] = [
   'worker',
   'phone-addict',
   'kamikaze',
+  'behemoth',
 ];
 
 /** Fresh default state cloned from the shipped constants — the "reset" target. */
@@ -147,7 +161,7 @@ export function defaultTuning(): DevTuningState {
         healthMult: GUNSLINGER_HEALTH_MULTIPLIER,
         speedMult: GUNSLINGER_SPEED_MULTIPLIER,
         damageMult: 1,
-        attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+        attackInterval: GUNSLINGER_ATTACK_INTERVAL,
         reward: GUNSLINGER_REWARD,
         countOverride: null,
       },
@@ -191,6 +205,14 @@ export function defaultTuning(): DevTuningState {
         reward: KAMIKAZE_REWARD,
         countOverride: null,
       },
+      behemoth: {
+        healthMult: BEHEMOTH_HEALTH_MULTIPLIER,
+        speedMult: BEHEMOTH_SPEED_MULTIPLIER,
+        damageMult: 1,
+        attackInterval: BEHEMOTH_ATTACK_INTERVAL,
+        reward: BEHEMOTH_REWARD,
+        countOverride: null,
+      },
       // Inert: a boss reads every stat from its `BossDefinition` in
       // `zombies/bossConfig.ts`, which stays the single source of truth for boss
       // balance. This row exists only so the record stays exhaustive over
@@ -211,12 +233,13 @@ export function defaultTuning(): DevTuningState {
       damage: { perWave: 0.06, cap: 2 },
       composition: {
         walker: { startWave: 1, base: 13, perStep: 3, every: 1, cap: 70 },
-        gunslinger: { startWave: 1, base: 1, perStep: 1, every: 3, cap: 8 },
+        gunslinger: { startWave: 3, base: 1, perStep: 2, every: 1, cap: 10 },
         necromancer: { startWave: 6, base: 1, perStep: 1, every: 5, cap: 4 },
         thrower: { startWave: 3, base: 1, perStep: 1, every: 2, cap: 10 },
         worker: { startWave: 7, base: 1, perStep: 1, every: 3, cap: 6 },
         'phone-addict': { startWave: 10, base: 1, perStep: 1, every: 4, cap: 6 },
         kamikaze: { startWave: 4, base: 2, perStep: 1, every: 2, cap: 10 },
+        behemoth: { startWave: 8, base: 1, perStep: 1, every: 6, cap: 3 },
         // Degenerate on purpose: boss waves short-circuit ahead of the curves in
         // `zombieCompositionForWave`, so this is never consulted.
         boss: { startWave: 1, base: 0, perStep: 0, every: 1, cap: 0 },
@@ -229,6 +252,7 @@ export function defaultTuning(): DevTuningState {
       maxActiveCap: 48,
     },
     specialist: {
+      gunslingerAttackRange: GUNSLINGER_ATTACK_RANGE,
       throwerAttackRange: THROWER_ATTACK_RANGE,
       necromancerSummonRange: NECROMANCER_SUMMON_RANGE,
       necromancerSummonSeconds: NECROMANCER_SUMMON_SECONDS,
@@ -240,6 +264,9 @@ export function defaultTuning(): DevTuningState {
       kamikazeDetonateRange: KAMIKAZE_DETONATE_RANGE,
       kamikazeExplosionDamage: KAMIKAZE_EXPLOSION_DAMAGE,
       kamikazeExplosionRadius: KAMIKAZE_EXPLOSION_RADIUS,
+      behemothAttackRange: BEHEMOTH_ATTACK_RANGE,
+      behemothSmashDamage: BEHEMOTH_SMASH_DAMAGE,
+      behemothSmashRadius: BEHEMOTH_SMASH_RADIUS,
     },
     cheats: {
       godMode: false,

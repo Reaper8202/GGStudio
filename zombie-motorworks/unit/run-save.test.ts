@@ -61,7 +61,7 @@ function sampleBlueprint(): VehicleBlueprint {
 
 function sampleRun(): SavedRun {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     phase: 'wave',
     activeWave: 7,
     score: 12_450,
@@ -73,12 +73,21 @@ function sampleRun(): SavedRun {
     elapsedSeconds: 372,
     blueprint: sampleBlueprint(),
     partHp: { core: 80, frame: 12.5 },
+    missingParts: [
+      {
+        id: 'wheel',
+        defId: 'frame-box',
+        pos: { x: -1, y: 0, z: 0 },
+        orient: 0,
+        config: {},
+      },
+    ],
     savedAt: 1_752_000_000_000,
   };
 }
 
 describe('saved run codec', () => {
-  it('round-trips schema-5 checkpoint fields', () => {
+  it('round-trips schema-6 checkpoint fields', () => {
     const run = sampleRun();
 
     expect(decodeSavedRun(encodeSavedRun(run))).toEqual(run);
@@ -90,7 +99,7 @@ describe('saved run codec', () => {
     ['missing fields', '{}'],
     [
       'wrong schema version',
-      JSON.stringify({ ...sampleRun(), schemaVersion: 6 }),
+      JSON.stringify({ ...sampleRun(), schemaVersion: 7 }),
     ],
     ['wave zero', JSON.stringify({ ...sampleRun(), wave: 0 })],
     ['fractional wave', JSON.stringify({ ...sampleRun(), wave: 2.5 })],
@@ -113,6 +122,36 @@ describe('saved run codec', () => {
     expect(decodeSavedRun(json)?.partHp).toEqual({ core: 50 });
   });
 
+  it('drops missing-part entries that are malformed, unknown, or occupy a live slot', () => {
+    const json = JSON.stringify({
+      ...sampleRun(),
+      missingParts: [
+        { id: 'wheel', defId: 'frame-box', pos: { x: -1, y: 0, z: 0 }, orient: 0 },
+        { id: 'core', defId: 'frame-box', pos: { x: -2, y: 0, z: 0 }, orient: 0 },
+        { id: 'ghost', defId: 'not-a-real-part', pos: { x: -3, y: 0, z: 0 }, orient: 0 },
+        { id: 'bad-pos', defId: 'frame-box', pos: { x: 0.5, y: 0, z: 0 }, orient: 0 },
+        { id: 'bad-orient', defId: 'frame-box', pos: { x: -4, y: 0, z: 0 }, orient: 99 },
+      ],
+    });
+
+    expect(decodeSavedRun(json)?.missingParts).toEqual([
+      {
+        id: 'wheel',
+        defId: 'frame-box',
+        pos: { x: -1, y: 0, z: 0 },
+        orient: 0,
+        config: {},
+      },
+    ]);
+  });
+
+  it('defaults missingParts to empty for a pre-schema-6 save', () => {
+    const legacy = { ...sampleRun(), schemaVersion: 5 };
+    delete (legacy as Partial<typeof legacy>).missingParts;
+
+    expect(decodeSavedRun(JSON.stringify(legacy))?.missingParts).toEqual([]);
+  });
+
   it('migrates schema-1 moneyEarned into schema 4 with score zero', () => {
     const current = sampleRun();
     const legacy = {
@@ -133,6 +172,7 @@ describe('saved run codec', () => {
         seed: 1_073_741_824,
         phase: 'wave',
         activeWave: current.wave,
+        missingParts: [],
       });
     } finally {
       random.mockRestore();
@@ -158,6 +198,7 @@ describe('saved run codec', () => {
         seed: 1_073_741_824,
         phase: 'wave',
         activeWave: current.wave,
+        missingParts: [],
       });
     } finally {
       random.mockRestore();
@@ -178,7 +219,7 @@ describe('saved run codec', () => {
   );
 
   it('always returns the current schema version', () => {
-    expect(decodeSavedRun(JSON.stringify(sampleRun()))?.schemaVersion).toBe(5);
+    expect(decodeSavedRun(JSON.stringify(sampleRun()))?.schemaVersion).toBe(6);
   });
 
   it('clamps negative kills and banked earnings to zero', () => {

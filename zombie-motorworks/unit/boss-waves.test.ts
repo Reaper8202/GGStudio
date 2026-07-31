@@ -89,6 +89,7 @@ describe('boss wave scheduling', () => {
       worker: 0,
       'phone-addict': 0,
       kamikaze: 0,
+      behemoth: 0,
       boss: 1,
     });
     expect(zombieCountForWave(5)).toBe(1);

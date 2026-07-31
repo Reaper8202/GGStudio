@@ -40,7 +40,7 @@ const GARAGE_RIG = rig('garage-rig');
 
 function savedRun(overrides: Partial<SavedRun> = {}): SavedRun {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     phase: 'wave',
     activeWave: 6,
     score: 800,
@@ -52,6 +52,7 @@ function savedRun(overrides: Partial<SavedRun> = {}): SavedRun {
     elapsedSeconds: 240,
     blueprint: CHECKPOINT_RIG,
     partHp: { core: 90 },
+    missingParts: [],
     savedAt: 1_800_000_000_000,
     ...overrides,
   };
@@ -188,6 +189,7 @@ describe('saving and quitting from the Garage', () => {
         wave: 8,
         blueprint: CHECKPOINT_RIG,
         partHp: { core: 90 },
+        missingParts: [],
         kills: 30,
         biomeId: 'graveyard',
         seed: 1234,
@@ -210,7 +212,7 @@ describe('saving and quitting from the Garage', () => {
 
     expect(store.save).toHaveBeenCalledTimes(1);
     expect(store.save.mock.calls[0]?.[0]).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       phase: 'build',
       wave: 8,
       activeWave: 7,

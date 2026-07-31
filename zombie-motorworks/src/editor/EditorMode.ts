@@ -260,6 +260,8 @@ export interface EditorModeContext {
     partHp(): Record<string, number>;
     repairPart(id: string): boolean;
     repairAll(): boolean;
+    /** Parts destroyed in a prior wave, not yet bought back and re-placed. */
+    missingParts(): PlacedPart[];
   };
   runSummary?: RunSummary;
 }
@@ -405,19 +407,11 @@ export class EditorMode {
       onUpgradePart: (partId) => this.buyUpgrade(partId),
       onRepairPart: (partId) => this.repairPart(partId),
       onRepairAll: () => this.repairAll(),
+      onRebuildCar: () => this.rebuildCar(),
       onDeleteSelected: () => this.deleteSelected(),
       onReturnSelected: () => this.returnSelectedToInventory(),
       onRotateSelected: (axis) => this.rotateSelected(axis),
       onCancelTool: () => this.disarmTool(),
-      onBuyMissingParts: () => {
-        // unlockPart already checks affordability, deducts, persists, and
-        // denies with its own message, so a partial run stops cleanly at the
-        // first part the player cannot afford.
-        for (const defId of this.lockedParts()) {
-          if (!this.unlockPart(defId)) break;
-        }
-        this.refreshAnalysis();
-      },
       onCopyCode: () => this.copyShareText(encodeShareCode(this.bp), 'code'),
       onCopyLink: () =>
         this.copyShareText(buildShareLink(encodeShareCode(this.bp)), 'link'),
@@ -1077,6 +1071,42 @@ export class EditorMode {
     }
     this.refreshProfile();
     this.ui.setStatus(`Vehicle fully repaired (-$${plan.totalCost})`);
+    return true;
+  }
+
+  /**
+   * Only parts whose old cell is still free are restorable right now; one a
+   * player has since built over is silently left out of the cost and the
+   * action rather than blocking the rest of the rebuild.
+   */
+  private currentRebuildPlan(): { parts: PlacedPart[]; totalCost: number } | undefined {
+    if (!this.runRepair) return undefined;
+    const restorable = this.runRepair.missingParts().filter(
+      (part) =>
+        canPlacePart(this.bp, getPartDef, part.defId, part.pos, part.orient, part.config)
+          .ok,
+    );
+    return {
+      parts: restorable,
+      totalCost: restorable.reduce(
+        (sum, part) => sum + getPartDef(part.defId).cost,
+        0,
+      ),
+    };
+  }
+
+  private rebuildCar(): boolean {
+    const plan = this.currentRebuildPlan();
+    if (!plan || plan.parts.length === 0) return false;
+    if (!canAfford(this.profile.money, plan.totalCost)) {
+      this.deny(`Not enough money - need $${plan.totalCost}`);
+      return false;
+    }
+    const commands = plan.parts.map((part) =>
+      placeCommand(part, -getPartDef(part.defId).cost),
+    );
+    if (!this.exec(batchCommand('Rebuild Car', commands))) return false;
+    this.ui.setStatus(`Vehicle rebuilt (-$${plan.totalCost})`);
     return true;
   }
 
@@ -1864,6 +1894,7 @@ export class EditorMode {
 
   private refreshRunContext(): void {
     const plan = this.currentRepairPlan();
+    const rebuildPlan = this.currentRebuildPlan();
     const nextWave = (this.runContext?.wave ?? 0) + 1;
     const threatNotice = threatWarningsForWave(nextWave).join(' ');
     const nextWaveNotice = threatNotice || undefined;
@@ -1877,6 +1908,10 @@ export class EditorMode {
             canRepairAll:
               plan.totalCost > 0 &&
               canAfford(this.profile.money, plan.totalCost),
+            rebuildCost: rebuildPlan?.totalCost ?? 0,
+            canRebuildAll:
+              (rebuildPlan?.totalCost ?? 0) > 0 &&
+              canAfford(this.profile.money, rebuildPlan?.totalCost ?? 0),
             nextWaveNotice,
           }
         : undefined,
@@ -1950,7 +1985,6 @@ export class EditorMode {
         this.bp.parts.length > 0,
       blockedBy,
     );
-    this.ui.setLockedParts(locked, this.profile.money);
     this.refreshOverlays();
   }
 

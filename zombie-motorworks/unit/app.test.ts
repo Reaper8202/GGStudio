@@ -43,6 +43,7 @@ function appWithDamagedCheckpoint(
     wave: 2,
     blueprint,
     partHp: { ...partHp },
+    missingParts: [],
     kills: 0,
     biomeId: 'graveyard',
     seed: 1234,

@@ -48,12 +48,12 @@ export interface EditorUIHandlers {
   onUpgradePart(partId: string): void;
   onRepairPart(partId: string): void;
   onRepairAll(): void;
+  /** Buy back and re-place every restorable part destroyed in a prior wave. */
+  onRebuildCar(): void;
   onDeleteSelected(): void;
   /** Take the selection off the rig and back into owned stock, not for cash. */
   onReturnSelected(): void;
   onRotateSelected(axis: 'y' | 'x'): void;
-  /** Unlock every catalog part the current build uses but the player lacks. */
-  onBuyMissingParts(): void;
   onCopyCode(): void;
   onCopyLink(): void;
   /** Raw contents of the paste box: a build code or a full share link. */
@@ -130,6 +130,9 @@ export interface RunRepairEconomy {
   integrityPct: number;
   totalCost: number;
   canRepairAll: boolean;
+  /** Cost to buy back and re-place every restorable part destroyed earlier. */
+  rebuildCost: number;
+  canRebuildAll: boolean;
   nextWaveNotice?: string;
 }
 
@@ -202,8 +205,6 @@ export interface EditorUI {
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
   setStatus(text: string): void;
-  /** Show/hide the "this build uses parts you don't own yet" banner. */
-  setLockedParts(defIds: readonly string[], money: number): void;
   /**
    * Ask where an imported build should go. Resolves to the player's choice, or
    * `'cancel'` if they dismissed the dialog.
@@ -969,24 +970,15 @@ export function buildEditorUI(
   runBannerWarning.className = 'run-banner__warning';
   const repairAllBtn = btn('Repair All $0', handlers.onRepairAll);
   repairAllBtn.className = 'primary run-banner__repair';
+  const rebuildAllBtn = btn('Rebuild Car $0', handlers.onRebuildCar);
+  rebuildAllBtn.className = 'primary run-banner__rebuild';
+  const runBannerActions = document.createElement('div');
+  runBannerActions.className = 'run-banner__actions';
+  runBannerActions.append(repairAllBtn, rebuildAllBtn);
   const noticeBanner = document.createElement('div');
   noticeBanner.className = 'panel editor-notice';
   noticeBanner.style.display = 'none';
   root.appendChild(noticeBanner);
-
-  // An imported build always arrives intact, so it can name parts the player
-  // has not unlocked. Those keep the rig off the field until they are bought,
-  // and this banner is the one place that says so and offers the fix.
-  const lockedBanner = document.createElement('div');
-  lockedBanner.className = 'panel editor-locked';
-  lockedBanner.hidden = true;
-  lockedBanner.setAttribute('role', 'status');
-  const lockedText = document.createElement('span');
-  lockedText.className = 'editor-locked__text';
-  const buyMissingBtn = btn('Buy missing parts', handlers.onBuyMissingParts);
-  buyMissingBtn.className = 'editor-locked__buy';
-  lockedBanner.append(lockedText, buyMissingBtn);
-  root.appendChild(lockedBanner);
 
   // With the bottom bar gone the status line floats just above the build bar,
   // and stays invisible (`:empty`) until there is something to say.
@@ -1932,10 +1924,19 @@ export function buildEditorUI(
               : repair.canRepairAll
                 ? 'Fully repair all surviving parts'
                 : 'Not enough money';
+          rebuildAllBtn.textContent = `Rebuild Car $${repair.rebuildCost}`;
+          rebuildAllBtn.disabled =
+            repair.rebuildCost === 0 || !repair.canRebuildAll;
+          rebuildAllBtn.title =
+            repair.rebuildCost === 0
+              ? 'Nothing to rebuild'
+              : repair.canRebuildAll
+                ? 'Buy back and re-place parts destroyed in a prior wave'
+                : 'Not enough money';
           runBanner.replaceChildren(
             runBannerText,
             runBannerWarning,
-            repairAllBtn,
+            runBannerActions,
           );
         } else {
           runBanner.replaceChildren(runBannerText, runBannerWarning);
@@ -1999,21 +2000,6 @@ export function buildEditorUI(
       applyToolStates();
     },
     setStatus,
-    setLockedParts: (defIds, money) => {
-      lockedBanner.hidden = defIds.length === 0;
-      if (defIds.length === 0) return;
-      const names = defIds.map((id) => catalog[id]?.name ?? id);
-      const total = defIds.reduce(
-        (sum, id) => sum + (catalog[id]?.unlockCost ?? 0),
-        0,
-      );
-      lockedText.textContent = `This build uses parts you don't own yet: ${names.join(', ')}.`;
-      buyMissingBtn.disabled = total > money;
-      buyMissingBtn.textContent = `Buy missing parts ($${total})`;
-      buyMissingBtn.title = buyMissingBtn.disabled
-        ? `Not enough money — need $${total}`
-        : `Unlock ${names.length} part${names.length === 1 ? '' : 's'} for $${total}`;
-    },
     askShareImportTarget: (buildName) =>
       new Promise((resolve) => {
         importDescription.textContent = `"${buildName}" is ready to load. Keep your current build by loading this as a new save slot, or replace what's in the garage right now.`;

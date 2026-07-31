@@ -1725,6 +1725,95 @@ export class VfxSystem {
     }
   }
 
+  /**
+   * A behemoth's two-handed slam landing. Deliberately built from the `lit`
+   * (matter) layer only — no `flash`, no `glow` spawns — so it reads as a
+   * physical ground-pound rather than a blast: broken rubble kicked outward
+   * in a ring that lands on the actual damage radius, a scatter of chunky
+   * debris thrown up from the impact point, and a low dust cloud settling
+   * over it. Nothing here is additive or bright, on purpose — the wind-up
+   * ring already owns "glowing warning"; this is the physical hit landing.
+   */
+  groundSmash(x: number, y: number, z: number, radius: number): void {
+    if (this.disposed || radius <= 0) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    // Shockwave: a ring of broken ground reaching the exact radius the hit
+    // damages, the same timing trick `selfDestruct`'s ring uses.
+    const ring = this.count(22, detail);
+    for (let i = 0; i < ring; i++) {
+      const angle = (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.15);
+      const life = this.rand(0.32, 0.48);
+      const speed = (radius / life) * this.rand(0.85, 1);
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * 0.3;
+      this.spec.y = y + 0.08;
+      this.spec.z = z + Math.sin(angle) * 0.3;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(0.6, 2.2);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.14, 0.26);
+      this.spec.endSize = this.spec.size * 0.7;
+      this.spec.lifeSeconds = life;
+      this.spec.colorStart = i % 2 === 0 ? VFX_PALETTE.rubble : VFX_PALETTE.dust;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -16;
+      this.spec.spin = 10;
+      this.spec.bounce = 0.3;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+
+    // Chunky rubble thrown straight up off the impact point — bigger and
+    // fewer than an explosion's dirt, so it reads as broken chunks of ground
+    // rather than a spray.
+    const rubble = this.count(18, detail);
+    for (let i = 0; i < rubble; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(1.5, 5.5);
+      this.reset0();
+      this.spec.x = x + this.randSigned(radius * 0.3);
+      this.spec.y = y + 0.1;
+      this.spec.z = z + this.randSigned(radius * 0.3);
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(3.5, 8.5);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.14, 0.3);
+      this.spec.endSize = this.spec.size * 0.85;
+      this.spec.lifeSeconds = this.rand(1, 1.7);
+      this.spec.colorStart = i % 3 === 0 ? VFX_PALETTE.bone : VFX_PALETTE.rubble;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = -22;
+      this.spec.spin = 11;
+      this.spec.bounce = 0.35;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+
+    // Low dust cloud settling over the crater — wider and flatter than a
+    // fireball's smoke column, since nothing here is burning.
+    const dust = this.count(10, detail);
+    for (let i = 0; i < dust; i++) {
+      this.reset0();
+      this.spec.x = x + this.randSigned(radius * 0.5);
+      this.spec.y = y + this.rand(0.05, 0.3);
+      this.spec.z = z + this.randSigned(radius * 0.5);
+      this.spec.vx = this.randSigned(1.8);
+      this.spec.vy = this.rand(0.4, 1.1);
+      this.spec.vz = this.randSigned(1.8);
+      this.spec.size = this.rand(0.3, 0.55);
+      this.spec.endSize = this.spec.size * 2.8;
+      this.spec.lifeSeconds = this.rand(1, 1.8);
+      this.spec.colorStart = VFX_PALETTE.dust;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = 0.6;
+      this.spec.drag = 2.4;
+      this.spec.spin = 1;
+      this.lit.spawn(this.take());
+    }
+  }
+
   /** Landmine or other blast: fireball core, radial sparks, dirt, and smoke. */
   explosion(x: number, y: number, z: number, radius: number): void {
     if (this.disposed) return;

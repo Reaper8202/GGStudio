@@ -319,6 +319,8 @@ export class ZombieSystem {
    * wave director assigning them, so its remaining count can absorb them.
    */
   onZombiesRaised: ((count: number) => void) | null = null;
+  /** Set by the owning mode; reports where a behemoth's slam just landed. */
+  onBehemothSmash: ((x: number, y: number, z: number) => void) | null = null;
   private healthMultiplier = 1;
   private speedMultiplier = 1;
   private attackDamageMultiplier = 1;
@@ -371,6 +373,7 @@ export class ZombieSystem {
       zombie.onBossVials = (boss) => this.fireVialsFrom(boss);
       zombie.onSummon = (necromancer) => this.raiseMinions(necromancer);
       zombie.onExplode = (kamikaze) => this.detonateKamikaze(kamikaze);
+      zombie.onSmash = (behemoth) => this.smashAt(behemoth);
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -559,6 +562,37 @@ export class ZombieSystem {
       if (distanceSq > radiusSq) continue;
       const falloff = 1 - Math.sqrt(distanceSq) / radius;
       const damage = devTuning.specialist.kamikazeExplosionDamage * falloff;
+      if (damage <= 0) continue;
+      this.vehicle.applyDirectDamage(anchor.partId, damage);
+    }
+  }
+
+  /**
+   * A behemoth's slam landing: vehicle-part damage centred on where it
+   * stands, falling off linearly to zero at the blast radius — the same
+   * falloff shape `detonateKamikaze` uses. Unlike a kamikaze this doesn't
+   * kill the zombie or run once; it fires every time the wind-up completes,
+   * so the zombie's own presentation (the pose, the ring, the VFX burst) is
+   * already handled by `Zombie.stepAttacking`, which is what calls this —
+   * this only owns the side of the hit Zombie has no reach into: the vehicle
+   * it struck.
+   */
+  private smashAt(behemoth: Zombie): void {
+    if (this.disposed) return;
+    const { x, y, z } = behemoth.position;
+    this.onBehemothSmash?.(x, y, z);
+    const radius = devTuning.specialist.behemothSmashRadius;
+    const radiusSq = radius * radius;
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      const dx = anchor.worldX - x;
+      const dy = anchor.worldY - y;
+      const dz = anchor.worldZ - z;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq > radiusSq) continue;
+      const falloff = 1 - Math.sqrt(distanceSq) / radius;
+      const damage = devTuning.specialist.behemothSmashDamage * falloff;
       if (damage <= 0) continue;
       this.vehicle.applyDirectDamage(anchor.partId, damage);
     }

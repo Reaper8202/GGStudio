@@ -854,7 +854,10 @@ canvas.viewport {
   margin-top: 3px;
 }
 
-.run-banner__repair {
+.run-banner__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
   grid-row: 1;
   grid-column: 2;
 }
@@ -944,36 +947,6 @@ canvas.viewport {
   box-shadow:
     5px 6px 0 rgb(0 0 0 / 0.38),
     inset 3px 0 0 var(--ui-rust-dark);
-}
-
-/* Sits just under the notice banner: an imported build naming parts the
-   player has not unlocked stays off the field until they are bought. */
-.editor-locked {
-  position: absolute;
-  top: 104px;
-  left: 50%;
-  z-index: 11;
-  display: flex;
-  max-width: min(680px, calc(100% - 32px));
-  align-items: center;
-  transform: translateX(-50%);
-  padding: 6px 14px;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: center;
-  background: var(--panel-bg-strong);
-  border: 1px solid var(--ui-edge);
-  border-radius: 0;
-  color: #d8a657;
-  font-weight: 700;
-  text-align: center;
-  box-shadow:
-    5px 6px 0 rgb(0 0 0 / 0.38),
-    inset 3px 0 0 var(--ui-rust-dark);
-}
-
-.editor-locked__text {
-  min-width: 0;
 }
 
 .share-hint {
@@ -4584,7 +4557,7 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .run-banner__repair {
+  .run-banner__actions {
     grid-row: auto;
     grid-column: 1;
   }

@@ -22,6 +22,7 @@ export interface WaveComposition {
   worker: number;
   'phone-addict': number;
   kamikaze: number;
+  behemoth: number;
   boss: number;
 }
 
@@ -56,6 +57,7 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
       worker: 0,
       'phone-addict': 0,
       kamikaze: 0,
+      behemoth: 0,
       boss: 1,
     };
   }
@@ -95,6 +97,11 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
     kamikaze: countFromCurve(
       composition.kamikaze,
       types.kamikaze.countOverride,
+      safeWave,
+    ),
+    behemoth: countFromCurve(
+      composition.behemoth,
+      types.behemoth.countOverride,
       safeWave,
     ),
     boss: 0,
@@ -170,6 +177,7 @@ export function spawnOrderForWave(wave: number): ZombieKind[] {
     'worker',
     'phone-addict',
     'kamikaze',
+    'behemoth',
   ] as const) {
     for (let i = 0; i < composition[kind]; i++) specials.push(kind);
   }

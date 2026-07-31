@@ -17,7 +17,7 @@ describe('wave formulas', () => {
   it.each([
     {
       wave: 1,
-      zombies: 14,
+      zombies: 13,
       maxActive: 26,
       healthMultiplier: 1,
       speedMultiplier: 1,
@@ -37,7 +37,9 @@ describe('wave formulas', () => {
     },
     {
       wave: 6,
-      zombies: 36,
+      // Spawn total outruns the concurrency cap from here on: main's retuned
+      // gunslinger curve adds five bodies to the wave without lifting maxActive.
+      zombies: 41,
       maxActive: 36,
       healthMultiplier: 1.3,
       speedMultiplier: 1.125,
@@ -137,54 +139,59 @@ describe('wave formulas', () => {
   it('unlocks sparse specialists at their progression milestones', () => {
     expect(zombieCompositionForWave(1)).toEqual({
       walker: 13,
-      gunslinger: 1,
+      gunslinger: 0,
       necromancer: 0,
       thrower: 0,
       worker: 0,
       'phone-addict': 0,
       kamikaze: 0,
+      behemoth: 0,
       boss: 0,
     });
     expect(zombieCompositionForWave(4)).toEqual({
       walker: 22,
-      gunslinger: 2,
+      gunslinger: 3,
       necromancer: 0,
       thrower: 1,
       worker: 0,
       'phone-addict': 0,
       kamikaze: 2,
+      behemoth: 0,
       boss: 0,
     });
     expect(zombieCompositionForWave(7)).toEqual({
       walker: 31,
-      gunslinger: 3,
+      gunslinger: 9,
       necromancer: 1,
       thrower: 3,
       worker: 1,
       'phone-addict': 0,
       kamikaze: 3,
+      behemoth: 0,
       boss: 0,
     });
     // Wave 10 is a boss wave here, so 11 is the first horde wave that fields a
     // Phone Addict.
     expect(zombieCompositionForWave(11)).toEqual({
       walker: 43,
-      gunslinger: 4,
+      gunslinger: 10,
       necromancer: 2,
       thrower: 5,
       worker: 2,
       'phone-addict': 1,
       kamikaze: 5,
+      behemoth: 1,
       boss: 0,
     });
     expect(zombieCompositionForWave(21)).toEqual({
       walker: 70,
-      gunslinger: 7,
+      gunslinger: 10,
       necromancer: 4,
       thrower: 10,
       worker: 5,
       'phone-addict': 3,
       kamikaze: 10,
+      behemoth: 3,
       boss: 0,
     });
   });
@@ -192,12 +199,13 @@ describe('wave formulas', () => {
   it('does not unlock specialists before their milestone waves', () => {
     expect(zombieCompositionForWave(2)).toEqual({
       walker: 16,
-      gunslinger: 1,
+      gunslinger: 0,
       necromancer: 0,
       worker: 0,
       thrower: 0,
       'phone-addict': 0,
       kamikaze: 0,
+      behemoth: 0,
       boss: 0,
     });
   });
@@ -225,6 +233,9 @@ describe('wave formulas', () => {
     expect(ZOMBIE_POOL_COUNTS.kamikaze).toBeGreaterThanOrEqual(
       lateWaveComposition.kamikaze,
     );
+    expect(ZOMBIE_POOL_COUNTS.behemoth).toBeGreaterThanOrEqual(
+      lateWaveComposition.behemoth,
+    );
   });
 
   it('makes debug kill-all account for every pending wave assignment', () => {
@@ -250,7 +261,7 @@ describe('wave formulas', () => {
 
     waves.startWave(1);
     expect(waveMultipliers).toEqual([1, 1, 1]);
-    expect(waves.prepareDebugKillAll()).toBe(14);
+    expect(waves.prepareDebugKillAll()).toBe(13);
     expect(remaining).toBe(0);
     expect(completion).toEqual({ wave: 1, reward: 50 });
   });

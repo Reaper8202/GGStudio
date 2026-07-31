@@ -24,6 +24,7 @@ describe('run score', () => {
       thrower: 30,
       'phone-addict': 20,
       kamikaze: 15,
+      behemoth: 80,
       // A boss replaces its whole wave's horde, so it pays out like one.
       boss: 500,
     });

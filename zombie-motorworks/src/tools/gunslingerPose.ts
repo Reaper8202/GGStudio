@@ -61,9 +61,13 @@ const SHOOT_DEFAULTS: Required<ShootOptions> = {
   muzzleRise: 0.36,
 };
 
-/** Progress at which each hand fires. The right hand leads; the left answers. */
-const SHOT_R = 0.4;
-const SHOT_L = 0.6;
+/**
+ * Progress at which each hand fires. The right hand leads; the left answers.
+ * Exported so gameplay code can land the hitscan on the same beat the pose
+ * actually fires on, instead of guessing at a second copy of these numbers.
+ */
+export const SHOT_R = 0.4;
+export const SHOT_L = 0.6;
 /** A shot arrives almost instantly and decays over roughly four times as long. */
 const SHOT_RISE = 0.035;
 const SHOT_FALL = 0.135;
