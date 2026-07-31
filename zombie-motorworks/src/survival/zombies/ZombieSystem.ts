@@ -113,6 +113,30 @@ const PLOW_PROBE_MIN_HEIGHT = 0.6;
 
 export type ZombieHitResult = 'miss' | 'shielded' | 'damaged' | 'killed';
 
+export type ZombieSfxEvent =
+  | 'spawn'
+  | 'melee'
+  | 'gunslinger'
+  | 'throw'
+  | 'projectileImpact'
+  | 'summon'
+  | 'minePlant'
+  | 'mineExplosion'
+  | 'kamikazeTick'
+  | 'kamikaze'
+  | 'behemoth'
+  | 'vehicleImpact'
+  | 'shield'
+  | 'death';
+
+export interface ZombieSfxReport {
+  event: ZombieSfxEvent;
+  kind: ZombieKind;
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface ZombieDamageReport {
   /** Stable collider handle for the hit zombie. */
   targetKey: number;
@@ -242,8 +266,7 @@ export class ZombieSystem {
   ): boolean => {
     const radius = hitRadius > 0 ? hitRadius : PROJECTILE_HIT_RADIUS;
     const radiusSq = radius * radius;
-    const applied =
-      damage > 0 ? damage : devTuning.specialist.projectileDamage;
+    const applied = damage > 0 ? damage : devTuning.specialist.projectileDamage;
     for (const anchor of this.vehicleAnchors) {
       if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
         continue;
@@ -251,6 +274,11 @@ export class ZombieSystem {
       const dy = anchor.worldY - y;
       const dz = anchor.worldZ - z;
       if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
+      this.vehicle.applyDirectDamage(
+        anchor.partId,
+        devTuning.specialist.projectileDamage,
+      );
+      this.emitSfxAt('projectileImpact', 'thrower', x, y, z);
       this.vehicle.applyDirectDamage(anchor.partId, applied);
       return true;
     }
@@ -314,6 +342,7 @@ export class ZombieSystem {
         devTuning.specialist.landmineDamage,
       );
     }
+    this.emitSfxAt('mineExplosion', 'worker', x, y, z);
     return detonated;
   };
   /**
@@ -323,6 +352,8 @@ export class ZombieSystem {
   onZombiesRaised: ((count: number) => void) | null = null;
   /** Set by the owning mode; reports where a behemoth's slam just landed. */
   onBehemothSmash: ((x: number, y: number, z: number) => void) | null = null;
+  /** Presentation-only event sink owned by the active mode. */
+  onSfx: ((report: ZombieSfxReport) => void) | null = null;
   private healthMultiplier = 1;
   private speedMultiplier = 1;
   private attackDamageMultiplier = 1;
@@ -370,16 +401,39 @@ export class ZombieSystem {
         vfx,
         spawnPoints,
       );
-      zombie.onThrow = (thrower) => this.launchProjectileFrom(thrower);
-      zombie.onPlantMine = (worker) =>
+      zombie.onSfx = (event, source) => this.emitSfx(event, source);
+      zombie.onThrow = (thrower) => {
+        this.emitSfx('throw', thrower);
+        this.launchProjectileFrom(thrower);
+      };
+      zombie.onPlantMine = (worker) => {
+        this.emitSfx('minePlant', worker);
         this.landmines.plant(worker.position.x, worker.position.z);
+      };
+      zombie.onSummon = (necromancer) => {
+        this.emitSfx('summon', necromancer);
+        this.raiseMinions(necromancer);
+      };
+      zombie.onExplode = (kamikaze) => {
+        this.emitSfx('kamikaze', kamikaze);
+        this.detonateKamikaze(kamikaze);
+      };
+      zombie.onSmash = (behemoth) => {
+        this.emitSfx('behemoth', behemoth);
+        this.smashAt(behemoth);
+      };
       zombie.onBossSlam = (boss) => this.applyBossSlam(boss);
       zombie.onBossVials = (boss) => this.fireVialsFrom(boss);
       zombie.onSummon = (necromancer) => this.raiseMinions(necromancer);
       zombie.onExplode = (kamikaze) => this.detonateKamikaze(kamikaze);
       zombie.onSmash = (behemoth) => this.smashAt(behemoth);
       zombie.onLayIce = (zamboni, fromX, fromZ) =>
-        this.iceTrail.drop(fromX, fromZ, zamboni.position.x, zamboni.position.z);
+        this.iceTrail.drop(
+          fromX,
+          fromZ,
+          zamboni.position.x,
+          zamboni.position.z,
+        );
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -532,6 +586,7 @@ export class ZombieSystem {
         this.attackDamageMultiplier,
       );
       this.resetWatchdog(minion);
+      this.emitSfx('spawn', minion);
       this.vfx?.necroticRaise(
         this.spawnScratch.x,
         this.spawnScratch.y - ZOMBIE_HALF_HEIGHT,
@@ -634,6 +689,7 @@ export class ZombieSystem {
         kind === 'boss' ? this.bossDefinition : null,
       );
       this.resetWatchdog(zombie);
+      this.emitSfx('spawn', zombie);
       spawned++;
     }
     return spawned;
@@ -669,7 +725,11 @@ export class ZombieSystem {
     // what a touch is worth.
     this.processPlowBlades(this.activeScratch, dt);
     this.processVehicleContacts(this.activeScratch, dt);
-    this.projectiles.update(dt, this.tryProjectileImpact, this.onProjectileLand);
+    this.projectiles.update(
+      dt,
+      this.tryProjectileImpact,
+      this.onProjectileLand,
+    );
     const vehiclePosition = this.vehicle.body.translation();
     this.landmines.update(dt, this.tryMineDetonation, {
       vehicleX: vehiclePosition.x,
@@ -816,7 +876,8 @@ export class ZombieSystem {
 
     for (let i = 0; i < count; i++) {
       // -half, 0, +half for three; a single vial is the offset-0 special case.
-      const offset = count === 1 ? 0 : -halfFan + (2 * halfFan * i) / (count - 1);
+      const offset =
+        count === 1 ? 0 : -halfFan + (2 * halfFan * i) / (count - 1);
       const cos = Math.cos(offset);
       const sin = Math.sin(offset);
       this.projectiles.launch(
@@ -1039,6 +1100,7 @@ export class ZombieSystem {
     // damage continues to wash around it at full strength.
     if (zombie.kind === 'phone-addict' && damageType !== 'aoe') {
       zombie.flashShield();
+      this.emitSfx('shield', zombie);
       const appliedDamage = damage * empShieldLeak(empLevel);
       const wasTargetable = zombie.isTargetable;
       const killed = zombie.takeDamage(appliedDamage, direction);
@@ -1145,9 +1207,31 @@ export class ZombieSystem {
     this.plowBlades.length = 0;
     this.plowPile.length = 0;
     this.damageListener = null;
+    this.onSfx = null;
     this.anchorByPartId.clear();
     this.separationBuckets.clear();
     this.fallbackGeometry.dispose();
+  }
+
+  private emitSfx(event: ZombieSfxEvent, zombie: Zombie): void {
+    if (typeof this.onSfx !== 'function') return;
+    this.emitSfxAt(
+      event,
+      zombie.kind,
+      zombie.position.x,
+      zombie.position.y,
+      zombie.position.z,
+    );
+  }
+
+  private emitSfxAt(
+    event: ZombieSfxEvent,
+    kind: ZombieKind,
+    x: number,
+    y: number,
+    z: number,
+  ): void {
+    this.onSfx?.({ event, kind, x, y, z });
   }
 
   /** The listener consumes synchronously, so one report object is enough for every hit. */
@@ -1588,6 +1672,7 @@ export class ZombieSystem {
       const awayZ = -forwardZ + sideZ * offset;
       const landed = zombie.applyPlowCrush(damage, awayX, awayZ);
       if (landed === 'ignored') continue;
+      this.emitSfx('vehicleImpact', zombie);
       this.reportZombieDamage(zombie, damage, landed === 'killed');
       // A blunt ram burst per body, at full power: the blade has no edge, so
       // what the player should see is the whole pile going flat at once.
@@ -1661,6 +1746,7 @@ export class ZombieSystem {
       // paces the shred bursts: a drum touching a packed horde emits once per
       // zombie per cooldown, never once per fixed step.
       if (landed !== 'ignored') {
+        this.emitSfx('vehicleImpact', zombie);
         this.reportZombieDamage(zombie, damageForReport, landed === 'killed');
         this.emitShredVfx(zombie, melee, awayX, awayZ, vehicleSpeed);
       }

@@ -712,3 +712,58 @@
     transform: none !important;
   }
 }
+
+/* Dev-only wave rating strip. Mounted only under ?dev=1, so it never reaches a
+   player; styled to read as instrumentation rather than part of the game. */
+.wave-clear__feel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--ui-edge);
+  background: color-mix(in srgb, var(--ui-black) 35%, transparent);
+}
+
+.wave-clear__feel-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wave-clear__feel-btn {
+  flex: 1 1 90px;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--ui-edge);
+  border-radius: 0;
+  background: var(--ui-surface-3);
+  color: var(--ui-text-muted);
+  font: 400 12px/1 var(--ui-font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.wave-clear__feel-btn:hover {
+  color: var(--ui-text);
+}
+
+.wave-clear__feel-btn--on {
+  border-color: var(--ui-signal);
+  background: var(--ui-signal-dark);
+  color: var(--ui-text);
+}
+
+.wave-clear__feel-note {
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--ui-edge);
+  border-radius: 0;
+  background: var(--ui-ink);
+  color: var(--ui-text);
+  font: 400 12px/1.3 var(--ui-font-body);
+}
+
+.wave-clear__feel-note::placeholder {
+  color: var(--ui-text-muted);
+}

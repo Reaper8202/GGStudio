@@ -302,6 +302,15 @@ export class TitleScreen {
   private audioUnlocked = false;
   private disposed = false;
 
+  private readonly onUiButtonClick = (event: MouseEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('button');
+    if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+    this.unlockAudioFromInput();
+    playSfx('uiClick');
+  };
+
   // ---- 3D backdrop ----
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
@@ -593,7 +602,10 @@ export class TitleScreen {
     this.settingsOverlay.hidden = true;
     this.settingsOverlay.setAttribute('role', 'dialog');
     this.settingsOverlay.setAttribute('aria-modal', 'true');
-    this.settingsOverlay.setAttribute('aria-labelledby', 'title-settings-title');
+    this.settingsOverlay.setAttribute(
+      'aria-labelledby',
+      'title-settings-title',
+    );
     const settingsDialog = document.createElement('section');
     settingsDialog.className = 'panel title-settings-dialog';
     const settingsTitle = document.createElement('h2');
@@ -635,6 +647,10 @@ export class TitleScreen {
       this.settingsOverlay,
     );
     container.appendChild(this.root);
+    this.root.addEventListener('click', this.onUiButtonClick, true);
+    this.listenerRemovers.push(() =>
+      this.root.removeEventListener('click', this.onUiButtonClick, true),
+    );
 
     this.listen(this.resumeButton, 'click', this.onResumeClick);
     this.listen(this.newGameButton, 'click', this.onNewGameClick);
@@ -697,9 +713,7 @@ export class TitleScreen {
     handler: (event: HTMLElementEventMap[K]) => void,
   ): void {
     target.addEventListener(type, handler);
-    this.listenerRemovers.push(() =>
-      target.removeEventListener(type, handler),
-    );
+    this.listenerRemovers.push(() => target.removeEventListener(type, handler));
   }
 
   /** Second screen, shown after New Game: one row per map, top to bottom. */

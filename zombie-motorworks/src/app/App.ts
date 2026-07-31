@@ -26,6 +26,7 @@ import { composeOrientations, orientationFromSteps } from '../core/grid.ts';
 import {
   BLUEPRINT_STORAGE_KEY,
   EditorMode,
+  type EditorSfxCue,
   type EditorViewState,
 } from '../editor/EditorMode.ts';
 import type { RunSummary } from '../editor/ui.ts';
@@ -50,11 +51,28 @@ import type { RunOutcome } from '../core/leaderboard.ts';
 import type { SavedRun } from '../core/runSave.ts';
 import { randomSeed } from '../core/rng.ts';
 import { DEFAULT_BIOME_ID } from '../survival/arena/recipes/index.ts';
+import { isDevMode, waveJumpTarget } from '../survival/devtuning/devMode.ts';
 import { submitCrazyGamesScore } from './crazyGamesSdk.ts';
 import { leaderboardStore } from './leaderboardStore.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
 import { runSaveStore } from './runSaveStore.ts';
 import { TitleScreen } from './TitleScreen.ts';
+import {
+  playSfx,
+  startGarageMusic,
+  stopGarageMusic,
+  type SfxName,
+} from './sfx.ts';
+
+const EDITOR_SFX: Record<EditorSfxCue, SfxName> = {
+  click: 'uiClick',
+  deny: 'uiDeny',
+  place: 'garagePlace',
+  remove: 'garageRemove',
+  purchase: 'garagePurchase',
+  repair: 'garageRepair',
+  upgrade: 'garageUpgrade',
+};
 
 export interface RunCheckpoint {
   /** Wave the player will play next. */
@@ -270,6 +288,19 @@ export function savedRunFromCheckpoint(
 }
 
 /** Apply permanent wave progress and its catalog unlock to a profile. */
+/**
+ * Money handed out by a wave jump.
+ *
+ * Deliberately a grant rather than a simulation of what a real player would be
+ * holding: a real wallet reflects what they spent on repairs and what they
+ * chose not to buy, none of which a jump can know. A jump exists to try rigs
+ * against a wave, so the wallet should not be the thing under test — checking
+ * whether the economy affords that rig needs a real run.
+ */
+function devWalletForWave(wave: number): number {
+  return 2000 + 1500 * wave;
+}
+
 export function recordWaveCleared(profile: PlayerProfile, wave: number): void {
   profile.highestWaveCleared = Math.max(profile.highestWaveCleared ?? 0, wave);
   if (
@@ -365,7 +396,10 @@ export class App {
       this.title?.resize(this.root.clientWidth, this.root.clientHeight);
     });
 
-    this.showTitle(this.saveExistedAtBoot);
+    const jumpTo = waveJumpTarget();
+    if (jumpTo === null || !this.devWaveJump(jumpTo)) {
+      this.showTitle(this.saveExistedAtBoot);
+    }
 
     const loop = (): void => {
       requestAnimationFrame(loop);
@@ -504,6 +538,7 @@ export class App {
         persistProfile: () => this.saveProfileOrThrow(),
         onMenu: () => this.returnToTitle(),
         onSaveAndQuit: () => this.saveAndQuitFromGarage(),
+        onSfx: (cue) => playSfx(EDITOR_SFX[cue]),
         runContext:
           this.activeRun && this.inBuildPhase ? this.activeRun : undefined,
         runRepair:
@@ -521,10 +556,12 @@ export class App {
     );
     this.pendingEditorNotice = undefined;
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
+    startGarageMusic();
   }
 
   private showTitle(hasSave = this.hasStoredSave()): void {
     if (this.activeRun && this.inBuildPhase) return;
+    stopGarageMusic();
     this.disposeTitle();
     this.title = new TitleScreen(
       this.root,
@@ -633,6 +670,7 @@ export class App {
   }
 
   private enterChamber(bp: VehicleBlueprint): void {
+    stopGarageMusic();
     this.bp = bp;
     this.savedView = this.editor?.viewState();
     this.editor?.dispose();
@@ -641,6 +679,44 @@ export class App {
       this.openEditor(),
     );
     this.chamber.resize(this.root.clientWidth, this.root.clientHeight);
+  }
+
+  /**
+   * Open straight into the Garage with a run primed at `wave` (`?dev=1&wave=N`).
+   *
+   * Landing in the Garage rather than the arena is deliberate: which rig a
+   * player would plausibly have at this depth is a judgement call, and the
+   * point of the jump is to try several against the same wave. Parts and money
+   * are granted to match the depth so the rig under test is one that could
+   * actually have been built by then.
+   *
+   * Returns false when there is nothing to do, so boot falls back to the title.
+   */
+  devWaveJump(wave: number): boolean {
+    // Wave 1 is where a normal new run already starts; jumping there would only
+    // skip the title for no benefit and hand out a wallet nobody earned.
+    if (!isDevMode() || !Number.isInteger(wave) || wave < 2) return false;
+
+    recordWaveCleared(this.profile, wave - 1);
+    this.changeMoney(devWalletForWave(wave), true);
+    this.markProfileDirty();
+
+    const loaded = this.loadCurrentBlueprint();
+    if (loaded.kind === 'loaded') this.bp = loaded.blueprint;
+    this.checkpoint = {
+      ...createInitialRunCheckpoint(this.bp, this.preferredBiomeId),
+      wave,
+    };
+    this.runMoneyEarned = 0;
+    this.runSummary = undefined;
+    this.committedDestroyedPartNames.length = 0;
+    // The Garage banner reads the next wave off `activeRun.wave + 1`, matching
+    // how a Build Phase between cleared waves is described.
+    this.activeRun = { wave: wave - 1 };
+    this.inBuildPhase = true;
+    this.disposeTitle();
+    this.openEditor();
+    return true;
   }
 
   private startOrResumeRun(bp: VehicleBlueprint): void {
@@ -682,6 +758,7 @@ export class App {
   }
 
   private enterSurvival(bp: VehicleBlueprint, run: RunState): void {
+    stopGarageMusic();
     this.editor?.persistGarage();
     this.bp = bp;
     this.savedView = this.editor?.viewState();
@@ -1324,18 +1401,8 @@ export function buildStarterBlueprint(): VehicleBlueprint {
     // Front wheel hangs off the nz face of the frame ahead of it, like a
     // motorcycle fork, so it sits centred instead of hanging off one side.
     part('wheel-standard', { x: 0, y: 1, z: 2 }, 0, defaultWheelConfig()),
-    part(
-      'wheel-standard',
-      { x: 2, y: 1, z: -1 },
-      yaw180,
-      defaultWheelConfig(),
-    ),
-    part(
-      'wheel-standard',
-      { x: -2, y: 1, z: -1 },
-      0,
-      defaultWheelConfig(),
-    ),
+    part('wheel-standard', { x: 2, y: 1, z: -1 }, yaw180, defaultWheelConfig()),
+    part('wheel-standard', { x: -2, y: 1, z: -1 }, 0, defaultWheelConfig()),
     part('engine-small', { x: 0, y: 2, z: -1 }),
     part('fuel-tank', { x: 0, y: 2, z: 0 }),
     // No weapon pre-mounted — the player picks one of the starter weapons

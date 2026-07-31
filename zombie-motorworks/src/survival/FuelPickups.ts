@@ -80,6 +80,7 @@ export class FuelPickups {
     private readonly scene: THREE.Scene,
     private readonly vehicle: RuntimeVehicle,
     private readonly bounds: MapBounds,
+    private readonly onCollected: (() => void) | null = null,
   ) {
     this.root.name = 'fuel-pickups';
     this.scene.add(this.root);
@@ -174,6 +175,7 @@ export class FuelPickups {
     slot.active = false;
     slot.cooldown = RESPAWN_SECONDS;
     slot.group.visible = false;
+    this.onCollected?.();
   }
 
   private pickLocation(vehiclePos: { x: number; z: number }): {

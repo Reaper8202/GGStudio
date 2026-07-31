@@ -78,6 +78,8 @@ export interface VehicleTelemetry {
   speedKmh: number;
   rpm: number;
   gear: number;
+  /** Strongest current tyre slip ratio, normalised by the wheel solver. */
+  wheelSlip: number;
   fuel: number;
   fuelCapacity: number;
   groundedWheels: number;
@@ -1087,6 +1089,10 @@ export class RuntimeVehicle {
     const v = this.assembled.body.linvel();
     let alive = 0;
     let detached = 0;
+    let wheelSlip = 0;
+    for (const contact of this.lastWheelTelemetry.contacts) {
+      wheelSlip = Math.max(wheelSlip, contact.slip);
+    }
     for (const [, p] of this.assembled.parts) {
       if (p.alive && !p.detached) alive++;
       if (p.detached) detached++;
@@ -1095,6 +1101,7 @@ export class RuntimeVehicle {
       speedKmh: Math.hypot(v.x, v.y, v.z) * 3.6,
       rpm: this.lastRpm,
       gear: this.lastGear,
+      wheelSlip,
       fuel: this.fuel,
       fuelCapacity: this.fuelCapacity,
       groundedWheels: this.lastWheelTelemetry.groundedCount,

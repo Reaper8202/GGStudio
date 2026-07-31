@@ -1,0 +1,41 @@
+{
+  "wave": {
+    "health": {
+      "perWave": 0.06,
+      "cap": 3
+    },
+    "composition": {
+      "walker": {
+        "startWave": 1,
+        "base": 13,
+        "perStep": 3,
+        "every": 1,
+        "cap": 34
+      },
+      "thrower": {
+        "startWave": 3,
+        "base": 1,
+        "perStep": 1,
+        "every": 1,
+        "cap": 14
+      },
+      "worker": {
+        "startWave": 7,
+        "base": 1,
+        "perStep": 1,
+        "every": 2,
+        "cap": 8
+      },
+      "phone-addict": {
+        "startWave": 10,
+        "base": 1,
+        "perStep": 1,
+        "every": 2,
+        "cap": 8
+      }
+    },
+    "maxActiveBase": 26,
+    "maxActivePerWave": 2,
+    "maxActiveCap": 64
+  }
+}
