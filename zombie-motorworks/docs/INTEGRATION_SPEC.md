@@ -97,8 +97,10 @@ Editor responsibilities:
 
 Transaction requirements:
 
-- Unlock-and-buy is atomic: unlock, charge, Inventory grant, and armed placement
-  either all succeed or all roll back.
+- A locked Store action charges and persists only the catalog unlock; it grants
+  no Inventory. Once unlocked, a later Store action charges the shelf price,
+  grants one Inventory copy, and arms placement. Each transaction independently
+  succeeds or rolls back.
 - Placing consumes one Inventory copy; undo restores it.
 - Selling removes the part and refunds the pure `sellRefund` value; undo reverses
   both changes.

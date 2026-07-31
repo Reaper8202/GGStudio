@@ -202,11 +202,13 @@ Profile money is the only spendable balance. Run earnings are an accounting
 subset used for summaries, not a second wallet. `CommandHistory` applies money
 deltas with Blueprint edits so execute/undo/redo remain symmetric.
 
-Store unlock-and-buy uses one atomic editor transaction: deduct total price,
-record unlock if needed, add Inventory, then arm placement. Rollback restores
-all three on failure. Placement consumes Inventory. Selling returns the pure
-`sellRefund` result. Repairs operate only through the in-run repair Adapter in
-`App`, where Profile payment and checkpoint HP change together.
+Store progression uses two persistent editor transactions. A locked tile first
+deducts only its unlock fee and records the permanent unlock without adding
+Inventory. A later click deducts the shelf price, adds one Inventory copy, and
+arms placement. Each transaction restores its own Profile changes on failure.
+Placement consumes Inventory. Selling returns the pure `sellRefund` result.
+Repairs operate only through the in-run repair Adapter in `App`, where Profile
+payment and checkpoint HP change together.
 
 Upgrade previews create a temporary upgraded Blueprint and rerun the same
 effective-definition and vehicle-analysis helpers used by gameplay. UI code
@@ -252,7 +254,7 @@ instead of reading them front to back:
 | File                           | Search targets by concern                                                                                                                                                          |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/app/App.ts`               | `openEditor`, `enterChamber`, `startRun`, `resumeRun`, `enterSurvival`, `commitClearedWaveCheckpoint`, `enterBuildPhase`, `finishRun`, `repairPart`, `saveAndQuitRun`, `debugSeam` |
-| `src/editor/EditorMode.ts`     | exported store/preview helpers, `exec`, `buyUpgrade`, `repairPart`, `sellPart`, `buyAndArmPart`, `placeGhost`, selection methods, `persistGarage`, `refresh`                       |
+| `src/editor/EditorMode.ts`     | exported store/preview helpers, `exec`, `buyUpgrade`, `repairPart`, `sellPart`, `handleStorePart`, `placeGhost`, selection methods, `persistGarage`, `refresh`                       |
 | `src/survival/SurvivalMode.ts` | `SurvivalCallbacks`, `buildUI`, `stepFixed`, `onWaveComplete`, pending reward methods, `queueCompletedStepTransition`, `showVictory`, `queueGameOver`, `syncHud`, debug methods    |
 
 These files are integration owners, so callback order is part of their

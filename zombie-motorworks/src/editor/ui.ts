@@ -19,11 +19,12 @@ import {
   upgradeStars,
   upgradeStepsFor,
 } from '../core/partUpgrades.ts';
+import { storeOffer } from '../core/economy.ts';
 import { upgradePrice } from '../core/upgrades.ts';
 import { mountSpinningPartPreview } from './WeaponPromptPreview.ts';
 
 export interface EditorUIHandlers {
-  /** Atomic production store action; old harnesses may omit this callback. */
+  /** Unlocks a locked part, or buys and arms an already-unlocked part. */
   onPurchasePart?(defId: string): void;
   onBuyPart(defId: string): void;
   onArmPart(defId: string): void;
@@ -152,10 +153,7 @@ const DEFENSIVE_WEAPON_PART_IDS = new Set([
 ]);
 
 /** Catalog parts filed under `weapon` that are really about getting around. */
-const MOBILITY_WEAPON_PART_IDS = new Set([
-  'nitro-injector',
-  'phase-drive',
-]);
+const MOBILITY_WEAPON_PART_IDS = new Set(['nitro-injector', 'phase-drive']);
 
 function storeGroupForPart(def: PartDefinition): StoreGroup {
   if (def.category === 'movement' || MOBILITY_WEAPON_PART_IDS.has(def.id)) {
@@ -228,10 +226,14 @@ export interface EditorUI {
 interface CollapsiblePanel {
   panel: HTMLElement;
   body: HTMLElement;
+  toggle: HTMLButtonElement;
   setCollapsed(collapsed: boolean): void;
 }
 
-function buildCollapsiblePanel(titleText: string, className: string): CollapsiblePanel {
+function buildCollapsiblePanel(
+  titleText: string,
+  className: string,
+): CollapsiblePanel {
   const panel = document.createElement('section');
   panel.className = `panel dock-panel ${className}`;
   const header = document.createElement('header');
@@ -248,14 +250,17 @@ function buildCollapsiblePanel(titleText: string, className: string): Collapsibl
   const setCollapsed = (collapsed: boolean): void => {
     panel.classList.toggle('is-collapsed', collapsed);
     toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} ${titleText}`);
+    toggle.setAttribute(
+      'aria-label',
+      `${collapsed ? 'Expand' : 'Collapse'} ${titleText}`,
+    );
   };
   toggle.addEventListener('click', () =>
     setCollapsed(!panel.classList.contains('is-collapsed')),
   );
   header.append(title, toggle);
   panel.append(header, body);
-  return { panel, body, setCollapsed };
+  return { panel, body, toggle, setCollapsed };
 }
 
 function buildMetric(
@@ -283,7 +288,10 @@ function buildMetric(
   track.setAttribute('aria-valuenow', String(Math.round(value)));
   const fill = document.createElement('span');
   fill.className = 'garage-stat__fill';
-  fill.style.setProperty('--garage-stat-value', `${Math.min(100, Math.max(0, (value / max) * 100))}%`);
+  fill.style.setProperty(
+    '--garage-stat-value',
+    `${Math.min(100, Math.max(0, (value / max) * 100))}%`,
+  );
   track.appendChild(fill);
   metric.append(header, track);
   return metric;
@@ -299,7 +307,10 @@ function buildStarRating(level: number): HTMLElement {
   const rating = document.createElement('div');
   rating.className = 'selected-part__rating';
   rating.setAttribute('role', 'img');
-  rating.setAttribute('aria-label', `${earned} of ${MAX_UPGRADE_STEPS} upgrades fitted`);
+  rating.setAttribute(
+    'aria-label',
+    `${earned} of ${MAX_UPGRADE_STEPS} upgrades fitted`,
+  );
   const stars = document.createElement('span');
   stars.className = 'selected-part__stars';
   for (let i = 0; i < MAX_UPGRADE_STEPS; i++) {
@@ -332,7 +343,9 @@ function upgradeDeltaRows(
       `${formatStat(preview.before.integrity)} → ${formatStat(preview.after.integrity)}`,
     ]);
   }
-  if (preview.before.estimatedTopSpeedKph !== preview.after.estimatedTopSpeedKph) {
+  if (
+    preview.before.estimatedTopSpeedKph !== preview.after.estimatedTopSpeedKph
+  ) {
     rows.push([
       'Top Speed',
       `${preview.before.estimatedTopSpeedKph.toFixed(0)} → ${preview.after.estimatedTopSpeedKph.toFixed(0)} km/h`,
@@ -376,7 +389,8 @@ function buildUpgradeSection(
     return section;
   }
 
-  const price = economy?.nextUpgradePrice ?? upgradePrice(def, nextStep.level) ?? 0;
+  const price =
+    economy?.nextUpgradePrice ?? upgradePrice(def, nextStep.level) ?? 0;
   const unlock = document.createElement('button');
   unlock.type = 'button';
   unlock.className = 'upgrade-unlock';
@@ -444,7 +458,19 @@ function buildUpgradeSection(
   return section;
 }
 
-function partThumbnail(def: PartDefinition): HTMLImageElement {
+function partThumbnail(
+  def: PartDefinition,
+  iconUrl?: string,
+): HTMLImageElement {
+  const image = document.createElement('img');
+  image.className = 'part-thumbnail';
+  image.alt = '';
+  image.draggable = false;
+  if (iconUrl) {
+    image.src = iconUrl;
+    return image;
+  }
+
   const common = `
     <path d="M16 24 32 15 48 24 32 33Z" fill="#59604f"/>
     <path d="M16 24 32 33 32 50 16 41Z" fill="#363b32"/>
@@ -601,11 +627,7 @@ function partThumbnail(def: PartDefinition): HTMLImageElement {
     `,
   };
   const drawing = drawings[def.id] ?? common;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" shape-rendering="crispEdges"><rect width="64" height="64" fill="#090b09"/>${drawing}</svg>`;
-  const image = document.createElement('img');
-  image.className = 'part-thumbnail';
-  image.alt = '';
-  image.draggable = false;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64">${drawing}</svg>`;
   image.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
   return image;
 }
@@ -671,12 +693,17 @@ export function buildEditorUI(
   container: HTMLElement,
   catalog: Record<string, PartDefinition>,
   handlers: EditorUIHandlers,
+  partIconUrls: ReadonlyMap<string, string> = new Map(),
 ): EditorUI {
   const root = document.createElement('div');
   root.className = 'ui-layer garage-ui';
   container.appendChild(root);
 
-  const btn = (label: string, fn: () => void, title = ''): HTMLButtonElement => {
+  const btn = (
+    label: string,
+    fn: () => void,
+    title = '',
+  ): HTMLButtonElement => {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = label;
@@ -860,13 +887,12 @@ export function buildEditorUI(
   }
   const refreshWeaponPromptPrices = (): void => {
     for (const [defId, price] of weaponPromptPrices) {
-      const def = catalog[defId];
-      if (!def) continue;
-      const needsUnlock =
-        (def.unlockCost ?? 0) > 0 && !currentUnlockedDefIds.includes(defId);
-      price.textContent = needsUnlock
-        ? `$${def.unlockCost} + $${def.cost}`
-        : `$${def.cost}`;
+      if (!catalog[defId]) continue;
+      const offer = storeOffer(defId, currentUnlockedDefIds);
+      price.textContent =
+        offer.action === 'unlock'
+          ? `Unlock $${offer.price}`
+          : `$${offer.price}`;
     }
   };
   const weaponPromptActions = document.createElement('div');
@@ -911,11 +937,13 @@ export function buildEditorUI(
   const importActions = document.createElement('div');
   importActions.className = 'garage-confirm__actions';
   let importReturnFocus: HTMLElement | null = null;
-  let settleImport: ((choice: 'new-slot' | 'replace' | 'cancel') => void) | null =
-    null;
+  let settleImport:
+    ((choice: 'new-slot' | 'replace' | 'cancel') => void) | null = null;
   // Always settles the pending promise, so a dismissed dialog can never leave
   // the import flow waiting forever.
-  const closeImportDialog = (choice: 'new-slot' | 'replace' | 'cancel'): void => {
+  const closeImportDialog = (
+    choice: 'new-slot' | 'replace' | 'cancel',
+  ): void => {
     importOverlay.hidden = true;
     const settle = settleImport;
     settleImport = null;
@@ -951,7 +979,9 @@ export function buildEditorUI(
   nameInput.type = 'text';
   nameInput.className = 'garage-name';
   nameInput.title = 'Vehicle name';
-  nameInput.addEventListener('change', () => handlers.onRename(nameInput.value));
+  nameInput.addEventListener('change', () =>
+    handlers.onRename(nameInput.value),
+  );
   const menuBtn = btn('Menu', handlers.onMenu);
   const saveAndQuitBtn = btn('Save & Quit', handlers.onSaveAndQuit);
   // Banking a wave only means something inside a run; `setRunContext` reveals
@@ -965,7 +995,12 @@ export function buildEditorUI(
   const history = document.createElement('div');
   history.className = 'topbar-history';
   const undoBtn = iconBtn(UNDO_ICON_SVG, 'Undo', handlers.onUndo, 'Ctrl+Z');
-  const redoBtn = iconBtn(REDO_ICON_SVG, 'Redo', handlers.onRedo, 'Ctrl+Shift+Z');
+  const redoBtn = iconBtn(
+    REDO_ICON_SVG,
+    'Redo',
+    handlers.onRedo,
+    'Ctrl+Shift+Z',
+  );
   history.append(undoBtn, redoBtn);
   top.appendChild(history);
   let symmetry = false;
@@ -991,14 +1026,22 @@ export function buildEditorUI(
   top.appendChild(symmetryBtn);
   const viewSelect = document.createElement('select');
   viewSelect.title = 'View (keys 1-5)';
-  for (const [label, value] of [['3D', 'persp'], ['Front', 'front'], ['Rear', 'rear'], ['Side', 'side'], ['Top', 'top']] as const) {
+  for (const [label, value] of [
+    ['3D', 'persp'],
+    ['Front', 'front'],
+    ['Rear', 'rear'],
+    ['Side', 'side'],
+    ['Top', 'top'],
+  ] as const) {
     const option = document.createElement('option');
     option.value = value;
     option.textContent = label;
     viewSelect.appendChild(option);
   }
   viewSelect.addEventListener('change', () =>
-    handlers.onView(viewSelect.value as 'persp' | 'front' | 'rear' | 'side' | 'top'),
+    handlers.onView(
+      viewSelect.value as 'persp' | 'front' | 'rear' | 'side' | 'top',
+    ),
   );
   top.appendChild(viewSelect);
 
@@ -1034,11 +1077,20 @@ export function buildEditorUI(
 
   const utilityButtons = document.createElement('div');
   utilityButtons.className = 'topbar-utilities';
+  let setShareOpen = (_open: boolean): void => undefined;
+  const helpButton = btn('Help', () => toggleHelp());
+  const shareTopButton = btn('Share', () => {
+    const open = shareTopButton.getAttribute('aria-expanded') !== 'true';
+    setShareOpen(open);
+  });
+  shareTopButton.setAttribute('aria-controls', 'garage-share-panel');
+  shareTopButton.setAttribute('aria-expanded', 'false');
   utilityButtons.append(
     menuBtn,
     saveAndQuitBtn,
     btn('Tutorial', handlers.onStartTutorial),
-    btn('Help', () => toggleHelp()),
+    helpButton,
+    shareTopButton,
   );
   top.appendChild(utilityButtons);
   const testBtn = btn('Test Drive', handlers.onTestDrive);
@@ -1048,7 +1100,9 @@ export function buildEditorUI(
   const moneyReadout = document.createElement('span');
   moneyReadout.className = 'panel money-readout';
   moneyReadout.textContent = '$0';
-  moneyReadout.addEventListener('animationend', () => moneyReadout.classList.remove('deny-shake'));
+  moneyReadout.addEventListener('animationend', () =>
+    moneyReadout.classList.remove('deny-shake'),
+  );
   top.append(testBtn, fightBtn, moneyReadout);
 
   const runBanner = document.createElement('div');
@@ -1133,6 +1187,7 @@ export function buildEditorUI(
   // Sharing lives in its own dock panel, collapsed by default: it is a thing
   // players go looking for, not something that should crowd the build tools.
   const share = buildCollapsiblePanel('Share', 'share-panel');
+  share.panel.id = 'garage-share-panel';
   const shareHint = document.createElement('p');
   shareHint.className = 'share-hint';
   shareHint.textContent =
@@ -1152,7 +1207,18 @@ export function buildEditorUI(
     shareInput.value = '';
   });
   share.body.append(shareHint, shareActions, shareInput, importBtn);
-  share.setCollapsed(true);
+  const syncShareButton = (): void => {
+    const open = !share.panel.classList.contains('is-collapsed');
+    shareTopButton.setAttribute('aria-expanded', String(open));
+    shareTopButton.classList.toggle('active', open);
+  };
+  setShareOpen = (open): void => {
+    share.setCollapsed(!open);
+    syncShareButton();
+    if (open) copyCodeBtn.focus();
+  };
+  share.toggle.addEventListener('click', syncShareButton);
+  setShareOpen(false);
   garageDock.appendChild(share.panel);
 
   // Inventory lives in a popover over the build bar rather than in the dock, so
@@ -1199,10 +1265,12 @@ export function buildEditorUI(
       def.name,
       description,
       def.description,
-    ].join(' ').toLocaleLowerCase();
+    ]
+      .join(' ')
+      .toLocaleLowerCase();
     const storeName = document.createElement('strong');
     storeName.textContent = displayName;
-    const storePreview = partThumbnail(def);
+    const storePreview = partThumbnail(def, partIconUrls.get(def.id));
     const storeBlurb = document.createElement('small');
     storeBlurb.className = 'part-description';
     storeBlurb.textContent = description;
@@ -1242,7 +1310,7 @@ export function buildEditorUI(
     inventoryButton.hidden = true;
     const inventoryName = document.createElement('strong');
     inventoryName.textContent = displayName;
-    const inventoryPreview = partThumbnail(def);
+    const inventoryPreview = partThumbnail(def, partIconUrls.get(def.id));
     const inventoryBlurb = document.createElement('small');
     inventoryBlurb.className = 'part-description';
     inventoryBlurb.textContent = description;
@@ -1417,7 +1485,7 @@ export function buildEditorUI(
       slot.button.classList.toggle('is-out-of-stock', count <= 0);
       slot.name.textContent = displayName;
       slot.count.textContent = `x${count}`;
-      slot.art.replaceChildren(partThumbnail(def));
+      slot.art.replaceChildren(partThumbnail(def, partIconUrls.get(def.id)));
       slot.button.setAttribute(
         'aria-label',
         count > 0
@@ -1505,7 +1573,8 @@ export function buildEditorUI(
     let visibleCount = 0;
     for (const button of storeButtons.values()) {
       const matchesGroup = button.dataset.storeGroup === activeStoreGroup;
-      const matchesSearch = !query || button.dataset.searchText?.includes(query);
+      const matchesSearch =
+        !query || button.dataset.searchText?.includes(query);
       button.hidden = !matchesGroup || !matchesSearch;
       if (!button.hidden) visibleCount += 1;
     }
@@ -1526,7 +1595,9 @@ export function buildEditorUI(
     }
     applyStoreFilters();
   };
-  essentialsFilter.addEventListener('click', () => setStoreFilter('essentials'));
+  essentialsFilter.addEventListener('click', () =>
+    setStoreFilter('essentials'),
+  );
   weaponsFilter.addEventListener('click', () => setStoreFilter('weapons'));
   defenceFilter.addEventListener('click', () => setStoreFilter('defence'));
   mobilityFilter.addEventListener('click', () => setStoreFilter('mobility'));
@@ -1638,7 +1709,6 @@ export function buildEditorUI(
     },
   );
 
-
   const ghostTip = document.createElement('div');
   ghostTip.className = 'ghost-tip';
   ghostTip.style.display = 'none';
@@ -1679,10 +1749,22 @@ export function buildEditorUI(
   const debugMode = new URLSearchParams(location.search).get('debug') === '1';
   const WELCOME_SEEN_KEY = 'scraprig.welcome-seen';
   const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
-  if (!debugMode && !localStorage.getItem(TUTORIAL_DONE_KEY) && !localStorage.getItem(HELP_SEEN_KEY) && !localStorage.getItem(WELCOME_SEEN_KEY)) {
+  if (
+    !debugMode &&
+    !localStorage.getItem(TUTORIAL_DONE_KEY) &&
+    !localStorage.getItem(HELP_SEEN_KEY) &&
+    !localStorage.getItem(WELCOME_SEEN_KEY)
+  ) {
     const welcome = buildWelcomeDialog(
-      () => { localStorage.setItem(WELCOME_SEEN_KEY, '1'); welcome.remove(); handlers.onStartTutorial(); },
-      () => { localStorage.setItem(WELCOME_SEEN_KEY, '1'); welcome.remove(); },
+      () => {
+        localStorage.setItem(WELCOME_SEEN_KEY, '1');
+        welcome.remove();
+        handlers.onStartTutorial();
+      },
+      () => {
+        localStorage.setItem(WELCOME_SEEN_KEY, '1');
+        welcome.remove();
+      },
     );
     root.appendChild(welcome);
   }
@@ -1696,7 +1778,8 @@ export function buildEditorUI(
     const mark = document.createElement('span');
     mark.textContent = '[ ]';
     const text = document.createElement('p');
-    text.textContent = 'Select a block on the model to inspect, upgrade, rotate, or sell it.';
+    text.textContent =
+      'Select a block on the model to inspect, upgrade, rotate, or sell it.';
     empty.append(mark, text);
     selectedContent.appendChild(empty);
   };
@@ -1706,7 +1789,9 @@ export function buildEditorUI(
     root,
     ghostTip,
     selectionTip,
-    setBlueprintName: (name) => { nameInput.value = name; },
+    setBlueprintName: (name) => {
+      nameInput.value = name;
+    },
     setUndoRedo: (canUndo, canRedo) => {
       undoBtn.disabled = !canUndo;
       redoBtn.disabled = !canRedo;
@@ -1725,13 +1810,41 @@ export function buildEditorUI(
         extreme: 'Critical',
       };
       vehicleStatsContent.replaceChildren(
-        buildMetric('Mass', `${report.totalMassKg.toFixed(0)} KG`, report.totalMassKg, 4000),
-        buildMetric('Stability', stabilityLabels[report.rolloverRisk] ?? 'Unknown', stabilityValues[report.rolloverRisk] ?? 0, 100, report.rolloverRisk),
-        buildMetric('DPS', report.totalDps.toFixed(1), report.totalDps, 160, 'damage'),
-        buildMetric('Top Speed', `${report.estimatedTopSpeedKph.toFixed(0)} KM/H`, report.estimatedTopSpeedKph, 120),
-        buildMetric('Power / Weight', `${report.powerToWeightKwPerT.toFixed(0)} KW/T`, report.powerToWeightKwPerT, 180),
+        buildMetric(
+          'Mass',
+          `${report.totalMassKg.toFixed(0)} KG`,
+          report.totalMassKg,
+          4000,
+        ),
+        buildMetric(
+          'Stability',
+          stabilityLabels[report.rolloverRisk] ?? 'Unknown',
+          stabilityValues[report.rolloverRisk] ?? 0,
+          100,
+          report.rolloverRisk,
+        ),
+        buildMetric(
+          'DPS',
+          report.totalDps.toFixed(1),
+          report.totalDps,
+          160,
+          'damage',
+        ),
+        buildMetric(
+          'Top Speed',
+          `${report.estimatedTopSpeedKph.toFixed(0)} KM/H`,
+          report.estimatedTopSpeedKph,
+          120,
+        ),
+        buildMetric(
+          'Power / Weight',
+          `${report.powerToWeightKwPerT.toFixed(0)} KW/T`,
+          report.powerToWeightKwPerT,
+          180,
+        ),
       );
-      const issues = errors.length > 0 ? errors.slice(0, 1) : warnings.slice(0, 1);
+      const issues =
+        errors.length > 0 ? errors.slice(0, 1) : warnings.slice(0, 1);
       if (issues.length > 0) {
         const issue = document.createElement('div');
         issue.className = `garage-stats__issue ${issues[0].severity === 'error' ? 'issue-error' : 'issue-warning'}`;
@@ -1775,7 +1888,8 @@ export function buildEditorUI(
       description.className = 'selected-part__description';
       description.textContent = KID_LABELS[def.id]?.blurb ?? def.description;
       selectedContent.append(title);
-      if (def.upgrade !== undefined) selectedContent.append(buildStarRating(level));
+      if (def.upgrade !== undefined)
+        selectedContent.append(buildStarRating(level));
       selectedContent.append(description);
 
       const statList = document.createElement('div');
@@ -1794,7 +1908,9 @@ export function buildEditorUI(
 
       if (def.upgrade !== undefined) {
         selectedContent.appendChild(
-          buildUpgradeSection(def, level, economy, () => handlers.onUpgradePart(partId)),
+          buildUpgradeSection(def, level, economy, () =>
+            handlers.onUpgradePart(partId),
+          ),
         );
       }
 
@@ -1805,14 +1921,21 @@ export function buildEditorUI(
         advancedSummary.textContent = 'Advanced wheel setup';
         const config = document.createElement('div');
         config.className = 'selected-part__config';
-        for (const [labelText, key] of [['Driven', 'driven'], ['Steering', 'steering'], ['Braking', 'braking']] as const) {
+        for (const [labelText, key] of [
+          ['Driven', 'driven'],
+          ['Steering', 'steering'],
+          ['Braking', 'braking'],
+        ] as const) {
           const label = document.createElement('label');
           const input = document.createElement('input');
           input.type = 'checkbox';
-          input.checked = key === 'steering'
-            ? (partConfig?.steering ?? effectiveSteering ?? false)
-            : partConfig?.[key] === true;
-          input.addEventListener('change', () => handlers.onConfigChange(partId, key, input.checked));
+          input.checked =
+            key === 'steering'
+              ? (partConfig?.steering ?? effectiveSteering ?? false)
+              : partConfig?.[key] === true;
+          input.addEventListener('change', () =>
+            handlers.onConfigChange(partId, key, input.checked),
+          );
           label.append(input, labelText);
           config.appendChild(label);
         }
@@ -1837,7 +1960,11 @@ export function buildEditorUI(
         // Nothing to equip until the part is upgraded into its ability.
         abilityInput.disabled = abilitySlot?.lockedUntilLevel != null;
         abilityInput.addEventListener('change', () =>
-          handlers.onConfigChange(partId, 'activeAbility', abilityInput.checked),
+          handlers.onConfigChange(
+            partId,
+            'activeAbility',
+            abilityInput.checked,
+          ),
         );
         abilitySection.append(abilityInput, 'Equip to ability bar');
         if (abilitySlot) {
@@ -1873,10 +2000,8 @@ export function buildEditorUI(
         actions.appendChild(repairButton);
       }
       if (!def.isRoot) {
-        const turnButton = iconLabelBtn(
-          TURN_ICON_SVG,
-          'Turn',
-          () => handlers.onRotateSelected('y'),
+        const turnButton = iconLabelBtn(TURN_ICON_SVG, 'Turn', () =>
+          handlers.onRotateSelected('y'),
         );
         turnButton.classList.add('selected-part__turn');
         turnButton.title = 'Rotate this block (R)';
@@ -1902,7 +2027,6 @@ export function buildEditorUI(
         actions.append(turnButton, stowButton, sellButton);
       }
       selectedContent.appendChild(actions);
-
     },
     setAbilityLoadout: (slots) => {
       abilityLoadoutBoxList.forEach((box, slot) => {
@@ -1928,7 +2052,6 @@ export function buildEditorUI(
       stock = currentInventory;
       hotbar = resolveHotbar(hotbarDefIds, currentInventory);
       currentUnlockedDefIds = unlockedDefIds;
-      const unlocked = new Set(unlockedDefIds);
       const installedCounts = new Map<string, number>();
       for (const defId of installedDefIds) {
         installedCounts.set(defId, (installedCounts.get(defId) ?? 0) + 1);
@@ -1939,11 +2062,12 @@ export function buildEditorUI(
         const storeButton = storeButtons.get(id);
         const count = Math.max(0, currentInventory[id] ?? 0);
 
-        const locked = (def.unlockCost ?? 0) > 0 && !unlocked.has(def.id);
-        const unlockPrice = def.unlockCost ?? 0;
-        const price = locked ? unlockPrice + def.cost : def.cost;
+        const offer = storeOffer(def.id, unlockedDefIds);
+        const locked = offer.action === 'unlock';
+        const price = offer.price;
         const unaffordable = price > money;
         const atOwnershipLimit =
+          !locked &&
           def.unique === true &&
           count + (installedCounts.get(id) ?? 0) >= 1;
         storeButton?.classList.toggle('locked', locked);
@@ -1963,31 +2087,35 @@ export function buildEditorUI(
           // DOM, so a live search or a focused tile keeps its place.
           storeButton.style.order = String(price);
           storeButton.disabled = unaffordable || atOwnershipLimit;
-          storeButton.setAttribute('aria-label', atOwnershipLimit
-            ? `${def.name}, ownership limit reached`
-            : locked
-            ? `${def.name} — Unlock & Buy $${price}`
-            : `${def.name} — Buy & Place $${price}`);
+          storeButton.setAttribute(
+            'aria-label',
+            atOwnershipLimit
+              ? `${def.name}, ownership limit reached`
+              : locked
+                ? `${def.name} — Unlock $${price}`
+                : `${def.name} — Buy & Place $${price}`,
+          );
           storeButton.title = atOwnershipLimit
             ? `${def.name} limit reached: 1 owned or installed`
             : locked
-            ? `Unlock ${def.name} and buy one part for $${price}`
-            : `Buy one ${def.name} and arm it for placement for $${price}`;
+              ? `Unlock ${def.name} permanently for $${price}; buy one later for $${def.cost}`
+              : `Buy one ${def.name} and arm it for placement for $${price}`;
         }
         const priceLabel = storePriceLabels.get(id);
         if (priceLabel) {
           priceLabel.textContent = atOwnershipLimit
             ? 'Limit 1'
             : locked
-              ? `Unlock & Buy $${price}`
+              ? `Unlock $${price}`
               : `Buy & Place $${price}`;
         }
         const priceBreakdown = storePriceBreakdowns.get(id);
         if (priceBreakdown) {
           priceBreakdown.hidden = !locked || atOwnershipLimit;
-          priceBreakdown.textContent = id === 'mine-sweeper'
-            ? `Unlock early $${unlockPrice} + Part $${def.cost}`
-            : `Unlock $${unlockPrice} + Part $${def.cost}`;
+          priceBreakdown.textContent =
+            id === 'mine-sweeper'
+              ? `Unlock early · Buy later $${def.cost}`
+              : `Buy later $${def.cost}`;
         }
         const unlockMilestone = storeUnlockMilestones.get(id);
         if (unlockMilestone) {
@@ -2051,8 +2179,7 @@ export function buildEditorUI(
           `${summary.kills.toLocaleString()} zombies killed`;
         const recovery = document.createElement('div');
         recovery.className = 'run-banner__summary-line';
-        const resetNote =
-          'Rig and cash reset · Unlocked parts kept';
+        const resetNote = 'Rig and cash reset · Unlocked parts kept';
         recovery.textContent = summary.isPersonalBest
           ? `New best score! · ${resetNote}`
           : summary.rank === null
@@ -2126,16 +2253,24 @@ export function buildEditorUI(
 }
 
 function effectiveStatLabels(def: PartDefinition): [string, string][] {
-  const labels: [string, string][] = [['Integrity', `${formatStat(def.health)} HP`]];
+  const labels: [string, string][] = [
+    ['Integrity', `${formatStat(def.health)} HP`],
+  ];
   if (def.engine) {
-    const peakTorque = Math.max(0, ...def.engine.torqueCurve.map(([, torque]) => torque));
+    const peakTorque = Math.max(
+      0,
+      ...def.engine.torqueCurve.map(([, torque]) => torque),
+    );
     labels.push(
       ['Power', `${formatStat(def.engine.maxPowerKw)} KW`],
       ['Torque', `${formatStat(peakTorque)} NM`],
     );
   }
   if (def.wheel) {
-    labels.push(['Grip', `${def.wheel.frictionLong.toFixed(2)} / ${def.wheel.frictionLat.toFixed(2)}`]);
+    labels.push([
+      'Grip',
+      `${def.wheel.frictionLong.toFixed(2)} / ${def.wheel.frictionLat.toFixed(2)}`,
+    ]);
     labels.push([
       'Steering',
       def.wheel.skidSteer
@@ -2242,7 +2377,8 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }
-  if (def.armour) labels.push(['Protection', formatStat(def.armour.protection)]);
+  if (def.armour)
+    labels.push(['Protection', formatStat(def.armour.protection)]);
   return labels;
 }
 
@@ -2250,7 +2386,10 @@ function formatStat(value: number): string {
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
 }
 
-function buildWelcomeDialog(onStartTutorial: () => void, onClose: () => void): HTMLDivElement {
+function buildWelcomeDialog(
+  onStartTutorial: () => void,
+  onClose: () => void,
+): HTMLDivElement {
   const wrap = document.createElement('div');
   wrap.className = 'panel welcome-panel';
   const prompt = document.createElement('div');

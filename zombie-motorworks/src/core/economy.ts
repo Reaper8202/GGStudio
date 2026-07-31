@@ -144,6 +144,25 @@ export function unlockCost(defId: string): number {
   return getPartDef(defId).unlockCost ?? 0;
 }
 
+export interface StoreOffer {
+  /** Unlocking and buying are deliberately separate progression beats. */
+  action: 'unlock' | 'buy';
+  price: number;
+}
+
+/** The one transaction the Store should offer for this part right now. */
+export function storeOffer(
+  defId: string,
+  unlockedDefIds: readonly string[],
+): StoreOffer {
+  const def = getPartDef(defId);
+  const unlockPrice = def.unlockCost ?? 0;
+  const needsUnlock = unlockPrice > 0 && !unlockedDefIds.includes(defId);
+  return needsUnlock
+    ? { action: 'unlock', price: unlockPrice }
+    : { action: 'buy', price: def.cost };
+}
+
 export function isStarterUnlocked(defId: string): boolean {
   return STARTER_UNLOCKS.includes(defId as (typeof STARTER_UNLOCKS)[number]);
 }

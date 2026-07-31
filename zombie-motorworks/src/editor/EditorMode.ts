@@ -52,6 +52,7 @@ import {
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import {
   createTutorialBlueprint,
+  SIMPLE_PART_IDS,
   TUTORIAL_STEPS,
   tutorialProgress,
 } from '../core/tutorial.ts';
@@ -76,6 +77,7 @@ import {
   repairPlan,
   scaledHpOnUpgrade,
   sellRefund,
+  storeOffer,
   unlockCost,
   unlockInvestment,
   type RunState,
@@ -94,6 +96,7 @@ import {
   extractShareCode,
   sharedSlotName,
 } from './shareHelpers.ts';
+import { renderPartIconUrls } from './PartIconRenderer.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
 const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
@@ -163,11 +166,6 @@ export function defaultConfigForDef(def: PartDefinition): PartConfig {
         suspensionPreset: 'standard',
       }
     : {};
-}
-
-/** Full one-click price for a part that still needs its catalog unlock. */
-export function atomicStorePurchaseTotal(defId: string): number {
-  return unlockCost(defId) + placeCost(defId);
 }
 
 /** Aggregate effective maximum health used by whole-vehicle upgrade previews. */
@@ -347,9 +345,9 @@ export class EditorMode {
     this.history =
       context.history ??
       new CommandHistory((moneyDelta) => this.mutateMoney(moneyDelta));
-    this.scene.background = new THREE.Color(0x1a1e26);
-    this.scene.add(new THREE.HemisphereLight(0xcfd8e8, 0x2a2620, 1.05));
-    const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+    this.scene.background = new THREE.Color(0x1f2530);
+    this.scene.add(new THREE.HemisphereLight(0xcfd8e8, 0x2a2620, 1.25));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.55);
     dir.position.set(6, 10, 4);
     this.scene.add(dir);
 
@@ -400,74 +398,86 @@ export class EditorMode {
     this.scene.add(this.partsGroup);
     this.scene.add(this.overlays.group);
 
-    this.ui = buildEditorUI(container, PART_CATALOG, {
-      onPurchasePart: (defId) => this.buyAndArmPart(defId),
-      onBuyPart: (defId) => this.buyInventoryPart(defId),
-      onArmPart: (defId) => this.armGhost(defId),
-      onHotbarChange: (defIds) => this.setHotbar(defIds),
-      newGarageDisposalSummary: () =>
-        newGarageDisposalSummary(this.bp.parts, getPartDef),
-      onNew: () =>
-        this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
-      onMenu: context.onMenu,
-      onSaveAndQuit: context.onSaveAndQuit,
-      onRename: (name) => {
-        const pendingBefore = this.explicitRenamePending;
-        this.explicitRenamePending ||= name !== this.bp.name;
-        if (
-          !this.exec(
-            replaceBlueprintCommand({ ...this.bp, name }, 0, 'Rename build'),
+    const partIconUrls = renderPartIconUrls(
+      renderer,
+      SIMPLE_PART_IDS.flatMap((id) => {
+        const definition = PART_CATALOG[id];
+        return definition ? [definition] : [];
+      }),
+    );
+    this.ui = buildEditorUI(
+      container,
+      PART_CATALOG,
+      {
+        onPurchasePart: (defId) => this.handleStorePart(defId),
+        onBuyPart: (defId) => this.buyInventoryPart(defId),
+        onArmPart: (defId) => this.armGhost(defId),
+        onHotbarChange: (defIds) => this.setHotbar(defIds),
+        newGarageDisposalSummary: () =>
+          newGarageDisposalSummary(this.bp.parts, getPartDef),
+        onNew: () =>
+          this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
+        onMenu: context.onMenu,
+        onSaveAndQuit: context.onSaveAndQuit,
+        onRename: (name) => {
+          const pendingBefore = this.explicitRenamePending;
+          this.explicitRenamePending ||= name !== this.bp.name;
+          if (
+            !this.exec(
+              replaceBlueprintCommand({ ...this.bp, name }, 0, 'Rename build'),
+            )
           )
-        )
-          this.explicitRenamePending = pendingBefore;
-      },
-      onUndo: () => this.undo(),
-      onRedo: () => this.redo(),
-      onSymmetryToggle: (on) => {
-        this.symmetry = on;
-      },
-      onView: (v) => this.setView(v),
-      onLayerChange: (l) => {
-        this.layer = l;
-        this.rebuildMeshes();
-      },
-      onTestDrive: () => {
-        const report = validateBlueprint(this.bp, getPartDef);
-        if (report.errors.length === 0) {
-          if (this.tutorialActive) {
-            localStorage.setItem(TUTORIAL_DONE_KEY, '1');
-            this.stopTutorial();
+            this.explicitRenamePending = pendingBefore;
+        },
+        onUndo: () => this.undo(),
+        onRedo: () => this.redo(),
+        onSymmetryToggle: (on) => {
+          this.symmetry = on;
+        },
+        onView: (v) => this.setView(v),
+        onLayerChange: (l) => {
+          this.layer = l;
+          this.rebuildMeshes();
+        },
+        onTestDrive: () => {
+          const report = validateBlueprint(this.bp, getPartDef);
+          if (report.errors.length === 0) {
+            if (this.tutorialActive) {
+              localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+              this.stopTutorial();
+            }
+            this.onTestDrive(this.bp);
           }
-          this.onTestDrive(this.bp);
-        }
-      },
-      onFightZombies: () => {
-        const report = validateBlueprint(this.bp, getPartDef);
-        if (report.errors.length === 0) {
-          if (this.tutorialActive) {
-            localStorage.setItem(TUTORIAL_DONE_KEY, '1');
-            this.stopTutorial();
+        },
+        onFightZombies: () => {
+          const report = validateBlueprint(this.bp, getPartDef);
+          if (report.errors.length === 0) {
+            if (this.tutorialActive) {
+              localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+              this.stopTutorial();
+            }
+            this.onFightZombies(this.bp);
           }
-          this.onFightZombies(this.bp);
-        }
+        },
+        onStartTutorial: () => this.startTutorial(),
+        onConfigChange: (partId, key, value) =>
+          this.changeConfig(partId, key, value),
+        onAbilitySlotClick: (slot) => this.cycleAbilitySlot(slot),
+        onUpgradePart: (partId) => this.buyUpgrade(partId),
+        onRepairPart: (partId) => this.repairPart(partId),
+        onRepairAll: () => this.repairAll(),
+        onRebuildCar: () => this.rebuildCar(),
+        onDeleteSelected: () => this.deleteSelected(),
+        onReturnSelected: () => this.returnSelectedToInventory(),
+        onRotateSelected: (axis) => this.rotateSelected(axis),
+        onCancelTool: () => this.disarmTool(),
+        onCopyCode: () => this.copyShareText(encodeShareCode(this.bp), 'code'),
+        onCopyLink: () =>
+          this.copyShareText(buildShareLink(encodeShareCode(this.bp)), 'link'),
+        onImport: (input) => void this.importShareCode(input),
       },
-      onStartTutorial: () => this.startTutorial(),
-      onConfigChange: (partId, key, value) =>
-        this.changeConfig(partId, key, value),
-      onAbilitySlotClick: (slot) => this.cycleAbilitySlot(slot),
-      onUpgradePart: (partId) => this.buyUpgrade(partId),
-      onRepairPart: (partId) => this.repairPart(partId),
-      onRepairAll: () => this.repairAll(),
-      onRebuildCar: () => this.rebuildCar(),
-      onDeleteSelected: () => this.deleteSelected(),
-      onReturnSelected: () => this.returnSelectedToInventory(),
-      onRotateSelected: (axis) => this.rotateSelected(axis),
-      onCancelTool: () => this.disarmTool(),
-      onCopyCode: () => this.copyShareText(encodeShareCode(this.bp), 'code'),
-      onCopyLink: () =>
-        this.copyShareText(buildShareLink(encodeShareCode(this.bp)), 'link'),
-      onImport: (input) => void this.importShareCode(input),
-    });
+      partIconUrls,
+    );
     this.ui.root.addEventListener('click', this.onUiButtonClick, true);
 
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);
@@ -1360,7 +1370,9 @@ export class EditorMode {
       return false;
     }
     this.refreshProfile();
-    this.ui.setStatus(`Unlocked ${def.name} (-$${price})`);
+    this.ui.setStatus(
+      `Unlocked ${def.name} (-$${price}) — available to buy anytime`,
+    );
     this.onSfx('purchase');
     return true;
   }
@@ -1415,11 +1427,8 @@ export class EditorMode {
     return true;
   }
 
-  /**
-   * Unlock (when needed), buy one inventory copy, and arm its placement ghost
-   * as one persisted transaction. Profile mutations roll back together.
-   */
-  private buyAndArmPart(defId: string): boolean {
+  /** Unlock now, or buy and arm later once that permanent unlock is owned. */
+  private handleStorePart(defId: string): boolean {
     let def: ReturnType<typeof getPartDef>;
     try {
       def = getPartDef(defId);
@@ -1428,63 +1437,11 @@ export class EditorMode {
       return false;
     }
 
-    const stock = this.inventory();
-    const previousCount = stock[defId] ?? 0;
-    const installedCount = this.bp.parts.filter(
-      (part) => part.defId === defId,
-    ).length;
-    if (def.unique === true && previousCount + installedCount >= 1) {
-      this.deny(
-        `${def.name} limit reached - only one can be owned or installed`,
-      );
-      return false;
-    }
-
-    const wasUnlocked = this.isUnlocked(defId);
-    const total = wasUnlocked
-      ? placeCost(defId)
-      : atomicStorePurchaseTotal(defId);
-    if (!canAfford(this.profile.money, total)) {
-      this.deny(
-        `Not enough money to ${wasUnlocked ? 'buy' : 'unlock and buy'} ${def.name} - need $${total}`,
-      );
-      return false;
-    }
-
-    const previousMoney = this.profile.money;
-    const previousUnlocks = [...this.profile.unlockedDefIds];
-    const previousHotbar = this.profile.hotbarDefIds;
-    this.profile.money -= total;
-    if (!wasUnlocked) this.profile.unlockedDefIds.push(defId);
-    stock[defId] = previousCount + 1;
-    // A part you just paid for should be one click from placement.
-    this.profile.hotbarDefIds = withHotbarSlot(this.hotbar(), defId);
-
-    try {
-      this.persistProfile();
-    } catch (err) {
-      this.profile.money = previousMoney;
-      this.profile.hotbarDefIds = previousHotbar;
-      this.profile.unlockedDefIds.splice(
-        0,
-        this.profile.unlockedDefIds.length,
-        ...previousUnlocks,
-      );
-      const restoredStock = this.inventory();
-      if (previousCount === 0) delete restoredStock[defId];
-      else restoredStock[defId] = previousCount;
-      this.deny(`Purchase could not be saved: ${this.errorMessage(err)}`);
-      return false;
-    }
-
-    this.refreshProfile();
+    const offer = storeOffer(defId, this.profile.unlockedDefIds);
+    if (offer.action === 'unlock') return this.unlockPart(defId);
+    if (!this.buyInventoryPart(defId)) return false;
     this.armGhost(defId);
-    this.ui.setStatus(
-      wasUnlocked
-        ? `Bought ${def.name} and armed placement (-$${total})`
-        : `Unlocked and bought ${def.name}; placement armed (-$${total})`,
-    );
-    this.onSfx('purchase');
+    this.ui.setStatus(`Bought ${def.name} and armed placement (-$${offer.price})`);
     return true;
   }
 

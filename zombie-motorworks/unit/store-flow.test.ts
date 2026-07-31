@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeVehicle } from '../src/core/analysis.ts';
+import { storeOffer } from '../src/core/economy.ts';
 import { getPartDef } from '../src/core/parts.ts';
+import {
+  decodeProfile,
+  defaultProfile,
+  encodeProfile,
+} from '../src/core/profile.ts';
 import type { PlacedPart, VehicleBlueprint } from '../src/core/types.ts';
 import {
-  atomicStorePurchaseTotal,
   previewUpgradeMetrics,
   previewUpgradedBlueprint,
   vehicleIntegrity,
@@ -34,10 +39,35 @@ function previewBlueprint(): VehicleBlueprint {
   };
 }
 
-describe('atomic store and upgrade preview helpers', () => {
-  it('totals the unchanged unlock and part prices for an atomic purchase', () => {
-    expect(atomicStorePurchaseTotal('frame-reinforced')).toBe(10 + 20);
-    expect(atomicStorePurchaseTotal('mine-sweeper')).toBe(98 + 150);
+describe('two-stage store and upgrade preview helpers', () => {
+  it('offers only the unlock before offering the separate part purchase', () => {
+    expect(storeOffer('frame-reinforced', [])).toEqual({
+      action: 'unlock',
+      price: 10,
+    });
+    expect(storeOffer('frame-reinforced', ['frame-reinforced'])).toEqual({
+      action: 'buy',
+      price: 20,
+    });
+    expect(storeOffer('mine-sweeper', [])).toEqual({
+      action: 'unlock',
+      price: 98,
+    });
+  });
+
+  it('keeps an unlock across a round without granting or buying inventory', () => {
+    const profile = defaultProfile();
+    const offer = storeOffer('frame-reinforced', profile.unlockedDefIds);
+    profile.money -= offer.price;
+    profile.unlockedDefIds.push('frame-reinforced');
+
+    const restored = decodeProfile(encodeProfile(profile));
+
+    expect(restored.inventory?.['frame-reinforced']).toBeUndefined();
+    expect(storeOffer('frame-reinforced', restored.unlockedDefIds)).toEqual({
+      action: 'buy',
+      price: 20,
+    });
   });
 
   it('clones the blueprint and increments only the selected part level', () => {

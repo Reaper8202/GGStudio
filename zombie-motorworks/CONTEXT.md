@@ -222,8 +222,10 @@ Storage access failures must not make the in-memory game unusable.
   query terrain. Changing collision filters can break handling globally.
 - `CommandHistory` applies wallet deltas on execute, undo, and redo. Bypassing it
   for normal editor mutations can duplicate parts or money.
-- Unlock-and-buy is atomic. A failed purchase must not leave a paid unlock or
-  partial Inventory change.
+- Catalog unlock and part purchase are separate persistent transactions. An
+  unlock charges only its unlock fee and grants no Inventory; a later purchase
+  charges the shelf price and grants one part. Each transaction rolls back on
+  persistence failure.
 - Selling refunds half of paid base/upgrade/module investment, floored. Repair
   uses base cost and missing effective HP; upgrading preserves HP percentage.
 - The Mine Sweeper and EMP have progression gates in Profile/turret-module
