@@ -149,9 +149,9 @@ describe('wave balance report', () => {
   // single boss HP figure plus the boss bounty and the ordinary clear bonus.
   it.each([
     // Waves 5 and 15 are The Sledge (900 base HP); wave 10 is The Alchemist,
-    // which carries 2,000 because it replaces the far larger wave-9 horde.
+    // which carries 2,455 because it replaces the far larger wave-9 horde.
     { wave: 5, effectiveTotalHp: 1116, totalPossibleReward: 240 },
-    { wave: 10, effectiveTotalHp: 3542, totalPossibleReward: 420 },
+    { wave: 10, effectiveTotalHp: 3781, totalPossibleReward: 420 },
     { wave: 15, effectiveTotalHp: 1656, totalPossibleReward: 340 },
   ])('reports the exact boss wave $wave balance', (expected) => {
     expect(waveBalanceReport(expected.wave)).toEqual({
@@ -176,12 +176,12 @@ describe('wave balance report', () => {
     });
   });
 
-  it('offers 536 total reward across waves 1 through 4', () => {
+  it('offers 581 total reward across waves 1 through 4', () => {
     const earlyWaveReward = [1, 2, 3, 4].reduce(
       (total, wave) => total + waveBalanceReport(wave).totalPossibleReward,
       0,
     );
 
-    expect(earlyWaveReward).toBe(536);
+    expect(earlyWaveReward).toBe(581);
   });
 });

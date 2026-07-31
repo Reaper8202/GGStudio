@@ -4,24 +4,24 @@
 > edit by hand. Search this file for a path or exported symbol; do not read
 > it end to end as routine task setup.
 
-- Source Modules: 110
-- Source lines: 46,312
+- Source Modules: 111
+- Source lines: 46,788
 - Test files scanned: 98
 
 ## Largest Modules
 
 | Module | LOC |
 | --- | ---: |
-| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 3826 |
-| [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) | 3020 |
-| [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 2824 |
+| [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) | 3829 |
+| [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) | 3163 |
+| [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) | 2859 |
 | [`src/editor/EditorMode.ts`](../../src/editor/EditorMode.ts) | 2213 |
 | [`src/editor/ui.ts`](../../src/editor/ui.ts) | 2187 |
-| [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 1789 |
+| [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) | 1811 |
 | [`src/app/App.ts`](../../src/app/App.ts) | 1353 |
 | [`src/editor/parts/upgradeKit.ts`](../../src/editor/parts/upgradeKit.ts) | 1221 |
-| [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 1113 |
-| [`src/core/parts.ts`](../../src/core/parts.ts) | 1012 |
+| [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) | 1116 |
+| [`src/core/parts.ts`](../../src/core/parts.ts) | 1027 |
 
 ## src/app
 
@@ -213,7 +213,7 @@
 - External packages: none
 - Direct tests: `unit/economy.test.ts`, `unit/part-upgrades.test.ts`, `unit/serialize.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-piercing.test.ts`, `unit/upgrades.test.ts`
 
-### [`src/core/parts.ts`](../../src/core/parts.ts) (1012 LOC)
+### [`src/core/parts.ts`](../../src/core/parts.ts) (1027 LOC)
 
 - Exports: `getPartDef`, `PART_CATALOG`, `wheelAxleWorld`, `wheelSuspensionWorld`
 - Imports: `src/core/grid.ts`, `src/core/partUpgrades.ts`, `src/core/types.ts`
@@ -229,7 +229,7 @@
 - External packages: none
 - Direct tests: `unit/app.test.ts`, `unit/fixtures.test.ts`, `unit/placement.test.ts`, `unit/tutorial.test.ts`
 
-### [`src/core/profile.ts`](../../src/core/profile.ts) (167 LOC)
+### [`src/core/profile.ts`](../../src/core/profile.ts) (168 LOC)
 
 - Exports: `decodeProfile`, `DEFAULT_MONEY`, `defaultProfile`, `encodeProfile`, `MINE_SWEEPER_UNLOCK_WAVE`, `PlayerProfile`, `STARTER_UNLOCKS`
 - Imports: `src/core/biomes.ts`, `src/core/parts.ts`
@@ -253,7 +253,7 @@
 - External packages: none
 - Direct tests: `unit/biome-selection.test.ts`, `unit/run-resume.test.ts`, `unit/run-save.test.ts`
 
-### [`src/core/score.ts`](../../src/core/score.ts) (56 LOC)
+### [`src/core/score.ts`](../../src/core/score.ts) (58 LOC)
 
 - Exports: `addScore`, `killScore`, `SCORE_PER_KILL`, `ScoreZombieKind`, `waveClearScore`, `waveScoreMultiplier`
 - Imports: none
@@ -325,7 +325,7 @@
 - External packages: none
 - Direct tests: `unit/app.test.ts`, `unit/cannon-splash.test.ts`, `unit/part-upgrades.test.ts`, `unit/plow-crush.test.ts`, `unit/run-checkpoint.test.ts`, `unit/turret-module-ui.test.ts`, `unit/upgrades.test.ts`
 
-### [`src/core/waveTimeline.ts`](../../src/core/waveTimeline.ts) (111 LOC)
+### [`src/core/waveTimeline.ts`](../../src/core/waveTimeline.ts) (112 LOC)
 
 - Exports: `buildWaveTimeline`, `THREAT_LABELS`, `TimelineNode`, `TimelineNodeState`, `waveIcon`, `WaveIconKind`, `WaveTimeline`, `WaveTimelineInput`
 - Imports: none
@@ -505,7 +505,7 @@
 - External packages: none
 - Direct tests: `unit/overdrive-sim.test.ts`, `unit/suspension-sim.test.ts`
 
-### [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) (1113 LOC)
+### [`src/runtime/vehicle.ts`](../../src/runtime/vehicle.ts) (1116 LOC)
 
 - Exports: `AUTO_HOLD_SPEED`, `brakeInputWithAutoHold`, `isAllTreadRig`, `RuntimePartTarget`, `RuntimeVehicle`, `VehicleControls`, `VehicleTelemetry`
 - Imports: `src/core/biomes.ts`, `src/core/mass.ts`, `src/core/surfaces.ts`, `src/core/types.ts`, `src/runtime/assembler.ts`, `src/runtime/damage.ts`, `src/runtime/drivetrain.ts`, `src/runtime/vec.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`
@@ -521,7 +521,7 @@
 - External packages: `@dimforge/rapier3d-compat`
 - Direct tests: `unit/aim-override.test.ts`, `unit/auto-aim.test.ts`, `unit/flame-cone.test.ts`, `unit/ice-cannon-slow.test.ts`, `unit/runtime-upgrades.test.ts`, `unit/turret-module-ui.test.ts`, `unit/turret-piercing.test.ts`, `unit/weapon-ammo.test.ts`
 
-### [`src/runtime/wheels.ts`](../../src/runtime/wheels.ts) (469 LOC)
+### [`src/runtime/wheels.ts`](../../src/runtime/wheels.ts) (472 LOC)
 
 - Exports: `AckermannGeometry`, `computeAckermann`, `MIRROR_PLANE_X_M`, `steeringActuatorRate`, `steeringSpeedMultiplier`, `steerTargets`, `stepWheels`, `WheelContactSample`, `WheelStepInput`, `WheelTelemetry`, `wheelVisualCentre`
 - Imports: `src/core/biomes.ts`, `src/core/surfaces.ts`, `src/core/types.ts`, `src/runtime/assembler.ts`, `src/runtime/vec.ts`
@@ -579,7 +579,7 @@
 - External packages: `three`
 - Direct tests: none
 
-### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (3826 LOC)
+### [`src/survival/SurvivalMode.ts`](../../src/survival/SurvivalMode.ts) (3829 LOC)
 
 - Exports: `applyZombieShot`, `createWaveClearPayload`, `SurvivalCallbacks`, `SurvivalMode`, `SurvivalPhase`, `SurvivalTelemetry`, `WaveClearPayload`
 - Imports: `src/app/badgeStore.ts`, `src/app/sfx.ts`, `src/core/abilities.ts`, `src/core/badges.ts`, `src/core/biomes.ts`, `src/core/economy.ts`, `src/core/leaderboard.ts`, `src/core/parts.ts`, `src/core/rng.ts`, `src/core/score.ts`, `src/core/structural.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/core/waveTimeline.ts`, `src/editor/meshes.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/runtime/weapons.ts`, `src/runtime/wheels.ts`, `src/survival/AutoAim.ts`, `src/survival/DamageNumbers.ts`, `src/survival/FollowCamera.ts`, `src/survival/FuelPickups.ts`, `src/survival/Minimap.ts`, `src/survival/PhaseGhosts.ts`, `src/survival/Tracers.ts`, `src/survival/WarningHud.ts`, `src/survival/WaveClearCard.ts`, `src/survival/WaveManager.ts`, `src/survival/WaveTimelineHud.ts`, `src/survival/arena/Arena.ts`, `src/survival/arena/ArenaBuilder.ts`, `src/survival/arena/recipes/index.ts`, `src/survival/devtuning/DevTunerPanel.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/devtuning/devMode.ts`, `src/survival/vehicleWarnings.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/zombieConfig.ts`, `src/ui/AbilityBar.ts`, `src/ui/ScopeCursor.ts`, `src/ui/leaderboardTable.ts`, `src/ui/system.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/shotVfx.ts`
@@ -595,7 +595,7 @@
 - External packages: `three`
 - Direct tests: `unit/tracers.test.ts`
 
-### [`src/survival/VoxelAssetLoader.ts`](../../src/survival/VoxelAssetLoader.ts) (234 LOC)
+### [`src/survival/VoxelAssetLoader.ts`](../../src/survival/VoxelAssetLoader.ts) (243 LOC)
 
 - Exports: `clearVoxelAssetCache`, `instantiateVoxelAsset`, `loadVoxelInstanceSource`
 - Imports: none
@@ -619,7 +619,7 @@
 - External packages: none
 - Direct tests: none
 
-### [`src/survival/WaveManager.ts`](../../src/survival/WaveManager.ts) (383 LOC)
+### [`src/survival/WaveManager.ts`](../../src/survival/WaveManager.ts) (405 LOC)
 
 - Exports: `attackDamageMultiplierForWave`, `healthMultiplierForWave`, `hordeIntervalForWave`, `maxActiveZombiesForWave`, `spawnOrderForWave`, `speedMultiplierForWave`, `WaveComposition`, `WaveManager`, `WaveManagerCallbacks`, `waveRewardForWave`, `zombieCompositionForWave`, `zombieCountForWave`
 - Imports: `src/survival/devtuning/DevTuning.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`, `src/survival/zombies/bossConfig.ts`
@@ -691,7 +691,7 @@
 - External packages: none
 - Direct tests: none
 
-### [`src/survival/devtuning/DevTunerPanel.ts`](../../src/survival/devtuning/DevTunerPanel.ts) (768 LOC)
+### [`src/survival/devtuning/DevTunerPanel.ts`](../../src/survival/devtuning/DevTunerPanel.ts) (769 LOC)
 
 - Exports: `DevTunerHost`, `DevTunerPanel`
 - Imports: `src/survival/WaveManager.ts`, `src/survival/devtuning/DevTunerPanel.css`, `src/survival/devtuning/DevTuning.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/Zombie.ts`
@@ -699,7 +699,7 @@
 - External packages: none
 - Direct tests: none
 
-### [`src/survival/devtuning/DevTuning.ts`](../../src/survival/devtuning/DevTuning.ts) (326 LOC)
+### [`src/survival/devtuning/DevTuning.ts`](../../src/survival/devtuning/DevTuning.ts) (341 LOC)
 
 - Exports: `CheatTuning`, `CompositionCurve`, `CurveTuning`, `defaultTuning`, `devTuning`, `DevTuningState`, `exportTuningJSON`, `KIND_ORDER`, `notifyTuningChanged`, `resetTuning`, `SpecialistTuning`, `subscribeTuning`, `WaveTuning`, `ZombieKindTuning`
 - Imports: `src/survival/zombies/Zombie.ts`, `src/survival/zombies/zombieConfig.ts`
@@ -723,7 +723,7 @@
 - External packages: none
 - Direct tests: `unit/vehicle-warnings.test.ts`
 
-### [`src/survival/waveBalance.ts`](../../src/survival/waveBalance.ts) (164 LOC)
+### [`src/survival/waveBalance.ts`](../../src/survival/waveBalance.ts) (173 LOC)
 
 - Exports: `formatWaveComposition`, `newThreatsForWave`, `SpecialistZombieKind`, `threatWarningsForWave`, `waveBalanceReport`, `WaveBalanceReport`
 - Imports: `src/survival/WaveManager.ts`, `src/survival/zombies/bossConfig.ts`, `src/survival/zombies/zombieConfig.ts`
@@ -734,6 +734,14 @@
 ### [`src/survival/zombies/AcidPuddles.ts`](../../src/survival/zombies/AcidPuddles.ts) (170 LOC)
 
 - Exports: `AcidPuddles`, `AcidPuddleSnapshot`
+- Imports: `src/survival/zombies/zombieConfig.ts`
+- Imported by: `src/survival/zombies/ZombieSystem.ts`
+- External packages: `three`
+- Direct tests: none
+
+### [`src/survival/zombies/IceTrail.ts`](../../src/survival/zombies/IceTrail.ts) (154 LOC)
+
+- Exports: `IceTrail`
 - Imports: `src/survival/zombies/zombieConfig.ts`
 - Imported by: `src/survival/zombies/ZombieSystem.ts`
 - External packages: `three`
@@ -755,7 +763,7 @@
 - External packages: `three`
 - Direct tests: `unit/vial-projectiles.test.ts`
 
-### [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) (3020 LOC)
+### [`src/survival/zombies/Zombie.ts`](../../src/survival/zombies/Zombie.ts) (3163 LOC)
 
 - Exports: `NearestVehiclePart`, `Vector3Like`, `VehicleImpactResult`, `Zombie`, `ZombieKilledCallback`, `ZombieKind`, `ZombieState`
 - Imports: `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/survival/VoxelAssetLoader.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/zombies/bossConfig.ts`, `src/survival/zombies/zombieConfig.ts`, `src/tools/behemothPose.ts`, `src/tools/gunslingerPose.ts`, `src/tools/kamikazePose.ts`, `src/tools/necromancerPose.ts`, `src/tools/rigPose.ts`, `src/vfx/VfxSystem.ts`, `src/vfx/vfxConfig.ts`
@@ -763,10 +771,10 @@
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/boss-waves.test.ts`, `unit/run-score.test.ts`, `unit/score.test.ts`, `unit/turret-emp.test.ts`, `unit/turret-piercing.test.ts`
 
-### [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) (1789 LOC)
+### [`src/survival/zombies/ZombieSystem.ts`](../../src/survival/zombies/ZombieSystem.ts) (1811 LOC)
 
 - Exports: `ZombieDamageReport`, `ZombieHitResult`, `ZombieSystem`
-- Imports: `src/core/grid.ts`, `src/core/mass.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/zombies/AcidPuddles.ts`, `src/survival/zombies/Landmines.ts`, `src/survival/zombies/ThrowerProjectiles.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/bossConfig.ts`, `src/survival/zombies/zombieConfig.ts`, `src/vfx/VfxSystem.ts`
+- Imports: `src/core/grid.ts`, `src/core/mass.ts`, `src/core/turretModules.ts`, `src/core/types.ts`, `src/runtime/assembler.ts`, `src/runtime/vehicle.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/zombies/AcidPuddles.ts`, `src/survival/zombies/IceTrail.ts`, `src/survival/zombies/Landmines.ts`, `src/survival/zombies/ThrowerProjectiles.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/bossConfig.ts`, `src/survival/zombies/zombieConfig.ts`, `src/vfx/VfxSystem.ts`
 - Imported by: `src/survival/AutoAim.ts`, `src/survival/SurvivalMode.ts`, `src/survival/WaveManager.ts`
 - External packages: `@dimforge/rapier3d-compat`, `three`
 - Direct tests: `unit/auto-aim.test.ts`, `unit/boss-waves.test.ts`, `unit/cannon-splash.test.ts`, `unit/ice-cannon-slow.test.ts`, `unit/turret-emp.test.ts`, `unit/turret-piercing.test.ts`, `unit/waves.test.ts`
@@ -779,11 +787,11 @@
 - External packages: none
 - Direct tests: `unit/boss-balance.test.ts`, `unit/boss-waves.test.ts`
 
-### [`src/survival/zombies/zombieConfig.ts`](../../src/survival/zombies/zombieConfig.ts) (492 LOC)
+### [`src/survival/zombies/zombieConfig.ts`](../../src/survival/zombies/zombieConfig.ts) (530 LOC)
 
-- Exports: `ACID_POISON_TICK_SECONDS`, `ACID_PUDDLE_COLOR`, `ACID_PUDDLE_FADE_SECONDS`, `ACID_PUDDLE_OPACITY`, `ACID_PUDDLE_POOL_SIZE`, `ACID_PUDDLE_SEGMENTS`, `BASE_ZOMBIE_STATS`, `BEHEMOTH_ATTACK_EXIT_MARGIN`, `BEHEMOTH_ATTACK_INTERVAL`, `BEHEMOTH_ATTACK_RANGE`, `BEHEMOTH_HEALTH_MULTIPLIER`, `BEHEMOTH_RECOVER_SECONDS`, `BEHEMOTH_REWARD`, `BEHEMOTH_RING_COLOR`, `BEHEMOTH_SMASH_DAMAGE`, `BEHEMOTH_SMASH_RADIUS`, `BEHEMOTH_SMASH_VFX_RADIUS`, `BEHEMOTH_SPEED_MULTIPLIER`, `BEHEMOTH_VISUAL_HEIGHT`, `BEHEMOTH_WALK_CADENCE`, `BEHEMOTH_WINDUP_SECONDS`, `DEATH_FEEDBACK_DURATION`, `DETOUR_BLEND`, `DETOUR_DURATION`, `GUNSLINGER_ATTACK_EXIT_MARGIN`, `GUNSLINGER_ATTACK_INTERVAL`, `GUNSLINGER_ATTACK_RANGE`, `GUNSLINGER_DRAW_SECONDS`, `GUNSLINGER_HEALTH_MULTIPLIER`, `GUNSLINGER_HIT_TOLERANCE`, `GUNSLINGER_LEAD_SECONDS`, `GUNSLINGER_LINE_LENGTH`, `GUNSLINGER_MUZZLE_HEIGHT`, `GUNSLINGER_RECOVER_SECONDS`, `GUNSLINGER_REWARD`, `GUNSLINGER_SCOPE_ICON_SIZE`, `GUNSLINGER_SHOT_FLASH_SECONDS`, `GUNSLINGER_SPEED_MULTIPLIER`, `GUNSLINGER_TELEGRAPH_OPACITY`, `GUNSLINGER_TELEGRAPH_SECONDS`, `GUNSLINGER_VISUAL_HEIGHT`, `GUNSLINGER_WALK_CADENCE`, `HIT_FLASH_DURATION`, `HORDE_SCATTER_RADIUS`, `IMPACT_COOLDOWN_SECONDS`, `IMPACT_DAMAGE_PER_SPEED`, `KAMIKAZE_BLINK_INTERVAL`, `KAMIKAZE_BLINK_OPACITY`, `KAMIKAZE_BLINK_RADIUS`, `KAMIKAZE_DETONATE_RANGE`, `KAMIKAZE_EXPLOSION_DAMAGE`, `KAMIKAZE_EXPLOSION_RADIUS`, `KAMIKAZE_EXPLOSION_VFX_RADIUS`, `KAMIKAZE_HEALTH_MULTIPLIER`, `KAMIKAZE_REWARD`, `KAMIKAZE_RUN_CADENCE`, `KAMIKAZE_SPEED_MULTIPLIER`, `KAMIKAZE_VISUAL_HEIGHT`, `KNOCKBACK_DURATION`, `KNOCKBACK_SPEED`, `LANDMINE_ARM_SECONDS`, `LANDMINE_BLAST_RADIUS`, `LANDMINE_DAMAGE`, `LANDMINE_EXPLOSION_DURATION`, `LANDMINE_EXPLOSION_POOL_SIZE`, `LANDMINE_EXPLOSION_RADIUS`, `LANDMINE_GLINT_RADIUS`, `LANDMINE_HEIGHT`, `LANDMINE_POOL_SIZE`, `LANDMINE_PULSE_AMPLITUDE`, `LANDMINE_PULSE_FREQUENCY`, `LANDMINE_RADIUS`, `LANDMINE_TRIGGER_RADIUS`, `LANDMINE_VISIBLE_THROUGH_WAVE`, `LETHAL_IMPACT_SPEED`, `LUNGE_DISTANCE`, `LUNGE_DURATION`, `MAXIMUM_SWARM_DRAG`, `MIN_IMPACT_SPEED`, `MIN_SPAWN_DISTANCE_FROM_VEHICLE`, `NECROMANCER_CHANNEL_VFX_INTERVAL`, `NECROMANCER_HEALTH_MULTIPLIER`, `NECROMANCER_REWARD`, `NECROMANCER_SIGIL_OPACITY`, `NECROMANCER_SIGIL_OPEN_FRACTION`, `NECROMANCER_SIGIL_RADIUS`, `NECROMANCER_SIGIL_SPIN`, `NECROMANCER_SPEED_MULTIPLIER`, `NECROMANCER_SUMMON_COOLDOWN`, `NECROMANCER_SUMMON_COUNT`, `NECROMANCER_SUMMON_RADIUS`, `NECROMANCER_SUMMON_RANGE`, `NECROMANCER_SUMMON_SECONDS`, `NECROMANCER_VISUAL_HEIGHT`, `NECROMANCER_WALK_CADENCE`, `OBSTACLE_PROBE_DISTANCE`, `OBSTACLE_PROBE_HEIGHT`, `PHONE_ADDICT_GLOW_OPACITY`, `PHONE_ADDICT_GLOW_RADIUS`, `PHONE_ADDICT_HEALTH_MULTIPLIER`, `PHONE_ADDICT_REWARD`, `PHONE_ADDICT_SPEED_MULTIPLIER`, `PHONE_ADDICT_VISUAL_HEIGHT`, `PLOW_CRUSH_COOLDOWN_SECONDS`, `PLOW_FACE_CLEARANCE_M`, `PLOW_HEIGHT_TOLERANCE_M`, `PLOW_HOLD_SECONDS`, `PLOW_MIN_CARRY_SPEED_MPS`, `PLOW_SLOT_MAX_SPEED`, `PLOW_SLOT_SPACING_M`, `PLOW_SLOT_STIFFNESS`, `PLOW_WALL_PROBE_M`, `PLOW_WALL_PROBE_PER_SPEED`, `plowCrushDamage`, `PlowSlot`, `plowSlots`, `PROJECTILE_DAMAGE`, `PROJECTILE_HIT_RADIUS`, `PROJECTILE_HORIZONTAL_SPEED`, `PROJECTILE_LAUNCH_HEIGHT`, `PROJECTILE_LIFETIME`, `PROJECTILE_MAX_FLIGHT_TIME`, `PROJECTILE_MIN_FLIGHT_TIME`, `PROJECTILE_POOL_SIZE`, `PROJECTILE_SIZE`, `SCALE_VARIATION`, `SEPARATION_RADIUS`, `SEPARATION_STRENGTH`, `SHIELD_FLASH_DURATION`, `SHIELD_FLASH_MAX_OPACITY`, `SHIELD_RADIUS`, `SPAWN_RISE_DURATION`, `STUCK_SPEED_THRESHOLD`, `STUCK_TELEPORT_DISPLACEMENT`, `STUCK_TELEPORT_SECONDS`, `STUCK_TIME_THRESHOLD`, `SWARM_DRAG_ACCELERATION`, `SWARM_DRAG_PER_CONTACT`, `THROWER_ATTACK_EXIT_MARGIN`, `THROWER_ATTACK_INTERVAL`, `THROWER_ATTACK_RANGE`, `THROWER_HEALTH_MULTIPLIER`, `THROWER_REWARD`, `THROWER_SPEED_MULTIPLIER`, `THROWER_VISUAL_HEIGHT`, `VIAL_CAPSULE_LENGTH`, `VIAL_CAPSULE_RADIUS`, `VIAL_GRAVITY_SCALE`, `VIAL_HIT_RADIUS`, `VIAL_HORIZONTAL_SPEED`, `VIAL_LAUNCH_HEIGHT_FRACTION`, `VIAL_LIFETIME`, `VIAL_MAX_FLIGHT_TIME`, `VIAL_MIN_FLIGHT_TIME`, `WALK_BOB_AMPLITUDE`, `WALK_BOB_FREQUENCY`, `WORKER_HEALTH_MULTIPLIER`, `WORKER_PLANT_RANGE`, `WORKER_PLANT_SECONDS`, `WORKER_RETREAT_RANGE`, `WORKER_REWARD`, `WORKER_RING_MAX_RADIUS`, `WORKER_RING_MAX_RATE`, `WORKER_RING_MIN_RATE`, `WORKER_RING_OPACITY`, `WORKER_SPEED_MULTIPLIER`, `WORKER_VISUAL_HEIGHT`, `ZOMBIE_ATTACK_EXIT_MARGIN`, `ZOMBIE_ATTACK_RANGE`, `ZOMBIE_CONTACT_RADIUS`, `ZOMBIE_HALF_HEIGHT`, `ZOMBIE_POOL_COUNTS`, `ZOMBIE_POOL_SIZE`, `ZOMBIE_RADIUS`
+- Exports: `ACID_POISON_TICK_SECONDS`, `ACID_PUDDLE_COLOR`, `ACID_PUDDLE_FADE_SECONDS`, `ACID_PUDDLE_OPACITY`, `ACID_PUDDLE_POOL_SIZE`, `ACID_PUDDLE_SEGMENTS`, `BASE_ZOMBIE_STATS`, `BEHEMOTH_ATTACK_EXIT_MARGIN`, `BEHEMOTH_ATTACK_INTERVAL`, `BEHEMOTH_ATTACK_RANGE`, `BEHEMOTH_HEALTH_MULTIPLIER`, `BEHEMOTH_RECOVER_SECONDS`, `BEHEMOTH_REWARD`, `BEHEMOTH_RING_COLOR`, `BEHEMOTH_SMASH_DAMAGE`, `BEHEMOTH_SMASH_RADIUS`, `BEHEMOTH_SMASH_VFX_RADIUS`, `BEHEMOTH_SPEED_MULTIPLIER`, `BEHEMOTH_VISUAL_HEIGHT`, `BEHEMOTH_WALK_CADENCE`, `BEHEMOTH_WINDUP_SECONDS`, `DEATH_FEEDBACK_DURATION`, `DETOUR_BLEND`, `DETOUR_DURATION`, `GUNSLINGER_ATTACK_EXIT_MARGIN`, `GUNSLINGER_ATTACK_INTERVAL`, `GUNSLINGER_ATTACK_RANGE`, `GUNSLINGER_DRAW_SECONDS`, `GUNSLINGER_HEALTH_MULTIPLIER`, `GUNSLINGER_HIT_TOLERANCE`, `GUNSLINGER_LEAD_SECONDS`, `GUNSLINGER_LINE_LENGTH`, `GUNSLINGER_MUZZLE_HEIGHT`, `GUNSLINGER_RECOVER_SECONDS`, `GUNSLINGER_REWARD`, `GUNSLINGER_SCOPE_ICON_SIZE`, `GUNSLINGER_SHOT_FLASH_SECONDS`, `GUNSLINGER_SPEED_MULTIPLIER`, `GUNSLINGER_TELEGRAPH_OPACITY`, `GUNSLINGER_TELEGRAPH_SECONDS`, `GUNSLINGER_VISUAL_HEIGHT`, `GUNSLINGER_WALK_CADENCE`, `HIT_FLASH_DURATION`, `HORDE_SCATTER_RADIUS`, `ICE_TRAIL_COLOR`, `ICE_TRAIL_EMIT_DISTANCE_M`, `ICE_TRAIL_GRIP_MULTIPLIER`, `ICE_TRAIL_HEIGHT_M`, `ICE_TRAIL_POOL_SIZE`, `ICE_TRAIL_WIDTH_M`, `IMPACT_COOLDOWN_SECONDS`, `IMPACT_DAMAGE_PER_SPEED`, `KAMIKAZE_BLINK_INTERVAL`, `KAMIKAZE_BLINK_OPACITY`, `KAMIKAZE_BLINK_RADIUS`, `KAMIKAZE_DETONATE_RANGE`, `KAMIKAZE_EXPLOSION_DAMAGE`, `KAMIKAZE_EXPLOSION_RADIUS`, `KAMIKAZE_EXPLOSION_VFX_RADIUS`, `KAMIKAZE_HEALTH_MULTIPLIER`, `KAMIKAZE_REWARD`, `KAMIKAZE_RUN_CADENCE`, `KAMIKAZE_SPEED_MULTIPLIER`, `KAMIKAZE_VISUAL_HEIGHT`, `KNOCKBACK_DURATION`, `KNOCKBACK_SPEED`, `LANDMINE_ARM_SECONDS`, `LANDMINE_BLAST_RADIUS`, `LANDMINE_DAMAGE`, `LANDMINE_EXPLOSION_DURATION`, `LANDMINE_EXPLOSION_POOL_SIZE`, `LANDMINE_EXPLOSION_RADIUS`, `LANDMINE_GLINT_RADIUS`, `LANDMINE_HEIGHT`, `LANDMINE_POOL_SIZE`, `LANDMINE_PULSE_AMPLITUDE`, `LANDMINE_PULSE_FREQUENCY`, `LANDMINE_RADIUS`, `LANDMINE_TRIGGER_RADIUS`, `LANDMINE_VISIBLE_THROUGH_WAVE`, `LETHAL_IMPACT_SPEED`, `LUNGE_DISTANCE`, `LUNGE_DURATION`, `MAXIMUM_SWARM_DRAG`, `MIN_IMPACT_SPEED`, `MIN_SPAWN_DISTANCE_FROM_VEHICLE`, `NECROMANCER_CHANNEL_VFX_INTERVAL`, `NECROMANCER_HEALTH_MULTIPLIER`, `NECROMANCER_REWARD`, `NECROMANCER_SIGIL_OPACITY`, `NECROMANCER_SIGIL_OPEN_FRACTION`, `NECROMANCER_SIGIL_RADIUS`, `NECROMANCER_SIGIL_SPIN`, `NECROMANCER_SPEED_MULTIPLIER`, `NECROMANCER_SUMMON_COOLDOWN`, `NECROMANCER_SUMMON_COUNT`, `NECROMANCER_SUMMON_RADIUS`, `NECROMANCER_SUMMON_RANGE`, `NECROMANCER_SUMMON_SECONDS`, `NECROMANCER_VISUAL_HEIGHT`, `NECROMANCER_WALK_CADENCE`, `OBSTACLE_PROBE_DISTANCE`, `OBSTACLE_PROBE_HEIGHT`, `PHONE_ADDICT_GLOW_OPACITY`, `PHONE_ADDICT_GLOW_RADIUS`, `PHONE_ADDICT_HEALTH_MULTIPLIER`, `PHONE_ADDICT_REWARD`, `PHONE_ADDICT_SPEED_MULTIPLIER`, `PHONE_ADDICT_VISUAL_HEIGHT`, `PLOW_CRUSH_COOLDOWN_SECONDS`, `PLOW_FACE_CLEARANCE_M`, `PLOW_HEIGHT_TOLERANCE_M`, `PLOW_HOLD_SECONDS`, `PLOW_MIN_CARRY_SPEED_MPS`, `PLOW_SLOT_MAX_SPEED`, `PLOW_SLOT_SPACING_M`, `PLOW_SLOT_STIFFNESS`, `PLOW_WALL_PROBE_M`, `PLOW_WALL_PROBE_PER_SPEED`, `plowCrushDamage`, `PlowSlot`, `plowSlots`, `PROJECTILE_DAMAGE`, `PROJECTILE_HIT_RADIUS`, `PROJECTILE_HORIZONTAL_SPEED`, `PROJECTILE_LAUNCH_HEIGHT`, `PROJECTILE_LIFETIME`, `PROJECTILE_MAX_FLIGHT_TIME`, `PROJECTILE_MIN_FLIGHT_TIME`, `PROJECTILE_POOL_SIZE`, `PROJECTILE_SIZE`, `SCALE_VARIATION`, `SEPARATION_RADIUS`, `SEPARATION_STRENGTH`, `SHIELD_FLASH_DURATION`, `SHIELD_FLASH_MAX_OPACITY`, `SHIELD_RADIUS`, `SPAWN_RISE_DURATION`, `STUCK_SPEED_THRESHOLD`, `STUCK_TELEPORT_DISPLACEMENT`, `STUCK_TELEPORT_SECONDS`, `STUCK_TIME_THRESHOLD`, `SWARM_DRAG_ACCELERATION`, `SWARM_DRAG_PER_CONTACT`, `THROWER_ATTACK_EXIT_MARGIN`, `THROWER_ATTACK_INTERVAL`, `THROWER_ATTACK_RANGE`, `THROWER_HEALTH_MULTIPLIER`, `THROWER_REWARD`, `THROWER_SPEED_MULTIPLIER`, `THROWER_VISUAL_HEIGHT`, `VIAL_CAPSULE_LENGTH`, `VIAL_CAPSULE_RADIUS`, `VIAL_GRAVITY_SCALE`, `VIAL_HIT_RADIUS`, `VIAL_HORIZONTAL_SPEED`, `VIAL_LAUNCH_HEIGHT_FRACTION`, `VIAL_LIFETIME`, `VIAL_MAX_FLIGHT_TIME`, `VIAL_MIN_FLIGHT_TIME`, `WALK_BOB_AMPLITUDE`, `WALK_BOB_FREQUENCY`, `WORKER_HEALTH_MULTIPLIER`, `WORKER_PLANT_RANGE`, `WORKER_PLANT_SECONDS`, `WORKER_RETREAT_RANGE`, `WORKER_REWARD`, `WORKER_RING_MAX_RADIUS`, `WORKER_RING_MAX_RATE`, `WORKER_RING_MIN_RATE`, `WORKER_RING_OPACITY`, `WORKER_SPEED_MULTIPLIER`, `WORKER_VISUAL_HEIGHT`, `ZAMBONI_COLOR_DARKEN`, `ZAMBONI_HEALTH_MULTIPLIER`, `ZAMBONI_REWARD`, `ZAMBONI_SPEED_MULTIPLIER`, `ZAMBONI_VISUAL_HEIGHT`, `ZAMBONI_WAYPOINT_ARRIVAL_M`, `ZOMBIE_ATTACK_EXIT_MARGIN`, `ZOMBIE_ATTACK_RANGE`, `ZOMBIE_CONTACT_RADIUS`, `ZOMBIE_HALF_HEIGHT`, `ZOMBIE_POOL_COUNTS`, `ZOMBIE_POOL_SIZE`, `ZOMBIE_RADIUS`
 - Imports: `src/core/types.ts`
-- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/AcidPuddles.ts`, `src/survival/zombies/Landmines.ts`, `src/survival/zombies/ThrowerProjectiles.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`
+- Imported by: `src/survival/SurvivalMode.ts`, `src/survival/devtuning/DevTuning.ts`, `src/survival/waveBalance.ts`, `src/survival/zombies/AcidPuddles.ts`, `src/survival/zombies/IceTrail.ts`, `src/survival/zombies/Landmines.ts`, `src/survival/zombies/ThrowerProjectiles.ts`, `src/survival/zombies/Zombie.ts`, `src/survival/zombies/ZombieSystem.ts`
 - External packages: none
 - Direct tests: `unit/boss-balance.test.ts`, `unit/landmines.test.ts`, `unit/pending-rewards.test.ts`, `unit/plow-crush.test.ts`, `unit/vial-projectiles.test.ts`, `unit/waves.test.ts`, `unit/zombie-balance.test.ts`
 
@@ -889,7 +897,7 @@
 
 ## src/vfx
 
-### [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) (2824 LOC)
+### [`src/vfx/VfxSystem.ts`](../../src/vfx/VfxSystem.ts) (2859 LOC)
 
 - Exports: `ImpactVfxKind`, `MeleeVfxKind`, `MuzzleVfxStyle`, `VfxSystem`
 - Imports: `src/vfx/VoxelParticles.ts`, `src/vfx/vfxConfig.ts`

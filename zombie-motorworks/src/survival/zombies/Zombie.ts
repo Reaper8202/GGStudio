@@ -2276,7 +2276,14 @@ export class Zombie {
 
     const targetDirX = (away * dx) / horizontalDistance;
     const targetDirZ = (away * dz) / horizontalDistance;
-    this.resolveMovement(dt, targetDirX, targetDirZ, separationX, separationZ);
+    this.resolveMovement(
+      dt,
+      targetDirX,
+      targetDirZ,
+      separationX,
+      separationZ,
+      away < 0 && this.vialAttack !== null ? { x: dx, z: dz } : null,
+    );
   }
 
   /**
@@ -2339,6 +2346,11 @@ export class Zombie {
     targetDirZ: number,
     separationX: number,
     separationZ: number,
+    /**
+     * Facing override toward the vehicle while backpedalling, so a retreating
+     * vial boss reads as giving ground under fire rather than fleeing.
+     */
+    retreatFacing: { x: number; z: number } | null = null,
   ): void {
     let dirX = targetDirX;
     let dirZ = targetDirZ;
@@ -2372,10 +2384,8 @@ export class Zombie {
     this.velocityScratch.y = velocity.y;
     this.velocityScratch.z = dirZ * speed + separationZ;
     this.body.setLinvel(this.velocityScratch, true);
-    if (away < 0 && this.vialAttack !== null) {
-      // Backpedal: a retreating vial boss keeps the vehicle in front of it, so
-      // it reads as giving ground under fire rather than fleeing.
-      this.updateFacing(dx, dz);
+    if (retreatFacing) {
+      this.updateFacing(retreatFacing.x, retreatFacing.z);
     } else {
       this.updateFacing(this.velocityScratch.x, this.velocityScratch.z);
     }

@@ -75,6 +75,7 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
       'phone-addict': 0,
       kamikaze: 0,
       behemoth: 0,
+      zamboni: 0,
       boss: 1,
     };
   }
