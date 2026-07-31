@@ -17,7 +17,7 @@ describe('wave formulas', () => {
   it.each([
     {
       wave: 1,
-      zombies: 14,
+      zombies: 13,
       maxActive: 26,
       healthMultiplier: 1,
       speedMultiplier: 1,
@@ -26,7 +26,7 @@ describe('wave formulas', () => {
     },
     {
       wave: 5,
-      zombies: 31,
+      zombies: 34,
       maxActive: 34,
       healthMultiplier: 1.24,
       speedMultiplier: 1.1,
@@ -125,60 +125,66 @@ describe('wave formulas', () => {
   it('unlocks sparse specialists at their progression milestones', () => {
     expect(zombieCompositionForWave(1)).toEqual({
       walker: 13,
-      gunslinger: 1,
+      gunslinger: 0,
       necromancer: 0,
       thrower: 0,
       worker: 0,
       'phone-addict': 0,
       kamikaze: 0,
+      behemoth: 0,
     });
     expect(zombieCompositionForWave(4)).toEqual({
       walker: 22,
-      gunslinger: 2,
+      gunslinger: 3,
       necromancer: 0,
       thrower: 1,
       worker: 0,
       'phone-addict': 0,
       kamikaze: 2,
+      behemoth: 0,
     });
     expect(zombieCompositionForWave(7)).toEqual({
       walker: 31,
-      gunslinger: 3,
+      gunslinger: 9,
       necromancer: 1,
       thrower: 3,
       worker: 1,
       'phone-addict': 0,
       kamikaze: 3,
+      behemoth: 0,
     });
     expect(zombieCompositionForWave(10)).toEqual({
       walker: 40,
-      gunslinger: 4,
+      gunslinger: 10,
       necromancer: 1,
       thrower: 4,
       worker: 2,
       'phone-addict': 1,
       kamikaze: 5,
+      behemoth: 1,
     });
     expect(zombieCompositionForWave(20)).toEqual({
       walker: 70,
-      gunslinger: 7,
+      gunslinger: 10,
       necromancer: 3,
       thrower: 9,
       worker: 5,
       'phone-addict': 3,
       kamikaze: 10,
+      behemoth: 3,
     });
   });
 
   it('does not unlock specialists before their milestone waves', () => {
     expect(zombieCompositionForWave(2)).toEqual({
       walker: 16,
-      gunslinger: 1,
+      gunslinger: 0,
       necromancer: 0,
       worker: 0,
       thrower: 0,
       'phone-addict': 0,
       kamikaze: 0,
+      behemoth: 0,
     });
   });
 
@@ -205,6 +211,9 @@ describe('wave formulas', () => {
     expect(ZOMBIE_POOL_COUNTS.kamikaze).toBeGreaterThanOrEqual(
       lateWaveComposition.kamikaze,
     );
+    expect(ZOMBIE_POOL_COUNTS.behemoth).toBeGreaterThanOrEqual(
+      lateWaveComposition.behemoth,
+    );
   });
 
   it('makes debug kill-all account for every pending wave assignment', () => {
@@ -229,7 +238,7 @@ describe('wave formulas', () => {
 
     waves.startWave(1);
     expect(waveMultipliers).toEqual([1, 1, 1]);
-    expect(waves.prepareDebugKillAll()).toBe(14);
+    expect(waves.prepareDebugKillAll()).toBe(13);
     expect(remaining).toBe(0);
     expect(completion).toEqual({ wave: 1, reward: 50 });
   });

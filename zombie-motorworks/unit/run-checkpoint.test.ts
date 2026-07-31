@@ -72,6 +72,7 @@ describe('run checkpoints', () => {
       nextWave: 2,
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 217.5, seat: 61, frame: 0 },
+      missingParts: [],
       kills: 9,
       biomeId: 'desert',
       seed: 42,
@@ -91,6 +92,71 @@ describe('run checkpoints', () => {
       'core',
       'seat',
     ]);
+    expect(checkpoint.missingParts.map((part) => part.id)).toEqual(['frame']);
+  });
+
+  it('carries forward unaddressed missing parts and drops ones since restored', () => {
+    const afterWave2 = createClearedWaveCheckpoint({
+      blueprint: checkpointBlueprint(),
+      nextWave: 2,
+      survivingPartIds: ['core', 'seat'],
+      partHp: { core: 217.5, seat: 61, frame: 0 },
+      missingParts: [],
+      kills: 9,
+      biomeId: 'desert',
+      seed: 42,
+      score: 0,
+      bankedEarnings: 73,
+      elapsedSeconds: 120,
+    });
+    expect(afterWave2.missingParts.map((part) => part.id)).toEqual(['frame']);
+
+    // The player never rebuilt "frame"; "seat" is destroyed this wave too.
+    const stillUnrebuilt = {
+      ...checkpointBlueprint(),
+      parts: checkpointBlueprint().parts.filter((part) => part.id !== 'frame'),
+    };
+    const afterWave3 = createClearedWaveCheckpoint({
+      blueprint: stillUnrebuilt,
+      nextWave: 3,
+      survivingPartIds: ['core'],
+      partHp: { core: 200, seat: 0 },
+      missingParts: afterWave2.missingParts,
+      kills: 15,
+      biomeId: 'desert',
+      seed: 42,
+      score: 0,
+      bankedEarnings: 90,
+      elapsedSeconds: 150,
+    });
+    expect(afterWave3.missingParts.map((part) => part.id).sort()).toEqual([
+      'frame',
+      'seat',
+    ]);
+
+    // Now the player rebuilds "frame" (re-placed with its original id) and
+    // survives wave 3 with it intact.
+    const rebuilt = {
+      ...stillUnrebuilt,
+      parts: [
+        ...stillUnrebuilt.parts,
+        afterWave2.missingParts.find((part) => part.id === 'frame')!,
+      ],
+    };
+    const afterWave4 = createClearedWaveCheckpoint({
+      blueprint: rebuilt,
+      nextWave: 4,
+      survivingPartIds: ['core', 'frame'],
+      partHp: { core: 200, frame: 90 },
+      missingParts: afterWave3.missingParts,
+      kills: 20,
+      biomeId: 'desert',
+      seed: 42,
+      score: 0,
+      bankedEarnings: 100,
+      elapsedSeconds: 180,
+    });
+    expect(afterWave4.missingParts.map((part) => part.id)).toEqual(['seat']);
   });
 
   it('starts Continue and Garage Fight from equivalent HP without repairs', () => {
@@ -99,6 +165,7 @@ describe('run checkpoints', () => {
       nextWave: 4,
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 188, seat: 47 },
+      missingParts: [],
       kills: 31,
       biomeId: 'snowfield',
       seed: 314159,
@@ -120,12 +187,41 @@ describe('run checkpoints', () => {
     });
   });
 
+  it('drops a missing part from the garage-fight checkpoint once it is re-placed', () => {
+    const checkpoint = createClearedWaveCheckpoint({
+      blueprint: checkpointBlueprint(),
+      nextWave: 2,
+      survivingPartIds: ['core', 'seat'],
+      partHp: { core: 217.5, seat: 61, frame: 0 },
+      missingParts: [],
+      kills: 9,
+      biomeId: 'desert',
+      seed: 42,
+      score: 0,
+      bankedEarnings: 73,
+      elapsedSeconds: 120,
+    });
+    expect(checkpoint.missingParts.map((part) => part.id)).toEqual(['frame']);
+
+    const rebuiltBp = {
+      ...checkpoint.blueprint,
+      parts: [
+        ...checkpoint.blueprint.parts,
+        checkpoint.missingParts.find((part) => part.id === 'frame')!,
+      ],
+    };
+    const prepared = prepareCheckpointForGarageFight(checkpoint, rebuiltBp);
+
+    expect(prepared.missingParts).toEqual([]);
+  });
+
   it('recovers the failed-wave checkpoint, keeps cleared losses, heals survivors, and restarts at wave 1', () => {
     const failedWaveStart = createClearedWaveCheckpoint({
       blueprint: checkpointBlueprint(),
       nextWave: 5,
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 155, seat: 39, frame: 0 },
+      missingParts: [],
       kills: 54,
       biomeId: 'graveyard',
       seed: 9001,
@@ -159,6 +255,7 @@ describe('run checkpoints', () => {
       nextWave: 3,
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 201, seat: 72 },
+      missingParts: [],
       kills: 18,
       biomeId: 'desert',
       seed: 8675309,
@@ -175,7 +272,7 @@ describe('run checkpoints', () => {
     const saved = savedRunFromCheckpoint(checkpoint, 1_800_000_000_000);
 
     expect(saved).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       wave: checkpoint.wave,
       kills: checkpoint.kills,
       biomeId: checkpoint.biomeId,
@@ -207,6 +304,7 @@ describe('run checkpoints', () => {
       nextWave: 5,
       survivingPartIds: ['core', 'seat'],
       partHp: { core: 201, seat: 72 },
+      missingParts: [],
       kills: 18,
       biomeId: 'desert',
       seed: 8675309,

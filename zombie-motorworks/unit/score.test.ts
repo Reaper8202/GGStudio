@@ -24,6 +24,7 @@ describe('run score', () => {
       thrower: 30,
       'phone-addict': 20,
       kamikaze: 15,
+      behemoth: 80,
     });
 
     for (const [kind, baseScore] of Object.entries(SCORE_PER_KILL)) {

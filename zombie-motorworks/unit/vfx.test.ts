@@ -108,6 +108,27 @@ describe('VfxSystem emitters', () => {
     vfx.dispose();
   });
 
+  it('emits particles for a behemoth ground smash', () => {
+    const { vfx } = system();
+    vfx.groundSmash(0, 1, 0, 3);
+    expect(vfx.particleCount).toBeGreaterThan(0);
+    vfx.dispose();
+  });
+
+  it('ignores a zero-radius ground smash', () => {
+    const { vfx } = system();
+    vfx.groundSmash(0, 1, 0, 0);
+    expect(vfx.particleCount).toBe(0);
+    vfx.dispose();
+  });
+
+  it('emits no ground smash particles past the cull distance', () => {
+    const { vfx } = system();
+    vfx.groundSmash(0, 1, 400, 3);
+    expect(vfx.particleCount).toBe(0);
+    vfx.dispose();
+  });
+
   it.each(['blade', 'spikes', 'drum', 'ram'] as const)(
     'emits particles for a %s contact',
     (kind) => {

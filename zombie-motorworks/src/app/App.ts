@@ -63,6 +63,8 @@ export interface RunCheckpoint {
   blueprint: VehicleBlueprint;
   /** Per-part HP committed at the start of `wave`. */
   partHp: Record<string, number>;
+  /** Parts destroyed in a prior wave, not yet bought back and re-placed. */
+  missingParts: PlacedPart[];
   /** Cumulative kills committed before `wave`. */
   kills: number;
   /** Arena recipe shared by every wave in this run. */
@@ -105,6 +107,7 @@ export function createInitialRunCheckpoint(
       bp.parts.map((part) => part.id),
     ),
     partHp: fullPartHp(bp),
+    missingParts: [],
     kills: 0,
     biomeId,
     seed: randomSeed(),
@@ -126,12 +129,28 @@ function partHpForBlueprint(
   );
 }
 
+/**
+ * Merge parts destroyed in earlier, still-unaddressed waves with this wave's
+ * fresh losses, then drop anything that is present again (already restored).
+ */
+function mergeMissingParts(
+  carriedOver: readonly PlacedPart[],
+  destroyedThisWave: readonly PlacedPart[],
+  presentIds: ReadonlySet<string>,
+): PlacedPart[] {
+  const byId = new Map(carriedOver.map((part) => [part.id, part]));
+  for (const part of destroyedThisWave) byId.set(part.id, part);
+  for (const id of presentIds) byId.delete(id);
+  return [...byId.values()];
+}
+
 /** Commit permanent wave damage and prepare the vehicle's next-wave state. */
 export function createClearedWaveCheckpoint(input: {
   blueprint: VehicleBlueprint;
   nextWave: number;
   survivingPartIds: readonly string[];
   partHp: Readonly<Record<string, number>>;
+  missingParts: readonly PlacedPart[];
   kills: number;
   biomeId: BiomeId;
   seed: number;
@@ -143,10 +162,20 @@ export function createClearedWaveCheckpoint(input: {
     input.blueprint,
     input.survivingPartIds,
   );
+  const survivors = new Set(input.survivingPartIds);
+  const destroyedThisWave = input.blueprint.parts.filter(
+    (part) => !survivors.has(part.id),
+  );
+  const presentIds = new Set(blueprint.parts.map((part) => part.id));
   return {
     wave: input.nextWave,
     blueprint,
     partHp: partHpForBlueprint(blueprint, input.partHp),
+    missingParts: mergeMissingParts(
+      input.missingParts,
+      destroyedThisWave,
+      presentIds,
+    ),
     kills: input.kills,
     biomeId: input.biomeId,
     seed: input.seed,
@@ -168,6 +197,7 @@ export function prepareCheckpointForGarageFight(
   const checkpointParts = new Map(
     checkpoint.blueprint.parts.map((part) => [part.id, part]),
   );
+  const presentIds = new Set(blueprint.parts.map((part) => part.id));
   return {
     ...checkpoint,
     blueprint,
@@ -180,6 +210,9 @@ export function prepareCheckpointForGarageFight(
         const currentHp = checkpoint.partHp[part.id] ?? oldMaxHp;
         return [part.id, scaledHpOnUpgrade(currentHp, oldMaxHp, newMaxHp)];
       }),
+    ),
+    missingParts: checkpoint.missingParts.filter(
+      (part) => !presentIds.has(part.id),
     ),
   };
 }
@@ -219,7 +252,7 @@ export function savedRunFromCheckpoint(
   activeWave: number = checkpoint.wave,
 ): SavedRun {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     phase,
     activeWave,
     wave: checkpoint.wave,
@@ -231,6 +264,7 @@ export function savedRunFromCheckpoint(
     elapsedSeconds: checkpoint.elapsedSeconds,
     blueprint: checkpoint.blueprint,
     partHp: { ...checkpoint.partHp },
+    missingParts: checkpoint.missingParts.map((part) => ({ ...part })),
     savedAt,
   };
 }
@@ -419,6 +453,7 @@ export class App {
       wave: savedRun.wave,
       blueprint: savedRun.blueprint,
       partHp: { ...savedRun.partHp },
+      missingParts: savedRun.missingParts.map((part) => ({ ...part })),
       kills: savedRun.kills,
       biomeId: savedRun.biomeId,
       seed: savedRun.seed,
@@ -477,6 +512,7 @@ export class App {
                 partHp: () => ({ ...this.checkpoint?.partHp }),
                 repairPart: (id) => this.repairPart(id),
                 repairAll: () => this.repairAll(),
+                missingParts: () => this.checkpointMissingParts(),
               }
             : undefined,
         runSummary: this.runSummary,
@@ -724,6 +760,7 @@ export class App {
       nextWave,
       survivingPartIds,
       partHp,
+      missingParts: this.checkpoint.missingParts,
       kills,
       biomeId: this.checkpoint.biomeId,
       seed: this.checkpoint.seed,
@@ -910,6 +947,20 @@ export class App {
         },
       ];
     });
+  }
+
+  /**
+   * Parts destroyed in an earlier wave that are still absent from the live
+   * blueprint. Derived rather than mutated: once "Rebuild Car" re-places one
+   * through the editor's command system, it drops out here on its own.
+   */
+  private checkpointMissingParts(): PlacedPart[] {
+    if (this.checkpoint === null) return [];
+    const currentBlueprint = this.editor?.blueprint() ?? this.bp;
+    const presentIds = new Set(currentBlueprint.parts.map((part) => part.id));
+    return this.checkpoint.missingParts.filter(
+      (part) => !presentIds.has(part.id),
+    );
   }
 
   private repairPart(id: string): boolean {
@@ -1215,6 +1266,7 @@ export class App {
       repairAll: () => this.repairAll(),
       checkpointPartHp: () =>
         this.checkpoint ? { ...this.checkpoint.partHp } : null,
+      checkpointMissingParts: () => this.checkpointMissingParts(),
       unlockPart: (defId: string) =>
         this.editor?.debugUnlockPart(defId) ?? false,
       selectPart: (partId: string) =>

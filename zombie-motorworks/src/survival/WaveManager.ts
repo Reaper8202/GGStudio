@@ -21,6 +21,7 @@ export interface WaveComposition {
   worker: number;
   'phone-addict': number;
   kamikaze: number;
+  behemoth: number;
 }
 
 /** Resolve one kind's count from its composition curve, honouring a dev pin. */
@@ -74,6 +75,11 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
     kamikaze: countFromCurve(
       composition.kamikaze,
       types.kamikaze.countOverride,
+      safeWave,
+    ),
+    behemoth: countFromCurve(
+      composition.behemoth,
+      types.behemoth.countOverride,
       safeWave,
     ),
   };
@@ -145,6 +151,7 @@ function spawnOrderForWave(wave: number): ZombieKind[] {
     'worker',
     'phone-addict',
     'kamikaze',
+    'behemoth',
   ] as const) {
     for (let i = 0; i < composition[kind]; i++) specials.push(kind);
   }
