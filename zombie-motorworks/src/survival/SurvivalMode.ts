@@ -9,12 +9,16 @@ import {
   ABILITY_KIND_META,
   ABILITY_SLOT_KEYS,
   abilityUnlocked,
+  effectiveCharm,
   effectiveFreeze,
   effectiveHellfire,
   effectiveOverdrive,
   effectivePhase,
   effectivePulse,
+  effectiveRocket,
   effectiveShield,
+  effectiveThump,
+  effectiveZap,
   MAX_ABILITY_SLOTS,
   phaseDestination,
   resolveAbilityLoadout,
@@ -319,6 +323,13 @@ export interface SurvivalTelemetry {
   phase: SurvivalPhase;
   partHp: Record<string, number>;
   integrityPct: number;
+  /** The live boss on a boss wave, or null on ordinary waves. */
+  boss: {
+    id: string;
+    name: string;
+    health: number;
+    maxHealth: number;
+  } | null;
   vehiclePos: [number, number, number];
   /** Debug-only: body rotation quaternion (collision/upright diagnostics). */
   rotation: [number, number, number, number];
@@ -415,6 +426,11 @@ interface SurvivalUi {
   fuelValue: HTMLSpanElement;
   fuelFill: HTMLSpanElement;
   waveTimeline: WaveTimelineHud;
+  bossHud: HTMLElement;
+  bossNameValue: HTMLElement;
+  bossHealthTrack: HTMLDivElement;
+  bossHealthFill: HTMLSpanElement;
+  bossHealthValue: HTMLSpanElement;
   moneyValue: HTMLSpanElement;
   pendingMoneyValue: HTMLSpanElement;
   stuckPrompt: HTMLDivElement;
@@ -545,8 +561,40 @@ export class SurvivalMode {
   private shieldBubble: THREE.Mesh | null = null;
   private shieldBubbleMaterial: THREE.MeshBasicMaterial | null = null;
   private shieldBubblePhase = 0;
+  private zapBlast: THREE.Mesh | null = null;
+  private zapBlastMaterial: THREE.MeshBasicMaterial | null = null;
+  /** Seconds remaining in the Tesla Coil blast flash; 0 when idle. */
+  private zapBlastTtl = 0;
+  private charmPulse: THREE.Mesh | null = null;
+  private charmPulseMaterial: THREE.MeshBasicMaterial | null = null;
+  /** Seconds remaining in the Mind Control range pulse; 0 when idle. */
+  private charmPulseTtl = 0;
+  /** Charm range this pulse expands to, metres. */
+  private charmPulseRange = 0;
+  /**
+   * Pooled world-space explosion flashes for Missile Launcher impacts (rocket
+   * splash and the Q big rocket). Each slot is an expanding, fading sphere at a
+   * world position; the pool is cycled so overlapping blasts each get a mesh.
+   */
+  private readonly explosions: {
+    mesh: THREE.Mesh;
+    material: THREE.MeshBasicMaterial;
+    ttl: number;
+    duration: number;
+    radius: number;
+  }[] = [];
+  private explosionCursor = 0;
+  private thumpRing: THREE.Mesh | null = null;
+  private thumpRingMaterial: THREE.MeshBasicMaterial | null = null;
+  private thumpRingTtl = 0;
+  private thumpRingRange = 0;
   private readonly waveTimelineHud: WaveTimelineHud;
   private waveTimeline: WaveTimeline | null = null;
+  private readonly bossHud: HTMLElement;
+  private readonly bossNameValue: HTMLElement;
+  private readonly bossHealthTrack: HTMLDivElement;
+  private readonly bossHealthFill: HTMLSpanElement;
+  private readonly bossHealthValue: HTMLSpanElement;
   private readonly moneyValue: HTMLSpanElement;
   private readonly pendingMoneyValue: HTMLSpanElement;
   private readonly stuckPrompt: HTMLDivElement;
@@ -609,6 +657,8 @@ export class SurvivalMode {
   private recoveryCooldown = 0;
   private recoverySettleSeconds = 0;
   private recoveryRequested = false;
+  private lastHudBossName = '';
+  private lastHudBossPct = -1;
   /** Ability slots pressed since the last fixed step, drained by updateAbility. */
   private readonly abilityRequests = new Set<number>();
   /**
@@ -784,6 +834,11 @@ export class SurvivalMode {
     this.fuelValue = builtUi.fuelValue;
     this.fuelFill = builtUi.fuelFill;
     this.waveTimelineHud = builtUi.waveTimeline;
+    this.bossHud = builtUi.bossHud;
+    this.bossNameValue = builtUi.bossNameValue;
+    this.bossHealthTrack = builtUi.bossHealthTrack;
+    this.bossHealthFill = builtUi.bossHealthFill;
+    this.bossHealthValue = builtUi.bossHealthValue;
     this.moneyValue = builtUi.moneyValue;
     this.pendingMoneyValue = builtUi.pendingMoneyValue;
     this.stuckPrompt = builtUi.stuckPrompt;
@@ -942,6 +997,27 @@ export class SurvivalMode {
 
     const waveTimeline = new WaveTimelineHud();
     root.appendChild(waveTimeline.root);
+
+    // Boss health bar: hidden on ordinary waves, revealed under the wave
+    // timeline for as long as a boss is alive.
+    const bossHud = document.createElement('section');
+    bossHud.className = 'panel survival-boss-hud';
+    bossHud.hidden = true;
+    const bossNameValue = document.createElement('strong');
+    bossNameValue.className = 'survival-boss-hud__name';
+    const bossHealthTrack = document.createElement('div');
+    bossHealthTrack.className = 'survival-boss-hud__track';
+    bossHealthTrack.setAttribute('role', 'progressbar');
+    bossHealthTrack.setAttribute('aria-label', 'Boss health');
+    bossHealthTrack.setAttribute('aria-valuemin', '0');
+    bossHealthTrack.setAttribute('aria-valuemax', '100');
+    const bossHealthFill = document.createElement('span');
+    bossHealthFill.className = 'survival-boss-hud__fill';
+    bossHealthTrack.appendChild(bossHealthFill);
+    const bossHealthValue = document.createElement('span');
+    bossHealthValue.className = 'survival-boss-hud__value';
+    bossHud.append(bossNameValue, bossHealthTrack, bossHealthValue);
+    root.appendChild(bossHud);
 
     const hud = document.createElement('div');
     hud.className = 'panel survival-driver-hud';
@@ -1308,6 +1384,11 @@ export class SurvivalMode {
       fuelValue,
       fuelFill,
       waveTimeline,
+      bossHud,
+      bossNameValue,
+      bossHealthTrack,
+      bossHealthFill,
+      bossHealthValue,
       moneyValue,
       pendingMoneyValue,
       stuckPrompt,
@@ -1977,6 +2058,7 @@ export class SurvivalMode {
       this.callbacks.onWaveCleared(wave);
     }
     this.zombies.clearLandmines();
+    this.zombies.clearAcidPuddles();
     this.phase = 'cleared';
     this.pointerFiring = false;
     this.keys.clear();
@@ -2278,6 +2360,10 @@ export class SurvivalMode {
     this.zombies.updateVisuals(frameDt);
     this.fuelPickups.updateVisuals(frameDt);
     this.syncShieldBubble(frameDt);
+    this.syncZapBlast(frameDt);
+    this.syncCharmPulse(frameDt);
+    this.syncExplosions(frameDt);
+    this.syncThumpRing(frameDt);
     this.syncOverdriveTrail();
     this.phaseGhosts.update(frameDt);
     this.tracerRenderer.update(frameDt, this.camera);
@@ -2306,6 +2392,7 @@ export class SurvivalMode {
         ? this.zombies.activeMines()
         : undefined,
       this.fuelPickups.activeCrates(),
+      this.zombies.activeBoss(),
     );
   }
 
@@ -2398,6 +2485,60 @@ export class SurvivalMode {
       // it catches plays its own encasing burst from inside the zombie pool.
       this.vfx.freezeBurst(pos.x, pos.y, pos.z, freeze.rangeM);
       return freeze.cooldownSeconds;
+    }
+    if (ability.kind === 'zap') {
+      const zap = effectiveZap(ability, level);
+      // Blast centred on the vehicle, matching the Shield Bubble's radius.
+      this.zombies.damageWithin(
+        { x: pos.x, z: pos.z },
+        SHIELD_BUBBLE_RADIUS_M,
+        zap.damage,
+      );
+      this.spawnZapBlast();
+      return zap.cooldownSeconds;
+    }
+    if (ability.kind === 'charm') {
+      const charm = effectiveCharm(ability, level);
+      this.zombies.charmNearest(
+        { x: pos.x, z: pos.z },
+        charm.targets,
+        charm.rangeM,
+        charm.durationSeconds,
+      );
+      this.spawnCharmPulse(charm.rangeM);
+      return charm.cooldownSeconds;
+    }
+    if (ability.kind === 'rocket') {
+      const rocket = effectiveRocket(ability, level);
+      // Land the rocket on the thickest cluster in range; if the field is empty
+      // fire straight ahead so the ability still feels responsive.
+      const impact =
+        this.zombies.bestBlastTarget(
+          { x: pos.x, z: pos.z },
+          SurvivalMode.ROCKET_SEEK_RANGE_M,
+          rocket.radiusM,
+        ) ?? this.forwardGroundPoint(SurvivalMode.ROCKET_SEEK_RANGE_M);
+      this.zombies.damageWithin(impact, rocket.radiusM, rocket.damage);
+      this.spawnExplosion(
+        impact.x,
+        pos.y,
+        impact.z,
+        rocket.radiusM,
+        0xffb020,
+        0.5,
+      );
+      return rocket.cooldownSeconds;
+    }
+    if (ability.kind === 'thump') {
+      const thump = effectiveThump(ability, level);
+      // Shove every zombie in a moderate circle straight away from the chassis.
+      this.zombies.knockbackWithin(
+        { x: pos.x, z: pos.z },
+        thump.radiusM,
+        thump.knockbackSpeed,
+      );
+      this.spawnThumpRing(thump.radiusM);
+      return thump.cooldownSeconds;
     }
     if (ability.kind === 'pulse') {
       const pulse = effectivePulse(ability, level);
@@ -2846,6 +2987,39 @@ export class SurvivalMode {
   }
 
   /**
+   * Boss health bar. Hidden whenever no boss is alive, so ordinary waves are
+   * unchanged. Percentage is rounded before the guard so the DOM is touched at
+   * most a hundred times over the whole fight.
+   */
+  private syncBossHud(): void {
+    const boss = this.zombies.activeBoss();
+    const def = boss?.bossDefinition ?? null;
+    if (!boss || !def || boss.maxHealth <= 0) {
+      if (!this.bossHud.hidden) this.bossHud.hidden = true;
+      this.lastHudBossName = '';
+      this.lastHudBossPct = -1;
+      return;
+    }
+
+    if (this.bossHud.hidden) this.bossHud.hidden = false;
+    if (def.name !== this.lastHudBossName) {
+      this.lastHudBossName = def.name;
+      this.bossNameValue.textContent = def.name;
+    }
+
+    const pct = Math.max(
+      0,
+      Math.min(100, Math.round((boss.currentHealth / boss.maxHealth) * 100)),
+    );
+    if (pct === this.lastHudBossPct) return;
+    this.lastHudBossPct = pct;
+    this.bossHealthValue.textContent = `${pct}%`;
+    this.bossHealthFill.style.width = `${pct}%`;
+    this.bossHealthTrack.setAttribute('aria-valuenow', String(pct));
+    this.bossHealthFill.classList.toggle('is-critical', pct <= 25);
+  }
+
+  /**
    * Cheap identity for the current loadout: which part is in which box, and at
    * what upgrade level. Changes exactly when the bar's labels need rewriting.
    */
@@ -2919,6 +3093,207 @@ export class SurvivalMode {
     if (this.shieldBubbleMaterial) {
       this.shieldBubbleMaterial.opacity =
         0.24 + 0.1 * (0.5 + 0.5 * Math.sin(this.shieldBubblePhase));
+    }
+  }
+
+  /** Duration of the Tesla Coil blast flash, seconds. */
+  private static readonly ZAP_BLAST_SECONDS = 0.35;
+
+  /**
+   * Kick off the Tesla Coil blast flash: a bright blue sphere at the Shield
+   * Bubble radius that expands and fades out. The mesh is a child of the vehicle
+   * group so it stays centred on the chassis; it is created lazily and reused.
+   */
+  private spawnZapBlast(): void {
+    if (this.zapBlast === null) {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x66ccff,
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(SHIELD_BUBBLE_RADIUS_M, 24, 16),
+        material,
+      );
+      mesh.name = 'zap-blast';
+      this.vehicleGroup.add(mesh);
+      this.zapBlast = mesh;
+      this.zapBlastMaterial = material;
+    }
+    this.zapBlastTtl = SurvivalMode.ZAP_BLAST_SECONDS;
+    this.zapBlast.visible = true;
+  }
+
+  /** Expand and fade the Tesla Coil blast flash, hiding it when spent. */
+  private syncZapBlast(frameDt: number): void {
+    if (this.zapBlast === null || this.zapBlastTtl <= 0) return;
+    this.zapBlastTtl = Math.max(0, this.zapBlastTtl - frameDt);
+    const progress = 1 - this.zapBlastTtl / SurvivalMode.ZAP_BLAST_SECONDS;
+    // Snap out from a compact core, fading as it grows.
+    const scale = 0.4 + 0.6 * progress;
+    this.zapBlast.scale.setScalar(scale);
+    if (this.zapBlastMaterial) {
+      this.zapBlastMaterial.opacity = 0.5 * (1 - progress);
+    }
+    if (this.zapBlastTtl <= 0) this.zapBlast.visible = false;
+  }
+
+  /** Duration of the Mind Control range pulse, seconds. */
+  private static readonly CHARM_PULSE_SECONDS = 0.5;
+
+  /**
+   * Kick off the Mind Control pulse: a purple sphere that expands from the
+   * vehicle out to the charm range, showing which zombies were in reach. The
+   * unit-radius mesh is a child of the vehicle group and is created lazily and
+   * reused; the target radius is stored per activation and applied via scale.
+   */
+  private spawnCharmPulse(rangeM: number): void {
+    if (this.charmPulse === null) {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xc060ff,
+        transparent: true,
+        opacity: 0.4,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), material);
+      mesh.name = 'charm-pulse';
+      this.vehicleGroup.add(mesh);
+      this.charmPulse = mesh;
+      this.charmPulseMaterial = material;
+    }
+    this.charmPulseRange = Math.max(0.1, rangeM);
+    this.charmPulseTtl = SurvivalMode.CHARM_PULSE_SECONDS;
+    this.charmPulse.visible = true;
+  }
+
+  /** Expand and fade the Mind Control range pulse, hiding it when spent. */
+  private syncCharmPulse(frameDt: number): void {
+    if (this.charmPulse === null || this.charmPulseTtl <= 0) return;
+    this.charmPulseTtl = Math.max(0, this.charmPulseTtl - frameDt);
+    const progress = 1 - this.charmPulseTtl / SurvivalMode.CHARM_PULSE_SECONDS;
+    this.charmPulse.scale.setScalar(this.charmPulseRange * progress);
+    if (this.charmPulseMaterial) {
+      this.charmPulseMaterial.opacity = 0.4 * (1 - progress);
+    }
+    if (this.charmPulseTtl <= 0) this.charmPulse.visible = false;
+  }
+
+  /** Duration of the Thumper shockwave ring, seconds. */
+  private static readonly THUMP_RING_SECONDS = 0.45;
+
+  /**
+   * Kick off the Thumper shockwave: a flat ring that snaps outward from the
+   * chassis to the knockback radius, showing which zombies got shoved. The
+   * unit-radius ring lies flat on the ground as a child of the vehicle group and
+   * is created lazily and reused; the target radius is applied via scale.
+   */
+  private spawnThumpRing(radiusM: number): void {
+    if (this.thumpRing === null) {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xffcf80,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      // Unit ring (outer radius 1) laid flat; scaled to the blast radius.
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(0.82, 1, 48),
+        material,
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.y = 0.15;
+      mesh.name = 'thump-ring';
+      this.vehicleGroup.add(mesh);
+      this.thumpRing = mesh;
+      this.thumpRingMaterial = material;
+    }
+    this.thumpRingRange = Math.max(0.1, radiusM);
+    this.thumpRingTtl = SurvivalMode.THUMP_RING_SECONDS;
+    this.thumpRing.visible = true;
+  }
+
+  /** Expand and fade the Thumper shockwave ring, hiding it when spent. */
+  private syncThumpRing(frameDt: number): void {
+    if (this.thumpRing === null || this.thumpRingTtl <= 0) return;
+    this.thumpRingTtl = Math.max(0, this.thumpRingTtl - frameDt);
+    const progress = 1 - this.thumpRingTtl / SurvivalMode.THUMP_RING_SECONDS;
+    const scale = this.thumpRingRange * (0.25 + 0.75 * progress);
+    this.thumpRing.scale.set(scale, scale, scale);
+    if (this.thumpRingMaterial) {
+      this.thumpRingMaterial.opacity = 0.6 * (1 - progress);
+    }
+    if (this.thumpRingTtl <= 0) this.thumpRing.visible = false;
+  }
+
+  /** How far the Missile Launcher Q rocket seeks a cluster / flies ahead, m. */
+  private static readonly ROCKET_SEEK_RANGE_M = 30;
+  /** Number of pooled explosion flash meshes cycled for rocket impacts. */
+  private static readonly EXPLOSION_POOL_SIZE = 8;
+
+  /** A point `distanceM` ahead of the vehicle on its heading (rocket fallback). */
+  private forwardGroundPoint(distanceM: number): { x: number; z: number } {
+    const pos = this.vehicle.body.translation();
+    const rot = this.vehicle.body.rotation();
+    const q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w);
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    const len = Math.hypot(fwd.x, fwd.z) || 1;
+    return {
+      x: pos.x + (fwd.x / len) * distanceM,
+      z: pos.z + (fwd.z / len) * distanceM,
+    };
+  }
+
+  /**
+   * Flash an expanding, fading sphere at a world point (rocket/splash impact).
+   * Meshes are created lazily up to {@link EXPLOSION_POOL_SIZE} and cycled, so
+   * simultaneous blasts each claim a slot rather than fighting over one mesh.
+   */
+  private spawnExplosion(
+    x: number,
+    y: number,
+    z: number,
+    radiusM: number,
+    color: number,
+    durationSeconds: number,
+  ): void {
+    let slot = this.explosions[this.explosionCursor];
+    if (slot === undefined) {
+      const material = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), material);
+      mesh.name = 'rocket-blast';
+      mesh.visible = false;
+      this.scene.add(mesh);
+      slot = { mesh, material, ttl: 0, duration: durationSeconds, radius: radiusM };
+      this.explosions[this.explosionCursor] = slot;
+    }
+    this.explosionCursor =
+      (this.explosionCursor + 1) % SurvivalMode.EXPLOSION_POOL_SIZE;
+    slot.material.color.setHex(color);
+    slot.radius = Math.max(0.1, radiusM);
+    slot.duration = durationSeconds;
+    slot.ttl = durationSeconds;
+    slot.mesh.position.set(x, y, z);
+    slot.mesh.visible = true;
+  }
+
+  /** Expand and fade every live explosion flash, hiding each when spent. */
+  private syncExplosions(frameDt: number): void {
+    for (const slot of this.explosions) {
+      if (slot.ttl <= 0) continue;
+      slot.ttl = Math.max(0, slot.ttl - frameDt);
+      const progress = 1 - slot.ttl / slot.duration;
+      slot.mesh.scale.setScalar(slot.radius * (0.35 + 0.65 * progress));
+      slot.material.opacity = 0.6 * (1 - progress);
+      if (slot.ttl <= 0) slot.mesh.visible = false;
     }
   }
 
@@ -3038,6 +3413,7 @@ export class SurvivalMode {
       this.fuelFill.classList.toggle('is-empty', telemetry.fuel <= 0);
     }
     this.syncAbilityHud();
+    this.syncBossHud();
     this.syncSelfDestructHud();
     if (this.runScore !== this.lastHudScore) {
       this.lastHudScore = this.runScore;
@@ -3282,6 +3658,8 @@ export class SurvivalMode {
     const position = this.vehicle.body.translation();
     const rotation = this.vehicle.body.rotation();
     const angvel = this.vehicle.body.angvel();
+    const boss = this.zombies.activeBoss();
+    const bossDef = boss?.bossDefinition ?? null;
     return {
       mode: 'survival',
       kills: this.kills,
@@ -3294,6 +3672,15 @@ export class SurvivalMode {
       phase: this.phase,
       partHp: this.vehicle.partHpSnapshot(),
       integrityPct: this.vehicle.integrityPct(),
+      boss:
+        boss && bossDef
+          ? {
+              id: bossDef.id,
+              name: bossDef.name,
+              health: boss.currentHealth,
+              maxHealth: boss.maxHealth,
+            }
+          : null,
       vehiclePos: [position.x, position.y, position.z],
       rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
       angvel: [angvel.x, angvel.y, angvel.z],

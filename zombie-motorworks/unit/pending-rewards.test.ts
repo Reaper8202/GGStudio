@@ -27,6 +27,7 @@ interface PendingRewardsHarness {
   };
   zombies: {
     clearLandmines(): void;
+    clearAcidPuddles(): void;
     forceKillAll(): void;
   };
   vehicle: {
@@ -124,7 +125,11 @@ function createHarness(options: { destroyed?: boolean } = {}): {
       prepareDebugKillAll: () => 0,
       fixedUpdate: vi.fn(),
     },
-    zombies: { clearLandmines: vi.fn(), forceKillAll: vi.fn() },
+    zombies: {
+      clearLandmines: vi.fn(),
+      clearAcidPuddles: vi.fn(),
+      forceKillAll: vi.fn(),
+    },
     vehicle: {
       isDestroyed: () => options.destroyed ?? false,
       partHpSnapshot: () => ({ chassis: 75 }),

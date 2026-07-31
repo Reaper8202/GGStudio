@@ -22,9 +22,17 @@ import {
   type ZombieKind,
   type ZombieKilledCallback,
 } from './Zombie.ts';
+import type { BossDefinition } from './bossConfig.ts';
 import { Landmines, type MineSnapshot } from './Landmines.ts';
-import { ThrowerProjectiles } from './ThrowerProjectiles.ts';
+import { AcidPuddles } from './AcidPuddles.ts';
 import {
+  VIAL_PROJECTILE,
+  ThrowerProjectiles,
+  type ProjectileSpec,
+  type ProjectileVariant,
+} from './ThrowerProjectiles.ts';
+import {
+  ACID_POISON_TICK_SECONDS,
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
   LANDMINE_BLAST_RADIUS,
@@ -46,6 +54,7 @@ import {
   plowSlots,
   type PlowSlot,
   PROJECTILE_HIT_RADIUS,
+  VIAL_LAUNCH_HEIGHT_FRACTION,
   PROJECTILE_LAUNCH_HEIGHT,
   SEPARATION_RADIUS,
   SEPARATION_STRENGTH,
@@ -204,6 +213,9 @@ export class ZombieSystem {
   private readonly fallbackGeometry: THREE.CapsuleGeometry;
   private readonly projectiles: ThrowerProjectiles;
   private readonly landmines: Landmines;
+  private readonly acidPuddles: AcidPuddles;
+  /** Counts down to the next poison application; see `tickAcidPoison`. */
+  private acidTickTimer = ACID_POISON_TICK_SECONDS;
   /** Reused because this callback runs on the fixed-step combat path. */
   private readonly damageReport: ZombieDamageReport = {
     targetKey: 0,
@@ -213,12 +225,23 @@ export class ZombieSystem {
     z: 0,
     killed: false,
   };
+  /**
+   * Damage and radius arrive per projectile so thrower boxes and boss vials can
+   * share one pool. A box passes 0 damage and falls back to the tuner's thrower
+   * value; a vial carries the wave-scaled direct-splash amount its boss
+   * definition set.
+   */
   private readonly tryProjectileImpact = (
     x: number,
     y: number,
     z: number,
+    damage: number,
+    hitRadius: number,
   ): boolean => {
-    const radiusSq = PROJECTILE_HIT_RADIUS * PROJECTILE_HIT_RADIUS;
+    const radius = hitRadius > 0 ? hitRadius : PROJECTILE_HIT_RADIUS;
+    const radiusSq = radius * radius;
+    const applied =
+      damage > 0 ? damage : devTuning.specialist.projectileDamage;
     for (const anchor of this.vehicleAnchors) {
       if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
         continue;
@@ -226,13 +249,34 @@ export class ZombieSystem {
       const dy = anchor.worldY - y;
       const dz = anchor.worldZ - z;
       if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
-      this.vehicle.applyDirectDamage(
-        anchor.partId,
-        devTuning.specialist.projectileDamage,
-      );
+      this.vehicle.applyDirectDamage(anchor.partId, applied);
       return true;
     }
     return false;
+  };
+  /**
+   * A projectile despawned, however it despawned — ground contact, a vehicle
+   * hit, or running out of flight time. Only a vial carries a `puddle` payload
+   * (see `ProjectileSpec.puddle`), so this is a no-op for every thrower box;
+   * for a vial it bursts a puddle exactly where the vial ended up, vehicle hit
+   * or not — the splash lands regardless of whether the vial itself connected.
+   */
+  private readonly onProjectileLand = (
+    x: number,
+    y: number,
+    z: number,
+    _variant: ProjectileVariant,
+    puddle: ProjectileSpec['puddle'],
+  ): void => {
+    if (!puddle) return;
+    this.acidPuddles.spawn(
+      x,
+      y,
+      z,
+      puddle.radiusM,
+      puddle.durationSeconds,
+      puddle.poisonDamagePerSecond,
+    );
   };
   /** Mine trigger checks the vehicle proximity; blast damage then uses its own radius. */
   private readonly tryMineDetonation = (
@@ -280,6 +324,8 @@ export class ZombieSystem {
   private healthMultiplier = 1;
   private speedMultiplier = 1;
   private attackDamageMultiplier = 1;
+  /** Set by WaveManager at wave start; null on ordinary horde waves. */
+  private bossDefinition: BossDefinition | null = null;
   private mineRevealRadiusM = 0;
   private currentWave = 1;
   private damageListener: ((report: ZombieDamageReport) => void) | null = null;
@@ -302,6 +348,7 @@ export class ZombieSystem {
     );
     this.projectiles = new ThrowerProjectiles(scene);
     this.landmines = new Landmines(scene);
+    this.acidPuddles = new AcidPuddles(scene);
     const poolKinds: ZombieKind[] = [];
     for (const [kind, count] of Object.entries(ZOMBIE_POOL_COUNTS) as [
       ZombieKind,
@@ -322,6 +369,8 @@ export class ZombieSystem {
       zombie.onThrow = (thrower) => this.launchProjectileFrom(thrower);
       zombie.onPlantMine = (worker) =>
         this.landmines.plant(worker.position.x, worker.position.z);
+      zombie.onBossSlam = (boss) => this.applyBossSlam(boss);
+      zombie.onBossVials = (boss) => this.fireVialsFrom(boss);
       zombie.onSummon = (necromancer) => this.raiseMinions(necromancer);
       zombie.onExplode = (kamikaze) => this.detonateKamikaze(kamikaze);
       zombie.onSmash = (behemoth) => this.smashAt(behemoth);
@@ -343,6 +392,19 @@ export class ZombieSystem {
     this.healthMultiplier = Math.max(0, healthMultiplier);
     this.speedMultiplier = Math.max(0, speedMultiplier);
     this.attackDamageMultiplier = Math.max(0, attackDamageMultiplier);
+  }
+
+  /** Applies to bosses spawned after this call; null clears the boss for the wave. */
+  setBossDefinition(definition: BossDefinition | null): void {
+    this.bossDefinition = definition;
+  }
+
+  /** The live boss, for the HUD health bar and minimap marker. */
+  activeBoss(): Zombie | null {
+    for (const zombie of this.pool) {
+      if (zombie.kind === 'boss' && zombie.isAlive) return zombie;
+    }
+    return null;
   }
 
   /**
@@ -563,6 +625,7 @@ export class ZombieSystem {
         this.healthMultiplier,
         this.speedMultiplier,
         this.attackDamageMultiplier,
+        kind === 'boss' ? this.bossDefinition : null,
       );
       this.resetWatchdog(zombie);
       spawned++;
@@ -582,7 +645,10 @@ export class ZombieSystem {
 
     this.applySeparation(this.activeScratch);
     for (const zombie of this.activeScratch) {
-      this.findNearestVehiclePart(zombie);
+      // Charmed allies hunt the nearest enemy zombie; everyone else hunts the
+      // vehicle.
+      if (zombie.isCharmed) this.findNearestEnemy(zombie);
+      else this.findNearestVehiclePart(zombie);
       zombie.fixedUpdate(
         dt,
         this.vehicle,
@@ -597,7 +663,7 @@ export class ZombieSystem {
     // what a touch is worth.
     this.processPlowBlades(this.activeScratch, dt);
     this.processVehicleContacts(this.activeScratch, dt);
-    this.projectiles.update(dt, this.tryProjectileImpact);
+    this.projectiles.update(dt, this.tryProjectileImpact, this.onProjectileLand);
     const vehiclePosition = this.vehicle.body.translation();
     this.landmines.update(dt, this.tryMineDetonation, {
       vehicleX: vehiclePosition.x,
@@ -605,13 +671,144 @@ export class ZombieSystem {
       wave: this.currentWave,
       radiusM: this.mineRevealRadiusM,
     });
+    this.acidPuddles.update(dt);
+    this.tickAcidPoison(dt);
     this.rebuildAliveTargets();
+  }
+
+  /**
+   * Poison ticks on a clock instead of every physics step; see
+   * `ACID_POISON_TICK_SECONDS` for why (the direct-damage floor would otherwise
+   * turn any nonzero per-frame dose into 60 HP/s). When puddles overlap, a part
+   * takes the strongest single puddle's dose, not the sum of every puddle
+   * covering it — parking in a triple-overlap should be exactly as risky as
+   * parking in one puddle, not triply lethal. That is the only overlap rule
+   * this boss needs: puddles never grow or merge, so the worst a player can
+   * do is stand in the strongest patch on the ground.
+   */
+  private tickAcidPoison(dt: number): void {
+    this.acidTickTimer -= dt;
+    if (this.acidTickTimer > 0) return;
+    // Accumulate rather than reset to a flat constant, so a slow frame does not
+    // shift the tick phase — same pattern the attack-interval timers use.
+    this.acidTickTimer += ACID_POISON_TICK_SECONDS;
+    const puddles = this.acidPuddles.activePuddles();
+    if (puddles.length === 0) return;
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      let maxDps = 0;
+      for (const puddle of puddles) {
+        if (puddle.poisonDamagePerSecond <= maxDps) continue;
+        const dx = anchor.worldX - puddle.x;
+        const dz = anchor.worldZ - puddle.z;
+        if (dx * dx + dz * dz > puddle.radiusM * puddle.radiusM) continue;
+        maxDps = puddle.poisonDamagePerSecond;
+      }
+      if (maxDps > 0) {
+        this.vehicle.applyDirectDamage(
+          anchor.partId,
+          maxDps * ACID_POISON_TICK_SECONDS,
+        );
+      }
+    }
   }
 
   /** SurvivalMode clears surviving mines the moment a wave completes. */
   clearLandmines(): void {
     if (this.disposed) return;
     this.landmines.despawnAll();
+  }
+
+  /** SurvivalMode clears surviving acid puddles the moment a wave completes. */
+  clearAcidPuddles(): void {
+    if (this.disposed) return;
+    this.acidPuddles.despawnAll();
+  }
+
+  /**
+   * A boss's hammer landed: damage every live vehicle part whose centroid is
+   * inside the slam circle. Resolved here rather than at wind-up start, so a
+   * player who drove out of the telegraphed ring takes nothing.
+   */
+  private applyBossSlam(boss: Zombie): void {
+    const def = boss.bossDefinition;
+    if (this.disposed || !def || def.attack.kind !== 'slam') return;
+    const radiusSq = def.attack.radiusM * def.attack.radiusM;
+    const damage = boss.slamDamage;
+    if (damage <= 0) return;
+
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      const dx = anchor.worldX - boss.position.x;
+      const dz = anchor.worldZ - boss.position.z;
+      if (dx * dx + dz * dz > radiusSq) continue;
+      this.vehicle.applyDirectDamage(anchor.partId, damage);
+    }
+  }
+
+  /**
+   * The vial boss released its throw: one aimed vial while it is healthy, or a
+   * barrage of `enragedVialCount` once it drops past its phase-two threshold.
+   * Each vial carries the boss's puddle stats on its `ProjectileSpec`, so
+   * `onProjectileLand` can burst one wherever this particular throw ends up
+   * without looking anything up again at landing time.
+   *
+   * The fan rotates the horizontal aim vector around Y rather than offsetting
+   * the target point, so every vial keeps the same horizontal distance and
+   * therefore the same flight time — the barrage lands together instead of
+   * straggling, and its puddles land as one readable cluster.
+   */
+  private fireVialsFrom(boss: Zombie): void {
+    const def = boss.bossDefinition;
+    if (this.disposed || !def || def.attack.kind !== 'vial') return;
+    const target = boss.vehicleTarget;
+    if (target.partId === null) return;
+    const damage = boss.slamDamage;
+    if (damage <= 0) return;
+
+    const attack = def.attack;
+    const spec: ProjectileSpec = {
+      ...VIAL_PROJECTILE,
+      horizontalSpeed: attack.projectileSpeedMps,
+      damage,
+      puddle: {
+        radiusM: attack.puddleRadiusM,
+        durationSeconds: attack.puddleDurationSeconds,
+        poisonDamagePerSecond: attack.poisonDamagePerSecond,
+      },
+    };
+    // position.y is the capsule's centre, so drop to the boss's feet first and
+    // measure the hand up from there — otherwise a tall boss throws from above
+    // its own head.
+    const groundY =
+      boss.position.y - (def.colliderHalfHeightM + def.colliderRadiusM);
+    const fromY = groundY + def.visualHeightM * VIAL_LAUNCH_HEIGHT_FRACTION;
+    const dx = target.x - boss.position.x;
+    const dz = target.z - boss.position.z;
+
+    const enraged = boss.isEnraged;
+    const count = enraged ? Math.max(1, attack.enragedVialCount) : 1;
+    const halfFan = enraged
+      ? ((attack.enragedSpreadDeg / 2) * Math.PI) / 180
+      : 0;
+
+    for (let i = 0; i < count; i++) {
+      // -half, 0, +half for three; a single vial is the offset-0 special case.
+      const offset = count === 1 ? 0 : -halfFan + (2 * halfFan * i) / (count - 1);
+      const cos = Math.cos(offset);
+      const sin = Math.sin(offset);
+      this.projectiles.launch(
+        boss.position.x,
+        fromY,
+        boss.position.z,
+        boss.position.x + (dx * cos - dz * sin),
+        target.y,
+        boss.position.z + (dx * sin + dz * cos),
+        spec,
+      );
+    }
   }
 
   private launchProjectileFrom(zombie: Zombie): void {
@@ -671,6 +868,126 @@ export class ZombieSystem {
     const limit = Math.min(Math.floor(maxCount), candidates.length);
     for (let i = 0; i < limit; i++) candidates[i].zombie.applyFreeze(seconds);
     return limit;
+  }
+
+  /**
+   * Tesla Coil Q blast: deal `damage` to every alive target within `radiusM` of
+   * the origin. Returns how many zombies were hit. Runs rarely (once per
+   * cooldown), so the snapshot allocation is not a concern. Candidates are
+   * snapshotted before applying damage because `takeDamage`/`rebuildAliveTargets`
+   * can mutate `aliveTargets` mid-iteration.
+   */
+  damageWithin(
+    origin: { x: number; z: number },
+    radiusM: number,
+    damage: number,
+    direction?: Vector3Like,
+  ): number {
+    if (this.disposed || radiusM <= 0 || damage <= 0) return 0;
+    const radiusSq = radiusM * radiusM;
+    const caught: Zombie[] = [];
+    for (const zombie of this.aliveTargets) {
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      if (dx * dx + dz * dz > radiusSq) continue;
+      caught.push(zombie);
+    }
+    let anyKilled = false;
+    for (const zombie of caught) {
+      if (zombie.takeDamage(damage, direction)) anyKilled = true;
+    }
+    if (anyKilled) this.rebuildAliveTargets();
+    return caught.length;
+  }
+
+  /**
+   * Thumper Q shockwave: fling every alive target within `radiusM` of the origin
+   * radially outward at `speed` m/s. Returns how many zombies were knocked back.
+   * Runs rarely (once per cooldown). Knockback does no damage, so `aliveTargets`
+   * never changes and the array can be iterated directly with no rebuild.
+   */
+  knockbackWithin(
+    origin: { x: number; z: number },
+    radiusM: number,
+    speed: number,
+  ): number {
+    if (this.disposed || radiusM <= 0 || speed <= 0) return 0;
+    const radiusSq = radiusM * radiusM;
+    let count = 0;
+    for (const zombie of this.aliveTargets) {
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      if (dx * dx + dz * dz > radiusSq) continue;
+      zombie.applyKnockback(dx, dz, speed);
+      count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * Mind Control Beam activation: turn up to `maxCount` of the nearest
+   * targetable enemy zombies within `radiusM` of the origin over to the player's
+   * side for `seconds`, nearest first. Returns how many were charmed. Runs
+   * rarely (once per cooldown), so the small sort allocation is not a concern.
+   */
+  charmNearest(
+    origin: { x: number; z: number },
+    maxCount: number,
+    radiusM: number,
+    seconds: number,
+  ): number {
+    if (this.disposed || maxCount <= 0 || radiusM <= 0 || seconds <= 0)
+      return 0;
+    const radiusSq = radiusM * radiusM;
+    const candidates: { zombie: Zombie; distSq: number }[] = [];
+    for (const zombie of this.aliveTargets) {
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq > radiusSq) continue;
+      candidates.push({ zombie, distSq });
+    }
+    candidates.sort((a, b) => a.distSq - b.distSq);
+    const limit = Math.min(Math.floor(maxCount), candidates.length);
+    for (let i = 0; i < limit; i++) candidates[i].zombie.applyCharm(seconds);
+    // Charmed zombies stop being targetable, so refresh the enemy list at once.
+    if (limit > 0) this.rebuildAliveTargets();
+    return limit;
+  }
+
+  /**
+   * Missile Launcher Q blast: pick the impact point that catches the most
+   * zombies. Among alive targets within `seekRadiusM` of the origin, return the
+   * position of the one that has the most alive targets within `blastRadiusM`
+   * (so the rocket lands in the thickest part of the horde). Returns null when
+   * no zombie is in seek range. Runs once per cooldown, so O(n^2) is fine.
+   */
+  bestBlastTarget(
+    origin: { x: number; z: number },
+    seekRadiusM: number,
+    blastRadiusM: number,
+  ): { x: number; z: number } | null {
+    if (this.disposed || seekRadiusM <= 0) return null;
+    const seekSq = seekRadiusM * seekRadiusM;
+    const blastSq = blastRadiusM * blastRadiusM;
+    let best: Zombie | null = null;
+    let bestCount = -1;
+    for (const centre of this.aliveTargets) {
+      const cdx = centre.position.x - origin.x;
+      const cdz = centre.position.z - origin.z;
+      if (cdx * cdx + cdz * cdz > seekSq) continue;
+      let count = 0;
+      for (const other of this.aliveTargets) {
+        const dx = other.position.x - centre.position.x;
+        const dz = other.position.z - centre.position.z;
+        if (dx * dx + dz * dz <= blastSq) count++;
+      }
+      if (count > bestCount) {
+        bestCount = count;
+        best = centre;
+      }
+    }
+    return best ? { x: best.position.x, z: best.position.z } : null;
   }
 
   /** True when the collider belongs to a shielded (Phone Addict) zombie. */
@@ -775,9 +1092,12 @@ export class ZombieSystem {
     if (this.disposed) return;
     this.projectiles.despawnAll();
     this.landmines.despawnAll();
+    this.acidPuddles.despawnAll();
+    this.acidTickTimer = ACID_POISON_TICK_SECONDS;
     for (const zombie of this.pool) zombie.forceReturnToPool();
     this.healthMultiplier = 1;
     this.speedMultiplier = 1;
+    this.bossDefinition = null;
     this.activeScratch.length = 0;
     this.aliveTargets.length = 0;
     this.separationX.fill(0);
@@ -793,6 +1113,7 @@ export class ZombieSystem {
     this.disposed = true;
     this.projectiles.dispose();
     this.landmines.dispose();
+    this.acidPuddles.dispose();
     for (const zombie of this.pool) zombie.dispose();
     this.pool.length = 0;
     this.colliderToZombie.clear();
@@ -961,6 +1282,26 @@ export class ZombieSystem {
       target.z = anchor.worldZ;
     }
     if (target.partId !== null) target.distance = Math.sqrt(nearestDistanceSq);
+  }
+
+  /** Nearest targetable enemy zombie for a charmed ally to attack. */
+  private findNearestEnemy(ally: Zombie): void {
+    const target = ally.charmTarget;
+    target.zombie = null;
+    target.distance = Infinity;
+    let nearestDistanceSq = Infinity;
+    for (const enemy of this.aliveTargets) {
+      if (enemy === ally || enemy.isCharmed) continue;
+      const dx = enemy.position.x - ally.position.x;
+      const dz = enemy.position.z - ally.position.z;
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq >= nearestDistanceSq) continue;
+      nearestDistanceSq = distanceSq;
+      target.zombie = enemy;
+      target.x = enemy.position.x;
+      target.z = enemy.position.z;
+    }
+    if (target.zombie !== null) target.distance = Math.sqrt(nearestDistanceSq);
   }
 
   /**
@@ -1367,6 +1708,12 @@ export class ZombieSystem {
   }
 
   private updateWatchdog(zombie: Zombie, dt: number): void {
+    // Charmed allies chase enemy zombies, not the vehicle; never teleport them
+    // for lack of progress toward the vehicle.
+    if (zombie.isCharmed) {
+      this.resetWatchdog(zombie);
+      return;
+    }
     // Workers deliberately stand still (arming, holding range); never teleport
     // them for lack of progress toward the vehicle.
     if (zombie.state !== ZombieState.Chasing || zombie.kind === 'worker') {

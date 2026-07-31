@@ -19,6 +19,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(1),
       speedMultiplier: speedMultiplierForWave(1),
@@ -40,6 +41,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(2),
       speedMultiplier: speedMultiplierForWave(2),
@@ -61,6 +63,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(3),
       speedMultiplier: speedMultiplierForWave(3),
@@ -82,6 +85,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 2,
         behemoth: 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(4),
       speedMultiplier: speedMultiplierForWave(4),
@@ -103,6 +107,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 3,
         behemoth: 0,
+        boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(7),
       speedMultiplier: speedMultiplierForWave(7),
@@ -112,45 +117,55 @@ describe('wave balance report', () => {
     });
   });
 
-  it('reports the exact wave 10 balance', () => {
-    expect(waveBalanceReport(10)).toEqual({
-      wave: 10,
+  it('reports the exact wave 11 balance', () => {
+    expect(waveBalanceReport(11)).toEqual({
+      wave: 11,
       composition: {
-        walker: 40,
+        walker: 43,
         gunslinger: 10,
-        necromancer: 1,
-        thrower: 4,
+        necromancer: 2,
+        thrower: 5,
         worker: 2,
         'phone-addict': 1,
         kamikaze: 5,
         behemoth: 1,
+        boss: 0,
       },
-      healthMultiplier: healthMultiplierForWave(10),
-      speedMultiplier: speedMultiplierForWave(10),
-      attackDamageMultiplier: attackDamageMultiplierForWave(10),
-      effectiveTotalHp: 4983,
-      totalPossibleReward: 491,
+      healthMultiplier: healthMultiplierForWave(11),
+      speedMultiplier: speedMultiplierForWave(11),
+      attackDamageMultiplier: attackDamageMultiplierForWave(11),
+      effectiveTotalHp: 5741,
+      totalPossibleReward: 534,
     });
   });
 
-  it('reports the exact wave 15 balance', () => {
-    expect(waveBalanceReport(15)).toEqual({
-      wave: 15,
+  // Every fifth wave replaces the horde with one boss, so the report is a
+  // single boss HP figure plus the boss bounty and the ordinary clear bonus.
+  it.each([
+    // Waves 5 and 15 are The Sledge (900 base HP); wave 10 is The Alchemist,
+    // which carries 2,000 because it replaces the far larger wave-9 horde.
+    { wave: 5, effectiveTotalHp: 1116, totalPossibleReward: 240 },
+    { wave: 10, effectiveTotalHp: 3542, totalPossibleReward: 420 },
+    { wave: 15, effectiveTotalHp: 1656, totalPossibleReward: 340 },
+  ])('reports the exact boss wave $wave balance', (expected) => {
+    expect(waveBalanceReport(expected.wave)).toEqual({
+      wave: expected.wave,
       composition: {
-        walker: 55,
-        gunslinger: 10,
-        necromancer: 2,
-        thrower: 7,
-        worker: 3,
-        'phone-addict': 2,
-        kamikaze: 7,
-        behemoth: 2,
+        walker: 0,
+        gunslinger: 0,
+        necromancer: 0,
+        thrower: 0,
+        worker: 0,
+        'phone-addict': 0,
+        kamikaze: 0,
+        behemoth: 0,
+        boss: 1,
       },
-      healthMultiplier: healthMultiplierForWave(15),
-      speedMultiplier: speedMultiplierForWave(15),
-      attackDamageMultiplier: attackDamageMultiplierForWave(15),
-      effectiveTotalHp: 8420,
-      totalPossibleReward: 686,
+      healthMultiplier: healthMultiplierForWave(expected.wave),
+      speedMultiplier: speedMultiplierForWave(expected.wave),
+      attackDamageMultiplier: attackDamageMultiplierForWave(expected.wave),
+      effectiveTotalHp: expected.effectiveTotalHp,
+      totalPossibleReward: expected.totalPossibleReward,
     });
   });
 

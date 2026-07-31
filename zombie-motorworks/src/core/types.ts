@@ -175,6 +175,11 @@ export interface WeaponDefinition {
   slowFactor?: number;
   slowDurationSeconds?: number;
   /**
+   * Tracer rendering style. 'electric' draws blue lightning zaps (Tesla Coil);
+   * default (undefined) uses the standard gold tracer.
+   */
+  tracerStyle?: 'electric';
+  /**
    * Auto-aim weapon that still waits for the player's trigger: the auto-aim
    * system tracks a target and keeps the mount pointed at it, but the weapon
    * only fires while the player holds fire (left click / F) instead of firing
@@ -185,11 +190,12 @@ export interface WeaponDefinition {
    */
   manualFire?: boolean;
   /**
-   * Explosive payload. On impact, every zombie within `splashRadiusM` of the
-   * point of impact takes `splashDamage` at the centre, falling off linearly
-   * to nothing at the rim. Blast damage is delivered as `aoe` regardless of
-   * the weapon's own `damageType`, so it washes around the phone addict's
-   * bubble the way flame does. Both fields must be set together.
+   * Explosive payload (Missile Launcher). On impact, every zombie within
+   * `splashRadiusM` of the point of impact takes `splashDamage` at the centre,
+   * falling off linearly to nothing at the rim, on top of the direct hit.
+   * Blast damage is delivered as `aoe` regardless of the weapon's own
+   * `damageType`, so it washes around the phone addict's bubble the way flame
+   * does. Both fields must be set together; 0/undefined means no splash.
    */
   splashRadiusM?: number;
   splashDamage?: number;
@@ -210,12 +216,27 @@ export interface WeaponDefinition {
 export interface AbilityDefinition {
   /**
    * 'freeze' flash-freezes the nearest zombies in place; 'shield' wraps the
-   * vehicle in a bubble granting temporary invulnerability; 'pulse' slams out
-   * a damaging ring of force; 'overdrive' floods the drivetrain with torque;
-   * 'hellfire' overcharges the part's own flame nozzle; 'phase' blinks the rig
-   * forward through whatever is in the way.
+   * vehicle in a bubble granting temporary invulnerability; 'zap' detonates a
+   * lightning blast around the vehicle that damages every zombie in range;
+   * 'charm' mind-controls the nearest zombies to fight for you for a while,
+   * then they revert to hostile; 'rocket' launches a large rocket that
+   * detonates a high-damage blast on the thickest part of the horde;
+   * 'thump' slams a shockwave outward that knocks every nearby zombie back;
+   * 'pulse' slams out a damaging ring of force; 'overdrive' floods the
+   * drivetrain with torque; 'hellfire' overcharges the part's own flame nozzle;
+   * 'phase' blinks the rig forward through whatever is in the way.
    */
-  kind: 'freeze' | 'shield' | 'pulse' | 'overdrive' | 'hellfire' | 'phase';
+  kind:
+    | 'freeze'
+    | 'shield'
+    | 'zap'
+    | 'charm'
+    | 'rocket'
+    | 'thump'
+    | 'pulse'
+    | 'overdrive'
+    | 'hellfire'
+    | 'phase';
   /**
    * Upgrade level the host part must reach before the ability reaches the bar
    * at all; 1 (the default) means it ships with the part. Set above 1 for an
@@ -228,13 +249,22 @@ export interface AbilityDefinition {
   /** Effect duration in seconds at level 1 (grows with upgrade level). */
   baseDurationSeconds: number;
   /**
-   * Freeze/pulse: metres from the vehicle the effect reaches. Phase: metres the
+   * Freeze/charm/pulse: metres from the vehicle within which zombies can be
+   * caught. Rocket reuses this as the blast radius of the detonation; thump
+   * reuses it as the knockback radius of the shockwave. Phase: metres the
    * blink covers at level 1 (grows with upgrade level).
    */
   rangeM?: number;
-  /** Freeze only: zombies frozen at level 1 (grows with upgrade level). */
+  /**
+   * Freeze/charm only: zombies affected at level 1 (charm keeps this fixed
+   * across levels; freeze grows it with upgrade level).
+   */
   baseTargets?: number;
-  /** Pulse only: blast damage at the centre at level 1 (grows with level). */
+  /**
+   * Zap/rocket/pulse: blast damage at level 1 (grows with upgrade level).
+   * Thump reuses this as the level-1 knockback speed in m/s (grows with
+   * level).
+   */
   baseDamage?: number;
   /** Overdrive only: drive-torque multiplier at level 1 (grows with level). */
   baseTorqueMultiplier?: number;
@@ -247,7 +277,7 @@ export interface AbilityDefinition {
   /**
    * Overdrive only: propellant thrust in m/s^2 at level 1 (grows with upgrade
    * level), pushed through the chassis along its heading. This is what makes
-   * nitro work with the throttle shut or the drive wheels stalled — the torque
+   * the surge work with the throttle shut or the drive wheels stalled — the torque
    * multiplier alone does nothing when the engine is not being asked for
    * anything.
    */

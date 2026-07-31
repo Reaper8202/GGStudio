@@ -66,6 +66,8 @@ export interface ShotAppearance {
   readonly hitSurface: boolean;
   /** Fired by a nozzle running the Hellfire overcharge. */
   readonly overcharged: boolean;
+  /** Weapon-declared tracer treatment; 'electric' draws the Tesla Coil's zap. */
+  readonly tracerStyle?: 'electric';
 }
 
 /**
@@ -98,12 +100,15 @@ export function muzzleStyleForShot(shot: ShotAppearance): MuzzleVfxStyle {
  * Colour of the tracer line drawn along the shot, or null when the shot draws
  * no line at all: the flamethrower renders its own cone of fire, and a tracer
  * on top of it just reads as a stray orange wire. Cryo fire runs turquoise so
- * the freezing weapon is obvious from its ray alone.
+ * the freezing weapon is obvious from its ray alone, and the Tesla Coil draws
+ * its own blue zap.
  */
 export function tracerStyleForShot(
   shot: ShotAppearance,
-): 'standard' | 'ice' | null {
+): 'standard' | 'ice' | 'electric' | null {
   if (shot.damageType === 'aoe') return null;
+  // A weapon that declares a tracer style has already made this call itself.
+  if (shot.tracerStyle === 'electric') return 'electric';
   return shot.slowFactor > 0 ? 'ice' : 'standard';
 }
 

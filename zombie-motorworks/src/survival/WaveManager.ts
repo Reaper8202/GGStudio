@@ -1,5 +1,6 @@
 import type { ZombieSystem } from './zombies/ZombieSystem.ts';
 import type { ZombieKind } from './zombies/Zombie.ts';
+import { bossForWave, isBossWave } from './zombies/bossConfig.ts';
 import { devTuning } from './devtuning/DevTuning.ts';
 import type { CompositionCurve } from './devtuning/DevTuning.ts';
 
@@ -22,6 +23,7 @@ export interface WaveComposition {
   'phone-addict': number;
   kamikaze: number;
   behemoth: number;
+  boss: number;
 }
 
 /** Resolve one kind's count from its composition curve, honouring a dev pin. */
@@ -36,9 +38,29 @@ function countFromCurve(
   return Math.min(curve.base + curve.perStep * steps, curve.cap);
 }
 
-/** Normals remain the overwhelming majority while specialists unlock slowly. */
+/**
+ * Normals remain the overwhelming majority while specialists unlock slowly.
+ * Every fifth wave replaces the horde entirely with a single boss, so the
+ * encounter reads as a duel rather than a horde wave with an extra enemy. The
+ * boss short-circuits ahead of the curves deliberately: a boss wave is a fixed
+ * encounter, not a tunable composition, so the dev tuner's per-kind counts and
+ * pins do not apply to it.
+ */
 export function zombieCompositionForWave(wave: number): WaveComposition {
   const safeWave = safeWaveNumber(wave);
+  if (isBossWave(safeWave)) {
+    return {
+      walker: 0,
+      gunslinger: 0,
+      necromancer: 0,
+      thrower: 0,
+      worker: 0,
+      'phone-addict': 0,
+      kamikaze: 0,
+      behemoth: 0,
+      boss: 1,
+    };
+  }
   const { composition } = devTuning.wave;
   const { types } = devTuning;
   return {
@@ -82,6 +104,7 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
       types.behemoth.countOverride,
       safeWave,
     ),
+    boss: 0,
   };
 }
 
@@ -141,8 +164,11 @@ function hordeSizeForWave(): number {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 
-function spawnOrderForWave(wave: number): ZombieKind[] {
+export function spawnOrderForWave(wave: number): ZombieKind[] {
   const composition = zombieCompositionForWave(wave);
+  // Bosses head the queue rather than joining the specialist interleave, so the
+  // health bar is up from the start of the wave whatever else is scheduled.
+  const bosses: ZombieKind[] = Array(composition.boss).fill('boss');
   const specials: ZombieKind[] = [];
   for (const kind of [
     'gunslinger',
@@ -155,9 +181,11 @@ function spawnOrderForWave(wave: number): ZombieKind[] {
   ] as const) {
     for (let i = 0; i < composition[kind]; i++) specials.push(kind);
   }
-  if (specials.length === 0) return Array(composition.walker).fill('walker');
+  if (specials.length === 0) {
+    return [...bosses, ...Array<ZombieKind>(composition.walker).fill('walker')];
+  }
 
-  const order: ZombieKind[] = [];
+  const order: ZombieKind[] = [...bosses];
   let walkersLeft = composition.walker;
   for (let i = 0; i < specials.length; i++) {
     const groupsLeft = specials.length - i + 1;
@@ -218,6 +246,7 @@ export class WaveManager {
       speedMultiplierForWave(this.waveNumber),
       attackDamageMultiplierForWave(this.waveNumber),
     );
+    this.zombies.setBossDefinition(bossForWave(this.waveNumber));
     this.emitRemaining();
   }
 

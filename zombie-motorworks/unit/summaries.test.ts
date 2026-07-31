@@ -29,13 +29,35 @@ describe('legible consequence summaries', () => {
     expect(newThreatsForWave(3)).toEqual(['gunslinger', 'thrower']);
     expect(newThreatsForWave(7)).toEqual(['worker']);
     expect(newThreatsForWave(8)).toEqual(['behemoth']);
-    expect(newThreatsForWave(10)).toEqual(['phone-addict']);
-    expect(newThreatsForWave(11)).toEqual([]);
+    // The Phone Addict curve opens on wave 10, but wave 10 is a boss duel with
+    // no horde at all, so the first one the player actually meets is on 11. The
+    // look-back in newThreatsForWave skips boss waves, which is what makes the
+    // introduction slide instead of being swallowed.
+    expect(newThreatsForWave(10)).toEqual([]);
+    expect(newThreatsForWave(11)).toEqual(['phone-addict']);
+    expect(newThreatsForWave(12)).toEqual([]);
   });
 
-  it('flags the wave-10 Phone Addict and garage EMP recommendation after wave 9', () => {
+  it('announces the boss instead of a specialist on a boss wave', () => {
+    expect(threatWarningsForWave(5)).toEqual([
+      'BOSS WAVE — The Sledge. Slow but brutal: stay out of the hammer ring.',
+    ]);
     expect(threatWarningsForWave(10)).toEqual([
-      'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage before wave 10.',
+      'BOSS WAVE — The Alchemist. It kites and lobs acid vials: stay out of the puddles they leave behind.',
+    ]);
+    // An ordinary wave may still warn about a specialist, but never about a boss.
+    for (const wave of [6, 7, 11]) {
+      for (const warning of threatWarningsForWave(wave)) {
+        expect(warning).not.toContain('BOSS WAVE');
+      }
+    }
+  });
+
+  it('flags the Phone Addict and garage EMP recommendation on wave 11', () => {
+    // No wave number in the copy: the boss wave shifted this by one, and it will
+    // shift again for anything the boss interval displaces later.
+    expect(threatWarningsForWave(11)).toEqual([
+      'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage now.',
     ]);
   });
 
@@ -52,9 +74,13 @@ describe('legible consequence summaries', () => {
     expect(formatWaveComposition(zombieCompositionForWave(3))).toBe(
       '19 walkers / 1 gunslinger / 1 thrower',
     );
-    expect(formatWaveComposition(zombieCompositionForWave(10))).toBe(
-      '40 walkers / 10 gunslingers / 1 necromancer / 4 throwers / 2 workers / 1 phone-addict / 5 kamikazes / 1 behemoth',
+    // Wave 11, not 10: wave 10 is a boss duel, asserted separately below.
+    expect(formatWaveComposition(zombieCompositionForWave(11))).toBe(
+      '43 walkers / 10 gunslingers / 2 necromancers / 5 throwers / 2 workers / 1 phone-addict / 5 kamikazes / 1 behemoth',
     );
+    // A boss wave replaces the whole horde, both times it comes round.
+    expect(formatWaveComposition(zombieCompositionForWave(5))).toBe('1 boss');
+    expect(formatWaveComposition(zombieCompositionForWave(10))).toBe('1 boss');
   });
 
   it('totals New Garage investment, per-part refunds, and forfeited value', () => {

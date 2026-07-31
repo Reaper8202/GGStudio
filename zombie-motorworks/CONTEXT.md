@@ -67,6 +67,20 @@ They describe work at the time they were written and can be stale.
   unspendable until the wave clears.
 - **Build Phase**: the in-run Garage between cleared waves. It exposes repairs
   and preserves the checkpoint's damage; it is not an ordinary full-heal Garage.
+- **Boss**: single enemy that replaces the whole horde every fifth wave. It is a
+  pooled zombie of kind `boss` driven by a `BossDefinition` in
+  `survival/zombies/bossConfig.ts`, which owns its stats, telegraphed attack,
+  capsule size, ram/knockback resistance, and placeholder visual. `BOSS_ROTATION`
+  maps boss-wave index to definition, so wave 5 and wave 10 are different
+  encounters. New bosses are registry entries, not new classes — the exception is
+  a boss needing an **Attack Kind** that does not exist yet.
+- **Attack Kind**: the discriminated arm of `BossAttack`. `slam` is wind-up melee
+  in a telegraphed ground ring; `vial` holds at range, retreats when the rig
+  closes, and lobs pooled vials that burst into a poison ground puddle wherever
+  they land, throwing several at once past its phase threshold. Both share the
+  `WindingUp` state and differ only in what the completed wind-up emits, so
+  adding a kind means one arm, one dispatch in `Zombie.stepWindingUp`, and one
+  handler in `ZombieSystem`.
 - **Runtime Vehicle**: Rapier representation assembled from a Blueprint. It owns
   transient physics, resources, weapons, damage, and part detachment.
 - **Debug Seam**: `window.__scrapRig` Interface installed by `App` for
@@ -244,6 +258,8 @@ the task crosses their Interface.
 | Run checkpoint/rewards/save | `src/app/App.ts` | `core/runSave.ts`, `app/runSaveStore.ts`, `SurvivalMode.ts` | `unit/run-checkpoint.test.ts`, `unit/pending-rewards.test.ts`, `unit/run-save.test.ts`, `tests/runloop.spec.ts` |
 | Wave balance/composition | `src/survival/WaveManager.ts` | `waveBalance.ts`, `zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/wave-balance.test.ts`, `unit/zombie-balance.test.ts` |
 | Zombie AI/specialists | `src/survival/zombies/Zombie.ts` | `ZombieSystem.ts`, `Landmines.ts`, `ThrowerProjectiles.ts` | `unit/landmines.test.ts`, `tests/combat.spec.ts` |
+| Boss roster/encounters | `src/survival/zombies/bossConfig.ts` | `Zombie.ts`, `ZombieSystem.ts`, `WaveManager.ts`, `SurvivalMode.ts` | `unit/boss-waves.test.ts`, `unit/boss-balance.test.ts`, `tests/boss.spec.ts` |
+| Zombie/boss projectiles | `src/survival/zombies/ThrowerProjectiles.ts` | `ZombieSystem.ts`, `zombieConfig.ts`, `bossConfig.ts`, `AcidPuddles.ts` | `unit/vial-projectiles.test.ts` |
 | Survival HUD/transitions | `src/survival/SurvivalMode.ts` | `App.ts`, `WaveManager.ts`, `style.css` | `unit/summaries.test.ts`, `tests/runloop.spec.ts`, `tests/failure.spec.ts` |
 | Minimap/mine detection | `src/survival/Minimap.ts` | `arena/Arena.ts`, `Landmines.ts`, `turretModules.ts` | `unit/minimap.test.ts`, `unit/landmines.test.ts` |
 | Biome recipes/arena generation | `src/survival/arena/recipes/index.ts` | `arena/ArenaBuilder.ts`, `core/biomes.ts`, `core/rng.ts` | `unit/biome-recipes.test.ts`, `unit/arena.test.ts`, `unit/arena-perimeter.test.ts` |

@@ -2680,8 +2680,9 @@ export class VfxSystem {
    * vehicle's normalised heading — particles run along it, so the departure and
    * the arrival both point the way the blink went.
    *
-   * Deliberately cold and colourless next to nitro's exhaust: the two abilities
-   * both move the rig forward, and they must never be confused on screen.
+   * Deliberately cold and colourless next to the overdrive exhaust: the two
+   * abilities both move the rig forward, and they must never be confused on
+   * screen.
    */
   phaseBurst(
     x: number,

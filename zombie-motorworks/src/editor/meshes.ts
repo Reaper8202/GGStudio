@@ -174,7 +174,7 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
     }
 
     // Ability-only parts (no barrel to give them away) get an emitter dome, so
-    // a shield, pulse, or nitro block reads as a device rather than a crate.
+    // a shield, pulse, or thumper block reads as a device rather than a crate.
     if (def.ability) {
       const dome = new THREE.Mesh(
         new THREE.SphereGeometry(s * 0.28, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
