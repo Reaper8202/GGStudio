@@ -75,12 +75,12 @@ where the deploy starts from.
 
 - **Desktop only.** There are no touch controls on `main` (the unmerged
   `Zombie-car_V1` branch has a first pass). Say so when sharing the link.
-- **29 MB of build output**, of which 18 MB is rigged zombie models and 5.5 MB
-  is the graveyard. Fine on a laptop, slow on a phone tether, and over the 20 MB
-  initial-download budget a CrazyGames submission has to fit. The in-flight
-  asset pass takes the zombies to roughly 5.5 MB, which is what closes that gap.
-  How much of the 29 MB a cold load actually pulls has not been measured yet —
-  do that from the deployed build's network panel, not from the folder size.
+- **17 MB of build output**, of which 5.5 MB is rigged zombie models, 5.5 MB is
+  the graveyard, 2 MB is the Rapier physics bundle and 2 MB is audio. That fits
+  under the 20 MB initial-download budget a CrazyGames submission has to meet,
+  but only because nothing else has been added since. How much of the 17 MB a
+  cold load actually pulls has not been measured — do that from the deployed
+  build's network panel, not from the folder size.
 - **Hobby plan is non-commercial** and capped at 100 GB/month — roughly 6,000
   cold loads, and a returning player re-downloads almost nothing.
 
