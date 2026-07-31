@@ -882,31 +882,6 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       baseDamage: 170,
     },
   },
-  'nitro-booster': {
-    id: 'nitro-booster',
-    name: 'Nitro Booster',
-    category: 'weapon',
-    description:
-      'Overdrive injector. Press Q to kick the whole vehicle into a +100% ' +
-      'speed boost with a roaring blue-flame exhaust for a few seconds (20s ' +
-      'cooldown); upgrades make the boost last longer, up to 7 seconds.',
-    cells: oneCell,
-    clearanceCells: [v(0, 1, 0)],
-    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
-    massKg: 90,
-    health: 120,
-    cost: 300,
-    upgrade: upgrade(300),
-    unlockCost: 600,
-    reinforcement: 1.15,
-    // Player-triggered active ability only (no `weapon` payload): SurvivalMode
-    // engages a temporary speed boost on the vehicle off the Q key.
-    ability: {
-      kind: 'nitro',
-      cooldownSeconds: 20,
-      baseDurationSeconds: 5,
-    },
-  },
   'thumper': {
     id: 'thumper',
     name: 'Thumper',

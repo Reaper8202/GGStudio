@@ -220,8 +220,7 @@ export interface AbilityDefinition {
    * lightning blast around the vehicle that damages every zombie in range;
    * 'charm' mind-controls the nearest zombies to fight for you for a while,
    * then they revert to hostile; 'rocket' launches a large rocket that
-   * detonates a high-damage blast on the thickest part of the horde; 'nitro'
-   * kicks the vehicle into a temporary speed boost with a blue-flame exhaust;
+   * detonates a high-damage blast on the thickest part of the horde;
    * 'thump' slams a shockwave outward that knocks every nearby zombie back;
    * 'pulse' slams out a damaging ring of force; 'overdrive' floods the
    * drivetrain with torque; 'hellfire' overcharges the part's own flame nozzle;
@@ -233,7 +232,6 @@ export interface AbilityDefinition {
     | 'zap'
     | 'charm'
     | 'rocket'
-    | 'nitro'
     | 'thump'
     | 'pulse'
     | 'overdrive'
@@ -279,7 +277,7 @@ export interface AbilityDefinition {
   /**
    * Overdrive only: propellant thrust in m/s^2 at level 1 (grows with upgrade
    * level), pushed through the chassis along its heading. This is what makes
-   * nitro work with the throttle shut or the drive wheels stalled — the torque
+   * the surge work with the throttle shut or the drive wheels stalled — the torque
    * multiplier alone does nothing when the engine is not being asked for
    * anything.
    */

@@ -46,7 +46,6 @@ const EXPECTED_CATALOG_IDS = [
   'shield-generator',
   'mind-control-beam',
   'missile-launcher',
-  'nitro-booster',
   'thumper',
   'pulse-emitter',
   'nitro-injector',

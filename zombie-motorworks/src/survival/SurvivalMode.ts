@@ -12,7 +12,6 @@ import {
   effectiveCharm,
   effectiveFreeze,
   effectiveHellfire,
-  effectiveNitro,
   effectiveOverdrive,
   effectivePhase,
   effectivePulse,
@@ -585,14 +584,6 @@ export class SurvivalMode {
     radius: number;
   }[] = [];
   private explosionCursor = 0;
-  /**
-   * Blue-flame exhaust shown while the Nitro Booster boost is active. A pair of
-   * cones parented to the vehicle group (so they trail the chassis) that flicker
-   * in length and brightness; created lazily on first activation and reused.
-   */
-  private nitroFlames: THREE.Group | null = null;
-  private nitroFlameMaterials: THREE.MeshBasicMaterial[] = [];
-  private nitroFlamePhase = 0;
   private thumpRing: THREE.Mesh | null = null;
   private thumpRingMaterial: THREE.MeshBasicMaterial | null = null;
   private thumpRingTtl = 0;
@@ -2368,7 +2359,6 @@ export class SurvivalMode {
     this.syncZapBlast(frameDt);
     this.syncCharmPulse(frameDt);
     this.syncExplosions(frameDt);
-    this.syncNitroFlames(frameDt);
     this.syncThumpRing(frameDt);
     this.syncOverdriveTrail();
     this.phaseGhosts.update(frameDt);
@@ -2534,13 +2524,6 @@ export class SurvivalMode {
         0.5,
       );
       return rocket.cooldownSeconds;
-    }
-    if (ability.kind === 'nitro') {
-      const nitro = effectiveNitro(ability, level);
-      // The vehicle owns the boost timer; the blue-flame exhaust simply reads
-      // `isNitroActive` each frame, so it lights up for exactly the duration.
-      this.vehicle.engageNitro(nitro.speedMultiplier, nitro.durationSeconds);
-      return nitro.cooldownSeconds;
     }
     if (ability.kind === 'thump') {
       const thump = effectiveThump(ability, level);
@@ -3106,59 +3089,6 @@ export class SurvivalMode {
     if (this.shieldBubbleMaterial) {
       this.shieldBubbleMaterial.opacity =
         0.24 + 0.1 * (0.5 + 0.5 * Math.sin(this.shieldBubblePhase));
-    }
-  }
-
-  /**
-   * Light the blue-flame exhaust while the Nitro boost burns, and flicker it;
-   * hide it the moment the boost ends. The cones are children of the vehicle
-   * group so they follow the chassis and point out the back; built lazily.
-   */
-  private syncNitroFlames(frameDt: number): void {
-    const active = this.vehicle.isNitroActive;
-    if (!active) {
-      if (this.nitroFlames && this.nitroFlames.visible) {
-        this.nitroFlames.visible = false;
-      }
-      return;
-    }
-    if (this.nitroFlames === null) {
-      const flames = new THREE.Group();
-      flames.name = 'nitro-flames';
-      // Two exhaust cones, one per side, tapering out the back (local -Z).
-      for (const side of [-1, 1]) {
-        const material = new THREE.MeshBasicMaterial({
-          color: 0x2a8cff,
-          transparent: true,
-          opacity: 0.7,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        });
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(0.32, 1.3, 12),
-          material,
-        );
-        // Apex points along -Z so the flame flares from the chassis and tapers
-        // behind it; the base sits at the rear bumper.
-        cone.rotation.x = -Math.PI / 2;
-        cone.position.set(side * 0.45, 0.25, -1.15);
-        flames.add(cone);
-        this.nitroFlameMaterials.push(material);
-      }
-      this.vehicleGroup.add(flames);
-      this.nitroFlames = flames;
-    }
-    this.nitroFlames.visible = true;
-    this.nitroFlamePhase += frameDt * 22;
-    // Fast flicker in length and brightness so the jet reads as live flame.
-    const flicker = 0.5 + 0.5 * Math.sin(this.nitroFlamePhase);
-    const jitter = 0.5 + 0.5 * Math.sin(this.nitroFlamePhase * 2.3 + 1.7);
-    for (const cone of this.nitroFlames.children) {
-      cone.scale.y = 0.85 + 0.4 * flicker;
-      cone.scale.x = cone.scale.z = 0.9 + 0.2 * jitter;
-    }
-    for (const material of this.nitroFlameMaterials) {
-      material.opacity = 0.55 + 0.35 * flicker;
     }
   }
 

@@ -151,7 +151,6 @@ const DEFENSIVE_WEAPON_PART_IDS = new Set([
 const MOBILITY_WEAPON_PART_IDS = new Set([
   'nitro-injector',
   'phase-drive',
-  'nitro-booster',
 ]);
 
 function storeGroupForPart(def: PartDefinition): StoreGroup {
@@ -2125,14 +2124,6 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Ability', 'Rocket'],
       ['Blast', `${formatStat(def.ability.baseDamage ?? 0)} DMG`],
       ['Radius', `${formatStat(def.ability.rangeM ?? 0)} M`],
-      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
-    );
-  }
-  if (def.ability?.kind === 'nitro') {
-    labels.push(
-      ['Ability', 'Nitro'],
-      ['Boost', '+100% speed'],
-      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }

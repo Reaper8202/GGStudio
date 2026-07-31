@@ -231,10 +231,6 @@ const TURN_ROLL_PITCH_DAMPING_BONUS_PER_S = 2.4;
 const BASE_TOP_SPEED_MPS = 42; // ~151 km/h baseline (a modest bump over the old flat 38)
 const TOP_SPEED_PER_KW = 0.05; // m/s of ceiling added per engine kW
 const HARD_MAX_SPEED_MPS = 55; // absolute cap that keeps Rapier stable
-// Nitro raises the speed ceiling for the boost, but keeps its own solver-safe
-// hard maximum above the normal one so a doubled cap can't launch the rig fast
-// enough to tunnel through walls.
-const NITRO_HARD_MAX_SPEED_MPS = 85;
 const MAX_POST_SOLVE_SPEED_GAIN_MPS = 1.25;
 const MAX_POST_SOLVE_ANGULAR_SPEED = 8;
 const MAX_POST_SOLVE_ANGULAR_GAIN = 1.5;
@@ -259,10 +255,6 @@ export class RuntimeVehicle {
   private fuelCapacity = 0;
   /** Seconds of remaining shield invulnerability; >0 blocks all damage. */
   private invulnTimer = 0;
-  /** Seconds of remaining Nitro boost; >0 lifts the speed cap and drive force. */
-  private nitroTimer = 0;
-  /** Speed/force multiplier applied while {@link nitroTimer} is active. */
-  private nitroMultiplier = 1;
   private environment = NEUTRAL_ENVIRONMENT;
   /** Seconds of remaining overdrive torque surge; 0 when not boosting. */
   private overdriveTimer = 0;
@@ -362,22 +354,6 @@ export class RuntimeVehicle {
   }
 
   /**
-   * Nitro Booster ability: for `seconds`, scale drive force and the speed cap by
-   * `multiplier` (2 = +100%). Re-activation refreshes to the longer remaining
-   * time and keeps the latest multiplier.
-   */
-  engageNitro(multiplier: number, seconds: number): void {
-    if (seconds <= 0 || multiplier <= 1) return;
-    this.nitroMultiplier = multiplier;
-    this.nitroTimer = Math.max(this.nitroTimer, seconds);
-  }
-
-  /** True while the Nitro boost is burning. */
-  get isNitroActive(): boolean {
-    return this.nitroTimer > 0;
-  }
-
-  /**
    * Overdrive ability: multiply drive torque by `multiplier` for `seconds`,
    * and lift the speed ceiling by `speedMultiplier` so the surge is felt at
    * the top end too. Re-activation takes the longer time and the stronger
@@ -405,19 +381,13 @@ export class RuntimeVehicle {
 
   /**
    * The speed ceiling in force this step: the engine-derived cap, lifted while
-   * a nitro boost or an overdrive surge runs but never past the hard limit that
-   * keeps the solver stable. The two never stack — the stronger lift wins — and
-   * nitro, being a pure speed play, is allowed the higher headroom.
+   * an overdrive surge runs but never past the hard limit that keeps the solver
+   * stable.
    */
   private currentSpeedCeiling(): number {
-    const nitroLift = this.nitroTimer > 0 ? this.nitroMultiplier : 1;
-    const overdriveLift =
-      this.overdriveTimer > 0 ? this.overdriveSpeedMultiplier : 1;
-    const lift = Math.max(nitroLift, overdriveLift);
+    const lift = this.overdriveTimer > 0 ? this.overdriveSpeedMultiplier : 1;
     if (lift <= 1) return this.topSpeedCap;
-    const hardMax =
-      this.nitroTimer > 0 ? NITRO_HARD_MAX_SPEED_MPS : HARD_MAX_SPEED_MPS;
-    return Math.min(hardMax, this.topSpeedCap * lift);
+    return Math.min(HARD_MAX_SPEED_MPS, this.topSpeedCap * lift);
   }
 
   /** True while the overdrive surge is running. */
@@ -615,10 +585,6 @@ export class RuntimeVehicle {
     if (this.invulnTimer > 0) {
       this.invulnTimer = Math.max(0, this.invulnTimer - dt);
     }
-    if (this.nitroTimer > 0) {
-      this.nitroTimer = Math.max(0, this.nitroTimer - dt);
-      if (this.nitroTimer === 0) this.nitroMultiplier = 1;
-    }
     if (this.overdriveTimer > 0) {
       this.overdriveTimer = Math.max(0, this.overdriveTimer - dt);
       if (this.overdriveTimer === 0) {
@@ -696,10 +662,6 @@ export class RuntimeVehicle {
     const massPerformance = vehicleMassPerformanceFactor(mass);
     totalTorque *= massPerformance;
     totalTorque *= env.engineOutputMul;
-    // Nitro drives harder so the rig actually reaches its lifted speed cap. Like
-    // overdrive below it multiplies after the biome penalty, so a boost on bad
-    // ground is still a boost rather than being cancelled by it.
-    if (this.nitroTimer > 0) totalTorque *= this.nitroMultiplier;
     // Overdrive rides on top of the mass and biome penalties, so the surge is
     // worth most to the heavy rigs and hostile ground the penalties hurt.
     if (this.overdriveTimer > 0) totalTorque *= this.overdriveMultiplier;
@@ -903,9 +865,9 @@ export class RuntimeVehicle {
 
   /**
    * Overdrive as a propellant: while the surge runs the rig is shoved along
-   * its own heading whether or not the driver is on the throttle, so nitro
-   * still digs you out when you are stalled against a wall of zombies or
-   * coasting with your foot off the pedal.
+   * its own heading whether or not the driver is on the throttle, so the
+   * bottle still digs you out when you are stalled against a wall of zombies
+   * or coasting with your foot off the pedal.
    *
    * The shove is a centre-of-mass impulse flattened to the ground plane — off
    * the wheels entirely, so it works with the drive wheels stalled, and with
