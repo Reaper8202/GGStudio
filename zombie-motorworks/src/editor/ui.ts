@@ -20,6 +20,7 @@ import {
   upgradeStepsFor,
 } from '../core/partUpgrades.ts';
 import { upgradePrice } from '../core/upgrades.ts';
+import { mountSpinningPartPreview } from './WeaponPromptPreview.ts';
 
 export interface EditorUIHandlers {
   /** Atomic production store action; old harnesses may omit this callback. */
@@ -214,6 +215,8 @@ export interface EditorUI {
   ): Promise<'new-slot' | 'replace' | 'cancel'>;
   setNotice(text: string): void;
   deny(text: string): void;
+  /** Nudge shown at the start of every new game to buy a starting weapon. */
+  showWeaponPrompt(): void;
   ghostTip: HTMLDivElement;
   /**
    * Shortcut hint pinned to the current selection in the viewport. EditorMode
@@ -799,6 +802,94 @@ export function buildEditorUI(
     cancelNewGarage.focus();
   };
 
+  // New-game nudge: a bare frame with no weapon on it can't fight back, so
+  // every brand-new garage prompts straight for one of the three cheapest,
+  // most forgiving options rather than leaving the player to find the Store.
+  const WEAPON_PROMPT_DEF_IDS = ['turret', 'sawblade', 'flamethrower'] as const;
+  const weaponPromptOverlay = document.createElement('div');
+  weaponPromptOverlay.className = 'garage-confirm-overlay';
+  weaponPromptOverlay.hidden = true;
+  weaponPromptOverlay.setAttribute('role', 'dialog');
+  weaponPromptOverlay.setAttribute('aria-modal', 'true');
+  weaponPromptOverlay.setAttribute('aria-labelledby', 'weapon-prompt-title');
+  weaponPromptOverlay.setAttribute(
+    'aria-describedby',
+    'weapon-prompt-description',
+  );
+  const weaponPromptDialog = document.createElement('section');
+  weaponPromptDialog.className = 'panel garage-confirm weapon-prompt';
+  const weaponPromptTitle = document.createElement('h2');
+  weaponPromptTitle.id = 'weapon-prompt-title';
+  weaponPromptTitle.textContent = 'Get Started: Buy a Weapon';
+  const weaponPromptDescription = document.createElement('p');
+  weaponPromptDescription.id = 'weapon-prompt-description';
+  weaponPromptDescription.textContent =
+    'Your rig can’t fight back without one. Grab a weapon now — it’s armed and ready to place the moment you buy it.';
+  const weaponPromptOptions = document.createElement('div');
+  weaponPromptOptions.className = 'weapon-prompt__options';
+  let stopWeaponPreviews: Array<() => void> = [];
+  const closeWeaponPrompt = (): void => {
+    weaponPromptOverlay.hidden = true;
+    for (const stop of stopWeaponPreviews) stop();
+    stopWeaponPreviews = [];
+  };
+  const weaponPromptCanvases: [string, HTMLCanvasElement][] = [];
+  const weaponPromptPrices: [string, HTMLElement][] = [];
+  for (const defId of WEAPON_PROMPT_DEF_IDS) {
+    const def = catalog[defId];
+    if (!def) continue;
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = 'weapon-prompt__option';
+    const art = document.createElement('div');
+    art.className = 'weapon-prompt__art';
+    const preview = document.createElement('canvas');
+    preview.className = 'weapon-prompt__preview';
+    art.appendChild(preview);
+    weaponPromptCanvases.push([defId, preview]);
+    const name = document.createElement('strong');
+    name.textContent = KID_LABELS[defId]?.name ?? def.name;
+    const price = document.createElement('span');
+    weaponPromptPrices.push([defId, price]);
+    option.append(art, name, price);
+    option.addEventListener('click', () => {
+      closeWeaponPrompt();
+      (handlers.onPurchasePart ?? handlers.onBuyPart)(defId);
+    });
+    weaponPromptOptions.appendChild(option);
+  }
+  const refreshWeaponPromptPrices = (): void => {
+    for (const [defId, price] of weaponPromptPrices) {
+      const def = catalog[defId];
+      if (!def) continue;
+      const needsUnlock =
+        (def.unlockCost ?? 0) > 0 && !currentUnlockedDefIds.includes(defId);
+      price.textContent = needsUnlock
+        ? `$${def.unlockCost} + $${def.cost}`
+        : `$${def.cost}`;
+    }
+  };
+  const weaponPromptActions = document.createElement('div');
+  weaponPromptActions.className = 'garage-confirm__actions';
+  const dismissWeaponPrompt = btn('Maybe Later', closeWeaponPrompt);
+  weaponPromptActions.appendChild(dismissWeaponPrompt);
+  weaponPromptDialog.append(
+    weaponPromptTitle,
+    weaponPromptDescription,
+    weaponPromptOptions,
+    weaponPromptActions,
+  );
+  weaponPromptOverlay.appendChild(weaponPromptDialog);
+  weaponPromptOverlay.addEventListener('pointerdown', (event) => {
+    if (event.target === weaponPromptOverlay) closeWeaponPrompt();
+  });
+  weaponPromptOverlay.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    closeWeaponPrompt();
+    event.preventDefault();
+  });
+  root.appendChild(weaponPromptOverlay);
+
   // Where should an imported build go? Modelled on the New Garage dialog above
   // rather than window.confirm/prompt: native dialogs are unusable on mobile
   // and are suppressed outright inside the sandboxed iframes portals embed the
@@ -1091,6 +1182,7 @@ export function buildEditorUI(
   let highlighted: string | null = null;
   let hotbar: string[] = [];
   let stock: Readonly<Record<string, number>> = {};
+  let currentUnlockedDefIds: readonly string[] = [];
 
   for (const id of SIMPLE_PART_IDS) {
     const def = catalog[id];
@@ -1835,6 +1927,7 @@ export function buildEditorUI(
       moneyReadout.textContent = `$${money}`;
       stock = currentInventory;
       hotbar = resolveHotbar(hotbarDefIds, currentInventory);
+      currentUnlockedDefIds = unlockedDefIds;
       const unlocked = new Set(unlockedDefIds);
       const installedCounts = new Map<string, number>();
       for (const defId of installedDefIds) {
@@ -2017,6 +2110,17 @@ export function buildEditorUI(
       moneyReadout.classList.remove('deny-shake');
       void moneyReadout.offsetWidth;
       moneyReadout.classList.add('deny-shake');
+    },
+    showWeaponPrompt: () => {
+      weaponPromptOverlay.hidden = false;
+      dismissWeaponPrompt.focus();
+      refreshWeaponPromptPrices();
+      for (const stop of stopWeaponPreviews) stop();
+      stopWeaponPreviews = [];
+      for (const [defId, canvas] of weaponPromptCanvases) {
+        const def = catalog[defId];
+        if (def) stopWeaponPreviews.push(mountSpinningPartPreview(canvas, def));
+      }
     },
   };
 }

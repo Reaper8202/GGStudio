@@ -260,6 +260,8 @@ export interface EditorModeContext {
   /** Presentation callback; the editor owns intent, while App owns audio. */
   onSfx?: (cue: EditorSfxCue) => void;
   notice?: string;
+  /** True only right after `beginNewGame()`, to trigger the starting-weapon nudge. */
+  isNewGame?: boolean;
   runContext?: RunState;
   runRepair?: {
     partHp(): Record<string, number>;
@@ -489,6 +491,7 @@ export class EditorMode {
     }
     this.refresh();
     if (context.notice) this.ui.setNotice(context.notice);
+    if (context.isNewGame) this.ui.showWeaponPrompt();
   }
 
   viewState(): EditorViewState {

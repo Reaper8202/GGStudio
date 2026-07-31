@@ -366,6 +366,7 @@ export class App {
   private profileFlushTimer: number | undefined;
   private saveFailureNotified = false;
   private pendingEditorNotice: string | undefined;
+  private pendingIsNewGame = false;
 
   constructor(private readonly root: HTMLElement) {
     // Raw-key detection must happen before profile loading can synthesize an
@@ -552,9 +553,11 @@ export class App {
             : undefined,
         runSummary: this.runSummary,
         notice: this.pendingEditorNotice,
+        isNewGame: this.pendingIsNewGame,
       },
     );
     this.pendingEditorNotice = undefined;
+    this.pendingIsNewGame = false;
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
     startGarageMusic();
   }
@@ -600,6 +603,7 @@ export class App {
     resetProfileForNewGame(this.profile);
     this.resetSessionState();
     this.bp = buildStarterBlueprint();
+    this.pendingIsNewGame = true;
     this.openEditor();
   }
 
