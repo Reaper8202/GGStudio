@@ -6,11 +6,11 @@ import {
 } from '../src/survival/zombies/bossConfig.ts';
 import {
   BASE_ZOMBIE_STATS,
-  NEEDLE_MAX_FLIGHT_TIME,
   PHONE_ADDICT_SPEED_MULTIPLIER,
   PROJECTILE_HORIZONTAL_SPEED,
   THROWER_ATTACK_RANGE,
   THROWER_SPEED_MULTIPLIER,
+  VIAL_MAX_FLIGHT_TIME,
   WORKER_REWARD,
   WORKER_SPEED_MULTIPLIER,
   ZOMBIE_ATTACK_RANGE,
@@ -74,20 +74,20 @@ describe('boss registry invariants', () => {
     },
   );
 
-  it.each(entries.filter(([, def]) => def.attack.kind === 'needle'))(
-    '%s is a well-formed needle attack',
+  it.each(entries.filter(([, def]) => def.attack.kind === 'vial'))(
+    '%s is a well-formed vial attack',
     (_id, def) => {
-      if (def.attack.kind !== 'needle') throw new Error('filtered above');
+      if (def.attack.kind !== 'vial') throw new Error('filtered above');
       const attack = def.attack;
 
       // The three rings have to nest: it breaks off inside disengage, backs up
-      // past retreat, and fires at range. Any other ordering either traps it in a
-      // retreat it can never satisfy or lets it fire from inside melee.
+      // past retreat, and throws at range. Any other ordering either traps it in
+      // a retreat it can never satisfy or lets it throw from inside melee.
       expect(attack.disengageRangeM).toBeGreaterThan(0);
       expect(attack.disengageRangeM).toBeLessThan(attack.retreatRangeM);
       expect(attack.retreatRangeM).toBeLessThanOrEqual(attack.rangeM);
 
-      // The whole point of the needle: slower in flight than a thrower's lob.
+      // The whole point of the vial: slower in flight than a thrower's lob.
       expect(attack.projectileSpeedMps).toBeGreaterThan(0);
       expect(attack.projectileSpeedMps).toBeLessThan(
         PROJECTILE_HORIZONTAL_SPEED,
@@ -97,15 +97,21 @@ describe('boss registry invariants', () => {
       // enraged from spawn or can never reach the second phase at all.
       expect(attack.phaseTwoHealthFraction).toBeGreaterThan(0);
       expect(attack.phaseTwoHealthFraction).toBeLessThan(1);
-      expect(attack.enragedNeedleCount).toBeGreaterThan(1);
+      expect(attack.enragedVialCount).toBeGreaterThan(1);
       expect(attack.enragedSpreadDeg).toBeGreaterThan(0);
       expect(attack.enragedSpreadDeg).toBeLessThan(180);
 
-      // Its working band must stay inside the flight-time clamps, or a needle
+      // Its working band must stay inside the flight-time clamps, or a vial
       // would be forced to fly faster than its nominal speed to arrive on time.
       expect(attack.rangeM / attack.projectileSpeedMps).toBeLessThanOrEqual(
-        NEEDLE_MAX_FLIGHT_TIME,
+        VIAL_MAX_FLIGHT_TIME,
       );
+
+      // The puddle is the point: a zero radius, zero duration, or zero DPS
+      // puddle would make the vial nothing more than a worse needle.
+      expect(attack.puddleRadiusM).toBeGreaterThan(0);
+      expect(attack.puddleDurationSeconds).toBeGreaterThan(0);
+      expect(attack.poisonDamagePerSecond).toBeGreaterThan(0);
     },
   );
 });
@@ -142,59 +148,67 @@ describe('The Sledge', () => {
   it('is the boss every fifth wave summons', () => {
     expect(bossForWave(5)).toBe(sledge);
   });
+
+  it('shows a capsule body, not a primitive body like the alchemist', () => {
+    expect(sledge.bodyVisual).toBe('model');
+  });
 });
 
-describe('The Spire', () => {
-  const spire = BOSS_DEFINITIONS['needle-spire'];
+describe('The Alchemist', () => {
+  const alchemist = BOSS_DEFINITIONS['acid-alchemist'];
 
-  it('shoots needles rather than swinging', () => {
-    expect(spire.attack.kind).toBe('needle');
+  it('throws acid vials rather than swinging', () => {
+    expect(alchemist.attack.kind).toBe('vial');
   });
 
-  it('kites: it fires from beyond the thrower and never brawls', () => {
-    if (spire.attack.kind !== 'needle') throw new Error('needle boss expected');
-    // Firing from past the thrower's range keeps "things shoot at me here"
+  it('kites: it throws from beyond the thrower and never brawls', () => {
+    if (alchemist.attack.kind !== 'vial') throw new Error('vial boss expected');
+    // Throwing from past the thrower's range keeps "things shoot at me here"
     // consistent with what the player already learned on wave 3.
-    expect(spire.attack.rangeM).toBeGreaterThan(THROWER_ATTACK_RANGE);
+    expect(alchemist.attack.rangeM).toBeGreaterThan(THROWER_ATTACK_RANGE);
     // It gives ground well before melee, so it is never a stand-and-trade fight.
-    expect(spire.attack.disengageRangeM).toBeGreaterThan(ZOMBIE_ATTACK_RANGE);
+    expect(alchemist.attack.disengageRangeM).toBeGreaterThan(ZOMBIE_ATTACK_RANGE);
   });
 
   it('moves faster than The Sledge but can still be run down', () => {
     // It spends its time backing away, so it needs more speed than the brute —
     // but staying under a walker guarantees a rig can always close on it.
-    expect(spire.speedMultiplier).toBeGreaterThan(
+    expect(alchemist.speedMultiplier).toBeGreaterThan(
       BOSS_DEFINITIONS['hammer-brute'].speedMultiplier,
     );
-    expect(spire.speedMultiplier).toBeLessThan(1);
+    expect(alchemist.speedMultiplier).toBeLessThan(1);
   });
 
   it('is tall and narrow rather than a second brute', () => {
     const sledge = BOSS_DEFINITIONS['hammer-brute'];
-    expect(spire.visualHeightM).toBeGreaterThan(sledge.visualHeightM);
-    expect(spire.colliderRadiusM).toBeLessThan(sledge.colliderRadiusM);
-    // Without the width squash the shared walker mesh would just look scaled up.
-    expect(spire.visualWidthScale).toBeLessThan(1);
+    expect(alchemist.visualHeightM).toBeGreaterThan(sledge.visualHeightM);
+    expect(alchemist.colliderRadiusM).toBeLessThan(sledge.colliderRadiusM);
+    // Without the width squash the capsule body would just look like a fat pill.
+    expect(alchemist.visualWidthScale).toBeLessThan(1);
   });
 
-  it('sprays exactly three needles once past half health', () => {
-    if (spire.attack.kind !== 'needle') throw new Error('needle boss expected');
-    expect(spire.attack.phaseTwoHealthFraction).toBe(0.5);
-    expect(spire.attack.enragedNeedleCount).toBe(3);
+  it('renders as a primitive capsule, not the shared voxel placeholder', () => {
+    expect(alchemist.bodyVisual).toBe('capsule');
+  });
+
+  it('throws exactly three vials once past half health', () => {
+    if (alchemist.attack.kind !== 'vial') throw new Error('vial boss expected');
+    expect(alchemist.attack.phaseTwoHealthFraction).toBe(0.5);
+    expect(alchemist.attack.enragedVialCount).toBe(3);
   });
 
   it('carries roughly a full horde wave of health', () => {
     // Same rule as The Sledge: the wave-10 boss replaces the wave-9 horde, so its
     // scaled health should sit in that band rather than being a token or a wall.
-    const bossHp = spire.baseHealth * healthMultiplierForWave(10);
+    const bossHp = alchemist.baseHealth * healthMultiplierForWave(10);
     const previousHordeHp = waveBalanceReport(9).effectiveTotalHp;
     expect(bossHp).toBeGreaterThan(previousHordeHp * 0.75);
     expect(bossHp).toBeLessThan(previousHordeHp * 1.5);
   });
 
   it('is the boss wave 10 summons, alternating with The Sledge', () => {
-    expect(bossForWave(10)).toBe(spire);
+    expect(bossForWave(10)).toBe(alchemist);
     expect(bossForWave(15)).toBe(BOSS_DEFINITIONS['hammer-brute']);
-    expect(bossForWave(20)).toBe(spire);
+    expect(bossForWave(20)).toBe(alchemist);
   });
 });

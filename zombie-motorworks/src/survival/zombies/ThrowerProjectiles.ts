@@ -1,13 +1,5 @@
 import * as THREE from 'three';
 import {
-  NEEDLE_GRAVITY_SCALE,
-  NEEDLE_HIT_RADIUS,
-  NEEDLE_HORIZONTAL_SPEED,
-  NEEDLE_LENGTH,
-  NEEDLE_LIFETIME,
-  NEEDLE_MAX_FLIGHT_TIME,
-  NEEDLE_MIN_FLIGHT_TIME,
-  NEEDLE_THICKNESS,
   PROJECTILE_DAMAGE,
   PROJECTILE_HIT_RADIUS,
   PROJECTILE_HORIZONTAL_SPEED,
@@ -16,6 +8,14 @@ import {
   PROJECTILE_MIN_FLIGHT_TIME,
   PROJECTILE_POOL_SIZE,
   PROJECTILE_SIZE,
+  VIAL_CAPSULE_LENGTH,
+  VIAL_CAPSULE_RADIUS,
+  VIAL_GRAVITY_SCALE,
+  VIAL_HIT_RADIUS,
+  VIAL_HORIZONTAL_SPEED,
+  VIAL_LIFETIME,
+  VIAL_MAX_FLIGHT_TIME,
+  VIAL_MIN_FLIGHT_TIME,
 } from './zombieConfig.ts';
 
 const GRAVITY_MPS2 = 9.81;
@@ -23,10 +23,10 @@ const GROUND_DESPAWN_Y = 0.1;
 const SPIN_RATE = 5; // rad/s, visual only
 
 /** Which look and flight feel a launched projectile uses. */
-export type ProjectileVariant = 'box' | 'needle';
+export type ProjectileVariant = 'box' | 'vial';
 
 /**
- * Everything that differs between a thrower's tumbling box and a boss's needle.
+ * Everything that differs between a thrower's tumbling box and a boss's vial.
  * Damage lives here rather than in the impact callback so one pool can carry
  * projectiles that hit for different amounts.
  */
@@ -39,12 +39,25 @@ export interface ProjectileSpec {
   readonly hitRadius: number;
   readonly variant: ProjectileVariant;
   /**
-   * Fraction of real gravity the shot feels. 1 is a thrown object's lob. Lower
-   * flattens the arc, which matters because a *slower* ballistic shot otherwise
-   * has to be thrown *higher* to stay airborne long enough to reach the target —
-   * a slow needle at full gravity would sail well over the rig on the way in.
+   * Fraction of real gravity the shot feels. 1 is a thrown object's lob, what
+   * both current variants use. Lower would flatten the arc, which matters for
+   * a hypothetical *slower* ballistic shot: at full gravity it would have to be
+   * thrown *higher* to stay airborne long enough to reach the target, and a
+   * slow enough shot would sail well over the rig on the way in.
    */
   readonly gravityScale: number;
+  /**
+   * Acid-puddle payload a vial carries to wherever it lands; undefined for
+   * every other variant. Carried on the spec (set from the firing boss's
+   * `BossVialAttack`) rather than looked up again at landing time, so a puddle
+   * always matches the throw that made it even if the wave's boss definition
+   * has since changed (e.g. the boss died and the wave cleared mid-flight).
+   */
+  readonly puddle?: {
+    readonly radiusM: number;
+    readonly durationSeconds: number;
+    readonly poisonDamagePerSecond: number;
+  };
 }
 
 /** The thrower's lob — the shape this pool originally existed to fire. */
@@ -60,18 +73,18 @@ export const BOX_PROJECTILE: ProjectileSpec = {
 };
 
 /**
- * Base needle spec. Callers override `horizontalSpeed` and `damage` from the
+ * Base vial spec. Callers override `horizontalSpeed` and `damage` from the
  * firing boss's `BossDefinition`, so boss balance stays in one place.
  */
-export const NEEDLE_PROJECTILE: ProjectileSpec = {
-  horizontalSpeed: NEEDLE_HORIZONTAL_SPEED,
-  minFlightTime: NEEDLE_MIN_FLIGHT_TIME,
-  maxFlightTime: NEEDLE_MAX_FLIGHT_TIME,
-  lifetime: NEEDLE_LIFETIME,
+export const VIAL_PROJECTILE: ProjectileSpec = {
+  horizontalSpeed: VIAL_HORIZONTAL_SPEED,
+  minFlightTime: VIAL_MIN_FLIGHT_TIME,
+  maxFlightTime: VIAL_MAX_FLIGHT_TIME,
+  lifetime: VIAL_LIFETIME,
   damage: 0,
-  hitRadius: NEEDLE_HIT_RADIUS,
-  variant: 'needle',
-  gravityScale: NEEDLE_GRAVITY_SCALE,
+  hitRadius: VIAL_HIT_RADIUS,
+  variant: 'vial',
+  gravityScale: VIAL_GRAVITY_SCALE,
 };
 
 interface Projectile {
@@ -85,6 +98,7 @@ interface Projectile {
   hitRadius: number;
   variant: ProjectileVariant;
   gravity: number;
+  puddle: ProjectileSpec['puddle'];
 }
 
 /**
@@ -93,17 +107,17 @@ interface Projectile {
  * projectile despawns on impact, on ground contact, or when its lifetime runs
  * out.
  *
- * Two variants share the pool. A thrower's box tumbles and hits for a flat
- * amount; a boss's needle flies point-first along its own velocity and carries
- * the per-shot damage its definition set. Geometry and material are swapped per
- * launch from a small cache, so slots stay interchangeable.
+ * Two variants share the pool. Both tumble in flight and hit for a flat amount
+ * — a thrower's box, and a boss's acid vial, which additionally bursts into a
+ * puddle wherever it ends up (see `onLand` on `update`). Geometry and material
+ * are swapped per launch from a small cache, so slots stay interchangeable.
  */
 export class ThrowerProjectiles {
   private readonly pool: Projectile[] = [];
   private readonly boxGeometry: THREE.BoxGeometry;
-  private readonly needleGeometry: THREE.BoxGeometry;
+  private readonly vialGeometry: THREE.CapsuleGeometry;
   private readonly boxMaterial: THREE.MeshLambertMaterial;
-  private readonly needleMaterial: THREE.MeshLambertMaterial;
+  private readonly vialMaterial: THREE.MeshLambertMaterial;
   private disposed = false;
 
   constructor(private readonly scene: THREE.Scene) {
@@ -112,21 +126,25 @@ export class ThrowerProjectiles {
       PROJECTILE_SIZE,
       PROJECTILE_SIZE,
     );
-    // Built along +Z so the mesh can be pointed with lookAt down its flight path.
-    this.needleGeometry = new THREE.BoxGeometry(
-      NEEDLE_THICKNESS,
-      NEEDLE_THICKNESS,
-      NEEDLE_LENGTH,
+    // A primitive capsule, same shape family as the boss's own body and held
+    // prop — no art asset, by design. It tumbles like the box rather than
+    // flying point-first, so no fixed orientation is baked in here.
+    this.vialGeometry = new THREE.CapsuleGeometry(
+      VIAL_CAPSULE_RADIUS,
+      VIAL_CAPSULE_LENGTH,
+      3,
+      6,
     );
     this.boxMaterial = new THREE.MeshLambertMaterial({
       color: 0x9b4fd6,
       emissive: 0x38175c,
       flatShading: true,
     });
-    // Bone-pale with a faint glow, matching The Spire rather than the thrower.
-    this.needleMaterial = new THREE.MeshLambertMaterial({
-      color: 0xe4ecd8,
-      emissive: 0x5d6b4a,
+    // Glassy acid green with a faint glow, matching the alchemist and the
+    // puddle its vials leave behind.
+    this.vialMaterial = new THREE.MeshLambertMaterial({
+      color: 0x74ff3a,
+      emissive: 0x2c5a12,
       flatShading: true,
     });
     for (let i = 0; i < PROJECTILE_POOL_SIZE; i++) {
@@ -145,6 +163,7 @@ export class ThrowerProjectiles {
         hitRadius: PROJECTILE_HIT_RADIUS,
         variant: 'box',
         gravity: GRAVITY_MPS2,
+        puddle: undefined,
       });
     }
   }
@@ -207,13 +226,13 @@ export class ThrowerProjectiles {
     slot.hitRadius = spec.hitRadius;
     slot.variant = spec.variant;
     slot.gravity = gravity;
+    slot.puddle = spec.puddle;
     slot.mesh.geometry =
-      spec.variant === 'needle' ? this.needleGeometry : this.boxGeometry;
+      spec.variant === 'vial' ? this.vialGeometry : this.boxGeometry;
     slot.mesh.material =
-      spec.variant === 'needle' ? this.needleMaterial : this.boxMaterial;
+      spec.variant === 'vial' ? this.vialMaterial : this.boxMaterial;
     slot.mesh.position.set(fromX, fromY, fromZ);
     slot.mesh.rotation.set(0, 0, 0);
-    if (spec.variant === 'needle') this.pointAlongVelocity(slot);
     slot.mesh.visible = true;
   }
 
@@ -221,6 +240,12 @@ export class ThrowerProjectiles {
    * Integrate active projectiles. `tryImpact` returns true when the point hit the
    * vehicle (and has applied `damage`); the projectile then despawns. The damage
    * and hit radius are passed per projectile so mixed variants share one pool.
+   *
+   * `onLand`, if given, fires once for every projectile that despawns this step —
+   * ground contact, a vehicle hit, or running out of lifetime — with where it
+   * ended up, its variant, and its `puddle` payload (only ever set for a vial).
+   * Only a vial boss's caller does anything with it (bursting a puddle there);
+   * every other variant's caller can ignore it.
    */
   update(
     dt: number,
@@ -231,6 +256,13 @@ export class ThrowerProjectiles {
       damage: number,
       hitRadius: number,
     ) => boolean,
+    onLand?: (
+      x: number,
+      y: number,
+      z: number,
+      variant: ProjectileVariant,
+      puddle: ProjectileSpec['puddle'],
+    ) => void,
   ): void {
     if (this.disposed) return;
     for (const projectile of this.pool) {
@@ -241,14 +273,10 @@ export class ThrowerProjectiles {
       position.x += projectile.vx * dt;
       position.y += projectile.vy * dt;
       position.z += projectile.vz * dt;
-      if (projectile.variant === 'needle') {
-        // Track the arc so the needle always points where it is going, including
-        // nose-down on the way back to the ground.
-        this.pointAlongVelocity(projectile);
-      } else {
-        projectile.mesh.rotation.x += SPIN_RATE * dt;
-        projectile.mesh.rotation.y += SPIN_RATE * 0.7 * dt;
-      }
+      // Both variants tumble in flight; neither flies point-first any more now
+      // that the needle bolt (the one shot that needed to) is gone.
+      projectile.mesh.rotation.x += SPIN_RATE * dt;
+      projectile.mesh.rotation.y += SPIN_RATE * 0.7 * dt;
 
       if (
         projectile.life <= 0 ||
@@ -261,6 +289,13 @@ export class ThrowerProjectiles {
           projectile.hitRadius,
         )
       ) {
+        onLand?.(
+          position.x,
+          position.y,
+          position.z,
+          projectile.variant,
+          projectile.puddle,
+        );
         this.despawn(projectile);
       }
     }
@@ -276,19 +311,9 @@ export class ThrowerProjectiles {
     for (const projectile of this.pool) this.scene.remove(projectile.mesh);
     this.pool.length = 0;
     this.boxGeometry.dispose();
-    this.needleGeometry.dispose();
+    this.vialGeometry.dispose();
     this.boxMaterial.dispose();
-    this.needleMaterial.dispose();
-  }
-
-  /** Aim the mesh's +Z down its current velocity. */
-  private pointAlongVelocity(projectile: Projectile): void {
-    const { x, y, z } = projectile.mesh.position;
-    projectile.mesh.lookAt(
-      x + projectile.vx,
-      y + projectile.vy,
-      z + projectile.vz,
-    );
+    this.vialMaterial.dispose();
   }
 
   private despawn(projectile: Projectile): void {

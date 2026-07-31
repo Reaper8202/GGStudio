@@ -24,12 +24,15 @@ import {
 } from './Zombie.ts';
 import type { BossDefinition } from './bossConfig.ts';
 import { Landmines, type MineSnapshot } from './Landmines.ts';
+import { AcidPuddles } from './AcidPuddles.ts';
 import {
-  NEEDLE_PROJECTILE,
+  VIAL_PROJECTILE,
   ThrowerProjectiles,
   type ProjectileSpec,
+  type ProjectileVariant,
 } from './ThrowerProjectiles.ts';
 import {
+  ACID_POISON_TICK_SECONDS,
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
   LANDMINE_BLAST_RADIUS,
@@ -51,7 +54,7 @@ import {
   plowSlots,
   type PlowSlot,
   PROJECTILE_HIT_RADIUS,
-  NEEDLE_LAUNCH_HEIGHT_FRACTION,
+  VIAL_LAUNCH_HEIGHT_FRACTION,
   PROJECTILE_LAUNCH_HEIGHT,
   SEPARATION_RADIUS,
   SEPARATION_STRENGTH,
@@ -210,6 +213,9 @@ export class ZombieSystem {
   private readonly fallbackGeometry: THREE.CapsuleGeometry;
   private readonly projectiles: ThrowerProjectiles;
   private readonly landmines: Landmines;
+  private readonly acidPuddles: AcidPuddles;
+  /** Counts down to the next poison application; see `tickAcidPoison`. */
+  private acidTickTimer = ACID_POISON_TICK_SECONDS;
   /** Reused because this callback runs on the fixed-step combat path. */
   private readonly damageReport: ZombieDamageReport = {
     targetKey: 0,
@@ -220,9 +226,10 @@ export class ZombieSystem {
     killed: false,
   };
   /**
-   * Damage and radius arrive per projectile so thrower boxes and boss needles can
+   * Damage and radius arrive per projectile so thrower boxes and boss vials can
    * share one pool. A box passes 0 damage and falls back to the tuner's thrower
-   * value; a needle carries the wave-scaled amount its boss definition set.
+   * value; a vial carries the wave-scaled direct-splash amount its boss
+   * definition set.
    */
   private readonly tryProjectileImpact = (
     x: number,
@@ -246,6 +253,30 @@ export class ZombieSystem {
       return true;
     }
     return false;
+  };
+  /**
+   * A projectile despawned, however it despawned — ground contact, a vehicle
+   * hit, or running out of flight time. Only a vial carries a `puddle` payload
+   * (see `ProjectileSpec.puddle`), so this is a no-op for every thrower box;
+   * for a vial it bursts a puddle exactly where the vial ended up, vehicle hit
+   * or not — the splash lands regardless of whether the vial itself connected.
+   */
+  private readonly onProjectileLand = (
+    x: number,
+    y: number,
+    z: number,
+    _variant: ProjectileVariant,
+    puddle: ProjectileSpec['puddle'],
+  ): void => {
+    if (!puddle) return;
+    this.acidPuddles.spawn(
+      x,
+      y,
+      z,
+      puddle.radiusM,
+      puddle.durationSeconds,
+      puddle.poisonDamagePerSecond,
+    );
   };
   /** Mine trigger checks the vehicle proximity; blast damage then uses its own radius. */
   private readonly tryMineDetonation = (
@@ -315,6 +346,7 @@ export class ZombieSystem {
     );
     this.projectiles = new ThrowerProjectiles(scene);
     this.landmines = new Landmines(scene);
+    this.acidPuddles = new AcidPuddles(scene);
     const poolKinds: ZombieKind[] = [];
     for (const [kind, count] of Object.entries(ZOMBIE_POOL_COUNTS) as [
       ZombieKind,
@@ -336,7 +368,7 @@ export class ZombieSystem {
       zombie.onPlantMine = (worker) =>
         this.landmines.plant(worker.position.x, worker.position.z);
       zombie.onBossSlam = (boss) => this.applyBossSlam(boss);
-      zombie.onBossNeedles = (boss) => this.fireNeedlesFrom(boss);
+      zombie.onBossVials = (boss) => this.fireVialsFrom(boss);
       zombie.onSummon = (necromancer) => this.raiseMinions(necromancer);
       zombie.onExplode = (kamikaze) => this.detonateKamikaze(kamikaze);
       this.pool.push(zombie);
@@ -597,7 +629,7 @@ export class ZombieSystem {
     // what a touch is worth.
     this.processPlowBlades(this.activeScratch, dt);
     this.processVehicleContacts(this.activeScratch, dt);
-    this.projectiles.update(dt, this.tryProjectileImpact);
+    this.projectiles.update(dt, this.tryProjectileImpact, this.onProjectileLand);
     const vehiclePosition = this.vehicle.body.translation();
     this.landmines.update(dt, this.tryMineDetonation, {
       vehicleX: vehiclePosition.x,
@@ -605,13 +637,59 @@ export class ZombieSystem {
       wave: this.currentWave,
       radiusM: this.mineRevealRadiusM,
     });
+    this.acidPuddles.update(dt);
+    this.tickAcidPoison(dt);
     this.rebuildAliveTargets();
+  }
+
+  /**
+   * Poison ticks on a clock instead of every physics step; see
+   * `ACID_POISON_TICK_SECONDS` for why (the direct-damage floor would otherwise
+   * turn any nonzero per-frame dose into 60 HP/s). When puddles overlap, a part
+   * takes the strongest single puddle's dose, not the sum of every puddle
+   * covering it — parking in a triple-overlap should be exactly as risky as
+   * parking in one puddle, not triply lethal. That is the only overlap rule
+   * this boss needs: puddles never grow or merge, so the worst a player can
+   * do is stand in the strongest patch on the ground.
+   */
+  private tickAcidPoison(dt: number): void {
+    this.acidTickTimer -= dt;
+    if (this.acidTickTimer > 0) return;
+    // Accumulate rather than reset to a flat constant, so a slow frame does not
+    // shift the tick phase — same pattern the attack-interval timers use.
+    this.acidTickTimer += ACID_POISON_TICK_SECONDS;
+    const puddles = this.acidPuddles.activePuddles();
+    if (puddles.length === 0) return;
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      let maxDps = 0;
+      for (const puddle of puddles) {
+        if (puddle.poisonDamagePerSecond <= maxDps) continue;
+        const dx = anchor.worldX - puddle.x;
+        const dz = anchor.worldZ - puddle.z;
+        if (dx * dx + dz * dz > puddle.radiusM * puddle.radiusM) continue;
+        maxDps = puddle.poisonDamagePerSecond;
+      }
+      if (maxDps > 0) {
+        this.vehicle.applyDirectDamage(
+          anchor.partId,
+          maxDps * ACID_POISON_TICK_SECONDS,
+        );
+      }
+    }
   }
 
   /** SurvivalMode clears surviving mines the moment a wave completes. */
   clearLandmines(): void {
     if (this.disposed) return;
     this.landmines.despawnAll();
+  }
+
+  /** SurvivalMode clears surviving acid puddles the moment a wave completes. */
+  clearAcidPuddles(): void {
+    if (this.disposed) return;
+    this.acidPuddles.despawnAll();
   }
 
   /**
@@ -637,16 +715,20 @@ export class ZombieSystem {
   }
 
   /**
-   * A needle boss released its volley: one aimed needle while it is healthy, or a
-   * fan of `enragedNeedleCount` once it drops past its phase-two threshold.
+   * The vial boss released its throw: one aimed vial while it is healthy, or a
+   * barrage of `enragedVialCount` once it drops past its phase-two threshold.
+   * Each vial carries the boss's puddle stats on its `ProjectileSpec`, so
+   * `onProjectileLand` can burst one wherever this particular throw ends up
+   * without looking anything up again at landing time.
    *
-   * The fan rotates the horizontal aim vector around Y rather than offsetting the
-   * target point, so every needle keeps the same horizontal distance and therefore
-   * the same flight time — the spray lands together instead of straggling.
+   * The fan rotates the horizontal aim vector around Y rather than offsetting
+   * the target point, so every vial keeps the same horizontal distance and
+   * therefore the same flight time — the barrage lands together instead of
+   * straggling, and its puddles land as one readable cluster.
    */
-  private fireNeedlesFrom(boss: Zombie): void {
+  private fireVialsFrom(boss: Zombie): void {
     const def = boss.bossDefinition;
-    if (this.disposed || !def || def.attack.kind !== 'needle') return;
+    if (this.disposed || !def || def.attack.kind !== 'vial') return;
     const target = boss.vehicleTarget;
     if (target.partId === null) return;
     const damage = boss.slamDamage;
@@ -654,27 +736,32 @@ export class ZombieSystem {
 
     const attack = def.attack;
     const spec: ProjectileSpec = {
-      ...NEEDLE_PROJECTILE,
+      ...VIAL_PROJECTILE,
       horizontalSpeed: attack.projectileSpeedMps,
       damage,
+      puddle: {
+        radiusM: attack.puddleRadiusM,
+        durationSeconds: attack.puddleDurationSeconds,
+        poisonDamagePerSecond: attack.poisonDamagePerSecond,
+      },
     };
     // position.y is the capsule's centre, so drop to the boss's feet first and
-    // measure the hand up from there — otherwise a tall boss fires from above
+    // measure the hand up from there — otherwise a tall boss throws from above
     // its own head.
     const groundY =
       boss.position.y - (def.colliderHalfHeightM + def.colliderRadiusM);
-    const fromY = groundY + def.visualHeightM * NEEDLE_LAUNCH_HEIGHT_FRACTION;
+    const fromY = groundY + def.visualHeightM * VIAL_LAUNCH_HEIGHT_FRACTION;
     const dx = target.x - boss.position.x;
     const dz = target.z - boss.position.z;
 
     const enraged = boss.isEnraged;
-    const count = enraged ? Math.max(1, attack.enragedNeedleCount) : 1;
+    const count = enraged ? Math.max(1, attack.enragedVialCount) : 1;
     const halfFan = enraged
       ? ((attack.enragedSpreadDeg / 2) * Math.PI) / 180
       : 0;
 
     for (let i = 0; i < count; i++) {
-      // -half, 0, +half for three; a single needle is the offset-0 special case.
+      // -half, 0, +half for three; a single vial is the offset-0 special case.
       const offset = count === 1 ? 0 : -halfFan + (2 * halfFan * i) / (count - 1);
       const cos = Math.cos(offset);
       const sin = Math.sin(offset);
@@ -971,6 +1058,8 @@ export class ZombieSystem {
     if (this.disposed) return;
     this.projectiles.despawnAll();
     this.landmines.despawnAll();
+    this.acidPuddles.despawnAll();
+    this.acidTickTimer = ACID_POISON_TICK_SECONDS;
     for (const zombie of this.pool) zombie.forceReturnToPool();
     this.healthMultiplier = 1;
     this.speedMultiplier = 1;
@@ -990,6 +1079,7 @@ export class ZombieSystem {
     this.disposed = true;
     this.projectiles.dispose();
     this.landmines.dispose();
+    this.acidPuddles.dispose();
     for (const zombie of this.pool) zombie.dispose();
     this.pool.length = 0;
     this.colliderToZombie.clear();

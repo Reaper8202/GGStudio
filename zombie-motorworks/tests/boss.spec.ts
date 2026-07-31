@@ -104,7 +104,7 @@ test('the boss closes on a parked rig and its hammer slam damages parts', async 
   expect(after.boss).not.toBeNull();
 });
 
-test('wave 10 summons The Spire, which shoots needles from range', async ({
+test('wave 10 summons The Alchemist, which throws acid vials from range', async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -126,15 +126,16 @@ test('wave 10 summons The Spire, which shoots needles from range', async ({
     () => window.__scrapRig.survivalTelemetry()!,
   );
   expect(spawned.wave).toBe(10);
-  expect(spawned.boss!.name).toBe('The Spire');
+  expect(spawned.boss!.name).toBe('The Alchemist');
   expect(spawned.zombiesAlive).toBe(1);
   await expect(
-    page.locator('.survival-boss-hud').getByText('The Spire'),
+    page.locator('.survival-boss-hud').getByText('The Alchemist'),
   ).toBeVisible();
 
-  // It never closes to melee, so unlike the Sledge test the damage has to arrive
-  // as a projectile. Step deterministically and wait for the first needle to
-  // land on the parked rig.
+  // It never closes to melee, so unlike the Sledge test the damage has to
+  // arrive as a projectile or the acid puddle it leaves behind. Step
+  // deterministically and wait for the first vial (or its puddle) to land on
+  // the parked rig.
   const before = await page.evaluate(
     () => window.__scrapRig.survivalTelemetry()!,
   );
@@ -155,7 +156,8 @@ test('wave 10 summons The Spire, which shoots needles from range', async ({
     () => window.__scrapRig.survivalTelemetry()!,
   );
   expect(after.integrityPct).toBeLessThan(before.integrityPct);
-  // A needle damages the one part it strikes, unlike the slam's whole circle.
+  // A vial's direct splash (or the puddle it leaves) damages the part it
+  // lands near, unlike the slam's whole circle.
   const damaged = Object.entries(after.partHp).filter(
     ([partId, hp]) => hp < (before.partHp[partId] ?? 0),
   );

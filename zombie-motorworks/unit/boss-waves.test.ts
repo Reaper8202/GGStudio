@@ -116,15 +116,15 @@ describe('boss wave scheduling', () => {
     waves.startWave(9);
     expect(bossDefinitions.at(-1)).toBeNull();
     waves.startWave(10);
-    expect(bossDefinitions.at(-1)).toBe(BOSS_DEFINITIONS['needle-spire']);
+    expect(bossDefinitions.at(-1)).toBe(BOSS_DEFINITIONS['acid-alchemist']);
   });
 
   it('alternates the two bosses across boss waves', () => {
     // Rotation index is wave / 5 - 1, so the pair alternates indefinitely.
     expect(bossForWave(5)?.id).toBe('hammer-brute');
-    expect(bossForWave(10)?.id).toBe('needle-spire');
+    expect(bossForWave(10)?.id).toBe('acid-alchemist');
     expect(bossForWave(15)?.id).toBe('hammer-brute');
-    expect(bossForWave(20)?.id).toBe('needle-spire');
+    expect(bossForWave(20)?.id).toBe('acid-alchemist');
   });
 
   it('does not clear a boss wave until the boss is dead', () => {

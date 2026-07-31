@@ -2063,6 +2063,7 @@ export class SurvivalMode {
       this.callbacks.onWaveCleared(wave);
     }
     this.zombies.clearLandmines();
+    this.zombies.clearAcidPuddles();
     this.phase = 'cleared';
     this.pointerFiring = false;
     this.keys.clear();

@@ -9,7 +9,7 @@
  * module free of the `WaveManager -> bossConfig` import cycle.
  */
 
-export type BossId = 'hammer-brute' | 'needle-spire';
+export type BossId = 'hammer-brute' | 'acid-alchemist';
 
 /**
  * Wind-up melee. The boss plants itself inside `rangeM`, telegraphs for
@@ -36,42 +36,58 @@ export interface BossSlamAttack {
 }
 
 /**
- * Ranged needle volley. The boss holds at `rangeM` and fires needles on a
- * ballistic arc, so the shot is dodgeable by driving. Unlike the slam it never
+ * Ranged acid-vial barrage. The boss holds at `rangeM` and lobs a vial on a
+ * ballistic arc, so the shot is dodgeable by driving — the same standoff and
+ * kite pattern the needle attack this replaced used. Unlike the slam it never
  * closes: if the vehicle gets inside `disengageRangeM` the boss backs away until
- * it is past `retreatRangeM` and only then resumes firing, reusing the worker's
- * retreat pattern. Its speed multiplier is still below 1, so a rig can always
- * run it down — the retreat is repositioning pressure, not an escape.
+ * it is past `retreatRangeM` and only then resumes throwing, reusing the
+ * worker's retreat pattern. Its speed multiplier is still below 1, so a rig can
+ * always run it down — the retreat is repositioning pressure, not an escape.
  *
- * Below `phaseTwoHealthFraction` of its spawn health each volley becomes
- * `enragedNeedleCount` needles fanned across `enragedSpreadDeg`, centred on the
- * vehicle, at the same interval and the same damage per needle.
+ * A vial that actually strikes the vehicle in flight deals `damage` on the
+ * spot, but that is the minor payload: wherever a vial ends up — vehicle or
+ * bare ground — it bursts into a puddle of radius `puddleRadiusM` that lingers
+ * for `puddleDurationSeconds` and ticks `poisonDamagePerSecond` into every part
+ * still standing in it. Driving out stops the tick immediately; the puddle
+ * itself never chases.
+ *
+ * Below `phaseTwoHealthFraction` of its spawn health each throw becomes
+ * `enragedVialCount` vials fanned across `enragedSpreadDeg`, centred on the
+ * vehicle, at the same interval — more puddles blanketing the ground rather
+ * than more direct impact damage.
  */
-export interface BossNeedleAttack {
-  readonly kind: 'needle';
-  /** Metres from the nearest vehicle part at which the boss stops and fires. */
+export interface BossVialAttack {
+  readonly kind: 'vial';
+  /** Metres from the nearest vehicle part at which the boss stops and throws. */
   readonly rangeM: number;
   /** Closer than this, the boss breaks off and backs away. Must be < rangeM. */
   readonly disengageRangeM: number;
   /** It retreats until the nearest part is past this. Between disengage and range. */
   readonly retreatRangeM: number;
-  /** Telegraph length; the needle is raised for this long before the shot. */
+  /** Telegraph length; the vial is raised for this long before the throw. */
   readonly windupSeconds: number;
-  /** Damage per needle that connects, before wave scaling. */
+  /** Direct splash damage if the vial itself connects with a part in flight. */
   readonly damage: number;
-  /** Seconds between volleys. */
+  /** Seconds between throws. */
   readonly intervalSeconds: number;
   /**
-   * Horizontal travel speed in m/s. Deliberately below the thrower's
-   * `PROJECTILE_HORIZONTAL_SPEED`: a needle is the slower, more readable shot.
+   * Horizontal travel speed in m/s, same full-gravity lob the thrower's box
+   * uses (see `VIAL_GRAVITY_SCALE`) rather than the flattened needle arc it
+   * replaced — a hand-tossed vial should read as thrown, not fired.
    */
   readonly projectileSpeedMps: number;
-  /** Needles per volley once enraged. One needle before that. */
-  readonly enragedNeedleCount: number;
-  /** Total fan width in degrees for an enraged volley. */
+  /** Vials per throw once enraged. One vial before that. */
+  readonly enragedVialCount: number;
+  /** Total fan width in degrees for an enraged barrage. */
   readonly enragedSpreadDeg: number;
-  /** Spawn-health fraction at or below which the volley becomes a spray. */
+  /** Spawn-health fraction at or below which the throw becomes a barrage. */
   readonly phaseTwoHealthFraction: number;
+  /** Radius of the acid puddle a vial leaves behind wherever it lands. */
+  readonly puddleRadiusM: number;
+  /** Seconds a puddle persists before it evaporates. */
+  readonly puddleDurationSeconds: number;
+  /** Poison damage/second applied to every part standing inside a puddle. */
+  readonly poisonDamagePerSecond: number;
 }
 
 /**
@@ -79,7 +95,7 @@ export interface BossNeedleAttack {
  * more than a `BOSS_DEFINITIONS` entry; `Zombie` dispatches on `kind` at the
  * moment the wind-up completes.
  */
-export type BossAttack = BossSlamAttack | BossNeedleAttack;
+export type BossAttack = BossSlamAttack | BossVialAttack;
 
 export interface BossDefinition {
   readonly id: BossId;
@@ -110,6 +126,16 @@ export interface BossDefinition {
    * a lanky boss is built out of the same stocky walker mesh.
    */
   readonly visualWidthScale?: number;
+  /**
+   * `'model'` sizes and tints the shared voxel placeholder to this boss, same as
+   * every ordinary zombie. `'capsule'` never shows that model at all — the body
+   * stays the primitive capsule every zombie renders as before its model loads,
+   * tinted to `tint` — for a boss deliberately built from no art asset. Both
+   * still preload the same `DEFAULT_BOSS_ASSET`, since the two boss pool slots
+   * are shared and do not know in advance which definition will next occupy
+   * them; a capsule boss just leaves it loaded and hidden.
+   */
+  readonly bodyVisual: 'model' | 'capsule';
   /** Placeholder model under `public/assets/zombies` until a boss asset exists. */
   readonly assetName: string;
   readonly tint: number;
@@ -140,14 +166,17 @@ export const BOSS_HAMMER_SHAFT_COLOR = 0x4a3a28;
 export const BOSS_HAMMER_RAISED_ANGLE = -2.1;
 
 /**
- * Placeholder needle-arm geometry for a needle boss, in pre-`visualScale` metres.
- * Built like the hammer — a prop on a shoulder pivot — but it levels out toward
- * the target during the wind-up instead of swinging down.
+ * Placeholder held-vial geometry for the vial boss, in pre-`visualScale` metres —
+ * a capsule (the same primitive shape the thrown projectile uses, see
+ * `VIAL_CAPSULE_RADIUS`/`VIAL_CAPSULE_LENGTH` in zombieConfig.ts) on a shoulder
+ * pivot, built like the hammer, but it levels out toward the target during the
+ * wind-up instead of swinging down — a raised throwing arm, not a mounted spike.
  */
-export const BOSS_NEEDLE_ARM = { radius: 0.045, length: 1.5 } as const;
-export const BOSS_NEEDLE_ARM_COLOR = 0xc9d6c0;
-/** Radians the needle is raised at rest, levelling to 0 as the shot releases. */
-export const BOSS_NEEDLE_RAISED_ANGLE = -1.35;
+export const BOSS_VIAL_PROP = { radius: 0.08, length: 0.35 } as const;
+/** Glassy, glowing acid green — the vial itself, not just the puddle it leaves. */
+export const BOSS_VIAL_PROP_COLOR = 0x74ff3a;
+/** Radians the vial is raised at rest, levelling to 0 as the throw releases. */
+export const BOSS_VIAL_RAISED_ANGLE = -1.35;
 
 export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
   'hammer-brute': {
@@ -181,46 +210,67 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
     colliderHalfHeightM: 1.1,
     // Matches the capsule's full height, 2 * (halfHeight + radius).
     visualHeightM: 4.2,
+    bodyVisual: 'model',
     // Placeholder: an ordinary walker model, scaled up and darkened. Swap this
     // for a dedicated boss asset when one exists; nothing else needs to change.
     assetName: 'Zed_5',
     tint: 0x2f3a2b,
   },
-  'needle-spire': {
-    id: 'needle-spire',
-    name: 'The Spire',
+  'acid-alchemist': {
+    id: 'acid-alchemist',
+    name: 'The Alchemist',
     warning:
-      'BOSS WAVE — The Spire. It kites and shoots needles: close the distance and it bleeds.',
+      'BOSS WAVE — The Alchemist. It kites and lobs acid vials: stay out of the puddles they leave behind.',
     // ~3,080 HP at wave 10 after the 1.54x health multiplier, against the ~3,333
     // effective HP of the wave-9 horde it replaces. Deliberately a shade under a
     // full horde: the retreat means every point of its health takes longer to
-    // reach than a brute's does.
+    // reach than a brute's does. Unchanged from the needle boss this replaced —
+    // a vial's added threat is the puddle it leaves, not a bigger health bar.
     baseHealth: 2000,
     // 1.98 m/s base — quicker than The Sledge because it spends its time backing
     // away, but still far short of a walker, so ramming it down always works.
     speedMultiplier: 0.62,
     reward: 280,
     attack: {
-      kind: 'needle',
+      kind: 'vial',
       // Holds a metre past the thrower's 13 m, so the rig is already used to that
       // being the range where things start shooting.
       rangeM: 14,
       // Inside 8 m it breaks off; it will not fight at knife range.
       disengageRangeM: 8,
       retreatRangeM: 13,
-      // Short tell: enough to read "it is about to shoot" without the long
-      // commitment a ground slam needs.
-      windupSeconds: 0.45,
-      // Per needle. Under half health three of these land at once, so a volley
-      // hits for 66 before wave scaling — a slam's worth, spread across parts.
-      damage: 22,
-      intervalSeconds: 2.6,
-      // Slower than the thrower's 9 m/s lob, so a needle is the most dodgeable
-      // projectile in the game and crossing its field is a real option.
-      projectileSpeedMps: 7,
-      enragedNeedleCount: 3,
-      enragedSpreadDeg: 16,
+      // A hair longer than the needle boss's 0.45 s snap-shot: the vial is
+      // visibly hefted overhead before it flies, reading as a heavier throw.
+      windupSeconds: 0.55,
+      // Direct splash if the vial itself clips a part in flight. Deliberately
+      // small — under half a walker's 10.5 — because the puddle it leaves is
+      // this boss's real damage, not the impact.
+      damage: 9,
+      // Slightly slower than the needle boss's 2.6 s cadence: puddles linger
+      // after the throw, so pressure builds from ground denial over time
+      // rather than needing a fast rate of direct hits.
+      intervalSeconds: 3.2,
+      // Full-gravity lob (see VIAL_GRAVITY_SCALE) rather than the needle's
+      // flattened arc — a hand-tossed vial should read as thrown, not fired.
+      // Still under the thrower's 9 m/s: a heavier glass vial flies slower.
+      projectileSpeedMps: 7.5,
+      enragedVialCount: 3,
+      // Wider than the needle boss's 16°: the enraged payoff here is coating
+      // more ground in puddles, not landing more concentrated impact damage.
+      enragedSpreadDeg: 30,
       phaseTwoHealthFraction: 0.5,
+      // A metre smaller than The Sledge's 4.5 m slam circle: this hazard keeps
+      // punishing after the telegraph ends, so it earns a tighter footprint in
+      // exchange for outlasting the instant the slam resolves in.
+      puddleRadiusM: 3.2,
+      // Long enough that ignoring it is a real mistake, short enough (under two
+      // throw intervals) that the field never carpets itself in acid.
+      puddleDurationSeconds: 5,
+      // 10 * puddleDurationSeconds(5) = 50 total if a rig sat in one puddle for
+      // its whole life — in the same band as The Sledge's 55-per-swing direct
+      // hit, which is the right comparison: standing still in one is exactly as
+      // much a player mistake as tanking a hammer.
+      poisonDamagePerSecond: 10,
     },
     // Skinnier than the brute, so a ram shifts it more and hurts it more.
     knockbackResistance: 0.18,
@@ -230,13 +280,19 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
     colliderHalfHeightM: 2.3,
     // Matches the capsule's full height, 2 * (halfHeight + radius).
     visualHeightM: 5.5,
-    // The walker mesh stretched to a gaunt silhouette; without this it would just
-    // read as a second, taller brute.
+    // The squash still applies to the fallback capsule body itself (see
+    // applyBossVisualSizing), so the alchemist keeps the same gaunt silhouette
+    // the needle boss had rather than reading as a fat green pill.
     visualWidthScale: 0.55,
-    // Placeholder: the same walker model as The Sledge, drawn tall, thin, and
-    // sickly pale. Swap for a dedicated asset when one exists.
-    assetName: 'Zed_5',
-    tint: 0xb9c6a8,
+    bodyVisual: 'capsule',
+    // No voxel placeholder: primitive geometry only, by design — a capsule body,
+    // capsule vials, and a flat ground disc for the puddle. assetName is unused
+    // for rendering when bodyVisual is 'capsule', but kept non-empty since the
+    // shared boss pool slot still preloads DEFAULT_BOSS_ASSET underneath it.
+    assetName: 'capsule-primitive',
+    // Sickly acid green, matching the vial and puddle colour so the whole boss
+    // reads as one toxic identity.
+    tint: 0x6fbf3f,
   },
 };
 
@@ -244,7 +300,7 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
  * Boss order by boss-wave index. Push a new id here to put a boss into
  * rotation; the list cycles once every boss has been seen.
  */
-const BOSS_ROTATION: readonly BossId[] = ['hammer-brute', 'needle-spire'];
+const BOSS_ROTATION: readonly BossId[] = ['hammer-brute', 'acid-alchemist'];
 
 function safeWaveNumber(wave: number): number {
   return Math.max(1, Math.floor(Number.isFinite(wave) ? wave : 1));

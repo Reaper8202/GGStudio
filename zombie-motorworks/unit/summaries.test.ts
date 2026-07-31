@@ -42,7 +42,7 @@ describe('legible consequence summaries', () => {
       'BOSS WAVE — The Sledge. Slow but brutal: stay out of the hammer ring.',
     ]);
     expect(threatWarningsForWave(10)).toEqual([
-      'BOSS WAVE — The Spire. It kites and shoots needles: close the distance and it bleeds.',
+      'BOSS WAVE — The Alchemist. It kites and lobs acid vials: stay out of the puddles they leave behind.',
     ]);
     // An ordinary wave may still warn about a specialist, but never about a boss.
     for (const wave of [6, 7, 11]) {
