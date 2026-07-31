@@ -7,16 +7,16 @@ routing, `ARCHITECTURE.md` for design rationale, and
 
 ## Sources Of Truth
 
-| Concern | Authority | Contract tests |
-| --- | --- | --- |
-| Serializable vehicle shape | `src/core/types.ts`, `src/core/serialize.ts` | `unit/serialize.test.ts`, `unit/blueprint.test.ts` |
-| Placement and play gate | `src/core/placement.ts` | `unit/placement.test.ts`, `tests/editor.spec.ts` |
-| Effective stats and prices | `src/core/upgrades.ts`, `src/core/economy.ts` | `unit/upgrades.test.ts`, `unit/economy.test.ts`, `unit/repair.test.ts` |
-| Run checkpoint lifecycle | `src/app/App.ts` | `unit/run-checkpoint.test.ts`, `unit/pending-rewards.test.ts`, `tests/runloop.spec.ts` |
-| Saved-run compatibility | `src/core/runSave.ts`, `src/app/runSaveStore.ts` | `unit/run-save.test.ts` |
-| Wave composition/tuning | `src/survival/WaveManager.ts`, `src/survival/zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/wave-balance.test.ts`, `unit/zombie-balance.test.ts` |
-| Survival phase behavior | `src/survival/SurvivalMode.ts` | `tests/runloop.spec.ts`, `tests/failure.spec.ts`, `tests/combat.spec.ts` |
-| Browser verification Seam | `src/app/App.ts` (`debugSeam`), `tests/seam.ts` | affected Playwright specs |
+| Concern                    | Authority                                                             | Contract tests                                                                         |
+| -------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Serializable vehicle shape | `src/core/types.ts`, `src/core/serialize.ts`                          | `unit/serialize.test.ts`, `unit/blueprint.test.ts`                                     |
+| Placement and play gate    | `src/core/placement.ts`                                               | `unit/placement.test.ts`, `tests/editor.spec.ts`                                       |
+| Effective stats and prices | `src/core/upgrades.ts`, `src/core/economy.ts`                         | `unit/upgrades.test.ts`, `unit/economy.test.ts`, `unit/repair.test.ts`                 |
+| Run checkpoint lifecycle   | `src/app/App.ts`                                                      | `unit/run-checkpoint.test.ts`, `unit/pending-rewards.test.ts`, `tests/runloop.spec.ts` |
+| Saved-run compatibility    | `src/core/runSave.ts`, `src/app/runSaveStore.ts`                      | `unit/run-save.test.ts`                                                                |
+| Wave composition/tuning    | `src/survival/WaveManager.ts`, `src/survival/zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/wave-balance.test.ts`, `unit/zombie-balance.test.ts`       |
+| Survival phase behavior    | `src/survival/SurvivalMode.ts`                                        | `tests/runloop.spec.ts`, `tests/failure.spec.ts`, `tests/combat.spec.ts`               |
+| Browser verification Seam  | `src/app/App.ts` (`debugSeam`), `tests/seam.ts`                       | affected Playwright specs                                                              |
 
 ## Blueprint Contract
 
@@ -62,6 +62,8 @@ Rules:
 - optional active-run context and repair Adapter
 - optional run summary/notice
 - callbacks for Test Chamber, Survival, and Title
+- an optional semantic SFX callback for tactile button feedback, successful
+  garage actions, and denials; App maps those cues to presentation assets
 
 Editor responsibilities:
 
@@ -117,17 +119,22 @@ It creates a disposable physics world, Runtime Vehicle, Graveyard, ZombieSystem,
 WaveManager, AutoAim, Minimap, hazards, HUD, and overlays. `dispose` must remove
 listeners/DOM and release mode-owned resources before another mode is created.
 
+The Arena Interface exposes both driving-surface lookup and solid-obstacle
+classification by collider handle. Survival uses the former for wheel physics
+and terrain audio, and the latter to distinguish scenery/fence collisions from
+ordinary chassis contacts.
+
 ## Run Checkpoint Contract
 
 `RunCheckpoint` is App-owned and contains:
 
 ```ts
 {
-  wave: number;                    // wave to play next
-  blueprint: VehicleBlueprint;     // committed survivors
-  partHp: Record<string, number>;  // committed HP by surviving part ID
-  kills: number;                   // committed cumulative kills
-  bankedEarnings: number;          // rewards already credited to Profile
+  wave: number; // wave to play next
+  blueprint: VehicleBlueprint; // committed survivors
+  partHp: Record<string, number>; // committed HP by surviving part ID
+  kills: number; // committed cumulative kills
+  bankedEarnings: number; // rewards already credited to Profile
 }
 ```
 
@@ -210,18 +217,18 @@ listeners/DOM and release mode-owned resources before another mode is created.
 The `SurvivalCallbacks` Interface is an ordering contract, not just a group of
 functions.
 
-| Callback | Owner action | Ordering requirement |
-| --- | --- | --- |
-| `profileMoney`, `runEarnings` | Read App-owned balances | Read-only; Survival must not retain a second wallet |
-| `onReward` | Credit Profile and banked run earnings | Clear only, exactly once, before checkpoint commit |
-| `onWaveCleared` | Update highest wave and milestone unlocks | Valid clear only |
-| `onPhoneAddictKilled` | Update lifetime kill gate | Real kill only; debug suppression is explicit |
-| `onWaveCheckpoint` | Commit survivor Blueprint/HP after clear | Before a post-clear action can be processed |
-| `onWaveAdvance` | Continue in current Survival scene | Uses the already resolved clear payload |
-| `onBuildPhase` | Open run Garage | Commit/persist damage before editor actions |
-| `onGameOver` | End run and show failure summary | Receives discarded pending amount |
-| `onResetWave` | Rebuild from checkpoint | Must not use live HP/rewards |
-| `onSaveAndQuit` | Persist checkpoint and show Title | Must not use live wave snapshot beyond display context |
+| Callback                      | Owner action                              | Ordering requirement                                   |
+| ----------------------------- | ----------------------------------------- | ------------------------------------------------------ |
+| `profileMoney`, `runEarnings` | Read App-owned balances                   | Read-only; Survival must not retain a second wallet    |
+| `onReward`                    | Credit Profile and banked run earnings    | Clear only, exactly once, before checkpoint commit     |
+| `onWaveCleared`               | Update highest wave and milestone unlocks | Valid clear only                                       |
+| `onPhoneAddictKilled`         | Update lifetime kill gate                 | Real kill only; debug suppression is explicit          |
+| `onWaveCheckpoint`            | Commit survivor Blueprint/HP after clear  | Before a post-clear action can be processed            |
+| `onWaveAdvance`               | Continue in current Survival scene        | Uses the already resolved clear payload                |
+| `onBuildPhase`                | Open run Garage                           | Commit/persist damage before editor actions            |
+| `onGameOver`                  | End run and show failure summary          | Receives discarded pending amount                      |
+| `onResetWave`                 | Rebuild from checkpoint                   | Must not use live HP/rewards                           |
+| `onSaveAndQuit`               | Persist checkpoint and show Title         | Must not use live wave snapshot beyond display context |
 
 Changing this sequence requires updates to the run checkpoint, pending reward,
 run-save, and Playwright run-loop tests.
@@ -242,11 +249,11 @@ and lifetime Phone Addict kills.
 
 ## Storage Contract
 
-| Key | Schema | Failure behavior |
-| --- | --- | --- |
-| `scraprig.profile.v1` | Profile 1 | Normalize valid fields; otherwise use default Profile |
-| `scraprig.blueprints.v1` | map of serialized Blueprint 4 slots | Preserve bad slot; load starter and display notice |
-| `scraprig.run.v1` | Saved Run 5, migration from 1-4 | Return null for malformed data; ordinary Title/Garage remains usable |
+| Key                      | Schema                              | Failure behavior                                                     |
+| ------------------------ | ----------------------------------- | -------------------------------------------------------------------- |
+| `scraprig.profile.v1`    | Profile 1                           | Normalize valid fields; otherwise use default Profile                |
+| `scraprig.blueprints.v1` | map of serialized Blueprint 4 slots | Preserve bad slot; load starter and display notice                   |
+| `scraprig.run.v1`        | Saved Run 5, migration from 1-4     | Return null for malformed data; ordinary Title/Garage remains usable |
 
 Storage keys are versioned separately from payload schemas. A payload migration
 does not require renaming a key when its decoder remains backward compatible.

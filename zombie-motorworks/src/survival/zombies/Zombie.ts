@@ -168,6 +168,9 @@ const BASE_VISUAL_SCALE = 1.85;
 const BODY_TINTS = [0x4c6b3f, 0x5a7247, 0x3f5c48, 0x6b5a3f, 0x556b4c, 0x47614a];
 const warnedVisualModels = new Set<string>();
 
+export type ZombieLocalSfxEvent =
+  'melee' | 'gunslinger' | 'kamikazeTick' | 'death';
+
 /**
  * The model a kind wears, for every kind that does not use the numbered Zed
  * walker exports. `file` is relative to the zombie asset root, and takes the
@@ -309,7 +312,10 @@ function getScopeTexture(): THREE.CanvasTexture {
   ] as const) {
     ctx.beginPath();
     ctx.moveTo(c + dx * radius, c + dy * radius);
-    ctx.lineTo(c + dx * (radius + size * 0.14), c + dy * (radius + size * 0.14));
+    ctx.lineTo(
+      c + dx * (radius + size * 0.14),
+      c + dy * (radius + size * 0.14),
+    );
     ctx.stroke();
   }
   scopeTexture = new THREE.CanvasTexture(canvas);
@@ -524,6 +530,8 @@ export class Zombie {
   onExplode: ((zombie: Zombie) => void) | null = null;
   /** Set by ZombieSystem; fired the instant a behemoth's slam lands. */
   onSmash: ((zombie: Zombie) => void) | null = null;
+  /** Presentation event routed by ZombieSystem without coupling AI to audio. */
+  onSfx: ((event: ZombieLocalSfxEvent, zombie: Zombie) => void) | null = null;
   readonly kind: ZombieKind;
 
   private readonly visualRoot = new THREE.Group();
@@ -549,6 +557,8 @@ export class Zombie {
   private blinkMaterial: THREE.MeshBasicMaterial | null = null;
   /** Seconds into the current on/off half-cycle. */
   private blinkTimer = 0;
+  /** Tracks the visual edge so the warning tick fires once per light pulse. */
+  private blinkWasOn = false;
   /** Necromancer only: the summoning sigil, alive only during a channel. */
   private sigilGroup: THREE.Group | null = null;
   private readonly sigilLayers: {
@@ -954,6 +964,7 @@ export class Zombie {
     this.lungeTimer = 0;
     this.hitFlashTimer = 0;
     this.blinkTimer = 0;
+    this.blinkWasOn = false;
     if (this.blinkMesh) this.blinkMesh.visible = false;
     this.freezeTimer = 0;
     this.slowTimer = 0;
@@ -1334,6 +1345,10 @@ export class Zombie {
         // flashing, not something breathing.
         const on = this.blinkTimer < KAMIKAZE_BLINK_INTERVAL * 0.5;
         this.blinkMaterial.opacity = on ? KAMIKAZE_BLINK_OPACITY : 0;
+        if (on && !this.blinkWasOn) this.onSfx?.('kamikazeTick', this);
+        this.blinkWasOn = on;
+      } else {
+        this.blinkWasOn = false;
       }
     }
     switch (this.state) {
@@ -1459,8 +1474,8 @@ export class Zombie {
             : behemothWindingUp
               ? this.behemothPoseProgress() / BEHEMOTH_SMASH_IMPACT
               : 1 -
-                  this.summonTimer /
-                    devTuning.specialist.necromancerSummonSeconds,
+                this.summonTimer /
+                  devTuning.specialist.necromancerSummonSeconds,
           0,
           1,
         );
@@ -1794,6 +1809,7 @@ export class Zombie {
         const posePosition = this.gunslingerPoseProgress();
         if (posePosition >= GUNSLINGER_SHOT_PROGRESS) {
           this.gunslingerShotFired = true;
+          this.onSfx?.('gunslinger', this);
           this.fireGunslingerShot(vehicle);
         }
       }
@@ -1812,7 +1828,10 @@ export class Zombie {
       // same idea). AOE math against vehicle parts lives in ZombieSystem,
       // which is the one holding the anchors to walk; this only owns the
       // effect and the callback that reaches over there.
-      if (!this.behemothSmashed && this.behemothPoseProgress() >= BEHEMOTH_SMASH_IMPACT) {
+      if (
+        !this.behemothSmashed &&
+        this.behemothPoseProgress() >= BEHEMOTH_SMASH_IMPACT
+      ) {
         this.behemothSmashed = true;
         // A physical ground-pound, not a blast: chunky rubble and dust, no
         // bright flash or glow — see VfxSystem.groundSmash for why.
@@ -1839,6 +1858,7 @@ export class Zombie {
         // returned otherwise for every kind but gunslinger, which never
         // reaches this branch — but the guard is now conditional on
         // `committed`, so the type checker needs it spelled out again.
+        this.onSfx?.('melee', this);
         vehicle.applyDirectDamage(target.partId, this.attackDamage);
       }
       this.lungeTimer = LUNGE_DURATION;
@@ -1918,8 +1938,7 @@ export class Zombie {
     this.telegraphPositions[4] = lineEndY;
     this.telegraphPositions[5] = lineEndZ;
     const position = this.telegraphLine?.geometry.getAttribute('position') as
-      | THREE.BufferAttribute
-      | undefined;
+      THREE.BufferAttribute | undefined;
     if (position) position.needsUpdate = true;
     this.telegraphMaterial?.color.setHex(VFX_PALETTE.kamikazeWarn);
     this.scopeSprite?.position.set(lineEndX, lineEndY, lineEndZ);
@@ -1941,7 +1960,11 @@ export class Zombie {
         y: this.telegraphPositions[1],
         z: this.telegraphPositions[2],
       },
-      { x: this.gunslingerAimX, y: this.gunslingerAimY, z: this.gunslingerAimZ },
+      {
+        x: this.gunslingerAimX,
+        y: this.gunslingerAimY,
+        z: this.gunslingerAimZ,
+      },
       'sniper-light',
     );
     const target = this.vehicleTarget;
@@ -2070,6 +2093,7 @@ export class Zombie {
   private die(): void {
     if (this.state === ZombieState.Dead) return;
     this.state = ZombieState.Dead;
+    this.onSfx?.('death', this);
     this.deathTimer = DEATH_FEEDBACK_DURATION;
     // Killed inside the ice: the block goes with the corpse, not after it.
     if (this.freezeTimer > 0) {

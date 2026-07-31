@@ -14,7 +14,11 @@ import {
   brakeInputWithAutoHold,
   type VehicleControls,
 } from '../runtime/vehicle.ts';
-import { lowestPointM, GROUP_TERRAIN, GROUP_ZOMBIE } from '../runtime/assembler.ts';
+import {
+  lowestPointM,
+  GROUP_TERRAIN,
+  GROUP_ZOMBIE,
+} from '../runtime/assembler.ts';
 import type { SurfaceKind } from '../core/surfaces.ts';
 import {
   NEUTRAL_ENVIRONMENT,
@@ -33,6 +37,16 @@ import {
   tracerStyleForShot,
 } from '../vfx/shotVfx.ts';
 import { VFX_PALETTE } from '../vfx/vfxConfig.ts';
+import {
+  playImpactSfx,
+  playExplosionSfx,
+  playSfx,
+  playVehicleDamageSfx,
+  playWeaponSfx,
+  syncDriveSfx,
+  stopDriveSfx,
+  unlockAudio,
+} from '../app/sfx.ts';
 
 export type ScenarioName =
   | 'flat'
@@ -104,7 +118,17 @@ export class ChamberMode {
   private ui!: HTMLDivElement;
   private scopeCursor!: ScopeCursor;
   private disposed = false;
+  private lastVehicleHealth = -1;
+  private readonly onUiButtonClick = (event: MouseEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('button');
+    if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+    unlockAudio();
+    playSfx('uiClick');
+  };
   private readonly keydown = (e: KeyboardEvent) => {
+    unlockAudio();
     this.keys.add(e.key.toLowerCase());
     if (e.key.toLowerCase() === 'f') this.controls.fire = true;
   };
@@ -125,7 +149,12 @@ export class ChamberMode {
     const dir = new THREE.DirectionalLight(0xfff2dd, 1.6);
     dir.position.set(20, 30, 10);
     this.scene.add(dir);
-    this.camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 300);
+    this.camera = new THREE.PerspectiveCamera(
+      60,
+      container.clientWidth / container.clientHeight,
+      0.1,
+      300,
+    );
     this.buildUI();
     this.resetWorld();
     window.addEventListener('keydown', this.keydown);
@@ -135,6 +164,7 @@ export class ChamberMode {
   // ---------- world/scenario ----------
 
   private resetWorld(): void {
+    this.lastVehicleHealth = -1;
     if (this.eventQueue) this.eventQueue.free();
     if (this.world) this.world.free();
     // Detach the VFX layers before the sweep so their pooled geometry and
@@ -172,11 +202,17 @@ export class ChamberMode {
     rotZ = 0,
     rotX = 0,
   ): void {
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, y, z));
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotX, 0, rotZ));
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(x, y, z),
+    );
+    const q = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(rotX, 0, rotZ),
+    );
     body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, false);
     const col = this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(hx, hy, hz).setFriction(0.9).setCollisionGroups(TERRAIN_GROUPS),
+      RAPIER.ColliderDesc.cuboid(hx, hy, hz)
+        .setFriction(0.9)
+        .setCollisionGroups(TERRAIN_GROUPS),
       body,
     );
     this.surfaceByCollider.set(col.handle, surface);
@@ -213,12 +249,24 @@ export class ChamberMode {
       }
       case 'bumps':
         for (let i = 0; i < 10; i++) {
-          this.ground(((i % 2) * 2 - 1) * 1.2, 0.06, 8 + i * 3.2, 3.4, 0.09 + (i % 3) * 0.05, 0.5, 'rubble', 0x555a61);
+          this.ground(
+            ((i % 2) * 2 - 1) * 1.2,
+            0.06,
+            8 + i * 3.2,
+            3.4,
+            0.09 + (i % 3) * 0.05,
+            0.5,
+            'rubble',
+            0x555a61,
+          );
         }
         break;
       case 'zombies':
         for (let i = 0; i < 14; i++) {
-          this.spawnZombie((Math.random() - 0.5) * 20, 10 + i * 2.5 + Math.random() * 2);
+          this.spawnZombie(
+            (Math.random() - 0.5) * 20,
+            10 + i * 2.5 + Math.random() * 2,
+          );
         }
         this.ground(6, 0.4, 20, 1.5, 0.4, 1.5, 'asphalt', 0x6b4a3a); // obstacle block
         this.ground(-6, 0.4, 28, 1.5, 0.4, 1.5, 'asphalt', 0x6b4a3a);
@@ -247,7 +295,10 @@ export class ChamberMode {
       RAPIER.RigidBodyDesc.dynamic().setTranslation(x, 0.8, z).lockRotations(),
     );
     const col = this.world.createCollider(
-      RAPIER.ColliderDesc.capsule(0.4, 0.28).setMass(70).setFriction(0.8).setCollisionGroups(ZOMBIE_GROUPS),
+      RAPIER.ColliderDesc.capsule(0.4, 0.28)
+        .setMass(70)
+        .setFriction(0.8)
+        .setCollisionGroups(ZOMBIE_GROUPS),
       body,
     );
     void col;
@@ -265,9 +316,15 @@ export class ChamberMode {
     const connections = deriveConnections(clone, getPartDef);
     const yLow = lowestPointM(clone, getPartDef);
     const spawnY = this.scenario === 'drop' ? 6.5 : -yLow + 0.32;
-    this.vehicle = new RuntimeVehicle(this.world, clone, getPartDef, connections, {
-      translation: { x: 0, y: spawnY, z: this.scenario === 'drop' ? 14 : 0 },
-    });
+    this.vehicle = new RuntimeVehicle(
+      this.world,
+      clone,
+      getPartDef,
+      connections,
+      {
+        translation: { x: 0, y: spawnY, z: this.scenario === 'drop' ? 14 : 0 },
+      },
+    );
 
     this.vehicleGroup = new THREE.Group();
     this.wheelMeshes.clear();
@@ -297,6 +354,7 @@ export class ChamberMode {
     this.ui = document.createElement('div');
     this.ui.className = 'ui-layer';
     this.container.appendChild(this.ui);
+    this.ui.addEventListener('click', this.onUiButtonClick, true);
 
     const top = document.createElement('div');
     top.className = 'topbar';
@@ -328,7 +386,8 @@ export class ChamberMode {
       b.classList.toggle('active', s === this.scenario);
       b.addEventListener('click', () => {
         this.scenario = s;
-        for (const child of top.querySelectorAll('button')) child.classList.remove('active');
+        for (const child of top.querySelectorAll('button'))
+          child.classList.remove('active');
         b.classList.add('active');
         this.reset();
       });
@@ -345,7 +404,8 @@ export class ChamberMode {
 
     const help = document.createElement('div');
     help.className = 'hud-note';
-    help.textContent = 'W throttle · S brake/reverse · A/D steer · Space brake · F or click: fire · mouse: aim';
+    help.textContent =
+      'W throttle · S brake/reverse · A/D steer · Space brake · F or click: fire · mouse: aim';
     this.ui.appendChild(help);
 
     this.banner = document.createElement('div');
@@ -373,6 +433,7 @@ export class ChamberMode {
   };
 
   private onFireDown = (): void => {
+    unlockAudio();
     this.controls.fire = true;
   };
 
@@ -422,7 +483,9 @@ export class ChamberMode {
     this.controls.reverse = rev && !fwd && !movingForward ? 1 : 0;
     this.controls.brake = k.has(' ') ? 1 : rev && movingForward ? 1 : 0;
     this.controls.brake = brakeInputWithAutoHold(this.controls, forwardSpeed);
-    this.controls.steer = (k.has('a') || k.has('arrowleft') ? -1 : 0) + (k.has('d') || k.has('arrowright') ? 1 : 0);
+    this.controls.steer =
+      (k.has('a') || k.has('arrowleft') ? -1 : 0) +
+      (k.has('d') || k.has('arrowright') ? 1 : 0);
 
     this.vehicle.preStep(
       FIXED_DT,
@@ -430,6 +493,14 @@ export class ChamberMode {
       (h) => this.surfaceByCollider.get(h) ?? 'asphalt',
       this.scenarioEnvironment(),
     );
+    const driveTelemetry = this.vehicle.telemetry();
+    syncDriveSfx({
+      rpm: driveTelemetry.rpm,
+      speedKmh: driveTelemetry.speedKmh,
+      throttle: this.controls.throttle,
+      groundedWheels: driveTelemetry.groundedWheels,
+      wheelSlip: driveTelemetry.wheelSlip,
+    });
     this.stepZombies();
     this.world.step(this.eventQueue);
     this.vehicle.postStepStability(FIXED_DT);
@@ -437,10 +508,13 @@ export class ChamberMode {
     // Damage from contact forces on vehicle colliders.
     this.eventQueue.drainContactForceEvents((ev) => {
       const f = ev.totalForceMagnitude();
+      playImpactSfx(f);
       this.vehicle.onContactForce(ev.collider1(), f);
       this.vehicle.onContactForce(ev.collider2(), f);
     });
     const newIslands = this.vehicle.finishStep();
+    if (newIslands.length > 0) playSfx('partBreak');
+    this.trackDamageTaken();
     for (const isle of newIslands) {
       // Re-parent detached part meshes to an island group synced to its body.
       const group = new THREE.Group();
@@ -466,7 +540,10 @@ export class ChamberMode {
     for (const shot of this.vehicle.telemetry().shotsThisStep) {
       // Flame-volume burns carry damage only; the cone's own jets already drew
       // the fire that produced them.
-      if (!shot.damageOnly) this.emitShotVfx(shot);
+      if (!shot.damageOnly) {
+        playWeaponSfx(shot.weaponDefId, { overcharged: shot.overcharged });
+        this.emitShotVfx(shot);
+      }
       if (shot.hitZombieHandle === null) continue;
       for (const z of this.zombies) {
         if (!z.alive) continue;
@@ -484,6 +561,18 @@ export class ChamberMode {
     }
   }
 
+  private trackDamageTaken(): void {
+    let health = 0;
+    for (const part of this.vehicle.assembled.parts.values()) {
+      if (!part.alive || part.detached) continue;
+      health += Math.max(0, part.health);
+    }
+    if (this.lastVehicleHealth >= 0 && health < this.lastVehicleHealth) {
+      playVehicleDamageSfx(this.lastVehicleHealth - health);
+    }
+    this.lastVehicleHealth = health;
+  }
+
   /**
    * Same gun feedback the graveyard plays, so a weapon looks in the test
    * chamber exactly as it will in a wave. Chamber dummies are never shielded.
@@ -498,6 +587,7 @@ export class ChamberMode {
     // drive misrepresents the weapon.
     if (shot.splashRadiusM > 0) {
       this.vfx.shellBurst(shot.to.x, shot.to.y, shot.to.z, shot.splashRadiusM);
+      playExplosionSfx({ gain: 0.3, playbackRate: 0.92 });
     }
     const impact = impactKindForShot(shot, false);
     if (impact === null) return;
@@ -536,7 +626,10 @@ export class ChamberMode {
       if (d > 0.5) {
         const speed = 1.6;
         const v = z.body.linvel();
-        z.body.setLinvel({ x: (dx / d) * speed, y: v.y, z: (dz / d) * speed }, true);
+        z.body.setLinvel(
+          { x: (dx / d) * speed, y: v.y, z: (dz / d) * speed },
+          true,
+        );
       }
     }
   }
@@ -578,7 +671,10 @@ export class ChamberMode {
       const spin = mesh.getObjectByName('wheel-spin');
       const baseQuat = spin?.userData.baseQuat as THREE.Quaternion | undefined;
       if (spin && baseQuat) {
-        const steerQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -w.steerAngle);
+        const steerQ = new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(0, 1, 0),
+          -w.steerAngle,
+        );
         spin.quaternion.copy(steerQ).multiply(baseQuat);
         spin.rotateY(state.visualSpin ?? 0); // local Y = cylinder axis = axle
       }
@@ -649,12 +745,17 @@ export class ChamberMode {
         ? this.failTimers.noTraction + frameDt
         : 0;
     this.failTimers.airborne =
-      throttleOn && tf.groundedWheels === 0 && uy > 0.5 ? this.failTimers.airborne + frameDt : 0;
+      throttleOn && tf.groundedWheels === 0 && uy > 0.5
+        ? this.failTimers.airborne + frameDt
+        : 0;
     let bannerText = '';
-    if (this.failTimers.flipped > 0.6) bannerText = 'VEHICLE FLIPPED — press Reset';
+    if (this.failTimers.flipped > 0.6)
+      bannerText = 'VEHICLE FLIPPED — press Reset';
     else if (tf.fuelCapacity > 0 && tf.fuel <= 0) bannerText = 'OUT OF FUEL';
-    else if (this.failTimers.noTraction > 1.2) bannerText = 'WHEELS SPINNING — no traction';
-    else if (this.failTimers.airborne > 0.8) bannerText = 'WHEELS OFF THE GROUND';
+    else if (this.failTimers.noTraction > 1.2)
+      bannerText = 'WHEELS SPINNING — no traction';
+    else if (this.failTimers.airborne > 0.8)
+      bannerText = 'WHEELS OFF THE GROUND';
     this.banner.textContent = bannerText;
     this.banner.style.display = bannerText ? 'block' : 'none';
 
@@ -666,7 +767,9 @@ export class ChamberMode {
       `<div class="stat-row"><span>Fuel</span><span>${t.fuel.toFixed(1)} / ${t.fuelCapacity.toFixed(0)} L</span></div>`,
       `<div class="stat-row"><span>Wheels grounded</span><span>${t.groundedWheels}/${t.totalWheels}</span></div>`,
       `<div class="stat-row"><span>Parts</span><span>${t.aliveParts} alive · ${t.detachedParts} lost</span></div>`,
-      t.overloadedWheels.length > 0 ? `<div class="issue-warning">Wheel load exceeded</div>` : '',
+      t.overloadedWheels.length > 0
+        ? `<div class="issue-warning">Wheel load exceeded</div>`
+        : '',
     ].join('');
   }
 
@@ -677,11 +780,16 @@ export class ChamberMode {
 
   dispose(): void {
     this.disposed = true;
+    stopDriveSfx();
     window.removeEventListener('keydown', this.keydown);
     window.removeEventListener('keyup', this.keyup);
     this.renderer.domElement.removeEventListener('pointermove', this.onAim);
-    this.renderer.domElement.removeEventListener('pointerdown', this.onFireDown);
+    this.renderer.domElement.removeEventListener(
+      'pointerdown',
+      this.onFireDown,
+    );
     this.renderer.domElement.removeEventListener('pointerup', this.onFireUp);
+    this.ui.removeEventListener('click', this.onUiButtonClick, true);
     this.scopeCursor.dispose();
     this.vfx?.dispose();
     this.vehicle?.dispose();
@@ -704,10 +812,7 @@ export class ChamberMode {
 
   debugStepSim(steps: number): void {
     if (this.disposed) return;
-    const count = Math.max(
-      0,
-      Math.floor(Number.isFinite(steps) ? steps : 0),
-    );
+    const count = Math.max(0, Math.floor(Number.isFinite(steps) ? steps : 0));
     for (let i = 0; i < count; i++) this.stepPhysics();
     this.syncView(count * FIXED_DT);
     this.renderer.render(this.scene, this.camera);
@@ -750,7 +855,9 @@ export class ChamberMode {
   /** Base drive modifiers of the biome this scenario stands in for, if any. */
   private scenarioEnvironment(): EnvironmentModifiers {
     const biomeId = ChamberMode.SCENARIO_BIOME[this.scenario];
-    return biomeId === undefined ? NEUTRAL_ENVIRONMENT : getBiome(biomeId).drive;
+    return biomeId === undefined
+      ? NEUTRAL_ENVIRONMENT
+      : getBiome(biomeId).drive;
   }
 
   debugSetScenario(s: ScenarioName): void {
@@ -763,7 +870,8 @@ function disposeSceneAssets(root: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line)) return;
+    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line))
+      return;
     const renderable = object as THREE.Mesh | THREE.Line;
     geometries.add(renderable.geometry);
     const renderableMaterials = Array.isArray(renderable.material)

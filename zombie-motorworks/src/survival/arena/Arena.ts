@@ -23,6 +23,8 @@ export interface Arena {
   readonly minimapFeatures: readonly MinimapFeature[];
   /** Surface kind for every collider this arena created. */
   surfaceOf(colliderHandle: number): SurfaceKind;
+  /** Whether the collider is a wall, prop, fence, or other solid fixture. */
+  isObstacle(colliderHandle: number): boolean;
   /** Blend the arena's fog toward a hazard density, 0 = the biome's clear-weather value. */
   setHazardFog(density: number): void;
   whenReady(): Promise<void>;

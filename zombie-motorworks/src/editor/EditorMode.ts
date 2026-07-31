@@ -14,11 +14,7 @@ import type {
 } from '../core/types.ts';
 import { CELL_SIZE, GRID_MAX, GRID_MIN } from '../core/types.ts';
 import { PART_CATALOG, getPartDef } from '../core/parts.ts';
-import {
-  buildOccupancy,
-  getPart,
-  nextPartId,
-} from '../core/blueprint.ts';
+import { buildOccupancy, getPart, nextPartId } from '../core/blueprint.ts';
 import { canPlacePart, validateBlueprint } from '../core/placement.ts';
 import { cellCentreM } from '../core/mass.ts';
 import { deriveConnections } from '../core/structural.ts';
@@ -54,7 +50,11 @@ import {
   type RunSummary,
 } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
-import { createTutorialBlueprint, TUTORIAL_STEPS, tutorialProgress } from '../core/tutorial.ts';
+import {
+  createTutorialBlueprint,
+  TUTORIAL_STEPS,
+  tutorialProgress,
+} from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
 import {
   ABILITY_KIND_META,
@@ -247,6 +247,9 @@ export interface EditorViewState {
   layer: number;
 }
 
+export type EditorSfxCue =
+  'click' | 'deny' | 'place' | 'remove' | 'purchase' | 'repair' | 'upgrade';
+
 export interface EditorModeContext {
   history?: CommandHistory;
   view?: EditorViewState;
@@ -254,6 +257,8 @@ export interface EditorModeContext {
   persistProfile(): void;
   onMenu(): void;
   onSaveAndQuit(): void;
+  /** Presentation callback; the editor owns intent, while App owns audio. */
+  onSfx?: (cue: EditorSfxCue) => void;
   notice?: string;
   runContext?: RunState;
   runRepair?: {
@@ -278,7 +283,8 @@ export class EditorMode {
   private ghost: GhostState | null = null;
   private ghostMesh: THREE.Group | null = null;
   private ghostMeshKey: string | null = null;
-  private ghostTarget: { pos: Vec3i; valid: boolean; message: string } | null = null;
+  private ghostTarget: { pos: Vec3i; valid: boolean; message: string } | null =
+    null;
   private readonly history: CommandHistory;
   private bp: VehicleBlueprint;
   private selected = new Set<string>();
@@ -287,7 +293,14 @@ export class EditorMode {
   private readonly tipProjection = new THREE.Vector3();
   private symmetry = false;
   private layer = -1;
-  private readonly toggles: OverlayToggles = { ...defaultToggles(), com: true, contacts: true, supportPolygon: true, connections: false, arcs: false };
+  private readonly toggles: OverlayToggles = {
+    ...defaultToggles(),
+    com: true,
+    contacts: true,
+    supportPolygon: true,
+    connections: false,
+    arcs: false,
+  };
   private ui: EditorUI;
   private tutorialOverlay: TutorialOverlay | null = null;
   private tutorialActive = false;
@@ -297,11 +310,19 @@ export class EditorMode {
   private explicitRenamePending = false;
   private readonly profile: PlayerProfile;
   private readonly persistProfile: () => void;
+  private readonly onSfx: (cue: EditorSfxCue) => void;
   private readonly runContext: RunState | undefined;
   private readonly runRepair: EditorModeContext['runRepair'];
   private readonly runPartMaxHpAtEntry: ReadonlyMap<string, number>;
   private readonly runSummary: RunSummary | undefined;
   private readonly keyHandler = (e: KeyboardEvent) => this.onKey(e);
+  private readonly onUiButtonClick = (event: MouseEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('button');
+    if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+    this.onSfx('click');
+  };
 
   constructor(
     container: HTMLElement,
@@ -314,13 +335,16 @@ export class EditorMode {
     this.bp = initial;
     this.profile = context.profile;
     this.persistProfile = context.persistProfile;
+    this.onSfx = context.onSfx ?? (() => undefined);
     this.runContext = context.runContext;
     this.runRepair = context.runRepair;
     this.runPartMaxHpAtEntry = new Map(
       initial.parts.map((part) => [part.id, getEffectiveDef(part).health]),
     );
     this.runSummary = context.runSummary;
-    this.history = context.history ?? new CommandHistory((moneyDelta) => this.mutateMoney(moneyDelta));
+    this.history =
+      context.history ??
+      new CommandHistory((moneyDelta) => this.mutateMoney(moneyDelta));
     this.scene.background = new THREE.Color(0x1a1e26);
     this.scene.add(new THREE.HemisphereLight(0xcfd8e8, 0x2a2620, 1.05));
     const dir = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -331,7 +355,14 @@ export class EditorMode {
     this.persp = new THREE.PerspectiveCamera(55, aspect, 0.05, 200);
     this.persp.position.set(5, 4.5, 7);
     const oSize = 5;
-    this.ortho = new THREE.OrthographicCamera(-oSize * aspect, oSize * aspect, oSize, -oSize, 0.05, 200);
+    this.ortho = new THREE.OrthographicCamera(
+      -oSize * aspect,
+      oSize * aspect,
+      oSize,
+      -oSize,
+      0.05,
+      200,
+    );
     this.camera = this.persp;
     this.controls = new OrbitControls(this.persp, renderer.domElement);
     this.controls.target.set(0, 1, 0);
@@ -341,12 +372,25 @@ export class EditorMode {
     // Grid + bounds
     const gridW = (GRID_MAX.x - GRID_MIN.x + 1) * CELL_SIZE;
     const gridD = (GRID_MAX.z - GRID_MIN.z + 1) * CELL_SIZE;
-    const grid = new THREE.GridHelper(Math.max(gridW, gridD), Math.max(GRID_MAX.x - GRID_MIN.x + 1, GRID_MAX.z - GRID_MIN.z + 1), 0x39434f, 0x272d36);
+    const grid = new THREE.GridHelper(
+      Math.max(gridW, gridD),
+      Math.max(GRID_MAX.x - GRID_MIN.x + 1, GRID_MAX.z - GRID_MIN.z + 1),
+      0x39434f,
+      0x272d36,
+    );
     grid.position.y = 0.001;
     this.scene.add(grid);
     const bounds = new THREE.Box3(
-      new THREE.Vector3(GRID_MIN.x * CELL_SIZE, GRID_MIN.y * CELL_SIZE, GRID_MIN.z * CELL_SIZE),
-      new THREE.Vector3((GRID_MAX.x + 1) * CELL_SIZE, (GRID_MAX.y + 1) * CELL_SIZE, (GRID_MAX.z + 1) * CELL_SIZE),
+      new THREE.Vector3(
+        GRID_MIN.x * CELL_SIZE,
+        GRID_MIN.y * CELL_SIZE,
+        GRID_MIN.z * CELL_SIZE,
+      ),
+      new THREE.Vector3(
+        (GRID_MAX.x + 1) * CELL_SIZE,
+        (GRID_MAX.y + 1) * CELL_SIZE,
+        (GRID_MAX.z + 1) * CELL_SIZE,
+      ),
     );
     const boundsHelper = new THREE.Box3Helper(bounds, 0x2f3a48);
     this.scene.add(boundsHelper);
@@ -361,15 +405,19 @@ export class EditorMode {
       onHotbarChange: (defIds) => this.setHotbar(defIds),
       newGarageDisposalSummary: () =>
         newGarageDisposalSummary(this.bp.parts, getPartDef),
-      onNew: () => this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
+      onNew: () =>
+        this.resetBlueprint(this.createNewBlueprint(), 'Start new build'),
       onMenu: context.onMenu,
       onSaveAndQuit: context.onSaveAndQuit,
       onRename: (name) => {
         const pendingBefore = this.explicitRenamePending;
         this.explicitRenamePending ||= name !== this.bp.name;
-        if (!this.exec(
-          replaceBlueprintCommand({ ...this.bp, name }, 0, 'Rename build'),
-        )) this.explicitRenamePending = pendingBefore;
+        if (
+          !this.exec(
+            replaceBlueprintCommand({ ...this.bp, name }, 0, 'Rename build'),
+          )
+        )
+          this.explicitRenamePending = pendingBefore;
       },
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
@@ -402,7 +450,8 @@ export class EditorMode {
         }
       },
       onStartTutorial: () => this.startTutorial(),
-      onConfigChange: (partId, key, value) => this.changeConfig(partId, key, value),
+      onConfigChange: (partId, key, value) =>
+        this.changeConfig(partId, key, value),
       onAbilitySlotClick: (slot) => this.cycleAbilitySlot(slot),
       onUpgradePart: (partId) => this.buyUpgrade(partId),
       onRepairPart: (partId) => this.repairPart(partId),
@@ -417,6 +466,7 @@ export class EditorMode {
         this.copyShareText(buildShareLink(encodeShareCode(this.bp)), 'link'),
       onImport: (input) => void this.importShareCode(input),
     });
+    this.ui.root.addEventListener('click', this.onUiButtonClick, true);
 
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);
     renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
@@ -425,8 +475,16 @@ export class EditorMode {
     window.addEventListener('keydown', this.keyHandler);
 
     if (context.view) {
-      this.persp.position.set(context.view.cameraPos.x, context.view.cameraPos.y, context.view.cameraPos.z);
-      this.controls.target.set(context.view.target.x, context.view.target.y, context.view.target.z);
+      this.persp.position.set(
+        context.view.cameraPos.x,
+        context.view.cameraPos.y,
+        context.view.cameraPos.z,
+      );
+      this.controls.target.set(
+        context.view.target.x,
+        context.view.target.y,
+        context.view.target.z,
+      );
       this.layer = context.view.layer;
     }
     this.refresh();
@@ -435,8 +493,16 @@ export class EditorMode {
 
   viewState(): EditorViewState {
     return {
-      cameraPos: { x: this.persp.position.x, y: this.persp.position.y, z: this.persp.position.z },
-      target: { x: this.controls.target.x, y: this.controls.target.y, z: this.controls.target.z },
+      cameraPos: {
+        x: this.persp.position.x,
+        y: this.persp.position.y,
+        z: this.persp.position.z,
+      },
+      target: {
+        x: this.controls.target.x,
+        y: this.controls.target.y,
+        z: this.controls.target.z,
+      },
       layer: this.layer,
     };
   }
@@ -460,7 +526,9 @@ export class EditorMode {
       tip.style.display = 'none';
       return;
     }
-    const projected = this.tipProjection.copy(this.selectionTipAnchor).project(this.camera);
+    const projected = this.tipProjection
+      .copy(this.selectionTipAnchor)
+      .project(this.camera);
     if (projected.z > 1) {
       tip.style.display = 'none';
       return;
@@ -483,11 +551,21 @@ export class EditorMode {
 
   dispose(): void {
     this.disposed = true;
-    this.renderer.domElement.removeEventListener('pointermove', this.onPointerMove);
-    this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
+    this.renderer.domElement.removeEventListener(
+      'pointermove',
+      this.onPointerMove,
+    );
+    this.renderer.domElement.removeEventListener(
+      'pointerdown',
+      this.onPointerDown,
+    );
     this.renderer.domElement.removeEventListener('pointerup', this.onPointerUp);
-    this.renderer.domElement.removeEventListener('contextmenu', this.onContextMenu);
+    this.renderer.domElement.removeEventListener(
+      'contextmenu',
+      this.onContextMenu,
+    );
     window.removeEventListener('keydown', this.keyHandler);
+    this.ui.root.removeEventListener('click', this.onUiButtonClick, true);
     this.controls.dispose();
     this.tutorialOverlay?.dispose();
     disposeObjectResources(this.scene);
@@ -516,15 +594,20 @@ export class EditorMode {
     const bp = createEmptyBlueprint('new-rig');
     return {
       ...bp,
-      parts: [{ id: 'p1', defId: 'chassis-core', pos: { x: 0, y: 1, z: 0 }, orient: 0, config: {} }],
+      parts: [
+        {
+          id: 'p1',
+          defId: 'chassis-core',
+          pos: { x: 0, y: 1, z: 0 },
+          orient: 0,
+          config: {},
+        },
+      ],
     };
   }
 
   private resetBlueprint(next: VehicleBlueprint, label: string): boolean {
-    const refund = newGarageDisposalSummary(
-      this.bp.parts,
-      getPartDef,
-    ).refund;
+    const refund = newGarageDisposalSummary(this.bp.parts, getPartDef).refund;
     const previousSelection = [...this.selected];
     this.selected.clear();
     if (!this.exec(replaceBlueprintCommand(next, refund, label))) {
@@ -546,7 +629,9 @@ export class EditorMode {
     if (!this.resetBlueprint(createTutorialBlueprint(), 'Start tutorial build'))
       return;
     this.tutorialActive = true;
-    this.tutorialOverlay = new TutorialOverlay(this.ui.root, this.ui, () => this.stopTutorial());
+    this.tutorialOverlay = new TutorialOverlay(this.ui.root, this.ui, () =>
+      this.stopTutorial(),
+    );
     this.tutorialOverlay.update(this.bp, getPartDef);
   }
 
@@ -560,7 +645,9 @@ export class EditorMode {
   debugTutorialState(): { active: boolean; stepIndex: number; total: number } {
     return {
       active: this.tutorialActive,
-      stepIndex: this.tutorialActive ? tutorialProgress(this.bp, getPartDef) : 0,
+      stepIndex: this.tutorialActive
+        ? tutorialProgress(this.bp, getPartDef)
+        : 0,
       total: TUTORIAL_STEPS.length,
     };
   }
@@ -587,7 +674,10 @@ export class EditorMode {
       this.ortho.updateProjectionMatrix();
       this.camera = this.ortho;
     }
-    this.controls = new OrbitControls(this.camera as THREE.PerspectiveCamera, this.renderer.domElement);
+    this.controls = new OrbitControls(
+      this.camera as THREE.PerspectiveCamera,
+      this.renderer.domElement,
+    );
     this.controls.target.set(0, 1, 0);
     this.controls.enableDamping = true;
     this.controls.enableRotate = v === 'persp';
@@ -597,9 +687,11 @@ export class EditorMode {
 
   private exec(cmd: EditorCommand): boolean {
     if (!this.canApplyMoneyDelta(cmd.moneyDelta)) {
-      this.deny(cmd.moneyDelta < 0
-        ? `Not enough money — need $${-cmd.moneyDelta}`
-        : 'That transaction would make the wallet invalid');
+      this.deny(
+        cmd.moneyDelta < 0
+          ? `Not enough money — need $${-cmd.moneyDelta}`
+          : 'That transaction would make the wallet invalid',
+      );
       return false;
     }
     try {
@@ -669,7 +761,8 @@ export class EditorMode {
   }
 
   private mutateMoney(moneyDelta: number): void {
-    if (!this.canApplyMoneyDelta(moneyDelta)) throw new Error('Insufficient funds');
+    if (!this.canApplyMoneyDelta(moneyDelta))
+      throw new Error('Insufficient funds');
     const previousMoney = this.profile.money;
     this.profile.money += moneyDelta;
     try {
@@ -681,6 +774,7 @@ export class EditorMode {
   }
 
   private deny(message: string): void {
+    this.onSfx('deny');
     this.ui.deny(message);
   }
 
@@ -744,8 +838,12 @@ export class EditorMode {
       afterCounts.set(part.defId, (afterCounts.get(part.defId) ?? 0) + 1);
     }
     const stock = this.inventory();
-    for (const defId of new Set([...beforeCounts.keys(), ...afterCounts.keys()])) {
-      const inventoryDelta = (beforeCounts.get(defId) ?? 0) - (afterCounts.get(defId) ?? 0);
+    for (const defId of new Set([
+      ...beforeCounts.keys(),
+      ...afterCounts.keys(),
+    ])) {
+      const inventoryDelta =
+        (beforeCounts.get(defId) ?? 0) - (afterCounts.get(defId) ?? 0);
       if (inventoryDelta === 0) continue;
       const nextCount = Math.max(0, (stock[defId] ?? 0) + inventoryDelta);
       if (nextCount === 0) delete stock[defId];
@@ -754,7 +852,11 @@ export class EditorMode {
     this.persistProfile();
   }
 
-  private changeConfig(partId: string, key: string, value: boolean | string): void {
+  private changeConfig(
+    partId: string,
+    key: string,
+    value: boolean | string,
+  ): void {
     if (key === 'level') {
       this.deny('Use Upgrade to increase a part level');
       return;
@@ -913,12 +1015,17 @@ export class EditorMode {
   private removableSelection(refusal: string): PlacedPart[] {
     const parts = [...this.selected]
       .map((id) => getPart(this.bp, id))
-      .filter((part): part is PlacedPart => part !== undefined && !getPartDef(part.defId).isRoot);
+      .filter(
+        (part): part is PlacedPart =>
+          part !== undefined && !getPartDef(part.defId).isRoot,
+      );
     if (parts.length === 0) {
-      if ([...this.selected].some((id) => {
-        const part = getPart(this.bp, id);
-        return part ? getPartDef(part.defId).isRoot : false;
-      })) {
+      if (
+        [...this.selected].some((id) => {
+          const part = getPart(this.bp, id);
+          return part ? getPartDef(part.defId).isRoot : false;
+        })
+      ) {
         this.ui.setStatus(refusal);
       }
     }
@@ -935,11 +1042,16 @@ export class EditorMode {
   private returnSelectedToInventory(): void {
     const parts = this.removableSelection("Truck Heart can't be removed");
     if (parts.length === 0) return;
-    const refund = parts.reduce((total, part) => total + unlockInvestment(part), 0);
-    const returned = this.exec(batchCommand(
-      'return to inventory',
-      parts.map((part) => removeCommand(part.id, unlockInvestment(part))),
-    ));
+    const refund = parts.reduce(
+      (total, part) => total + unlockInvestment(part),
+      0,
+    );
+    const returned = this.exec(
+      batchCommand(
+        'return to inventory',
+        parts.map((part) => removeCommand(part.id, unlockInvestment(part))),
+      ),
+    );
     if (!returned) return;
     const stock = this.inventory();
     for (const part of parts) stock[part.defId] = (stock[part.defId] ?? 0) + 1;
@@ -952,20 +1064,26 @@ export class EditorMode {
         ? `Returned ${blocks} to inventory — unlocks refunded +$${refund}`
         : `Returned ${blocks} to inventory`,
     );
+    this.onSfx('remove');
   }
 
   private deleteSelected(): void {
     const parts = this.removableSelection("Truck Heart can't be deleted");
     if (parts.length === 0) return;
     const refund = parts.reduce((total, part) => total + sellRefund(part), 0);
-    const sold = this.exec(batchCommand(
-      'sell selection',
-      parts.map((part) => removeCommand(part.id, sellRefund(part))),
-    ));
+    const sold = this.exec(
+      batchCommand(
+        'sell selection',
+        parts.map((part) => removeCommand(part.id, sellRefund(part))),
+      ),
+    );
     if (sold) {
       this.selected.clear();
       this.refresh();
-      this.ui.setStatus(`Sold ${parts.length} part${parts.length === 1 ? '' : 's'} +$${refund}`);
+      this.ui.setStatus(
+        `Sold ${parts.length} part${parts.length === 1 ? '' : 's'} +$${refund}`,
+      );
+      this.onSfx('remove');
     }
   }
 
@@ -980,14 +1098,19 @@ export class EditorMode {
       this.deny('This part is already at maximum level');
       return false;
     }
-    const upgraded = this.exec(updateConfigCommand(
-      part.id,
-      { ...part.config, level: upgrade.targetLevel },
-      -upgrade.price,
-    ));
+    const upgraded = this.exec(
+      updateConfigCommand(
+        part.id,
+        { ...part.config, level: upgrade.targetLevel },
+        -upgrade.price,
+      ),
+    );
     if (upgraded) {
       this.selectOnly(part.id);
-      this.ui.setStatus(`${getPartDef(part.defId).name} upgraded to level ${upgrade.targetLevel} (-$${upgrade.price})`);
+      this.ui.setStatus(
+        `${getPartDef(part.defId).name} upgraded to level ${upgrade.targetLevel} (-$${upgrade.price})`,
+      );
+      this.onSfx('upgrade');
     }
     return upgraded;
   }
@@ -1014,11 +1137,7 @@ export class EditorMode {
     const maxHp = getEffectiveDef(part).health;
     const currentHp = this.currentRunPartHp(part, partHp);
     if (currentHp >= maxHp) return null;
-    const cost = partRepairCost(
-      getPartDef(part.defId).cost,
-      currentHp,
-      maxHp,
-    );
+    const cost = partRepairCost(getPartDef(part.defId).cost, currentHp, maxHp);
     return { cost, canRepair: canAfford(this.profile.money, cost) };
   }
 
@@ -1040,6 +1159,7 @@ export class EditorMode {
         ? `${getPartDef(part.defId).name} repaired for free`
         : `${getPartDef(part.defId).name} repaired (-$${repair.cost})`,
     );
+    this.onSfx('repair');
     return true;
   }
 
@@ -1071,6 +1191,7 @@ export class EditorMode {
     }
     this.refreshProfile();
     this.ui.setStatus(`Vehicle fully repaired (-$${plan.totalCost})`);
+    this.onSfx('repair');
     return true;
   }
 
@@ -1079,13 +1200,22 @@ export class EditorMode {
    * player has since built over is silently left out of the cost and the
    * action rather than blocking the rest of the rebuild.
    */
-  private currentRebuildPlan(): { parts: PlacedPart[]; totalCost: number } | undefined {
+  private currentRebuildPlan():
+    { parts: PlacedPart[]; totalCost: number } | undefined {
     if (!this.runRepair) return undefined;
-    const restorable = this.runRepair.missingParts().filter(
-      (part) =>
-        canPlacePart(this.bp, getPartDef, part.defId, part.pos, part.orient, part.config)
-          .ok,
-    );
+    const restorable = this.runRepair
+      .missingParts()
+      .filter(
+        (part) =>
+          canPlacePart(
+            this.bp,
+            getPartDef,
+            part.defId,
+            part.pos,
+            part.orient,
+            part.config,
+          ).ok,
+      );
     return {
       parts: restorable,
       totalCost: restorable.reduce(
@@ -1107,6 +1237,7 @@ export class EditorMode {
     );
     if (!this.exec(batchCommand('Rebuild Car', commands))) return false;
     this.ui.setStatus(`Vehicle rebuilt (-$${plan.totalCost})`);
+    this.onSfx('repair');
     return true;
   }
 
@@ -1127,6 +1258,7 @@ export class EditorMode {
     this.refreshSelectionUI();
     this.rebuildMeshes();
     this.ui.setStatus(`Sold ${def.name} +$${refund}`);
+    this.onSfx('remove');
     return true;
   }
 
@@ -1153,11 +1285,22 @@ export class EditorMode {
     const step = this.rotationStep(def, axis);
     let next = composeOrientations(step, part.orient);
     for (let i = 0; i < 4; i++) {
-      if (!def.allowedOrientations || def.allowedOrientations.includes(next)) break;
+      if (!def.allowedOrientations || def.allowedOrientations.includes(next))
+        break;
       next = composeOrientations(step, next);
     }
-    const without = { ...this.bp, parts: this.bp.parts.filter((p) => p.id !== part.id) };
-    const ok = canPlacePart(without, getPartDef, part.defId, part.pos, next, part.config).ok;
+    const without = {
+      ...this.bp,
+      parts: this.bp.parts.filter((p) => p.id !== part.id),
+    };
+    const ok = canPlacePart(
+      without,
+      getPartDef,
+      part.defId,
+      part.pos,
+      next,
+      part.config,
+    ).ok;
     if (ok) this.exec(rotateCommand(part.id, next));
     else this.ui.setStatus('Rotation blocked here');
     this.refreshGhostAtLastPointer();
@@ -1177,7 +1320,9 @@ export class EditorMode {
   }
 
   private isUnlocked(defId: string): boolean {
-    return unlockCost(defId) === 0 || this.profile.unlockedDefIds.includes(defId);
+    return (
+      unlockCost(defId) === 0 || this.profile.unlockedDefIds.includes(defId)
+    );
   }
 
   private unlockPart(defId: string): boolean {
@@ -1203,12 +1348,17 @@ export class EditorMode {
       this.persistProfile();
     } catch (err) {
       this.profile.money = previousMoney;
-      this.profile.unlockedDefIds.splice(0, this.profile.unlockedDefIds.length, ...previousUnlocks);
+      this.profile.unlockedDefIds.splice(
+        0,
+        this.profile.unlockedDefIds.length,
+        ...previousUnlocks,
+      );
       this.deny(`Unlock could not be saved: ${this.errorMessage(err)}`);
       return false;
     }
     this.refreshProfile();
     this.ui.setStatus(`Unlocked ${def.name} (-$${price})`);
+    this.onSfx('purchase');
     return true;
   }
 
@@ -1226,7 +1376,9 @@ export class EditorMode {
         this.bp.parts.filter((part) => part.defId === defId).length >=
         1
     ) {
-      this.deny(`${def.name} limit reached - only one can be owned or installed`);
+      this.deny(
+        `${def.name} limit reached - only one can be owned or installed`,
+      );
       return false;
     }
     if (!this.isUnlocked(defId)) return this.unlockPart(defId);
@@ -1256,6 +1408,7 @@ export class EditorMode {
     }
     this.refreshProfile();
     this.ui.setStatus(`Bought ${def.name} (-$${def.cost})`);
+    this.onSfx('purchase');
     return true;
   }
 
@@ -1328,6 +1481,7 @@ export class EditorMode {
         ? `Bought ${def.name} and armed placement (-$${total})`
         : `Unlocked and bought ${def.name}; placement armed (-$${total})`,
     );
+    this.onSfx('purchase');
     return true;
   }
 
@@ -1368,7 +1522,8 @@ export class EditorMode {
   }
 
   private refreshGhostAtLastPointer(): void {
-    if (this.lastPointer) this.updateGhost(this.lastPointer.x, this.lastPointer.y);
+    if (this.lastPointer)
+      this.updateGhost(this.lastPointer.x, this.lastPointer.y);
   }
 
   private updateGhost(clientX: number, clientY: number): void {
@@ -1390,7 +1545,10 @@ export class EditorMode {
     let target: Vec3i | null = null;
     let orient = this.ghost.orient;
 
-    const hits = this.raycaster.intersectObjects(this.partsGroup.children, true);
+    const hits = this.raycaster.intersectObjects(
+      this.partsGroup.children,
+      true,
+    );
     const hit = hits.find((candidate) => this.isPlacementSurfaceHit(candidate));
     if (hit && hit.face) {
       const n = dominantAxis(
@@ -1407,7 +1565,10 @@ export class EditorMode {
         target = this.toCell(adj);
         // Point the plate's outward face away from the block it covers.
         if (isFlatArmour) {
-          orient = this.orientFacing({ x: n.x, y: n.y, z: n.z }, ARMOUR_FACE_AXIS);
+          orient = this.orientFacing(
+            { x: n.x, y: n.y, z: n.z },
+            ARMOUR_FACE_AXIS,
+          );
         }
       }
     } else {
@@ -1418,7 +1579,8 @@ export class EditorMode {
       if (this.raycaster.ray.intersectPlane(plane, pt) && !isFaceMounted) {
         target = this.toCell(new THREE.Vector3(pt.x, planeY + 0.02, pt.z));
         // Nothing above the layer plane to hug: lie flat, face up.
-        if (isFlatArmour) orient = this.orientFacing({ x: 0, y: 1, z: 0 }, ARMOUR_FACE_AXIS);
+        if (isFlatArmour)
+          orient = this.orientFacing({ x: 0, y: 1, z: 0 }, ARMOUR_FACE_AXIS);
       }
     }
 
@@ -1429,7 +1591,14 @@ export class EditorMode {
       return;
     }
 
-    const result = canPlacePart(this.bp, getPartDef, this.ghost.defId, target, orient, {});
+    const result = canPlacePart(
+      this.bp,
+      getPartDef,
+      this.ghost.defId,
+      target,
+      orient,
+      {},
+    );
     this.ghost.orient = orient;
     this.ghostTarget = {
       pos: target,
@@ -1443,7 +1612,13 @@ export class EditorMode {
         this.scene.remove(this.ghostMesh);
         disposeObjectResources(this.ghostMesh);
       }
-      const placed: PlacedPart = { id: '__ghost', defId: this.ghost.defId, pos: { x: 0, y: 0, z: 0 }, orient, config: {} };
+      const placed: PlacedPart = {
+        id: '__ghost',
+        defId: this.ghost.defId,
+        pos: { x: 0, y: 0, z: 0 },
+        orient,
+        config: {},
+      };
       this.ghostMesh = buildPartMesh(def, placed, 0.55);
       this.ghostMesh.traverse((o) => {
         const mesh = o as THREE.Mesh;
@@ -1458,11 +1633,19 @@ export class EditorMode {
       this.scene.add(this.ghostMesh);
     }
     this.ghostMesh.visible = true;
-    this.ghostMesh.position.set(target.x * CELL_SIZE, target.y * CELL_SIZE, target.z * CELL_SIZE);
+    this.ghostMesh.position.set(
+      target.x * CELL_SIZE,
+      target.y * CELL_SIZE,
+      target.z * CELL_SIZE,
+    );
 
     const tip = this.ui.ghostTip;
     if (!result.ok && result.issues.length > 0) {
-      tip.textContent = result.issues[0].message + (result.issues[0].suggestion ? ` — ${result.issues[0].suggestion}` : '');
+      tip.textContent =
+        result.issues[0].message +
+        (result.issues[0].suggestion
+          ? ` — ${result.issues[0].suggestion}`
+          : '');
       tip.style.display = 'block';
       tip.style.left = `${clientX + 14}px`;
       tip.style.top = `${clientY + 14}px`;
@@ -1471,7 +1654,10 @@ export class EditorMode {
     }
   }
 
-  private orientFacing(normal: Vec3i, localAxis: Vec3i = { x: 0, y: 0, z: 1 }): number {
+  private orientFacing(
+    normal: Vec3i,
+    localAxis: Vec3i = { x: 0, y: 0, z: 1 },
+  ): number {
     // Find an orientation sending the part's local axis to the given normal.
     for (let o = 0; o < 24; o++) {
       const v = rotateVec(o, localAxis);
@@ -1503,15 +1689,32 @@ export class EditorMode {
     }
     const { pos } = this.ghostTarget;
     const def = getPartDef(this.ghost.defId);
-    const placement = canPlacePart(this.bp, getPartDef, this.ghost.defId, pos, this.ghost.orient, {});
+    const placement = canPlacePart(
+      this.bp,
+      getPartDef,
+      this.ghost.defId,
+      pos,
+      this.ghost.orient,
+      {},
+    );
     if (!placement.ok) {
-      this.ghostTarget = { pos, valid: false, message: placement.issues[0]?.message ?? '' };
+      this.ghostTarget = {
+        pos,
+        valid: false,
+        message: placement.issues[0]?.message ?? '',
+      };
       this.refreshGhostAtLastPointer();
       return;
     }
     const id = nextPartId(this.bp);
     const config = defaultConfigForDef(def);
-    const part: PlacedPart = { id, defId: this.ghost.defId, pos, orient: this.ghost.orient, config };
+    const part: PlacedPart = {
+      id,
+      defId: this.ghost.defId,
+      pos,
+      orient: this.ghost.orient,
+      config,
+    };
     const cmds: EditorCommand[] = [placeCommand(part)];
 
     if (this.symmetry && !def.unique && available >= 2) {
@@ -1523,7 +1726,9 @@ export class EditorMode {
         try {
           const test = mirror.apply(after);
           const report = validateBlueprint(test, getPartDef);
-          const overlaps = report.errors.some((e) => e.code === 'OVERLAP' || e.code === 'OUT_OF_BOUNDS');
+          const overlaps = report.errors.some(
+            (e) => e.code === 'OVERLAP' || e.code === 'OUT_OF_BOUNDS',
+          );
           if (!overlaps) cmds.push(mirror);
         } catch {
           /* mirrored spot invalid — place single */
@@ -1532,7 +1737,12 @@ export class EditorMode {
     }
     const usedCount = cmds.length;
     if (!this.changeInventory(part.defId, -usedCount)) return;
-    if (this.exec(cmds.length > 1 ? batchCommand('symmetric place', cmds) : cmds[0])) {
+    if (
+      this.exec(
+        cmds.length > 1 ? batchCommand('symmetric place', cmds) : cmds[0],
+      )
+    ) {
+      this.onSfx('place');
       if ((this.inventory()[part.defId] ?? 0) > 0) {
         // Keep the hotbar item armed so repeated clicks keep building with it.
         this.refreshGhostAtLastPointer();
@@ -1553,7 +1763,9 @@ export class EditorMode {
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
-    const partId = this.partIdAtIntersections(this.raycaster.intersectObjects(this.partsGroup.children, true));
+    const partId = this.partIdAtIntersections(
+      this.raycaster.intersectObjects(this.partsGroup.children, true),
+    );
     if (!additive) this.selected.clear();
     if (partId) {
       if (additive && this.selected.has(partId)) this.selected.delete(partId);
@@ -1563,18 +1775,29 @@ export class EditorMode {
     this.rebuildMeshes();
   }
 
-  private isPlacementSurfaceHit(hit: THREE.Intersection<THREE.Object3D>): boolean {
+  private isPlacementSurfaceHit(
+    hit: THREE.Intersection<THREE.Object3D>,
+  ): boolean {
     const mesh = hit.object as THREE.Mesh;
-    if (!mesh.isMesh || !mesh.visible || !hit.face || mesh.userData.placementSurface !== true) return false;
+    if (
+      !mesh.isMesh ||
+      !mesh.visible ||
+      !hit.face ||
+      mesh.userData.placementSurface !== true
+    )
+      return false;
     let object: THREE.Object3D | null = mesh;
     while (object) {
-      if (object.userData.editorPickable === false || !object.visible) return false;
+      if (object.userData.editorPickable === false || !object.visible)
+        return false;
       object = object.parent;
     }
     return true;
   }
 
-  private partIdAtIntersections(hits: THREE.Intersection<THREE.Object3D>[]): string | null {
+  private partIdAtIntersections(
+    hits: THREE.Intersection<THREE.Object3D>[],
+  ): string | null {
     const hit = hits.find((candidate) => this.isPlacementSurfaceHit(candidate));
     if (!hit) return null;
     let object: THREE.Object3D | null = hit.object;
@@ -1584,11 +1807,16 @@ export class EditorMode {
 
   private partIdAt(clientX: number, clientY: number): string | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    this.raycaster.setFromCamera(new THREE.Vector2(
-      ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1,
-    ), this.camera);
-    return this.partIdAtIntersections(this.raycaster.intersectObjects(this.partsGroup.children, true));
+    this.raycaster.setFromCamera(
+      new THREE.Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+      ),
+      this.camera,
+    );
+    return this.partIdAtIntersections(
+      this.raycaster.intersectObjects(this.partsGroup.children, true),
+    );
   }
 
   private selectOnly(partId: string): void {
@@ -1661,24 +1889,37 @@ export class EditorMode {
     const upgrade = nextUpgrade(part);
     const selectedParts = [...this.selected]
       .map((id) => getPart(this.bp, id))
-      .filter((selectedPart): selectedPart is PlacedPart =>
-        selectedPart !== undefined && !getPartDef(selectedPart.defId).isRoot);
+      .filter(
+        (selectedPart): selectedPart is PlacedPart =>
+          selectedPart !== undefined && !getPartDef(selectedPart.defId).isRoot,
+      );
     const selectionRefund = selectedParts.reduce(
       (total, selectedPart) => total + sellRefund(selectedPart),
       0,
     );
     const repair = this.selectedRepairEconomy(part);
-    this.ui.setSelectedPart(def, part.id, level, getEffectiveDef(part), {
-      nextUpgradePrice: upgrade?.price ?? null,
-      canUpgrade: upgrade !== null && canAfford(this.profile.money, upgrade.price),
-      sellRefund: selectionRefund,
-      repairCost: repair?.cost ?? null,
-      canRepair: repair?.canRepair ?? false,
-      upgradePreview: previewUpgradeMetrics(this.bp, part.id) ?? undefined,
-    }, part.config, def.wheel
-      ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(part.id)
-      : undefined,
-      def.ability ? this.abilitySlotStatus(part.id) : undefined);
+    this.ui.setSelectedPart(
+      def,
+      part.id,
+      level,
+      getEffectiveDef(part),
+      {
+        nextUpgradePrice: upgrade?.price ?? null,
+        canUpgrade:
+          upgrade !== null && canAfford(this.profile.money, upgrade.price),
+        sellRefund: selectionRefund,
+        repairCost: repair?.cost ?? null,
+        canRepair: repair?.canRepair ?? false,
+        upgradePreview: previewUpgradeMetrics(this.bp, part.id) ?? undefined,
+      },
+      part.config,
+      def.wheel
+        ? deriveAutomaticWheelLayout(this.bp, getPartDef).steeringPartIds.has(
+            part.id,
+          )
+        : undefined,
+      def.ability ? this.abilitySlotStatus(part.id) : undefined,
+    );
     this.refreshOverlays();
   }
 
@@ -1697,7 +1938,8 @@ export class EditorMode {
     }
     const anchor = this.selectionTipAnchor ?? new THREE.Vector3();
     anchor.set(0, 0, 0);
-    for (const centre of centres) anchor.add(new THREE.Vector3(centre.x, centre.y, centre.z));
+    for (const centre of centres)
+      anchor.add(new THREE.Vector3(centre.x, centre.y, centre.z));
     anchor.divideScalar(centres.length);
     anchor.y += CELL_SIZE * 0.6;
     this.selectionTipAnchor = anchor;
@@ -1717,7 +1959,10 @@ export class EditorMode {
 
   private onPointerUp = (e: PointerEvent): void => {
     if (!this.pointerDown) return;
-    const moved = Math.hypot(e.clientX - this.pointerDown.x, e.clientY - this.pointerDown.y);
+    const moved = Math.hypot(
+      e.clientX - this.pointerDown.x,
+      e.clientY - this.pointerDown.y,
+    );
     this.pointerDown = null;
     if (moved > 6) return; // drag = camera, not click
     if (e.button === 2) {
@@ -1742,7 +1987,13 @@ export class EditorMode {
   private onKey(e: KeyboardEvent): void {
     if (this.disposed) return;
     const t = e.target as HTMLElement;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+    if (
+      t &&
+      (t.tagName === 'INPUT' ||
+        t.tagName === 'SELECT' ||
+        t.tagName === 'TEXTAREA')
+    )
+      return;
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && key === 'z') {
       e.preventDefault();
@@ -1764,13 +2015,21 @@ export class EditorMode {
         break;
       case 'r':
         if (this.ghost) {
-          this.ghost.orient = this.nextAllowedOrient(this.ghost.defId, this.ghost.orient, 'y');
+          this.ghost.orient = this.nextAllowedOrient(
+            this.ghost.defId,
+            this.ghost.orient,
+            'y',
+          );
           this.refreshGhostAtLastPointer();
         } else this.rotateSelected('y');
         break;
       case 'f':
         if (this.ghost) {
-          this.ghost.orient = this.nextAllowedOrient(this.ghost.defId, this.ghost.orient, 'x');
+          this.ghost.orient = this.nextAllowedOrient(
+            this.ghost.defId,
+            this.ghost.orient,
+            'x',
+          );
           this.refreshGhostAtLastPointer();
         } else this.rotateSelected('x');
         break;
@@ -1799,12 +2058,20 @@ export class EditorMode {
     }
   }
 
-  private nextAllowedOrient(defId: string, current: number, axis: 'y' | 'x'): number {
+  private nextAllowedOrient(
+    defId: string,
+    current: number,
+    axis: 'y' | 'x',
+  ): number {
     const def = getPartDef(defId);
-    const step = axis === 'y' ? orientationFromSteps(0, 1, 0) : orientationFromSteps(1, 0, 0);
+    const step =
+      axis === 'y'
+        ? orientationFromSteps(0, 1, 0)
+        : orientationFromSteps(1, 0, 0);
     let next = composeOrientations(step, current);
     for (let i = 0; i < 24; i++) {
-      if (!def.allowedOrientations || def.allowedOrientations.includes(next)) return next;
+      if (!def.allowedOrientations || def.allowedOrientations.includes(next))
+        return next;
       next = composeOrientations(step, next);
     }
     return current;
@@ -1817,11 +2084,16 @@ export class EditorMode {
       const parsed: unknown = JSON.parse(
         localStorage.getItem(BLUEPRINT_STORAGE_KEY) ?? '{}',
       );
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        Array.isArray(parsed)
+      )
         return {};
       return Object.fromEntries(
-        Object.entries(parsed).filter((entry): entry is [string, string] =>
-          typeof entry[1] === 'string'),
+        Object.entries(parsed).filter(
+          (entry): entry is [string, string] => typeof entry[1] === 'string',
+        ),
       );
     } catch {
       return {};
@@ -1926,8 +2198,12 @@ export class EditorMode {
       let opacity = 1;
       let pickable = true;
       if (this.layer >= 0) {
-        const above = def.cells.length === 0 ? part.pos.y > this.layer :
-          def.cells.every((c) => part.pos.y + rotateVec(part.orient, c).y > this.layer);
+        const above =
+          def.cells.length === 0
+            ? part.pos.y > this.layer
+            : def.cells.every(
+                (c) => part.pos.y + rotateVec(part.orient, c).y > this.layer,
+              );
         if (above) {
           opacity = 0.12;
           pickable = false;
@@ -1935,13 +2211,18 @@ export class EditorMode {
       }
       const mesh = buildPartMesh(def, part, opacity);
       mesh.userData.editorPickable = pickable;
-      mesh.traverse((object) => { object.userData.editorPickable = pickable; });
+      mesh.traverse((object) => {
+        object.userData.editorPickable = pickable;
+      });
       if (this.selected.has(part.id)) {
         mesh.traverse((o) => {
           const m = o as THREE.Mesh;
           // Only materials that actually have an emissive uniform (Lambert);
           // forcing one onto MeshBasicMaterial crashes the Three renderer.
-          if (m.isMesh && (m.material as THREE.MeshLambertMaterial).isMeshLambertMaterial) {
+          if (
+            m.isMesh &&
+            (m.material as THREE.MeshLambertMaterial).isMeshLambertMaterial
+          ) {
             const mat = (m.material as THREE.MeshLambertMaterial).clone();
             mat.emissive = new THREE.Color(0x2b4d17);
             mat.emissiveIntensity = 1;
@@ -2078,11 +2359,23 @@ export class EditorMode {
   private refreshOverlays(): void {
     const report = analyzeVehicle(this.bp, getPartDef);
     const connections = deriveConnections(this.bp, getPartDef);
-    this.overlays.rebuild(this.bp, getPartDef, report, connections, this.toggles, this.selected);
+    this.overlays.rebuild(
+      this.bp,
+      getPartDef,
+      report,
+      connections,
+      this.toggles,
+      this.selected,
+    );
   }
 
   /** Debug seam helpers (used by Playwright). */
-  debugPlace(defId: string, pos: Vec3i, orient = 0, config: PartConfig = {}): { ok: boolean; issues: string[] } {
+  debugPlace(
+    defId: string,
+    pos: Vec3i,
+    orient = 0,
+    config: PartConfig = {},
+  ): { ok: boolean; issues: string[] } {
     let cost: number;
     try {
       cost = placeCost(defId);
@@ -2096,15 +2389,31 @@ export class EditorMode {
     const def = getPartDef(defId);
     const baseConfig = { ...defaultConfigForDef(def), ...config };
     delete baseConfig.level;
-    const result = canPlacePart(this.bp, getPartDef, defId, pos, orient, baseConfig);
+    const result = canPlacePart(
+      this.bp,
+      getPartDef,
+      defId,
+      pos,
+      orient,
+      baseConfig,
+    );
     if (!result.ok) {
-      return { ok: false, issues: result.issues.map((issue) => `${issue.code}: ${issue.message}`) };
+      return {
+        ok: false,
+        issues: result.issues.map((issue) => `${issue.code}: ${issue.message}`),
+      };
     }
     if (!canAfford(this.profile.money, cost)) {
       this.deny(`Not enough money — need $${cost}`);
       return { ok: false, issues: [`INSUFFICIENT_FUNDS: need $${cost}`] };
     }
-    const part: PlacedPart = { id: nextPartId(this.bp), defId, pos, orient, config: baseConfig };
+    const part: PlacedPart = {
+      id: nextPartId(this.bp),
+      defId,
+      pos,
+      orient,
+      config: baseConfig,
+    };
     if (!this.exec(placeCommand(part, -cost))) {
       return { ok: false, issues: ['ECONOMY_DENIED: purchase failed'] };
     }
@@ -2153,7 +2462,9 @@ export class EditorMode {
 }
 
 /** Fill missing persistent wheel defaults without freezing derived steering. */
-export function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprint {
+export function withAutomaticWheelConfigs(
+  bp: VehicleBlueprint,
+): VehicleBlueprint {
   const layout = deriveAutomaticWheelLayout(bp, getPartDef);
   let changed = false;
   const parts = bp.parts.map((part) => {
@@ -2164,7 +2475,13 @@ export function withAutomaticWheelConfigs(bp: VehicleBlueprint): VehicleBlueprin
     }
     if (config.braking === undefined) config.braking = true;
     if (config.steerInverted === undefined) config.steerInverted = false;
-    if (Object.keys(config).every((key) => config[key as keyof PartConfig] === part.config[key as keyof PartConfig])) {
+    if (
+      Object.keys(config).every(
+        (key) =>
+          config[key as keyof PartConfig] ===
+          part.config[key as keyof PartConfig],
+      )
+    ) {
       return part;
     }
     changed = true;
@@ -2200,7 +2517,8 @@ function disposeObjectResources(root: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line)) return;
+    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line))
+      return;
     const renderable = object as THREE.Mesh | THREE.Line;
     geometries.add(renderable.geometry);
     const renderableMaterials = Array.isArray(renderable.material)

@@ -1,10 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import type {
-  FixturePlacement,
-  PropScatter,
-  Tint,
-} from '../../core/biomes.ts';
+import type { FixturePlacement, PropScatter, Tint } from '../../core/biomes.ts';
 import { rngInt, rngRange, type Rng } from '../../core/rng.ts';
 import type { SurfaceKind } from '../../core/surfaces.ts';
 import { GROUP_TERRAIN } from '../../runtime/assembler.ts';
@@ -155,6 +151,7 @@ export function sampleScatterPositions(
 export class ArenaColliders {
   private readonly bodies: RAPIER.RigidBody[] = [];
   private readonly surfaces = new Map<number, SurfaceKind>();
+  private readonly obstacles = new Set<number>();
 
   constructor(
     private readonly world: RAPIER.World,
@@ -165,6 +162,10 @@ export class ArenaColliders {
 
   surfaceOf(colliderHandle: number): SurfaceKind {
     return this.surfaces.get(colliderHandle) ?? this.fallbackSurface;
+  }
+
+  isObstacle(colliderHandle: number): boolean {
+    return this.obstacles.has(colliderHandle);
   }
 
   addBox(
@@ -195,6 +196,7 @@ export class ArenaColliders {
     );
     this.bodies.push(body);
     this.surfaces.set(collider.handle, surface);
+    if (minimapObstacle) this.obstacles.add(collider.handle);
   }
 
   addCylinder(
@@ -222,12 +224,14 @@ export class ArenaColliders {
     );
     this.bodies.push(body);
     this.surfaces.set(collider.handle, surface);
+    this.obstacles.add(collider.handle);
   }
 
   dispose(): void {
     for (const body of this.bodies) this.world.removeRigidBody(body);
     this.bodies.length = 0;
     this.surfaces.clear();
+    this.obstacles.clear();
   }
 }
 

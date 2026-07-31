@@ -26,6 +26,7 @@ import { composeOrientations, orientationFromSteps } from '../core/grid.ts';
 import {
   BLUEPRINT_STORAGE_KEY,
   EditorMode,
+  type EditorSfxCue,
   type EditorViewState,
 } from '../editor/EditorMode.ts';
 import type { RunSummary } from '../editor/ui.ts';
@@ -56,6 +57,17 @@ import { leaderboardStore } from './leaderboardStore.ts';
 import { PROFILE_STORAGE_KEY, profileStore } from './profileStore.ts';
 import { runSaveStore } from './runSaveStore.ts';
 import { TitleScreen } from './TitleScreen.ts';
+import { playSfx, type SfxName } from './sfx.ts';
+
+const EDITOR_SFX: Record<EditorSfxCue, SfxName> = {
+  click: 'uiClick',
+  deny: 'uiDeny',
+  place: 'garagePlace',
+  remove: 'garageRemove',
+  purchase: 'garagePurchase',
+  repair: 'garageRepair',
+  upgrade: 'garageUpgrade',
+};
 
 export interface RunCheckpoint {
   /** Wave the player will play next. */
@@ -521,6 +533,7 @@ export class App {
         persistProfile: () => this.saveProfileOrThrow(),
         onMenu: () => this.returnToTitle(),
         onSaveAndQuit: () => this.saveAndQuitFromGarage(),
+        onSfx: (cue) => playSfx(EDITOR_SFX[cue]),
         runContext:
           this.activeRun && this.inBuildPhase ? this.activeRun : undefined,
         runRepair:
@@ -1379,18 +1392,8 @@ export function buildStarterBlueprint(): VehicleBlueprint {
     // Front wheel hangs off the nz face of the frame ahead of it, like a
     // motorcycle fork, so it sits centred instead of hanging off one side.
     part('wheel-standard', { x: 0, y: 1, z: 2 }, 0, defaultWheelConfig()),
-    part(
-      'wheel-standard',
-      { x: 2, y: 1, z: -1 },
-      yaw180,
-      defaultWheelConfig(),
-    ),
-    part(
-      'wheel-standard',
-      { x: -2, y: 1, z: -1 },
-      0,
-      defaultWheelConfig(),
-    ),
+    part('wheel-standard', { x: 2, y: 1, z: -1 }, yaw180, defaultWheelConfig()),
+    part('wheel-standard', { x: -2, y: 1, z: -1 }, 0, defaultWheelConfig()),
     part('engine-small', { x: 0, y: 2, z: -1 }),
     part('fuel-tank', { x: 0, y: 2, z: 0 }),
     // No weapon pre-mounted — the player picks one of the starter weapons

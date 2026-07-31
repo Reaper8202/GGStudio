@@ -56,7 +56,21 @@ import type {
 import { buildWaveTimeline, type WaveTimeline } from '../core/waveTimeline.ts';
 import { randomSeed } from '../core/rng.ts';
 import { badgeStore } from '../app/badgeStore.ts';
-import { isSfxMuted, playSfx, setSfxMuted, unlockAudio } from '../app/sfx.ts';
+import {
+  isSfxMuted,
+  playDamageNumberSfx,
+  playExplosionSfx,
+  playImpactSfx,
+  playSceneryImpactSfx,
+  playSfx,
+  playVehicleDamageSfx,
+  playWeaponSfx,
+  playZombieSfx,
+  setSfxMuted,
+  syncDriveSfx,
+  stopDriveSfx,
+  unlockAudio,
+} from '../app/sfx.ts';
 import type { RuntimePart } from '../runtime/assembler.ts';
 import { applyWeaponAim, buildPartMesh } from '../editor/meshes.ts';
 import { lowestPointM } from '../runtime/assembler.ts';
@@ -504,6 +518,8 @@ export class SurvivalMode {
   private readonly shotDirection = new THREE.Vector3();
   private readonly stoppedVelocity = { x: 0, y: 0, z: 0 };
   private readonly minimapForward = new THREE.Vector3();
+  private readonly audioListenerForward = new THREE.Vector3();
+  private readonly terrainSfx: 'gravel' | 'sand' | 'snow';
   /** Scratch heading for ability effects that fire along the rig's forward axis. */
   private readonly abilityForward = new THREE.Vector3();
   private readonly abilityQuaternion = new THREE.Quaternion();
@@ -640,6 +656,14 @@ export class SurvivalMode {
   private readonly recoveryTargetQuaternion = new THREE.Quaternion();
   private mineWarningDistances = new WeakMap<object, number>();
   private mineWarningPulsed = new WeakSet<object>();
+  private readonly onUiButtonClick = (event: MouseEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('button');
+    if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+    this.unlockAudioFromInput();
+    playSfx('uiClick');
+  };
   /**
    * Scuttle-charge state. `armed` latches on the first lost wheel and never
    * clears, `requested` is the press waiting for the next fixed step, and
@@ -722,6 +746,12 @@ export class SurvivalMode {
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.eventQueue = new RAPIER.EventQueue(true);
     const biome = getBiome(run.biomeId ?? DEFAULT_BIOME_ID);
+    this.terrainSfx =
+      biome.id === 'desert'
+        ? 'sand'
+        : biome.id === 'snowfield'
+          ? 'snow'
+          : 'gravel';
     this.biomeDrive = biome.drive;
     this.biomeHazard = biome.hazard;
     this.biomeEnvironment = biome.drive;
@@ -758,6 +788,7 @@ export class SurvivalMode {
       this.scene,
       this.vehicle,
       this.arena.bounds,
+      () => playSfx('fuelPickup'),
     );
     this.waves = new WaveManager(this.zombies, {
       onRemainingChanged: () => undefined,
@@ -765,7 +796,17 @@ export class SurvivalMode {
     });
     // Necromancer raises are bodies the director never assigned; hand them to
     // it so the wave's remaining count covers them.
-    this.zombies.onZombiesRaised = (count) => this.waves.countBonusSpawns(count);
+    this.zombies.onZombiesRaised = (count) =>
+      this.waves.countBonusSpawns(count);
+    this.zombies.onSfx = (report) => {
+      this.camera.getWorldDirection(this.audioListenerForward);
+      playZombieSfx(report, {
+        x: this.camera.position.x,
+        z: this.camera.position.z,
+        forwardX: this.audioListenerForward.x,
+        forwardZ: this.audioListenerForward.z,
+      });
+    };
     // A behemoth's slam is the heaviest hit a zombie lands on the vehicle, so
     // it gets the same camera-kick treatment as a Heavy Cannon shell.
     this.zombies.onBehemothSmash = (x, _y, z) => this.shakeCameraAt(x, z, 1.1);
@@ -774,6 +815,7 @@ export class SurvivalMode {
 
     const builtUi = this.buildUI();
     this.ui = builtUi.root;
+    this.ui.addEventListener('click', this.onUiButtonClick, true);
     this.speedValue = builtUi.speedValue;
     this.speedTrack = builtUi.speedTrack;
     this.speedSafeLabel = builtUi.speedSafeLabel;
@@ -832,6 +874,7 @@ export class SurvivalMode {
         report.z,
         report.killed,
       );
+      playDamageNumberSfx(report.amount, report.killed);
     });
     this.abilityBar = new AbilityBar(this.ui, MAX_ABILITY_SLOTS, (slot) =>
       this.requestAbility(slot),
@@ -1610,6 +1653,15 @@ export class SurvivalMode {
       (colliderHandle) => this.arena.surfaceOf(colliderHandle),
       this.biomeEnvironment,
     );
+    const driveTelemetry = this.vehicle.telemetry();
+    syncDriveSfx({
+      rpm: driveTelemetry.rpm,
+      speedKmh: driveTelemetry.speedKmh,
+      throttle: this.controls.throttle,
+      groundedWheels: driveTelemetry.groundedWheels,
+      wheelSlip: driveTelemetry.wheelSlip,
+      terrain: this.terrainSfx,
+    });
 
     this.fuelPickups.step(FIXED_DT);
     this.waves.fixedUpdate(FIXED_DT);
@@ -1620,6 +1672,11 @@ export class SurvivalMode {
     this.vehicle.postStepStability(FIXED_DT);
     this.eventQueue.drainContactForceEvents((event) => {
       const force = event.totalForceMagnitude();
+      const hitScenery =
+        this.arena.isObstacle(event.collider1()) ||
+        this.arena.isObstacle(event.collider2());
+      if (hitScenery) playSceneryImpactSfx(force);
+      else playImpactSfx(force);
       this.vehicle.onContactForce(event.collider1(), force);
       this.vehicle.onContactForce(event.collider2(), force);
     });
@@ -1637,6 +1694,7 @@ export class SurvivalMode {
       );
       if (this.shotDirection.lengthSq() > 1e-8) this.shotDirection.normalize();
       if (!shot.damageOnly) {
+        playWeaponSfx(shot.weaponDefId, { overcharged: shot.overcharged });
         this.showTracer(shot, missed);
         this.emitShotVfx(shot);
       }
@@ -1644,7 +1702,6 @@ export class SurvivalMode {
       if (shot.hitZombieHandle === null) continue;
       if (!shot.damageOnly || !burnAnnounced) {
         this.scopeCursor.flashHit('hit');
-        playSfx('hitTick');
         burnAnnounced ||= shot.damageOnly;
       }
       const pierceContinues = applyZombieShot(
@@ -1662,7 +1719,9 @@ export class SurvivalMode {
       }
     }
 
-    this.attachNewIslands(this.vehicle.finishStep());
+    const newIslands = this.vehicle.finishStep();
+    if (newIslands.length > 0) playSfx('partBreak');
+    this.attachNewIslands(newIslands);
     this.trackDamageTaken();
     this.queueCompletedStepTransition();
   }
@@ -1687,6 +1746,7 @@ export class SurvivalMode {
       shot.hitZombieHandle,
     );
     this.vfx.shellBurst(shot.to.x, shot.to.y, shot.to.z, shot.splashRadiusM);
+    playExplosionSfx({ gain: 0.3, playbackRate: 0.92 });
     this.shakeCameraAt(shot.to.x, shot.to.z, 0.9);
   }
 
@@ -1720,7 +1780,9 @@ export class SurvivalMode {
   private trackDamageTaken(): void {
     const health = this.liveVehicleHealth();
     if (this.lastLiveHealth >= 0 && health < this.lastLiveHealth) {
-      this.warningHud.reportDamage(this.lastLiveHealth - health);
+      const damage = this.lastLiveHealth - health;
+      this.warningHud.reportDamage(damage);
+      playVehicleDamageSfx(damage);
     }
     this.lastLiveHealth = health;
   }
@@ -1750,6 +1812,7 @@ export class SurvivalMode {
   }
 
   private performRecoveryJump(): void {
+    playSfx('vehicleRecover');
     const body = this.vehicle.body;
     this.vehicle.resetRecoveryState();
     const mass = Math.max(1, body.mass());
@@ -1926,6 +1989,7 @@ export class SurvivalMode {
   private startCurrentWave(): void {
     this.phase = 'active';
     this.countdownOverlay.style.display = 'none';
+    playSfx('waveStart');
     this.resetWaveStats();
     this.waves.startWave(this.currentWave);
   }
@@ -1950,7 +2014,6 @@ export class SurvivalMode {
     this.kills++;
     if (!this.debugProgressionSuppressed) {
       this.scopeCursor?.flashHit('kill');
-      playSfx('killThud');
       this.runScore = addScore(
         this.runScore,
         killScore(kind, this.currentWave),
@@ -2174,6 +2237,7 @@ export class SurvivalMode {
 
   /** Present the finished run and its leaderboard placing. */
   private showGameOver(outcome: RunOutcome): void {
+    playSfx('gameOver');
     this.gameOverScore.textContent = outcome.score.toLocaleString();
     this.gameOverBest.hidden = !outcome.isPersonalBest;
     this.gameOverWaveValue.textContent = outcome.wave.toLocaleString();
@@ -2359,9 +2423,13 @@ export class SurvivalMode {
     this.refreshAbilityLoadout();
     if (this.abilityRequests.size === 0) return;
 
+    let denied = false;
     for (const assignment of this.abilityLoadout) {
       if (!this.abilityRequests.delete(assignment.slot)) continue;
-      if ((this.abilityCooldowns.get(assignment.partId) ?? 0) > 0) continue;
+      if ((this.abilityCooldowns.get(assignment.partId) ?? 0) > 0) {
+        denied = true;
+        continue;
+      }
       this.abilityCooldowns.set(
         assignment.partId,
         this.fireAbility(assignment),
@@ -2369,7 +2437,9 @@ export class SurvivalMode {
     }
     // Anything left asked for an empty slot; drop it rather than let it fire
     // the moment an ability part is bolted on.
+    denied ||= this.abilityRequests.size > 0;
     this.abilityRequests.clear();
+    if (denied) playSfx('uiDeny');
   }
 
   /**
@@ -2382,6 +2452,7 @@ export class SurvivalMode {
     if (ability.kind === 'shield') {
       const shield = effectiveShield(ability, level);
       this.vehicle.grantInvulnerability(shield.durationSeconds);
+      playSfx('abilityShield');
       // The bubble itself is raised by syncShieldBubble, which also plays the
       // skin-forming burst off this state change.
       return shield.cooldownSeconds;
@@ -2397,6 +2468,7 @@ export class SurvivalMode {
       // Cold front off the chassis, out to the exact catch radius. Each zombie
       // it catches plays its own encasing burst from inside the zombie pool.
       this.vfx.freezeBurst(pos.x, pos.y, pos.z, freeze.rangeM);
+      playSfx('abilityFreeze');
       return freeze.cooldownSeconds;
     }
     if (ability.kind === 'pulse') {
@@ -2405,6 +2477,7 @@ export class SurvivalMode {
       // whole point of the ring.
       this.zombies.explodeAt(pos.x, pos.y, pos.z, pulse.radiusM, pulse.damage);
       this.vfx.pulseRing(pos.x, pos.y, pos.z, pulse.radiusM);
+      playSfx('abilityPulse');
       return pulse.cooldownSeconds;
     }
     if (ability.kind === 'phase') {
@@ -2421,6 +2494,7 @@ export class SurvivalMode {
         hellfire.durationSeconds,
         hellfire,
       );
+      if (lit) playSfx('abilityHellfire');
       // A part with no weapon has nothing to overcharge — don't burn the
       // cooldown on a no-op.
       return lit ? hellfire.cooldownSeconds : 0;
@@ -2433,12 +2507,7 @@ export class SurvivalMode {
       overdrive.thrustAccel,
     );
     const rotation = this.vehicle.body.rotation();
-    this.abilityQuaternion.set(
-      rotation.x,
-      rotation.y,
-      rotation.z,
-      rotation.w,
-    );
+    this.abilityQuaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
     this.abilityForward.set(0, 0, 1).applyQuaternion(this.abilityQuaternion);
     this.vfx.overdriveBurst(
       pos.x,
@@ -2447,6 +2516,7 @@ export class SurvivalMode {
       this.abilityForward.x,
       this.abilityForward.z,
     );
+    playSfx('abilityOverdrive');
     return overdrive.cooldownSeconds;
   }
 
@@ -2503,6 +2573,7 @@ export class SurvivalMode {
       this.abilityForward.x,
       this.abilityForward.z,
     );
+    playSfx('abilityPhaseOut');
     this.vehicle.phaseShift(
       destination.x - pos.x,
       destination.z - pos.z,
@@ -2515,6 +2586,7 @@ export class SurvivalMode {
       this.abilityForward.x,
       this.abilityForward.z,
     );
+    playSfx('abilityPhaseIn');
     return phase.cooldownSeconds;
   }
 
@@ -2539,7 +2611,10 @@ export class SurvivalMode {
   private requestSelfDestruct(): void {
     if (this.disposed || this.settingsOpen) return;
     if (this.phase !== 'active' || this.selfDestructHoldSeconds > 0) return;
-    if (!this.selfDestructArmed) return;
+    if (!this.selfDestructArmed) {
+      playSfx('uiDeny');
+      return;
+    }
     this.selfDestructRequested = true;
   }
 
@@ -2582,7 +2657,10 @@ export class SurvivalMode {
   private selfDestructFuelFactor(radiusM: number): number {
     const span = SELF_DESTRUCT_MAX_RADIUS_M - SELF_DESTRUCT_MIN_RADIUS_M;
     if (span <= 0) return 1;
-    return Math.min(1, Math.max(0, (radiusM - SELF_DESTRUCT_MIN_RADIUS_M) / span));
+    return Math.min(
+      1,
+      Math.max(0, (radiusM - SELF_DESTRUCT_MIN_RADIUS_M) / span),
+    );
   }
 
   private detonateSelfDestruct(): void {
@@ -2623,6 +2701,7 @@ export class SurvivalMode {
     // in the player's lap should read as the hardest hit the run ever took.
     this.warningHud.reportDamage(120 + fuelFactor * 280);
     playSfx('selfDestructBlast');
+    playExplosionSfx({ gain: 0.62, playbackRate: 0.58 + fuelFactor * 0.18 });
 
     this.attachNewIslands(this.vehicle.scuttle());
     this.controls.throttle = 0;
@@ -2781,6 +2860,7 @@ export class SurvivalMode {
 
       this.mineWarningPulsed.add(mine);
       this.mineWarningPulseSeconds = 0.18;
+      playSfx('mineWarning');
       return;
     }
   }
@@ -3061,6 +3141,9 @@ export class SurvivalMode {
       if (second !== this.lastCountdownSecond) {
         this.lastCountdownSecond = second;
         this.countdownValue.textContent = String(second);
+        playSfx('waveCountdown', {
+          pitch: 0.9 + (COUNTDOWN_SECONDS - second) * 0.08,
+        });
       }
     }
   }
@@ -3333,6 +3416,7 @@ export class SurvivalMode {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    stopDriveSfx();
     this.tuningUnsubscribe?.();
     this.tuningUnsubscribe = null;
     this.devPanel?.dispose();
@@ -3348,6 +3432,7 @@ export class SurvivalMode {
       this.onFireDown,
     );
     this.settingsSoundButton.removeEventListener('click', this.onSoundToggle);
+    this.ui.removeEventListener('click', this.onUiButtonClick, true);
     this.fuelPickups.dispose();
     this.zombies.setDamageListener(null);
     this.damageNumbers.dispose();
@@ -3409,7 +3494,6 @@ function abilityDetail(assignment: AbilitySlotAssignment): string {
 function trimSeconds(seconds: number): string {
   return `${Math.round(seconds * 10) / 10}`;
 }
-
 
 function overlayPanel(): HTMLDivElement {
   const overlay = document.createElement('div');

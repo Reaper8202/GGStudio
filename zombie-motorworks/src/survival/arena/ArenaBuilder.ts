@@ -184,6 +184,10 @@ export class ArenaBuilder implements Arena {
     return this.colliders.surfaceOf(colliderHandle);
   }
 
+  isObstacle(colliderHandle: number): boolean {
+    return this.colliders.isObstacle(colliderHandle);
+  }
+
   setHazardFog(density: number): void {
     if (this.disposed) return;
     this.fog.density = THREE.MathUtils.lerp(
