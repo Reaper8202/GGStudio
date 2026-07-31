@@ -11,7 +11,7 @@ describe('wave balance report', () => {
     expect(waveBalanceReport(1)).toEqual({
       wave: 1,
       composition: {
-        walker: 13,
+        walker: 18,
         gunslinger: 0,
         necromancer: 0,
         thrower: 0,
@@ -19,12 +19,13 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        zamboni: 0,
       },
       healthMultiplier: healthMultiplierForWave(1),
       speedMultiplier: speedMultiplierForWave(1),
       attackDamageMultiplier: attackDamageMultiplierForWave(1),
-      effectiveTotalHp: 520,
-      totalPossibleReward: 89,
+      effectiveTotalHp: 720,
+      totalPossibleReward: 104,
     });
   });
 
@@ -32,7 +33,7 @@ describe('wave balance report', () => {
     expect(waveBalanceReport(2)).toEqual({
       wave: 2,
       composition: {
-        walker: 16,
+        walker: 26,
         gunslinger: 0,
         necromancer: 0,
         thrower: 0,
@@ -40,12 +41,13 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        zamboni: 0,
       },
       healthMultiplier: healthMultiplierForWave(2),
       speedMultiplier: speedMultiplierForWave(2),
       attackDamageMultiplier: attackDamageMultiplierForWave(2),
-      effectiveTotalHp: 678,
-      totalPossibleReward: 108,
+      effectiveTotalHp: 1102,
+      totalPossibleReward: 138,
     });
   });
 
@@ -61,6 +63,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        zamboni: 0,
       },
       healthMultiplier: healthMultiplierForWave(3),
       speedMultiplier: speedMultiplierForWave(3),
@@ -82,6 +85,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 2,
         behemoth: 0,
+        zamboni: 0,
       },
       healthMultiplier: healthMultiplierForWave(4),
       speedMultiplier: speedMultiplierForWave(4),
@@ -103,6 +107,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 3,
         behemoth: 0,
+        zamboni: 0,
       },
       healthMultiplier: healthMultiplierForWave(7),
       speedMultiplier: speedMultiplierForWave(7),
@@ -124,12 +129,13 @@ describe('wave balance report', () => {
         'phone-addict': 1,
         kamikaze: 5,
         behemoth: 1,
+        zamboni: 1,
       },
       healthMultiplier: healthMultiplierForWave(10),
       speedMultiplier: speedMultiplierForWave(10),
       attackDamageMultiplier: attackDamageMultiplierForWave(10),
-      effectiveTotalHp: 4983,
-      totalPossibleReward: 491,
+      effectiveTotalHp: 5291,
+      totalPossibleReward: 513,
     });
   });
 
@@ -145,12 +151,13 @@ describe('wave balance report', () => {
         'phone-addict': 2,
         kamikaze: 7,
         behemoth: 2,
+        zamboni: 2,
       },
       healthMultiplier: healthMultiplierForWave(15),
       speedMultiplier: speedMultiplierForWave(15),
       attackDamageMultiplier: attackDamageMultiplierForWave(15),
-      effectiveTotalHp: 8420,
-      totalPossibleReward: 686,
+      effectiveTotalHp: 9156,
+      totalPossibleReward: 730,
     });
   });
 

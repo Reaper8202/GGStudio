@@ -581,6 +581,8 @@ export class RuntimeVehicle {
     controls: VehicleControls,
     surfaceOf: (colliderHandle: number) => SurfaceKind,
     env: EnvironmentModifiers = NEUTRAL_ENVIRONMENT,
+    /** Optional per-contact grip multiplier from a dynamic hazard (e.g. an ice trail). */
+    hazardMuAt?: (point: Vec3) => number | null,
   ): void {
     this.environment = env;
     this.updateTopSpeedCap();
@@ -707,6 +709,7 @@ export class RuntimeVehicle {
       },
       dt,
       surfaceOf,
+      hazardMuAt,
     );
 
     this.applyStabilityForces(dt, mass, steer);

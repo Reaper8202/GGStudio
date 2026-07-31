@@ -1375,11 +1375,12 @@ export class SurvivalMode {
       'phone-addict',
       'kamikaze',
       'behemoth',
+      'zamboni',
     ]);
     this.settingsStatus.textContent =
-      spawned === 8
-        ? 'Spawned a Walker, Gunslinger, Necromancer, Ranged, Worker, Phone User, Kamikaze, and Behemoth.'
-        : `Spawned ${spawned} of 8 zombies — clear some room and try again.`;
+      spawned === 9
+        ? 'Spawned a Walker, Gunslinger, Necromancer, Ranged, Worker, Phone User, Kamikaze, Behemoth, and Zamboni.'
+        : `Spawned ${spawned} of 9 zombies — clear some room and try again.`;
   };
 
   private readonly onInfiniteMoney = (): void => {
@@ -1609,6 +1610,7 @@ export class SurvivalMode {
       this.controls,
       (colliderHandle) => this.arena.surfaceOf(colliderHandle),
       this.biomeEnvironment,
+      (point) => this.zombies.hazardMuAt(point.x, point.z),
     );
 
     this.fuelPickups.step(FIXED_DT);
@@ -1977,6 +1979,7 @@ export class SurvivalMode {
       this.callbacks.onWaveCleared(wave);
     }
     this.zombies.clearLandmines();
+    this.zombies.clearIceTrail();
     this.phase = 'cleared';
     this.pointerFiring = false;
     this.keys.clear();

@@ -39,6 +39,7 @@ export const THREAT_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'phone-addict': 'Phone Addicts (shielded)',
   kamikaze: 'Kamikazes (explode on contact)',
   behemoth: 'Behemoths (ground-slam boss)',
+  zamboni: 'Zambonis (lay ice, never attack)',
 });
 
 export type WaveIconKind = 'zombie' | 'threat' | 'boss';

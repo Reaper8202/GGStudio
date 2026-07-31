@@ -22,6 +22,7 @@ import {
   type ZombieKind,
   type ZombieKilledCallback,
 } from './Zombie.ts';
+import { IceTrail } from './IceTrail.ts';
 import { Landmines, type MineSnapshot } from './Landmines.ts';
 import { ThrowerProjectiles } from './ThrowerProjectiles.ts';
 import {
@@ -204,6 +205,7 @@ export class ZombieSystem {
   private readonly fallbackGeometry: THREE.CapsuleGeometry;
   private readonly projectiles: ThrowerProjectiles;
   private readonly landmines: Landmines;
+  private readonly iceTrail: IceTrail;
   /** Reused because this callback runs on the fixed-step combat path. */
   private readonly damageReport: ZombieDamageReport = {
     targetKey: 0,
@@ -302,6 +304,7 @@ export class ZombieSystem {
     );
     this.projectiles = new ThrowerProjectiles(scene);
     this.landmines = new Landmines(scene);
+    this.iceTrail = new IceTrail(scene);
     const poolKinds: ZombieKind[] = [];
     for (const [kind, count] of Object.entries(ZOMBIE_POOL_COUNTS) as [
       ZombieKind,
@@ -318,6 +321,7 @@ export class ZombieSystem {
         this.fallbackGeometry,
         onKilled,
         vfx,
+        spawnPoints,
       );
       zombie.onThrow = (thrower) => this.launchProjectileFrom(thrower);
       zombie.onPlantMine = (worker) =>
@@ -325,6 +329,8 @@ export class ZombieSystem {
       zombie.onSummon = (necromancer) => this.raiseMinions(necromancer);
       zombie.onExplode = (kamikaze) => this.detonateKamikaze(kamikaze);
       zombie.onSmash = (behemoth) => this.smashAt(behemoth);
+      zombie.onLayIce = (zamboni, fromX, fromZ) =>
+        this.iceTrail.drop(fromX, fromZ, zamboni.position.x, zamboni.position.z);
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -608,10 +614,24 @@ export class ZombieSystem {
     this.rebuildAliveTargets();
   }
 
+  /**
+   * Grip multiplier (0..1) from any ice patch under this ground point; null
+   * outside every patch. Read by `RuntimeVehicle.preStep` per wheel contact.
+   */
+  hazardMuAt(x: number, z: number): number | null {
+    return this.iceTrail.muAt(x, z);
+  }
+
   /** SurvivalMode clears surviving mines the moment a wave completes. */
   clearLandmines(): void {
     if (this.disposed) return;
     this.landmines.despawnAll();
+  }
+
+  /** SurvivalMode clears the ice trail the moment a wave completes. */
+  clearIceTrail(): void {
+    if (this.disposed) return;
+    this.iceTrail.despawnAll();
   }
 
   private launchProjectileFrom(zombie: Zombie): void {
@@ -775,6 +795,7 @@ export class ZombieSystem {
     if (this.disposed) return;
     this.projectiles.despawnAll();
     this.landmines.despawnAll();
+    this.iceTrail.despawnAll();
     for (const zombie of this.pool) zombie.forceReturnToPool();
     this.healthMultiplier = 1;
     this.speedMultiplier = 1;
@@ -793,6 +814,7 @@ export class ZombieSystem {
     this.disposed = true;
     this.projectiles.dispose();
     this.landmines.dispose();
+    this.iceTrail.dispose();
     for (const zombie of this.pool) zombie.dispose();
     this.pool.length = 0;
     this.colliderToZombie.clear();

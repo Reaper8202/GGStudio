@@ -37,6 +37,7 @@ const KIND_LABELS: Record<ZombieKind, string> = {
   'phone-addict': 'Phone Addict',
   kamikaze: 'Kamikaze',
   behemoth: 'Behemoth',
+  zamboni: 'Zamboni',
 };
 
 interface FieldSpec {

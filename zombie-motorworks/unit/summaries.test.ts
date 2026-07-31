@@ -47,13 +47,13 @@ describe('legible consequence summaries', () => {
 
   it('formats exact wave composition while omitting zero-count kinds', () => {
     expect(formatWaveComposition(zombieCompositionForWave(1))).toBe(
-      '13 walkers',
+      '18 walkers',
     );
     expect(formatWaveComposition(zombieCompositionForWave(3))).toBe(
       '19 walkers / 1 gunslinger / 1 thrower',
     );
     expect(formatWaveComposition(zombieCompositionForWave(10))).toBe(
-      '40 walkers / 10 gunslingers / 1 necromancer / 4 throwers / 2 workers / 1 phone-addict / 5 kamikazes / 1 behemoth',
+      '40 walkers / 10 gunslingers / 1 necromancer / 4 throwers / 2 workers / 1 phone-addict / 5 kamikazes / 1 behemoth / 1 zamboni',
     );
   });
 

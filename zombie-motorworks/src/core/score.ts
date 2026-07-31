@@ -7,7 +7,8 @@ export type ScoreZombieKind =
   | 'phone-addict'
   | 'worker'
   | 'kamikaze'
-  | 'behemoth';
+  | 'behemoth'
+  | 'zamboni';
 
 /** Base points per kill, before the wave multiplier. */
 export const SCORE_PER_KILL: Record<ScoreZombieKind, number> = {
@@ -19,6 +20,7 @@ export const SCORE_PER_KILL: Record<ScoreZombieKind, number> = {
   'phone-addict': 20,
   kamikaze: 15,
   behemoth: 80,
+  zamboni: 35,
 };
 
 /** Points scale with wave depth so deep runs dominate the leaderboard. */
