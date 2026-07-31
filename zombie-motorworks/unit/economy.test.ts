@@ -74,7 +74,7 @@ describe('economy helpers', () => {
 
   it('exposes catalog purchase and unlock costs plus starter membership', () => {
     expect(placeCost('engine-small')).toBe(60);
-    expect(unlockCost('frame-reinforced')).toBe(150);
+    expect(unlockCost('frame-reinforced')).toBe(80);
     expect(unlockCost('turret')).toBe(0);
     expect(isStarterUnlocked('turret')).toBe(true);
     expect(isStarterUnlocked('cannon-heavy')).toBe(false);

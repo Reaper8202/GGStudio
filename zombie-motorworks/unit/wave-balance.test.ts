@@ -11,7 +11,7 @@ describe('wave balance report', () => {
     expect(waveBalanceReport(1)).toEqual({
       wave: 1,
       composition: {
-        walker: 13,
+        walker: 18,
         gunslinger: 0,
         necromancer: 0,
         thrower: 0,
@@ -19,13 +19,14 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        zamboni: 0,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(1),
       speedMultiplier: speedMultiplierForWave(1),
       attackDamageMultiplier: attackDamageMultiplierForWave(1),
-      effectiveTotalHp: 520,
-      totalPossibleReward: 89,
+      effectiveTotalHp: 720,
+      totalPossibleReward: 104,
     });
   });
 
@@ -33,7 +34,7 @@ describe('wave balance report', () => {
     expect(waveBalanceReport(2)).toEqual({
       wave: 2,
       composition: {
-        walker: 16,
+        walker: 26,
         gunslinger: 0,
         necromancer: 0,
         thrower: 0,
@@ -41,13 +42,14 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        zamboni: 0,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(2),
       speedMultiplier: speedMultiplierForWave(2),
       attackDamageMultiplier: attackDamageMultiplierForWave(2),
-      effectiveTotalHp: 678,
-      totalPossibleReward: 108,
+      effectiveTotalHp: 1102,
+      totalPossibleReward: 138,
     });
   });
 
@@ -63,6 +65,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        zamboni: 0,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(3),
@@ -85,6 +88,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 2,
         behemoth: 0,
+        zamboni: 0,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(4),
@@ -107,6 +111,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 3,
         behemoth: 0,
+        zamboni: 0,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(7),
@@ -129,13 +134,14 @@ describe('wave balance report', () => {
         'phone-addict': 1,
         kamikaze: 5,
         behemoth: 1,
+        zamboni: 1,
         boss: 0,
       },
       healthMultiplier: healthMultiplierForWave(11),
       speedMultiplier: speedMultiplierForWave(11),
       attackDamageMultiplier: attackDamageMultiplierForWave(11),
-      effectiveTotalHp: 5741,
-      totalPossibleReward: 534,
+      effectiveTotalHp: 6061,
+      totalPossibleReward: 556,
     });
   });
 
@@ -143,9 +149,9 @@ describe('wave balance report', () => {
   // single boss HP figure plus the boss bounty and the ordinary clear bonus.
   it.each([
     // Waves 5 and 15 are The Sledge (900 base HP); wave 10 is The Alchemist,
-    // which carries 2,000 because it replaces the far larger wave-9 horde.
+    // which carries 2,455 because it replaces the far larger wave-9 horde.
     { wave: 5, effectiveTotalHp: 1116, totalPossibleReward: 240 },
-    { wave: 10, effectiveTotalHp: 3542, totalPossibleReward: 420 },
+    { wave: 10, effectiveTotalHp: 3781, totalPossibleReward: 420 },
     { wave: 15, effectiveTotalHp: 1656, totalPossibleReward: 340 },
   ])('reports the exact boss wave $wave balance', (expected) => {
     expect(waveBalanceReport(expected.wave)).toEqual({
@@ -159,6 +165,7 @@ describe('wave balance report', () => {
         'phone-addict': 0,
         kamikaze: 0,
         behemoth: 0,
+        zamboni: 0,
         boss: 1,
       },
       healthMultiplier: healthMultiplierForWave(expected.wave),
@@ -169,12 +176,12 @@ describe('wave balance report', () => {
     });
   });
 
-  it('offers 536 total reward across waves 1 through 4', () => {
+  it('offers 581 total reward across waves 1 through 4', () => {
     const earlyWaveReward = [1, 2, 3, 4].reduce(
       (total, wave) => total + waveBalanceReport(wave).totalPossibleReward,
       0,
     );
 
-    expect(earlyWaveReward).toBe(536);
+    expect(earlyWaveReward).toBe(581);
   });
 });

@@ -40,6 +40,9 @@ import {
   WORKER_PLANT_SECONDS,
   WORKER_REWARD,
   WORKER_SPEED_MULTIPLIER,
+  ZAMBONI_HEALTH_MULTIPLIER,
+  ZAMBONI_REWARD,
+  ZAMBONI_SPEED_MULTIPLIER,
 } from '../zombies/zombieConfig.ts';
 
 /**
@@ -136,6 +139,7 @@ const KIND_ORDER: readonly ZombieKind[] = [
   'phone-addict',
   'kamikaze',
   'behemoth',
+  'zamboni',
 ];
 
 /** Fresh default state cloned from the shipped constants — the "reset" target. */
@@ -213,6 +217,16 @@ export function defaultTuning(): DevTuningState {
         reward: BEHEMOTH_REWARD,
         countOverride: null,
       },
+      zamboni: {
+        healthMult: ZAMBONI_HEALTH_MULTIPLIER,
+        speedMult: ZAMBONI_SPEED_MULTIPLIER,
+        // Never attacks, so this axis is inert for zamboni — kept at 1 like
+        // every other kind's baseline.
+        damageMult: 1,
+        attackInterval: BASE_ZOMBIE_STATS.attackInterval,
+        reward: ZAMBONI_REWARD,
+        countOverride: null,
+      },
       // Inert: a boss reads every stat from its `BossDefinition` in
       // `zombies/bossConfig.ts`, which stays the single source of truth for boss
       // balance. This row exists only so the record stays exhaustive over
@@ -240,6 +254,7 @@ export function defaultTuning(): DevTuningState {
         'phone-addict': { startWave: 10, base: 1, perStep: 1, every: 4, cap: 6 },
         kamikaze: { startWave: 4, base: 2, perStep: 1, every: 2, cap: 10 },
         behemoth: { startWave: 8, base: 1, perStep: 1, every: 6, cap: 3 },
+        zamboni: { startWave: 9, base: 1, perStep: 1, every: 6, cap: 2 },
         // Degenerate on purpose: boss waves short-circuit ahead of the curves in
         // `zombieCompositionForWave`, so this is never consulted.
         boss: { startWave: 1, base: 0, perStep: 0, every: 1, cap: 0 },

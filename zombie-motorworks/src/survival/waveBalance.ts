@@ -23,6 +23,8 @@ import {
   THROWER_REWARD,
   WORKER_HEALTH_MULTIPLIER,
   WORKER_REWARD,
+  ZAMBONI_HEALTH_MULTIPLIER,
+  ZAMBONI_REWARD,
 } from './zombies/zombieConfig.ts';
 
 export type SpecialistZombieKind =
@@ -32,7 +34,8 @@ export type SpecialistZombieKind =
   | 'worker'
   | 'phone-addict'
   | 'kamikaze'
-  | 'behemoth';
+  | 'behemoth'
+  | 'zamboni';
 
 const SPECIALIST_KINDS: readonly SpecialistZombieKind[] = [
   'gunslinger',
@@ -42,6 +45,7 @@ const SPECIALIST_KINDS: readonly SpecialistZombieKind[] = [
   'phone-addict',
   'kamikaze',
   'behemoth',
+  'zamboni',
 ];
 
 const COMPOSITION_LABELS: Record<keyof WaveComposition, [string, string]> = {
@@ -53,6 +57,7 @@ const COMPOSITION_LABELS: Record<keyof WaveComposition, [string, string]> = {
   'phone-addict': ['phone-addict', 'phone-addicts'],
   kamikaze: ['kamikaze', 'kamikazes'],
   behemoth: ['behemoth', 'behemoths'],
+  zamboni: ['zamboni', 'zambonis'],
   boss: ['boss', 'bosses'],
 };
 
@@ -69,6 +74,8 @@ const THREAT_WARNINGS: Record<SpecialistZombieKind, string> = {
   kamikaze: 'Kamikazes incoming — small, fast, and they explode on contact.',
   behemoth:
     'Behemoths incoming — they hit like a wrecking ball. Watch the red ring and keep moving.',
+  zamboni:
+    "Zambonis incoming — they won't attack, but they'll ice the ground behind them. Watch your grip.",
 };
 
 /**
@@ -138,6 +145,7 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
         PHONE_ADDICT_HEALTH_MULTIPLIER +
       composition.kamikaze * baseHealth * KAMIKAZE_HEALTH_MULTIPLIER +
       composition.behemoth * baseHealth * BEHEMOTH_HEALTH_MULTIPLIER +
+      composition.zamboni * baseHealth * ZAMBONI_HEALTH_MULTIPLIER +
       bossHp,
   );
   const totalPossibleReward =
@@ -149,6 +157,7 @@ export function waveBalanceReport(wave: number): WaveBalanceReport {
     composition['phone-addict'] * PHONE_ADDICT_REWARD +
     composition.kamikaze * KAMIKAZE_REWARD +
     composition.behemoth * BEHEMOTH_REWARD +
+    composition.zamboni * ZAMBONI_REWARD +
     composition.boss * (boss?.reward ?? 0) +
     waveRewardForWave(wave);
 

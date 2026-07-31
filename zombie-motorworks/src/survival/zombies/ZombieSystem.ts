@@ -22,6 +22,7 @@ import {
   type ZombieKind,
   type ZombieKilledCallback,
 } from './Zombie.ts';
+import { IceTrail } from './IceTrail.ts';
 import type { BossDefinition } from './bossConfig.ts';
 import { Landmines, type MineSnapshot } from './Landmines.ts';
 import { AcidPuddles } from './AcidPuddles.ts';
@@ -213,6 +214,7 @@ export class ZombieSystem {
   private readonly fallbackGeometry: THREE.CapsuleGeometry;
   private readonly projectiles: ThrowerProjectiles;
   private readonly landmines: Landmines;
+  private readonly iceTrail: IceTrail;
   private readonly acidPuddles: AcidPuddles;
   /** Counts down to the next poison application; see `tickAcidPoison`. */
   private acidTickTimer = ACID_POISON_TICK_SECONDS;
@@ -348,6 +350,7 @@ export class ZombieSystem {
     );
     this.projectiles = new ThrowerProjectiles(scene);
     this.landmines = new Landmines(scene);
+    this.iceTrail = new IceTrail(scene);
     this.acidPuddles = new AcidPuddles(scene);
     const poolKinds: ZombieKind[] = [];
     for (const [kind, count] of Object.entries(ZOMBIE_POOL_COUNTS) as [
@@ -365,6 +368,7 @@ export class ZombieSystem {
         this.fallbackGeometry,
         onKilled,
         vfx,
+        spawnPoints,
       );
       zombie.onThrow = (thrower) => this.launchProjectileFrom(thrower);
       zombie.onPlantMine = (worker) =>
@@ -374,6 +378,8 @@ export class ZombieSystem {
       zombie.onSummon = (necromancer) => this.raiseMinions(necromancer);
       zombie.onExplode = (kamikaze) => this.detonateKamikaze(kamikaze);
       zombie.onSmash = (behemoth) => this.smashAt(behemoth);
+      zombie.onLayIce = (zamboni, fromX, fromZ) =>
+        this.iceTrail.drop(fromX, fromZ, zamboni.position.x, zamboni.position.z);
       this.pool.push(zombie);
       this.colliderToZombie.set(zombie.collider.handle, zombie);
     }
@@ -677,6 +683,14 @@ export class ZombieSystem {
   }
 
   /**
+   * Grip multiplier (0..1) from any ice patch under this ground point; null
+   * outside every patch. Read by `RuntimeVehicle.preStep` per wheel contact.
+   */
+  hazardMuAt(x: number, z: number): number | null {
+    return this.iceTrail.muAt(x, z);
+  }
+
+  /**
    * Poison ticks on a clock instead of every physics step; see
    * `ACID_POISON_TICK_SECONDS` for why (the direct-damage floor would otherwise
    * turn any nonzero per-frame dose into 60 HP/s). When puddles overlap, a part
@@ -718,6 +732,12 @@ export class ZombieSystem {
   clearLandmines(): void {
     if (this.disposed) return;
     this.landmines.despawnAll();
+  }
+
+  /** SurvivalMode clears the ice trail the moment a wave completes. */
+  clearIceTrail(): void {
+    if (this.disposed) return;
+    this.iceTrail.despawnAll();
   }
 
   /** SurvivalMode clears surviving acid puddles the moment a wave completes. */
@@ -1092,6 +1112,7 @@ export class ZombieSystem {
     if (this.disposed) return;
     this.projectiles.despawnAll();
     this.landmines.despawnAll();
+    this.iceTrail.despawnAll();
     this.acidPuddles.despawnAll();
     this.acidTickTimer = ACID_POISON_TICK_SECONDS;
     for (const zombie of this.pool) zombie.forceReturnToPool();
@@ -1113,6 +1134,7 @@ export class ZombieSystem {
     this.disposed = true;
     this.projectiles.dispose();
     this.landmines.dispose();
+    this.iceTrail.dispose();
     this.acidPuddles.dispose();
     for (const zombie of this.pool) zombie.dispose();
     this.pool.length = 0;

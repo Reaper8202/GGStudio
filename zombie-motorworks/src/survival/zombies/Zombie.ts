@@ -68,6 +68,7 @@ import {
   GUNSLINGER_VISUAL_HEIGHT,
   GUNSLINGER_WALK_CADENCE,
   HIT_FLASH_DURATION,
+  ICE_TRAIL_EMIT_DISTANCE_M,
   IMPACT_COOLDOWN_SECONDS,
   KAMIKAZE_BLINK_INTERVAL,
   KAMIKAZE_BLINK_OPACITY,
@@ -109,6 +110,9 @@ import {
   WORKER_RING_MIN_RATE,
   WORKER_RING_OPACITY,
   WORKER_VISUAL_HEIGHT,
+  ZAMBONI_COLOR_DARKEN,
+  ZAMBONI_VISUAL_HEIGHT,
+  ZAMBONI_WAYPOINT_ARRIVAL_M,
   ZOMBIE_ATTACK_EXIT_MARGIN,
   ZOMBIE_ATTACK_RANGE,
   ZOMBIE_HALF_HEIGHT,
@@ -223,6 +227,7 @@ const KIND_MODELS: Partial<Record<ZombieKind, KindModel>> = {
     file: () => 'behemoth.rigged.glb',
     height: BEHEMOTH_VISUAL_HEIGHT,
   },
+  zamboni: { file: () => 'zamboni.glb', height: ZAMBONI_VISUAL_HEIGHT },
 };
 
 /** The numbered Zed exports share one voxel grid, so they need no fitting. */
@@ -330,7 +335,10 @@ function getScopeTexture(): THREE.CanvasTexture {
   ] as const) {
     ctx.beginPath();
     ctx.moveTo(c + dx * radius, c + dy * radius);
-    ctx.lineTo(c + dx * (radius + size * 0.14), c + dy * (radius + size * 0.14));
+    ctx.lineTo(
+      c + dx * (radius + size * 0.14),
+      c + dy * (radius + size * 0.14),
+    );
     ctx.stroke();
   }
   scopeTexture = new THREE.CanvasTexture(canvas);
@@ -509,6 +517,7 @@ export type ZombieKind =
   | 'worker'
   | 'kamikaze'
   | 'behemoth'
+  | 'zamboni'
   | 'boss';
 
 /**
@@ -562,6 +571,13 @@ export class Zombie {
   onExplode: ((zombie: Zombie) => void) | null = null;
   /** Set by ZombieSystem; fired the instant a behemoth's slam lands. */
   onSmash: ((zombie: Zombie) => void) | null = null;
+  /**
+   * Set by ZombieSystem; fired every `ICE_TRAIL_EMIT_DISTANCE_M` a zamboni
+   * moves, with its previous emission point, so the callback can lay one
+   * connected segment from there to its current position.
+   */
+  onLayIce: ((zombie: Zombie, fromX: number, fromZ: number) => void) | null =
+    null;
   readonly kind: ZombieKind;
 
   private readonly visualRoot = new THREE.Group();
@@ -655,6 +671,12 @@ export class Zombie {
   private readonly muzzleScratch = { x: 0, y: 0, z: 0 };
   private readonly boneWorldScratch = new THREE.Vector3();
   private plantTimer = 0;
+  /** Zamboni only: current patrol destination, world metres. */
+  private patrolTargetX = 0;
+  private patrolTargetZ = 0;
+  /** Zamboni only: where its ice trail last emitted a segment from. */
+  private iceTrailLastX = 0;
+  private iceTrailLastZ = 0;
   private hammerPivot: THREE.Group | null = null;
   private vialArmPivot: THREE.Group | null = null;
   /** Live definition while a boss is active; null for every ordinary zombie. */
@@ -718,6 +740,8 @@ export class Zombie {
     private readonly onKilled: ZombieKilledCallback,
     /** Optional so headless tests can pool zombies without a scene budget. */
     private readonly vfx: VfxSystem | null = null,
+    /** Zamboni only: candidate patrol destinations. Reuses the arena's spawn ring. */
+    private readonly patrolPoints: readonly Vector3Like[] = [],
   ) {
     this.kind = kind;
     this.baseScale =
@@ -954,7 +978,9 @@ export class Zombie {
     // enemy-facing system: weapons, freeze/zap AoE, vehicle contacts, and the
     // charm sweep itself all key off isTargetable.
     return (
-      this.isAlive && this.state !== ZombieState.Spawning && this.charmTimer <= 0
+      this.isAlive &&
+      this.state !== ZombieState.Spawning &&
+      this.charmTimer <= 0
     );
   }
 
@@ -1150,7 +1176,12 @@ export class Zombie {
   private buildVialArm(): void {
     const pivot = new THREE.Group();
     const vial = new THREE.Mesh(
-      new THREE.CapsuleGeometry(BOSS_VIAL_PROP.radius, BOSS_VIAL_PROP.length, 3, 6),
+      new THREE.CapsuleGeometry(
+        BOSS_VIAL_PROP.radius,
+        BOSS_VIAL_PROP.length,
+        3,
+        6,
+      ),
       new THREE.MeshLambertMaterial({
         color: BOSS_VIAL_PROP_COLOR,
         emissive: 0x2c5a12,
@@ -1231,6 +1262,9 @@ export class Zombie {
     this.stuckTimer = 0;
     this.retreating = false;
     this.plantTimer = 0;
+    this.iceTrailLastX = position.x;
+    this.iceTrailLastZ = position.z;
+    if (this.kind === 'zamboni') this.pickPatrolTarget();
     this.ringPhase = 0;
     if (this.ringMesh) this.ringMesh.visible = false;
     // A recycled caster arrives rested: it channels once it has closed to
@@ -1870,7 +1904,8 @@ export class Zombie {
       this.ringMesh.visible = winding;
       if (winding) {
         const windup = this.bossDef.attack.windupSeconds;
-        const charge = windup > 0 ? clamp(1 - this.windupTimer / windup, 0, 1) : 1;
+        const charge =
+          windup > 0 ? clamp(1 - this.windupTimer / windup, 0, 1) : 1;
         const rootScale = this.root.scale.y || 1;
         const radius =
           this.bossDef.attack.radiusM *
@@ -1901,8 +1936,8 @@ export class Zombie {
             : behemothWindingUp
               ? this.behemothPoseProgress() / BEHEMOTH_SMASH_IMPACT
               : 1 -
-                  this.summonTimer /
-                    devTuning.specialist.necromancerSummonSeconds,
+                this.summonTimer /
+                  devTuning.specialist.necromancerSummonSeconds,
           0,
           1,
         );
@@ -2126,6 +2161,10 @@ export class Zombie {
     separationX: number,
     separationZ: number,
   ): void {
+    if (this.kind === 'zamboni') {
+      this.stepRoaming(dt, separationX, separationZ);
+      return;
+    }
     const target = this.vehicleTarget;
     if (target.partId === null) {
       this.zeroHorizontalVelocity();
@@ -2237,6 +2276,82 @@ export class Zombie {
 
     const targetDirX = (away * dx) / horizontalDistance;
     const targetDirZ = (away * dz) / horizontalDistance;
+    this.resolveMovement(
+      dt,
+      targetDirX,
+      targetDirZ,
+      separationX,
+      separationZ,
+      away < 0 && this.vialAttack !== null ? { x: dx, z: dz } : null,
+    );
+  }
+
+  /**
+   * Zamboni only: ignore the vehicle entirely and walk between patrol
+   * waypoints (the arena's spawn ring), laying a connected ice trail segment
+   * every `ICE_TRAIL_EMIT_DISTANCE_M` it moves. Shares obstacle-probe/detour/
+   * stuck handling with the ordinary chase via `resolveMovement`, so it
+   * detours around the same obstacles a chasing zombie would.
+   */
+  private stepRoaming(
+    dt: number,
+    separationX: number,
+    separationZ: number,
+  ): void {
+    const traveledX = this.position.x - this.iceTrailLastX;
+    const traveledZ = this.position.z - this.iceTrailLastZ;
+    if (Math.hypot(traveledX, traveledZ) >= ICE_TRAIL_EMIT_DISTANCE_M) {
+      this.onLayIce?.(this, this.iceTrailLastX, this.iceTrailLastZ);
+      this.iceTrailLastX = this.position.x;
+      this.iceTrailLastZ = this.position.z;
+    }
+
+    const dx = this.patrolTargetX - this.position.x;
+    const dz = this.patrolTargetZ - this.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < ZAMBONI_WAYPOINT_ARRIVAL_M) {
+      this.pickPatrolTarget();
+      return;
+    }
+    if (distance < 1e-4) {
+      this.zeroHorizontalVelocity();
+      return;
+    }
+    this.resolveMovement(
+      dt,
+      dx / distance,
+      dz / distance,
+      separationX,
+      separationZ,
+    );
+  }
+
+  /** Zamboni only: pick a new random patrol destination from the arena's spawn ring. */
+  private pickPatrolTarget(): void {
+    if (this.patrolPoints.length === 0) return;
+    const point =
+      this.patrolPoints[Math.floor(Math.random() * this.patrolPoints.length)];
+    this.patrolTargetX = point.x;
+    this.patrolTargetZ = point.z;
+  }
+
+  /**
+   * Steer toward a unit direction, running it through the shared
+   * obstacle-probe/detour/stuck handling every kind's locomotion uses,
+   * whatever picked that direction — a chase target or a patrol waypoint.
+   */
+  private resolveMovement(
+    dt: number,
+    targetDirX: number,
+    targetDirZ: number,
+    separationX: number,
+    separationZ: number,
+    /**
+     * Facing override toward the vehicle while backpedalling, so a retreating
+     * vial boss reads as giving ground under fire rather than fleeing.
+     */
+    retreatFacing: { x: number; z: number } | null = null,
+  ): void {
     let dirX = targetDirX;
     let dirZ = targetDirZ;
     const blocked = this.probeBlocked(dirX, dirZ);
@@ -2269,10 +2384,8 @@ export class Zombie {
     this.velocityScratch.y = velocity.y;
     this.velocityScratch.z = dirZ * speed + separationZ;
     this.body.setLinvel(this.velocityScratch, true);
-    if (away < 0 && this.vialAttack !== null) {
-      // Backpedal: a retreating vial boss keeps the vehicle in front of it, so
-      // it reads as giving ground under fire rather than fleeing.
-      this.updateFacing(dx, dz);
+    if (retreatFacing) {
+      this.updateFacing(retreatFacing.x, retreatFacing.z);
     } else {
       this.updateFacing(this.velocityScratch.x, this.velocityScratch.z);
     }
@@ -2362,7 +2475,10 @@ export class Zombie {
       // same idea). AOE math against vehicle parts lives in ZombieSystem,
       // which is the one holding the anchors to walk; this only owns the
       // effect and the callback that reaches over there.
-      if (!this.behemothSmashed && this.behemothPoseProgress() >= BEHEMOTH_SMASH_IMPACT) {
+      if (
+        !this.behemothSmashed &&
+        this.behemothPoseProgress() >= BEHEMOTH_SMASH_IMPACT
+      ) {
         this.behemothSmashed = true;
         // A physical ground-pound, not a blast: chunky rubble and dust, no
         // bright flash or glow — see VfxSystem.groundSmash for why.
@@ -2504,8 +2620,7 @@ export class Zombie {
     this.telegraphPositions[4] = lineEndY;
     this.telegraphPositions[5] = lineEndZ;
     const position = this.telegraphLine?.geometry.getAttribute('position') as
-      | THREE.BufferAttribute
-      | undefined;
+      THREE.BufferAttribute | undefined;
     if (position) position.needsUpdate = true;
     this.telegraphMaterial?.color.setHex(VFX_PALETTE.kamikazeWarn);
     this.scopeSprite?.position.set(lineEndX, lineEndY, lineEndZ);
@@ -2527,7 +2642,11 @@ export class Zombie {
         y: this.telegraphPositions[1],
         z: this.telegraphPositions[2],
       },
-      { x: this.gunslingerAimX, y: this.gunslingerAimY, z: this.gunslingerAimZ },
+      {
+        x: this.gunslingerAimX,
+        y: this.gunslingerAimY,
+        z: this.gunslingerAimZ,
+      },
       'sniper-light',
     );
     const target = this.vehicleTarget;
@@ -2662,15 +2781,25 @@ export class Zombie {
       this.freezeTimer = 0;
       this.emitFrostShatter();
     }
-    // Burst into this corpse's own voxels; specialists are bigger, so they
-    // throw a correspondingly bigger cloud.
-    this.vfx?.zombieGib(
-      this.position.x,
-      this.position.y,
-      this.position.z,
-      this.gibTintHex,
-      this.kind === 'walker' ? 1 : 1.25,
-    );
+    if (this.kind === 'zamboni') {
+      // A single static mesh has no bodyparts to gib — it crumbles into a
+      // small scatter of inert machine debris instead of gore.
+      this.vfx?.zamboniCrumble(
+        this.position.x,
+        this.position.y,
+        this.position.z,
+      );
+    } else {
+      // Burst into this corpse's own voxels; specialists are bigger, so they
+      // throw a correspondingly bigger cloud.
+      this.vfx?.zombieGib(
+        this.position.x,
+        this.position.y,
+        this.position.z,
+        this.gibTintHex,
+        this.kind === 'walker' ? 1 : 1.25,
+      );
+    }
     if (this.kind === 'kamikaze') {
       // The gib burst above still plays — this is on top of it, not instead —
       // so every kamikaze death reads as a body blowing apart, whichever way
@@ -2922,6 +3051,15 @@ export class Zombie {
           const bounds = new THREE.Box3().setFromObject(model);
           const height = Math.max(1e-3, bounds.max.y - bounds.min.y);
           model.scale.setScalar(kindModel.height / height);
+          if (this.kind === 'zamboni') {
+            // The source model's nose-to-tail axis isn't authored along
+            // local +Z the way every rigged/posed kind is (that's what
+            // `updateFacing` steers), so a vehicle whose footprint is longer
+            // in X than Z is lying sideways — square it up.
+            const widthX = bounds.max.x - bounds.min.x;
+            const depthZ = bounds.max.z - bounds.min.z;
+            if (widthX > depthZ) model.rotation.y = Math.PI / 2;
+          }
         } else {
           model.scale.setScalar(ZED_MODEL_SCALE);
         }
@@ -2934,6 +3072,11 @@ export class Zombie {
             : [child.material];
           for (const material of materials) {
             if (!(material instanceof THREE.MeshLambertMaterial)) continue;
+            // The source paint reads noticeably lighter than the rest of the
+            // horde; darken the base colour that multiplies the vertex tint.
+            if (this.kind === 'zamboni') {
+              material.color.multiplyScalar(ZAMBONI_COLOR_DARKEN);
+            }
             material.emissiveMap = material.map;
             // An untextured model has no emissiveMap to tint the glow, so it
             // rests at black instead of wearing a flat white wash.

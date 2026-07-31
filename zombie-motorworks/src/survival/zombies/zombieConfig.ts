@@ -24,6 +24,7 @@ export const ZOMBIE_POOL_COUNTS = {
   'phone-addict': 8,
   kamikaze: 16,
   behemoth: 5,
+  zamboni: 4,
   // Boss waves summon one boss; the spare slot is headroom for a future
   // encounter that fields two. Idle slots are parked bodies and cost nothing.
   boss: 2,
@@ -344,6 +345,43 @@ export const BEHEMOTH_SMASH_DAMAGE = 48;
 export const BEHEMOTH_SMASH_VFX_RADIUS = 2.6;
 /** Ground warning ring colour while it winds up — distinct from the Worker's amber and the Necromancer's violet. */
 export const BEHEMOTH_RING_COLOR = 0xff3020;
+
+// Zamboni: unrigged single-mesh vehicle-zombie (zamboni.glb). It never
+// targets or attacks the vehicle — it patrols between arena spawn points,
+// laying a continuous ice hazard line behind it, and only reacts to being
+// shot, rammed, or meleed like any other zombie. Tanky, like the machine it
+// is, but not sluggish — it needs to actually catch up to where the vehicle
+// has been driving.
+export const ZAMBONI_HEALTH_MULTIPLIER = 5;
+export const ZAMBONI_SPEED_MULTIPLIER = 0.65;
+export const ZAMBONI_REWARD = 22;
+export const ZAMBONI_VISUAL_HEIGHT = 1.65; // pre-baseScale model height, m
+/** Distance to a patrol waypoint that counts as "arrived", world metres. */
+export const ZAMBONI_WAYPOINT_ARRIVAL_M = 3;
+/**
+ * The source model bakes noticeably lighter paint than the rest of the horde
+ * — this multiplies every material's base colour down before it ever meets
+ * the vertex-colour tint, so it reads as part of the same night graveyard.
+ */
+export const ZAMBONI_COLOR_DARKEN = 0.55;
+
+// Ice trail: a pooled hazard trail the Zamboni Zombie lays behind itself, as
+// a continuous thick line of joined segments rather than a series of
+// separate blobs — the zombie emits a new segment every time it has moved
+// `ICE_TRAIL_EMIT_DISTANCE_M`, connecting it to its last emission point, so
+// consecutive segments always share an endpoint. Segments are permanent for
+// the wave — they never fade or expire on their own — and are only cleared
+// when the wave completes or the run resets, the same lifecycle as
+// `Landmines`.
+export const ICE_TRAIL_POOL_SIZE = 220;
+/** World-metre distance the Zamboni moves between one ice segment and the next. */
+export const ICE_TRAIL_EMIT_DISTANCE_M = 2;
+/** Full width of the line, world metres — also the hazard's contact width. */
+export const ICE_TRAIL_WIDTH_M = 2.2;
+export const ICE_TRAIL_HEIGHT_M = 0.03;
+export const ICE_TRAIL_COLOR = 0xbfe9ff;
+/** Grip multiplier applied on top of the terrain underneath a patch. */
+export const ICE_TRAIL_GRIP_MULTIPLIER = 0.2;
 
 // Phone Addict: projectile-proof zombie (PhoneAddict voxel pck). A personal
 // bubble shield absorbs every gun hit — only flame, ramming, and grinder

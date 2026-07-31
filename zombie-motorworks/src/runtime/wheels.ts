@@ -239,6 +239,8 @@ export function stepWheels(
   input: WheelStepInput,
   dt: number,
   surfaceOf: (colliderHandle: number) => SurfaceKind,
+  /** Optional per-contact grip multiplier (0..1) from a dynamic hazard (e.g. an ice trail); null/absent means no override. */
+  hazardMuAt?: (point: Vec3) => number | null,
 ): WheelTelemetry {
   const rot = body.rotation();
   const bodyPos = body.translation();
@@ -367,8 +369,9 @@ export function stepWheels(
       body.applyImpulseAtPoint(scale(up, springForce * dt), sample.origin, true);
       const surfaceKind = surfaceOf(sample.hit.collider.handle);
       const surface = SURFACES[surfaceKind];
-      const muLong = w.wheelDef.frictionLong * surface.muLong * TIRE_LONGITUDINAL_GRIP_MULTIPLIER * input.env.gripLongMul;
-      let muLat = w.wheelDef.frictionLat * surface.muLat * TIRE_LATERAL_GRIP_MULTIPLIER * input.env.gripLatMul;
+      const hazardMul = hazardMuAt?.(contact) ?? 1;
+      const muLong = w.wheelDef.frictionLong * surface.muLong * hazardMul * TIRE_LONGITUDINAL_GRIP_MULTIPLIER * input.env.gripLongMul;
+      let muLat = w.wheelDef.frictionLat * surface.muLat * hazardMul * TIRE_LATERAL_GRIP_MULTIPLIER * input.env.gripLatMul;
       if (w.wheelDef.skidSteer) {
         // A commanded pivot requires the belt to shear sideways; retain full grip straight ahead.
         muLat *= 1 - 0.82 * Math.abs(input.steer);

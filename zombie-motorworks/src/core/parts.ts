@@ -97,6 +97,16 @@ const YAW_ORIENTATIONS: OrientationIndex[] = [0, 1, 2, 3].map((quarter) =>
  * a frame box as on a heavy cannon: one star per unlock bought, five at most.
  * `cost` is the part's shelf price; the first unlock asks a bit over half of it
  * and each one after that is 1.6x the last.
+ *
+ * Separately, each non-starter part below also carries a one-time `unlockCost`
+ * — the price to add it to the store before it can be bought at all. That used
+ * to be picked independently of shelf price, which let the cheapest early
+ * parts (a reinforced frame, an off-road wheel) cost more to unlock than a
+ * late-game weapon costs to own outright. It now tracks `cost` directly:
+ * roughly 1x for the cheap early tier that should never gate a new player,
+ * climbing to ~1.3x for the weapons a full run builds toward. Defence parts
+ * (armour) sit at the low end of that band so surviving isn't the thing
+ * players are priced out of first.
  */
 function upgrade(cost: number) {
   return {
@@ -160,7 +170,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 320,
     cost: 25,
     upgrade: upgrade(25),
-    unlockCost: 150,
+    unlockCost: 80,
     reinforcement: 2,
   },
   'wheel-standard': {
@@ -218,7 +228,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 130,
     cost: 32,
     upgrade: upgrade(32),
-    unlockCost: 250,
+    unlockCost: 120,
     reinforcement: 1,
     wheel: {
       radius: 0.42,
@@ -257,7 +267,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 45,
     cost: 24,
     upgrade: upgrade(24),
-    unlockCost: 180,
+    unlockCost: 90,
     reinforcement: 1,
     wheel: {
       radius: 0.36,
@@ -297,7 +307,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 620,
     cost: 85,
     upgrade: upgrade(85),
-    unlockCost: 450,
+    unlockCost: 220,
     reinforcement: 2.6,
     wheel: {
       // A smaller effective drive radius does two things at once: it lowers the
@@ -393,7 +403,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 90,
     cost: 180,
     upgrade: upgrade(120),
-    unlockCost: 220,
+    unlockCost: 180,
     reinforcement: 1,
     unique: true,
   },
@@ -436,9 +446,11 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: frameSockets(oneCell),
     massKg: 95,
     health: 220,
-    cost: 120,
+    cost: 50,
     upgrade: upgrade(120),
-    unlockCost: 200,
+    // Starter part (see STARTER_UNLOCKS) — no unlockCost, armour is available
+    // to field from the very first build so defence is never gated behind
+    // store cash on top of the shelf price.
     reinforcement: 2.5,
     armour: {
       faceMounted: false,
@@ -464,7 +476,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 300,
     cost: 340,
     upgrade: upgrade(340),
-    unlockCost: 500,
+    unlockCost: 400,
     reinforcement: 1.25,
     weapon: {
       mountType: 'turret',
@@ -502,7 +514,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 150,
     cost: 300,
     upgrade: upgrade(300),
-    unlockCost: 600,
+    unlockCost: 380,
     reinforcement: 1.15,
     // Normal fire: an auto-aim cryo turret whose shards slow zombies on hit.
     // A control weapon, not a damage dealer — its damage is deliberately kept
@@ -583,9 +595,12 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: frameSockets([v(-1, 0, 0), ORIGIN, v(1, 0, 0)]),
     massKg: 240,
     health: 360,
-    cost: 200,
-    upgrade: upgrade(200),
-    unlockCost: 400,
+    // Priced above the other early melee options: three blocks of armoured
+    // drum that shreds on contact is a heavier commitment than a sniper or
+    // flamethrower slot, so both its unlock and shelf price sit higher.
+    cost: 275,
+    upgrade: upgrade(275),
+    unlockCost: 250,
     reinforcement: 1.5,
     melee: {
       damage: 45,
@@ -674,7 +689,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 380,
     cost: 260,
     upgrade: upgrade(260),
-    unlockCost: 480,
+    unlockCost: 340,
     reinforcement: 2,
     // Driving the load into a wall is what the blade is *for*, so it takes a
     // fifth of what a collision would otherwise cost it. Without this the
@@ -716,9 +731,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 40,
     health: 90,
-    cost: 220,
-    upgrade: upgrade(220),
-    unlockCost: 350,
+    cost: 160,
+    upgrade: upgrade(160),
+    unlockCost: 170,
     reinforcement: 1,
     weapon: {
       mountType: 'turret',
@@ -748,9 +763,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 130,
     health: 120,
-    cost: 260,
-    upgrade: upgrade(260),
-    unlockCost: 450,
+    cost: 200,
+    upgrade: upgrade(200),
+    unlockCost: 230,
     reinforcement: 1,
     weapon: {
       mountType: 'fixed',
@@ -802,7 +817,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 160,
     cost: 320,
     upgrade: upgrade(320),
-    unlockCost: 650,
+    unlockCost: 400,
     reinforcement: 1.15,
     // Ability payload only (no `weapon`): SurvivalMode grants the vehicle
     // temporary invulnerability when this ability's slot key is pressed.
@@ -925,7 +940,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 150,
     cost: 300,
     upgrade: upgrade(300),
-    unlockCost: 600,
+    unlockCost: 380,
     reinforcement: 1.15,
     // The panic button for a rig that has been swarmed: no aim, no travel
     // time, everything within the ring takes it at once.
@@ -953,7 +968,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 120,
     cost: 260,
     upgrade: upgrade(260),
-    unlockCost: 520,
+    unlockCost: 340,
     reinforcement: 1.1,
     // Multiplies drive torque rather than granting speed directly, so it pays
     // off exactly where ramming does: heavy rigs digging out of a crowd.
@@ -989,7 +1004,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     health: 110,
     cost: 280,
     upgrade: upgrade(280),
-    unlockCost: 560,
+    unlockCost: 360,
     reinforcement: 1.1,
     // The escape hatch nitro is not: no wind-up, no traction needed, and it
     // ignores the wall of bodies that has the rig pinned. The short cooldown is

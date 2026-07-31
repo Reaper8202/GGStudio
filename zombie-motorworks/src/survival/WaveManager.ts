@@ -23,6 +23,7 @@ export interface WaveComposition {
   'phone-addict': number;
   kamikaze: number;
   behemoth: number;
+  zamboni: number;
   boss: number;
 }
 
@@ -36,6 +37,22 @@ function countFromCurve(
   if (safeWave < curve.startWave) return 0;
   const steps = Math.floor((safeWave - curve.startWave) / Math.max(1, curve.every));
   return Math.min(curve.base + curve.perStep * steps, curve.cap);
+}
+
+/**
+ * Extra walkers layered onto waves 1-2 only, on top of the normal curve.
+ * Every kill pays out, so this is really an early-money bump: with no
+ * specialists in play yet (gunslinger/thrower don't start until wave 3),
+ * more walkers just means more kill reward banked before the roster gets
+ * complicated. Wave 2 gets the bigger add — by then the player has already
+ * banked wave 1's clear reward and can put it toward more parts, so the
+ * horde can absorb more bodies without touching the growth curve for every
+ * wave after it.
+ */
+function earlyWalkerBonus(safeWave: number): number {
+  if (safeWave === 1) return 5;
+  if (safeWave === 2) return 10;
+  return 0;
 }
 
 /**
@@ -58,17 +75,16 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
       'phone-addict': 0,
       kamikaze: 0,
       behemoth: 0,
+      zamboni: 0,
       boss: 1,
     };
   }
   const { composition } = devTuning.wave;
   const { types } = devTuning;
   return {
-    walker: countFromCurve(
-      composition.walker,
-      types.walker.countOverride,
-      safeWave,
-    ),
+    walker:
+      countFromCurve(composition.walker, types.walker.countOverride, safeWave) +
+      (types.walker.countOverride === null ? earlyWalkerBonus(safeWave) : 0),
     gunslinger: countFromCurve(
       composition.gunslinger,
       types.gunslinger.countOverride,
@@ -102,6 +118,11 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
     behemoth: countFromCurve(
       composition.behemoth,
       types.behemoth.countOverride,
+      safeWave,
+    ),
+    zamboni: countFromCurve(
+      composition.zamboni,
+      types.zamboni.countOverride,
       safeWave,
     ),
     boss: 0,
@@ -178,6 +199,7 @@ export function spawnOrderForWave(wave: number): ZombieKind[] {
     'phone-addict',
     'kamikaze',
     'behemoth',
+    'zamboni',
   ] as const) {
     for (let i = 0; i < composition[kind]; i++) specials.push(kind);
   }

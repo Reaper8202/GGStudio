@@ -37,6 +37,7 @@ const KIND_LABELS: Record<ZombieKind, string> = {
   'phone-addict': 'Phone Addict',
   kamikaze: 'Kamikaze',
   behemoth: 'Behemoth',
+  zamboni: 'Zamboni',
   // Never rendered: `boss` is absent from KIND_ORDER because a boss reads its
   // stats from bossConfig.ts, not from a tuner row. Present for exhaustiveness.
   boss: 'Boss',

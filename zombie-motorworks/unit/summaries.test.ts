@@ -69,14 +69,14 @@ describe('legible consequence summaries', () => {
 
   it('formats exact wave composition while omitting zero-count kinds', () => {
     expect(formatWaveComposition(zombieCompositionForWave(1))).toBe(
-      '13 walkers',
+      '18 walkers',
     );
     expect(formatWaveComposition(zombieCompositionForWave(3))).toBe(
       '19 walkers / 1 gunslinger / 1 thrower',
     );
     // Wave 11, not 10: wave 10 is a boss duel, asserted separately below.
     expect(formatWaveComposition(zombieCompositionForWave(11))).toBe(
-      '43 walkers / 10 gunslingers / 2 necromancers / 5 throwers / 2 workers / 1 phone-addict / 5 kamikazes / 1 behemoth',
+      '43 walkers / 10 gunslingers / 2 necromancers / 5 throwers / 2 workers / 1 phone-addict / 5 kamikazes / 1 behemoth / 1 zamboni',
     );
     // A boss wave replaces the whole horde, both times it comes round.
     expect(formatWaveComposition(zombieCompositionForWave(5))).toBe('1 boss');

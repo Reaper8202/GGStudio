@@ -17,7 +17,7 @@ describe('wave formulas', () => {
   it.each([
     {
       wave: 1,
-      zombies: 13,
+      zombies: 18,
       maxActive: 26,
       healthMultiplier: 1,
       speedMultiplier: 1,
@@ -63,7 +63,7 @@ describe('wave formulas', () => {
 
   it('scales walker counts to the 70 cap', () => {
     // Sampled off boss waves, which field no walkers at all.
-    expect(zombieCompositionForWave(1).walker).toBe(13);
+    expect(zombieCompositionForWave(1).walker).toBe(18);
     expect(zombieCompositionForWave(6).walker).toBe(28);
     expect(zombieCompositionForWave(21).walker).toBe(70);
     expect(zombieCompositionForWave(51).walker).toBe(70);
@@ -138,7 +138,7 @@ describe('wave formulas', () => {
 
   it('unlocks sparse specialists at their progression milestones', () => {
     expect(zombieCompositionForWave(1)).toEqual({
-      walker: 13,
+      walker: 18,
       gunslinger: 0,
       necromancer: 0,
       thrower: 0,
@@ -146,6 +146,7 @@ describe('wave formulas', () => {
       'phone-addict': 0,
       kamikaze: 0,
       behemoth: 0,
+      zamboni: 0,
       boss: 0,
     });
     expect(zombieCompositionForWave(4)).toEqual({
@@ -157,6 +158,7 @@ describe('wave formulas', () => {
       'phone-addict': 0,
       kamikaze: 2,
       behemoth: 0,
+      zamboni: 0,
       boss: 0,
     });
     expect(zombieCompositionForWave(7)).toEqual({
@@ -168,6 +170,7 @@ describe('wave formulas', () => {
       'phone-addict': 0,
       kamikaze: 3,
       behemoth: 0,
+      zamboni: 0,
       boss: 0,
     });
     // Wave 10 is a boss wave here, so 11 is the first horde wave that fields a
@@ -181,6 +184,7 @@ describe('wave formulas', () => {
       'phone-addict': 1,
       kamikaze: 5,
       behemoth: 1,
+      zamboni: 1,
       boss: 0,
     });
     expect(zombieCompositionForWave(21)).toEqual({
@@ -192,13 +196,14 @@ describe('wave formulas', () => {
       'phone-addict': 3,
       kamikaze: 10,
       behemoth: 3,
+      zamboni: 2,
       boss: 0,
     });
   });
 
   it('does not unlock specialists before their milestone waves', () => {
     expect(zombieCompositionForWave(2)).toEqual({
-      walker: 16,
+      walker: 26,
       gunslinger: 0,
       necromancer: 0,
       worker: 0,
@@ -206,6 +211,7 @@ describe('wave formulas', () => {
       'phone-addict': 0,
       kamikaze: 0,
       behemoth: 0,
+      zamboni: 0,
       boss: 0,
     });
   });
@@ -261,7 +267,7 @@ describe('wave formulas', () => {
 
     waves.startWave(1);
     expect(waveMultipliers).toEqual([1, 1, 1]);
-    expect(waves.prepareDebugKillAll()).toBe(13);
+    expect(waves.prepareDebugKillAll()).toBe(18);
     expect(remaining).toBe(0);
     expect(completion).toEqual({ wave: 1, reward: 50 });
   });

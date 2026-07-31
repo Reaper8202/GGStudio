@@ -221,15 +221,15 @@ export const BOSS_DEFINITIONS: Record<BossId, BossDefinition> = {
     name: 'The Alchemist',
     warning:
       'BOSS WAVE — The Alchemist. It kites and lobs acid vials: stay out of the puddles they leave behind.',
-    // ~3,542 HP at wave 10 after the 1.54x health multiplier, against the ~4,434
+    // ~3,781 HP at wave 10 after the 1.54x health multiplier, against the ~4,730
     // effective HP of the wave-9 horde it replaces. Deliberately a shade under a
     // full horde: the retreat means every point of its health takes longer to
     // reach than a brute's does. The 0.80 ratio is The Sledge's (1,116 against
     // wave 4's 1,416), so both bosses sit the same distance under their wave.
-    // Raised from 2,000 when the Behemoth and the retuned specialist curves made
-    // the wave-9 horde markedly heavier — the boss has to track the wave it
-    // stands in for, or it reads as a speed bump on the way to wave 11.
-    baseHealth: 2300,
+    // Raised from 2,300 when the zamboni joined the wave-9 horde composition —
+    // the boss has to track the wave it stands in for, or it reads as a speed
+    // bump on the way to wave 11.
+    baseHealth: 2455,
     // 1.98 m/s base — quicker than The Sledge because it spends its time backing
     // away, but still far short of a walker, so ramming it down always works.
     speedMultiplier: 0.62,

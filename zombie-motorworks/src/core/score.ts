@@ -8,6 +8,7 @@ export type ScoreZombieKind =
   | 'worker'
   | 'kamikaze'
   | 'behemoth'
+  | 'zamboni'
   | 'boss';
 
 /** Base points per kill, before the wave multiplier. */
@@ -20,6 +21,7 @@ export const SCORE_PER_KILL: Record<ScoreZombieKind, number> = {
   'phone-addict': 20,
   kamikaze: 15,
   behemoth: 80,
+  zamboni: 35,
   // A boss replaces the entire horde for its wave, so its kill has to be worth
   // roughly what clearing that horde would have paid — otherwise a boss wave
   // reads as a scoring dead zone on the leaderboard.

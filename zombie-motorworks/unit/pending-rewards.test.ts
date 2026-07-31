@@ -27,6 +27,7 @@ interface PendingRewardsHarness {
   };
   zombies: {
     clearLandmines(): void;
+    clearIceTrail(): void;
     clearAcidPuddles(): void;
     forceKillAll(): void;
   };
@@ -127,6 +128,7 @@ function createHarness(options: { destroyed?: boolean } = {}): {
     },
     zombies: {
       clearLandmines: vi.fn(),
+      clearIceTrail: vi.fn(),
       clearAcidPuddles: vi.fn(),
       forceKillAll: vi.fn(),
     },
