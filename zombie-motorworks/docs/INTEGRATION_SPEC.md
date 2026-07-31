@@ -109,8 +109,11 @@ Transaction requirements:
 - Ordinary editor work may use undo/redo. A cleared wave clears history because
   permanent destruction can invalidate referenced part IDs.
 
-The existing tutorial is an Editor-owned overlay and Blueprint reset. It uses a
-local completion flag and is not an isolated cross-mode tutorial session.
+The tutorial is an Editor-owned coach-mark overlay over the live garage. It
+reads Blueprint and Inventory state to know when a step is satisfied and writes
+nothing back beyond its local completion flag; it is not an isolated cross-mode
+tutorial session. `EditorMode` feeds it a snapshot from both `refresh` and
+`refreshProfile`, because a purchase only goes through the latter.
 
 ## Test Chamber Contract
 

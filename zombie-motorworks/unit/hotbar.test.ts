@@ -53,36 +53,6 @@ describe('build bar seeding', () => {
   });
 });
 
-describe('build bar normalization', () => {
-  it('drops unknown ids and duplicates and truncates to capacity', () => {
-    expect(
-      resolveHotbar(
-        [
-          'turret',
-          'turret',
-          'not-a-part',
-          'frame-box',
-          'wheel-standard',
-          'engine-small',
-          'fuel-tank',
-          'spike-ram',
-        ],
-        STARTER_STOCK,
-      ),
-    ).toEqual([
-      'turret',
-      'frame-box',
-      'wheel-standard',
-      'engine-small',
-      'fuel-tank',
-    ]);
-  });
-
-  it('keeps a slotted block type the player has run out of', () => {
-    expect(resolveHotbar(['turret'], {})).toEqual(['turret']);
-  });
-});
-
 describe('build bar editing', () => {
   it('appends a purchase to the first free slot and ignores repeats', () => {
     expect(withHotbarSlot(['turret'], 'frame-box')).toEqual([

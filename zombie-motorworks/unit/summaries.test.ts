@@ -26,7 +26,8 @@ function placed(
 describe('legible consequence summaries', () => {
   it('reports each specialist only on the wave where it first appears', () => {
     expect(newThreatsForWave(2)).toEqual([]);
-    expect(newThreatsForWave(3)).toEqual(['gunslinger', 'thrower']);
+    expect(newThreatsForWave(3)).toEqual(['thrower']);
+    expect(newThreatsForWave(4)).toEqual(['gunslinger', 'kamikaze']);
     expect(newThreatsForWave(7)).toEqual(['worker']);
     expect(newThreatsForWave(8)).toEqual(['behemoth']);
     // The Phone Addict curve opens on wave 10, but wave 10 is a boss duel whose
@@ -73,11 +74,11 @@ describe('legible consequence summaries', () => {
       '30 walkers',
     );
     expect(formatWaveComposition(zombieCompositionForWave(3))).toBe(
-      '32 walkers / 1 gunslinger / 1 thrower',
+      '32 walkers / 4 throwers',
     );
     // Wave 11, not 10: wave 10 is a boss duel, asserted separately below.
     expect(formatWaveComposition(zombieCompositionForWave(11))).toBe(
-      '43 walkers / 10 gunslingers / 2 necromancers / 5 throwers / 2 workers / 1 phone-addict / 5 kamikazes / 1 behemoth / 1 zamboni',
+      '43 walkers / 10 gunslingers / 2 necromancers / 8 throwers / 2 workers / 1 phone-addict / 5 kamikazes / 1 behemoth / 1 zamboni',
     );
     // A boss wave still fields a small horde of walkers and gunslingers
     // alongside the boss, both times it comes round.

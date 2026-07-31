@@ -51,10 +51,9 @@ import {
 } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import {
-  createTutorialBlueprint,
+  GARAGE_TOUR_STEPS,
+  garageTourSnapshot,
   SIMPLE_PART_IDS,
-  TUTORIAL_STEPS,
-  tutorialProgress,
 } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
 import {
@@ -634,18 +633,24 @@ export class EditorMode {
     return true;
   }
 
-  /** Start the guided build with its own fresh blueprint. */
+  /**
+   * Open the guided garage tour. It narrates the dock panels and then walks the
+   * player through buy → attach → fight on whatever rig is already in the bay;
+   * unlike the old scripted build it never replaces the blueprint.
+   */
   startTutorial(): void {
     this.tutorialOverlay?.dispose();
     this.tutorialOverlay = null;
-    this.tutorialActive = false;
-    if (!this.resetBlueprint(createTutorialBlueprint(), 'Start tutorial build'))
-      return;
     this.tutorialActive = true;
-    this.tutorialOverlay = new TutorialOverlay(this.ui.root, this.ui, () =>
-      this.stopTutorial(),
+    this.tutorialOverlay = new TutorialOverlay(
+      this.ui.root,
+      this.ui,
+      this.tourSnapshot(),
+      () => {
+        localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+        this.stopTutorial();
+      },
     );
-    this.tutorialOverlay.update(this.bp, getPartDef);
   }
 
   stopTutorial(): void {
@@ -655,14 +660,21 @@ export class EditorMode {
     this.ui.highlightPaletteButton(null);
   }
 
+  private tourSnapshot(): ReturnType<typeof garageTourSnapshot> {
+    return garageTourSnapshot(this.bp, this.inventory(), getPartDef);
+  }
+
   debugTutorialState(): { active: boolean; stepIndex: number; total: number } {
     return {
       active: this.tutorialActive,
-      stepIndex: this.tutorialActive
-        ? tutorialProgress(this.bp, getPartDef)
-        : 0,
-      total: TUTORIAL_STEPS.length,
+      stepIndex: this.tutorialOverlay?.index ?? 0,
+      total: GARAGE_TOUR_STEPS.length,
     };
+  }
+
+  /** Debug seam: advance a narration step the way the Next button does. */
+  debugTutorialNext(): void {
+    this.tutorialOverlay?.advance();
   }
 
   // ---------- views ----------
@@ -2108,7 +2120,12 @@ export class EditorMode {
     this.refreshRunContext();
     this.refreshSelectionUI();
     this.refreshAbilityLoadout();
-    if (this.tutorialActive) this.tutorialOverlay?.update(this.bp, getPartDef);
+    this.refreshTutorial();
+  }
+
+  /** Feed the guided tour whatever the garage looks like now. */
+  private refreshTutorial(): void {
+    if (this.tutorialActive) this.tutorialOverlay?.update(this.tourSnapshot());
   }
 
   /** Refresh profile-backed UI after an App-side reward or debug grant. */
@@ -2122,6 +2139,9 @@ export class EditorMode {
     );
     this.refreshRunContext();
     this.refreshSelectionUI();
+    // Buying goes through here rather than `refresh`, and the tour's first
+    // action step is a purchase.
+    this.refreshTutorial();
   }
 
   private refreshRunContext(): void {

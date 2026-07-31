@@ -1322,24 +1322,124 @@ button:disabled {
   font-weight: 700;
 }
 
-.tutorial-panel {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 116px;
-  width: min(520px, 90vw);
-  text-align: center;
-  z-index: 15;
+/*
+ * Guided garage tour. The spotlight is an empty box whose outer shadow does
+ * all the dimming, so the panel it frames stays bright and — because nothing
+ * here takes pointer events — still clickable. The player has to reach the
+ * Store and the truck straight through it.
+ */
+.tutorial-spotlight {
+  position: fixed;
+  z-index: 30;
+  pointer-events: none;
+  border: 2px solid var(--ui-signal);
+  box-shadow: 0 0 0 100vmax rgb(4 6 4 / 0.68);
+  animation: tut-spotlight-pulse 1.1s infinite alternate;
 }
 
-.tutorial-panel button {
-  margin-top: 8px;
+@keyframes tut-spotlight-pulse {
+  from {
+    border-color: var(--ui-signal);
+  }
+
+  to {
+    border-color: var(--ui-signal-dark);
+  }
+}
+
+.tutorial-spotlight[hidden] {
+  display: none;
+}
+
+/*
+ * Frame worn by the anchor itself on steps that must not dim anything: "bolt
+ * it on" has the player clicking the truck, and a scrim would black out the
+ * whole build area. The pulsing outline and halo carry the emphasis alone.
+ */
+.tutorial-ring {
+  outline: 2px solid var(--ui-signal);
+  outline-offset: 4px;
+  box-shadow: 0 0 20px 5px rgb(137 153 90 / 0.42);
+  animation: tut-spotlight-ring 1.1s infinite alternate;
+}
+
+@keyframes tut-spotlight-ring {
+  from {
+    outline-color: var(--ui-signal);
+  }
+
+  to {
+    outline-color: var(--ui-signal-dark);
+  }
+}
+
+.tutorial-coach {
+  position: fixed;
+  z-index: 31;
+  width: min(320px, calc(100vw - 24px));
+  padding: 12px 14px 11px;
+  background: var(--panel-bg-strong);
+  border-color: var(--ui-signal-dark);
+  box-shadow:
+    8px 9px 0 rgb(0 0 0 / 0.5),
+    inset 0 3px 0 var(--ui-signal-dark);
+}
+
+.tutorial-coach__count {
+  display: block;
+  color: var(--ui-text-muted);
+  font-family: var(--ui-font-body);
+  font-size: var(--ui-text-11);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .tutorial-title {
   font-size: 18px;
   font-weight: 700;
   margin: 3px 0;
+}
+
+.tutorial-coach p {
+  color: var(--ui-text-muted);
+  font-family: var(--ui-font-body);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tutorial-coach__action {
+  margin-top: 10px;
+  padding: 7px 9px;
+  border-left: 3px solid var(--ui-signal);
+  background: rgb(137 153 90 / 0.12);
+  color: var(--ui-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tutorial-coach__action.is-blocked {
+  border-left-color: var(--ui-rust);
+  background: rgb(138 80 53 / 0.16);
+}
+
+.tutorial-coach__action[hidden] {
+  display: none;
+}
+
+.tutorial-coach__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tutorial-coach__skip {
+  color: var(--ui-text-muted);
+}
+
+.tutorial-coach__actions button[hidden] {
+  display: none;
 }
 
 .tutorial-glow {
@@ -3478,8 +3578,7 @@ button:disabled {
 }
 
 .survival-speed__header > span,
-.survival-health > div:first-child,
-.survival-earned {
+.survival-health > div:first-child {
   color: var(--ui-text-muted);
   font: var(--ui-text-10)/1 var(--ui-font-body);
   letter-spacing: 0.07em;
@@ -3590,15 +3689,13 @@ button:disabled {
   gap: 7px;
 }
 
-.survival-health > div:first-child,
-.survival-earned {
+.survival-health > div:first-child {
   display: flex;
   justify-content: space-between;
   gap: 10px;
 }
 
-.survival-health > div:first-child span:last-child,
-.survival-earned span:last-child {
+.survival-health > div:first-child span:last-child {
   color: var(--ui-text);
 }
 
@@ -3813,15 +3910,136 @@ button:disabled {
   }
 }
 
-.survival-earned {
-  padding-top: 10px;
-  border-top: 1px solid var(--ui-edge);
+/*
+ * Cash counter: the run's wallet, alone in the top-left corner so the driver
+ * can read it without leaving the road. Every kill kicks it and floats its
+ * payout off the top, which is the whole point of the number being here.
+ */
+.survival-cash {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  z-index: 16;
+  pointer-events: none;
 }
 
-.survival-earned span:last-child {
+/* No panel behind it, so the number carries its own outline over the arena. */
+.survival-cash__value {
+  --cash-outline:
+    -2px 0 0 var(--ui-black), 2px 0 0 var(--ui-black), 0 -2px 0 var(--ui-black),
+    0 2px 0 var(--ui-black), 4px 4px 0 rgb(0 0 0 / 0.5);
+
+  display: block;
   color: var(--ui-bone);
-  font-family: var(--ui-font-display);
-  font-size: var(--ui-text-14);
+  font: 400 var(--ui-text-40)/0.9 var(--ui-font-display);
+  letter-spacing: 0.02em;
+  text-shadow: var(--cash-outline);
+}
+
+.survival-cash.is-hit {
+  animation: survival-cash-hit 220ms steps(6, end);
+}
+
+.survival-cash.is-hit .survival-cash__value {
+  animation: survival-cash-flash 220ms steps(3, end);
+}
+
+/* Chits spawn just under the number and scatter as they rise past it. */
+.survival-cash__gains {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 4px;
+}
+
+.survival-cash__gain {
+  --gain-drift: 0px;
+  --gain-rise: -40px;
+
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--ui-signal-strong);
+  font: 400 var(--ui-text-20)/1 var(--ui-font-display);
+  white-space: nowrap;
+  text-shadow: 2px 2px 0 rgb(0 0 0 / 0.6);
+  animation: survival-cash-gain 640ms ease-out forwards;
+}
+
+@keyframes survival-cash-hit {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  30% {
+    transform: translate(-2px, 1px) scale(1.06);
+  }
+
+  60% {
+    transform: translate(2px, -1px) scale(1.02);
+  }
+
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes survival-cash-flash {
+  0%,
+  40% {
+    color: #fff;
+    text-shadow:
+      0 0 12px rgb(255 255 255 / 0.8),
+      var(--cash-outline);
+  }
+
+  100% {
+    color: var(--ui-bone);
+    text-shadow: var(--cash-outline);
+  }
+}
+
+@keyframes survival-cash-gain {
+  0% {
+    opacity: 0;
+    transform: translate(0, 6px) scale(0.8);
+  }
+
+  15% {
+    opacity: 1;
+    transform: translate(calc(var(--gain-drift) * 0.2), 0) scale(1.15);
+  }
+
+  30% {
+    transform: translate(calc(var(--gain-drift) * 0.4), -4px) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(var(--gain-drift), var(--gain-rise)) scale(0.95);
+  }
+}
+
+/* Reduced motion keeps the readout — the flash — and drops the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .survival-cash.is-hit {
+    animation: none;
+  }
+
+  .survival-cash__gain {
+    animation-name: survival-cash-gain-still;
+    animation-timing-function: linear;
+  }
+
+  @keyframes survival-cash-gain-still {
+    0%,
+    70% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
 }
 
 /*
@@ -4769,8 +4987,14 @@ button:disabled {
     border-bottom: 1px solid var(--ui-edge);
   }
 
-  .survival-earned {
-    padding-top: 7px;
+  /* Keep the wallet clear of the wave strip once the corners close in. */
+  .survival-cash {
+    top: 8px;
+    left: 10px;
+  }
+
+  .survival-cash__value {
+    font-size: var(--ui-text-28);
   }
 
   .survival-gameover {

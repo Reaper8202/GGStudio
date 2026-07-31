@@ -2630,6 +2630,139 @@ export class VfxSystem {
   }
 
   /**
+   * A thrower letting go of a box. Deliberately small — a hand-height flash and
+   * a short cone of witch-light along the throw — because its job is to tell
+   * the player *which* body in the horde just fired at them, not to compete
+   * with the impact. `dirX/dirZ` is the normalised throw direction.
+   */
+  throwerRelease(
+    x: number,
+    y: number,
+    z: number,
+    dirX: number,
+    dirZ: number,
+  ): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y, z, 1.1, 0.09, VFX_PALETTE.necroPale);
+
+    const motes = this.count(8, detail);
+    for (let i = 0; i < motes; i++) {
+      const spread = this.randSigned(0.45);
+      const speed = this.rand(2.5, 5.5);
+      this.reset0();
+      this.spec.x = x + dirX * this.rand(0, 0.35);
+      this.spec.y = y + this.randSigned(0.18);
+      this.spec.z = z + dirZ * this.rand(0, 0.35);
+      this.spec.vx = dirX * speed + dirZ * spread * speed;
+      this.spec.vy = this.rand(0.6, 2.2);
+      this.spec.vz = dirZ * speed - dirX * spread * speed;
+      this.spec.size = this.rand(0.1, 0.18);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.2, 0.36);
+      this.spec.colorStart = VFX_PALETTE.necroPale;
+      this.spec.colorEnd = VFX_PALETTE.necro;
+      this.spec.gravity = 1.2;
+      this.spec.drag = 2.8;
+      this.spec.spin = 6;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
+   * Witch-light bleeding off a box in flight. Ticked repeatedly along the arc,
+   * so like `overdriveTrail` it emits a couple of motes per call rather than a
+   * burst: the trail is what makes an incoming lob readable against a dark
+   * arena, and it has to cost about as little per call as it does often.
+   */
+  throwerTrail(x: number, y: number, z: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const motes = this.count(2, detail);
+    for (let i = 0; i < motes; i++) {
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.12);
+      this.spec.y = y + this.randSigned(0.12);
+      this.spec.z = z + this.randSigned(0.12);
+      this.spec.vx = this.randSigned(0.5);
+      this.spec.vy = this.rand(-0.2, 0.8);
+      this.spec.vz = this.randSigned(0.5);
+      this.spec.size = this.rand(0.12, 0.22);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.22, 0.4);
+      this.spec.colorStart = VFX_PALETTE.necroPale;
+      this.spec.colorEnd = VFX_PALETTE.necroDeep;
+      this.spec.gravity = -0.6;
+      this.spec.drag = 1.4;
+      this.spec.spin = 5;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
+   * A box coming apart, wherever it stops — armour, ground, or thin air at the
+   * end of its life. The lit splinters are what sell it as a physical object
+   * breaking rather than a spell going off; the glow ring on top keeps it in
+   * the same violet family as the trail that led into it.
+   */
+  throwerImpact(x: number, y: number, z: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y, z, 1.5, 0.11, VFX_PALETTE.necroPale);
+
+    const shards = this.count(10, detail);
+    for (let i = 0; i < shards; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(2, 5.5);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y;
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(1.5, 4.5);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.1, 0.2);
+      this.spec.endSize = this.spec.size * 0.7;
+      this.spec.lifeSeconds = this.rand(0.4, 0.7);
+      this.spec.colorStart = VFX_PALETTE.necro;
+      this.spec.colorEnd = VFX_PALETTE.necroDeep;
+      this.spec.gravity = -11;
+      this.spec.drag = 0.7;
+      this.spec.spin = 7;
+      this.spec.bounce = 0.25;
+      this.lit.spawn(this.take());
+    }
+
+    const ring = this.count(10, detail);
+    for (let i = 0; i < ring; i++) {
+      const angle =
+        (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.2);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y;
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * this.rand(2.4, 4.4);
+      this.spec.vy = this.rand(0.4, 1.6);
+      this.spec.vz = Math.sin(angle) * this.rand(2.4, 4.4);
+      this.spec.size = this.rand(0.14, 0.24);
+      this.spec.endSize = 0.03;
+      this.spec.lifeSeconds = this.rand(0.24, 0.4);
+      this.spec.colorStart = VFX_PALETTE.necroPale;
+      this.spec.colorEnd = VFX_PALETTE.necro;
+      this.spec.gravity = 0;
+      this.spec.drag = 2;
+      this.spec.spin = 6;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
    * One puff of the vial boss's trailing gas cloud, vented repeatedly by
    * `GasTrail` along the hazard chain behind it — slow, drifting motes rather
    * than a burst, so consecutive puffs blend into one hanging cloud that

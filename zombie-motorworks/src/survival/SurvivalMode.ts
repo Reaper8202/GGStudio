@@ -110,6 +110,12 @@ import { FuelPickups } from './FuelPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import { PhaseGhosts } from './PhaseGhosts.ts';
+import {
+  chassisFootprintRadiusM,
+  ORBIT_MARGIN_M,
+  ThreatPointer,
+  type ThreatTarget,
+} from './ThreatPointer.ts';
 import type { Arena } from './arena/Arena.ts';
 import { ArenaBuilder } from './arena/ArenaBuilder.ts';
 import { DEFAULT_BIOME_ID, getBiome } from './arena/recipes/index.ts';
@@ -192,6 +198,14 @@ const PHASE_MIN_TRAVEL_M = 0.75;
 const WARNING_REFRESH_INTERVAL_SECONDS = 0.25;
 /** Distance at which a blast stops shaking the camera at all, m. */
 const CAMERA_SHAKE_FALLOFF_M = 26;
+/** Stand-in for "nothing to point at", so idle frames allocate nothing. */
+const EMPTY_TARGETS: readonly ThreatTarget[] = [];
+/**
+ * Window in which back-to-back kill payouts fold into one floating chit. Kept
+ * tight on purpose: a pack of kills should throw a spray of numbers, not one
+ * merged total. It only catches payouts landing in the same handful of frames.
+ */
+const CASH_GAIN_MERGE_MS = 45;
 
 /**
  * Scuttle charge ("self-destruct", K).
@@ -454,8 +468,9 @@ interface SurvivalUi {
   bossHealthTrack: HTMLDivElement;
   bossHealthFill: HTMLSpanElement;
   bossHealthValue: HTMLSpanElement;
-  moneyValue: HTMLSpanElement;
-  pendingMoneyValue: HTMLSpanElement;
+  cashCounter: HTMLDivElement;
+  cashValue: HTMLSpanElement;
+  cashGains: HTMLDivElement;
   stuckPrompt: HTMLDivElement;
   selfDestructButton: HTMLButtonElement;
   selfDestructHint: HTMLSpanElement;
@@ -584,6 +599,8 @@ export class SurvivalMode {
   private readonly abilityBar: AbilityBar;
   /** Onion-skin copies of the rig left along a phase blink. */
   private readonly phaseGhosts: PhaseGhosts;
+  /** Ground chevron orbiting the rig, aimed at the nearest live zombie. */
+  private readonly threatPointer: ThreatPointer;
   /** Translucent blue bubble shown while the shield special is active. */
   private shieldBubble: THREE.Mesh | null = null;
   private shieldBubbleMaterial: THREE.MeshBasicMaterial | null = null;
@@ -622,8 +639,9 @@ export class SurvivalMode {
   private readonly bossHealthTrack: HTMLDivElement;
   private readonly bossHealthFill: HTMLSpanElement;
   private readonly bossHealthValue: HTMLSpanElement;
-  private readonly moneyValue: HTMLSpanElement;
-  private readonly pendingMoneyValue: HTMLSpanElement;
+  private readonly cashCounter: HTMLDivElement;
+  private readonly cashValue: HTMLSpanElement;
+  private readonly cashGains: HTMLDivElement;
   private readonly stuckPrompt: HTMLDivElement;
   private readonly selfDestructButton: HTMLButtonElement;
   private readonly selfDestructHint: HTMLSpanElement;
@@ -666,8 +684,11 @@ export class SurvivalMode {
   private lastHudSpeed = -1;
   private lastHudWave = -1;
   private lastHudScore = -1;
-  private lastHudMoney = -1;
-  private lastHudPending = -1;
+  private lastHudCash = -1;
+  /** Merges rapid kill payouts into one rising "+$" chit instead of a pile. */
+  private lastCashGain: { element: HTMLSpanElement; amount: number } | null =
+    null;
+  private lastCashGainAt = 0;
   private lastCountdownSecond = -1;
   private pendingWaveKillReward = 0;
   private pendingWaveReward = 0;
@@ -825,6 +846,13 @@ export class SurvivalMode {
       run.seed ?? randomSeed(),
     );
     this.vehicle = this.spawnVehicle(bp);
+    // Measured while the chassis group still sits at the origin under an
+    // identity transform (syncView is what first moves it), so this world box
+    // is also the vehicle-local one.
+    this.threatPointer = new ThreatPointer(
+      this.scene,
+      chassisFootprintRadiusM(this.vehicleGroup) + ORBIT_MARGIN_M,
+    );
     this.followCamera = new FollowCamera(
       this.camera,
       this.vehicle,
@@ -894,8 +922,9 @@ export class SurvivalMode {
     this.bossHealthTrack = builtUi.bossHealthTrack;
     this.bossHealthFill = builtUi.bossHealthFill;
     this.bossHealthValue = builtUi.bossHealthValue;
-    this.moneyValue = builtUi.moneyValue;
-    this.pendingMoneyValue = builtUi.pendingMoneyValue;
+    this.cashCounter = builtUi.cashCounter;
+    this.cashValue = builtUi.cashValue;
+    this.cashGains = builtUi.cashGains;
     this.stuckPrompt = builtUi.stuckPrompt;
     this.selfDestructButton = builtUi.selfDestructButton;
     this.selfDestructHint = builtUi.selfDestructHint;
@@ -928,6 +957,7 @@ export class SurvivalMode {
           this.vehicleGroup,
           ...this.wheelMeshes.values(),
           this.zombieVisualRoot,
+          this.threatPointer.root,
         ],
         ready: this.arena.whenReady(),
       },
@@ -1157,21 +1187,24 @@ export class SurvivalMode {
     fuel.append(fuelHeader, fuelTrack);
     // Specials live in their own centre-screen bar (see AbilityBar), not in
     // this corner panel — the driver reads them mid-fight, eyes on the road.
-    const moneyRow = document.createElement('div');
-    moneyRow.className = 'survival-earned';
-    const moneyLabel = document.createElement('span');
-    moneyLabel.textContent = 'Money Earned';
-    const moneyValue = document.createElement('span');
-    moneyRow.append(moneyLabel, moneyValue);
-    const pendingMoneyRow = document.createElement('div');
-    pendingMoneyRow.className = 'survival-earned';
-    const pendingMoneyLabel = document.createElement('span');
-    pendingMoneyLabel.textContent = 'Pending';
-    const pendingMoneyValue = document.createElement('span');
-    pendingMoneyRow.append(pendingMoneyLabel, pendingMoneyValue);
     // Score lives in the wave strip up top, next to the wave it was earned on.
-    hud.append(speedRow, health, fuel, moneyRow, pendingMoneyRow);
+    hud.append(speedRow, health, fuel);
     root.appendChild(hud);
+
+    // Cash: one big number in the free top-left corner. Banked earnings and the
+    // wave's unbanked kill money read as a single wallet, so a kill visibly
+    // moves the number the driver is playing for rather than a second tally.
+    const cashCounter = document.createElement('div');
+    cashCounter.className = 'survival-cash';
+    cashCounter.setAttribute('role', 'status');
+    cashCounter.setAttribute('aria-label', 'Money');
+    const cashValue = document.createElement('span');
+    cashValue.className = 'survival-cash__value';
+    const cashGains = document.createElement('div');
+    cashGains.className = 'survival-cash__gains';
+    cashGains.setAttribute('aria-hidden', 'true');
+    cashCounter.append(cashValue, cashGains);
+    root.appendChild(cashCounter);
 
     // Both driver prompts live in one centred row, so whichever are up sit
     // side by side and read as the same kind of offer: a key, right now.
@@ -1480,8 +1513,9 @@ export class SurvivalMode {
       bossHealthTrack,
       bossHealthFill,
       bossHealthValue,
-      moneyValue,
-      pendingMoneyValue,
+      cashCounter,
+      cashValue,
+      cashGains,
       stuckPrompt,
       selfDestructButton,
       selfDestructHint,
@@ -1580,7 +1614,7 @@ export class SurvivalMode {
   private readonly onInfiniteMoney = (): void => {
     if (this.disposed) return;
     this.callbacks.onCheatInfiniteMoney();
-    this.lastHudMoney = -1;
+    this.lastHudCash = -1;
     this.settingsStatus.textContent = 'Money set to the maximum safe amount.';
   };
 
@@ -2169,6 +2203,7 @@ export class SurvivalMode {
     this.vfx.reset();
     this.tracerRenderer.reset();
     this.phaseGhosts.clear();
+    this.threatPointer.reset();
     // Re-baseline damage tracking: carried-over wave damage is not a new hit.
     this.lastLiveHealth = -1;
     this.warningRefreshSeconds = 0;
@@ -2225,7 +2260,65 @@ export class SurvivalMode {
       return;
     }
     const next = this.pendingWaveKillReward + amount;
-    if (Number.isSafeInteger(next)) this.pendingWaveKillReward = next;
+    if (!Number.isSafeInteger(next)) return;
+    this.pendingWaveKillReward = next;
+    this.popCashGain(amount);
+  }
+
+  /**
+   * The one number the corner shows: the whole wallet the player spends in the
+   * garage, plus what this wave has earned but not yet banked. Run earnings are
+   * already part of the profile balance, so this is the full total, not a
+   * per-round tally.
+   */
+  private hudCashTotal(): number {
+    const banked = this.callbacks.profileMoney();
+    const pending =
+      this.phase === 'active' || this.phase === 'cleared'
+        ? this.pendingWaveTotal()
+        : 0;
+    // Clamp rather than reject: the infinite-money cheat parks the balance at
+    // the safe-integer ceiling, and pending cash on top must not blank the HUD.
+    const total = Math.min(banked + pending, Number.MAX_SAFE_INTEGER);
+    return total > 0 ? Math.floor(total) : 0;
+  }
+
+  /**
+   * Kicks the counter and floats the kill's payout off it. Each chit gets its
+   * own scatter so a pack of kills throws a spray of numbers instead of laying
+   * them on top of each other.
+   */
+  private popCashGain(amount: number): void {
+    const now = performance.now();
+    const merged = this.lastCashGain;
+    if (merged && now - this.lastCashGainAt < CASH_GAIN_MERGE_MS) {
+      merged.amount += amount;
+      merged.element.textContent = `+$${merged.amount}`;
+    } else {
+      const chit = document.createElement('span');
+      chit.className = 'survival-cash__gain';
+      chit.textContent = `+$${amount}`;
+      chit.style.setProperty(
+        '--gain-drift',
+        `${Math.round((Math.random() - 0.5) * 54)}px`,
+      );
+      chit.style.setProperty(
+        '--gain-rise',
+        `${-34 - Math.round(Math.random() * 20)}px`,
+      );
+      chit.addEventListener('animationend', () => {
+        chit.remove();
+        if (this.lastCashGain?.element === chit) this.lastCashGain = null;
+      });
+      this.cashGains.appendChild(chit);
+      this.lastCashGain = { element: chit, amount };
+    }
+    this.lastCashGainAt = now;
+    // Restart the kick even mid-animation: kills in quick succession should
+    // each land, not be swallowed by the class already being set.
+    this.cashCounter.classList.remove('is-hit');
+    void this.cashCounter.offsetWidth;
+    this.cashCounter.classList.add('is-hit');
   }
 
   private pendingWaveTotal(): number {
@@ -2236,7 +2329,7 @@ export class SurvivalMode {
   private discardPendingWaveRewards(): void {
     this.pendingWaveKillReward = 0;
     this.pendingWaveReward = 0;
-    this.lastHudPending = -1;
+    this.lastHudCash = -1;
   }
 
   private bankPendingWaveRewards(): void {
@@ -2517,6 +2610,15 @@ export class SurvivalMode {
     this.syncCharmPulse(frameDt);
     this.syncExplosions(frameDt);
     this.syncThumpRing(frameDt);
+    this.threatPointer.update(
+      frameDt,
+      position.x,
+      position.y,
+      position.z,
+      // Only while the wave is being fought: between waves there is nothing to
+      // warn about, and the countdown should not show a marker.
+      this.phase === 'active' ? this.zombies.getAliveTargets() : EMPTY_TARGETS,
+    );
     this.syncOverdriveTrail();
     this.phaseGhosts.update(frameDt);
     this.tracerRenderer.update(frameDt, this.camera);
@@ -3605,18 +3707,10 @@ export class SurvivalMode {
       this.lastHudScore = this.runScore;
       this.waveTimelineHud.setScore(this.runScore);
     }
-    const money = this.callbacks.runEarnings();
-    if (money !== this.lastHudMoney) {
-      this.lastHudMoney = money;
-      this.moneyValue.textContent = `$${money}`;
-    }
-    const pendingMoney =
-      this.phase === 'active' || this.phase === 'cleared'
-        ? this.pendingWaveTotal()
-        : 0;
-    if (pendingMoney !== this.lastHudPending) {
-      this.lastHudPending = pendingMoney;
-      this.pendingMoneyValue.textContent = `+$${pendingMoney}`;
+    const cash = this.hudCashTotal();
+    if (cash !== this.lastHudCash) {
+      this.lastHudCash = cash;
+      this.cashValue.textContent = `$${cash}`;
     }
     if (this.phase === 'countdown') {
       const second = Math.max(1, Math.ceil(this.countdownRemaining));
@@ -3954,6 +4048,7 @@ export class SurvivalMode {
     // Before the scene walk below: the ghosts share the vehicle's geometry, so
     // they have to be off the graph before it is disposed.
     this.phaseGhosts.dispose();
+    this.threatPointer.dispose();
     disposeObject(this.scene);
     this.scene.clear();
     this.wheelMeshes.clear();

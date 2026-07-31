@@ -17,11 +17,14 @@ import {
 } from '../src/core/mass.ts';
 
 describe('zombie ram and drag balance', () => {
-  it('uses the gentler health ramp and introduces one thrower at wave 3', () => {
+  it('uses the gentler health ramp and opens with a thrower squad at wave 3', () => {
     expect(healthMultiplierForWave(5)).toBeCloseTo(1.24);
     expect(healthMultiplierForWave(21)).toBe(2.2);
     expect(zombieCompositionForWave(2).thrower).toBe(0);
-    expect(zombieCompositionForWave(3).thrower).toBe(1);
+    expect(zombieCompositionForWave(3).thrower).toBe(4);
+    // Gunslingers hold back a wave so wave 3 reads as the ranged wave.
+    expect(zombieCompositionForWave(3).gunslinger).toBe(0);
+    expect(zombieCompositionForWave(4).gunslinger).toBe(1);
   });
 
   it('uses 40 km/h damage and 80 km/h lethal ram thresholds', () => {

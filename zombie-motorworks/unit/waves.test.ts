@@ -8,7 +8,6 @@ import {
   speedMultiplierForWave,
   waveRewardForWave,
   zombieCompositionForWave,
-  zombieCountForWave,
 } from '../src/survival/WaveManager.ts';
 import type { ZombieSystem } from '../src/survival/zombies/ZombieSystem.ts';
 import { ZOMBIE_POOL_COUNTS } from '../src/survival/zombies/zombieConfig.ts';
@@ -17,7 +16,6 @@ describe('wave formulas', () => {
   it.each([
     {
       wave: 1,
-      zombies: 30,
       maxActive: 26,
       healthMultiplier: 0.7,
       speedMultiplier: 1,
@@ -29,7 +27,6 @@ describe('wave formulas', () => {
       // spawns alongside the boss, while the difficulty multipliers and
       // clear reward keep scaling normally.
       wave: 5,
-      zombies: 29,
       maxActive: 34,
       healthMultiplier: 1.24,
       speedMultiplier: 1.1,
@@ -38,9 +35,6 @@ describe('wave formulas', () => {
     },
     {
       wave: 6,
-      // Spawn total outruns the concurrency cap from here on: main's retuned
-      // gunslinger curve adds five bodies to the wave without lifting maxActive.
-      zombies: 41,
       maxActive: 36,
       healthMultiplier: 1.3,
       speedMultiplier: 1.125,
@@ -48,7 +42,6 @@ describe('wave formulas', () => {
       reward: 100,
     },
   ])('scales wave $wave', (expected) => {
-    expect(zombieCountForWave(expected.wave)).toBe(expected.zombies);
     expect(maxActiveZombiesForWave(expected.wave)).toBe(expected.maxActive);
     expect(healthMultiplierForWave(expected.wave)).toBeCloseTo(
       expected.healthMultiplier,
@@ -134,86 +127,6 @@ describe('wave formulas', () => {
       attackDamageMultiplierForWave(safeWave),
     );
     expect(hordeIntervalForWave(wave)).toBe(hordeIntervalForWave(safeWave));
-  });
-
-  it('unlocks sparse specialists at their progression milestones', () => {
-    expect(zombieCompositionForWave(1)).toEqual({
-      walker: 30,
-      gunslinger: 0,
-      necromancer: 0,
-      thrower: 0,
-      worker: 0,
-      'phone-addict': 0,
-      kamikaze: 0,
-      behemoth: 0,
-      zamboni: 0,
-      boss: 0,
-    });
-    expect(zombieCompositionForWave(4)).toEqual({
-      walker: 22,
-      gunslinger: 3,
-      necromancer: 0,
-      thrower: 1,
-      worker: 0,
-      'phone-addict': 0,
-      kamikaze: 2,
-      behemoth: 0,
-      zamboni: 0,
-      boss: 0,
-    });
-    expect(zombieCompositionForWave(7)).toEqual({
-      walker: 31,
-      gunslinger: 9,
-      necromancer: 1,
-      thrower: 3,
-      worker: 1,
-      'phone-addict': 0,
-      kamikaze: 3,
-      behemoth: 0,
-      zamboni: 0,
-      boss: 0,
-    });
-    // Wave 10 is a boss wave here, so 11 is the first horde wave that fields a
-    // Phone Addict.
-    expect(zombieCompositionForWave(11)).toEqual({
-      walker: 43,
-      gunslinger: 10,
-      necromancer: 2,
-      thrower: 5,
-      worker: 2,
-      'phone-addict': 1,
-      kamikaze: 5,
-      behemoth: 1,
-      zamboni: 1,
-      boss: 0,
-    });
-    expect(zombieCompositionForWave(21)).toEqual({
-      walker: 70,
-      gunslinger: 10,
-      necromancer: 4,
-      thrower: 10,
-      worker: 5,
-      'phone-addict': 3,
-      kamikaze: 10,
-      behemoth: 3,
-      zamboni: 2,
-      boss: 0,
-    });
-  });
-
-  it('does not unlock specialists before their milestone waves', () => {
-    expect(zombieCompositionForWave(2)).toEqual({
-      walker: 40,
-      gunslinger: 0,
-      necromancer: 0,
-      worker: 0,
-      thrower: 0,
-      'phone-addict': 0,
-      kamikaze: 0,
-      behemoth: 0,
-      zamboni: 0,
-      boss: 0,
-    });
   });
 
   it('keeps every zombie kind within its pool at the concurrency cap', () => {

@@ -1,11 +1,13 @@
 /**
- * Editor palette presentation + interactive tutorial step machine (pure logic).
- * The editor overlay renders these steps; predicates inspect the blueprint so
- * progress advances automatically as the player builds.
+ * Editor palette presentation + the guided garage tour (pure logic).
+ *
+ * The tour is a coach-mark walk through the garage rather than a scripted
+ * build: it names each panel in turn, then hands the player the loop itself —
+ * buy a part, bolt it on, take the truck out. It never touches the blueprint,
+ * so running it on a half-finished rig costs the player nothing.
  */
 
 import type { PartDefinition, VehicleBlueprint } from './types.ts';
-import { createEmptyBlueprint, withPartAdded } from './blueprint.ts';
 import { validateBlueprint } from './placement.ts';
 
 export type GetDef = (defId: string) => PartDefinition;
@@ -152,82 +154,165 @@ export const KID_LABELS: Record<string, PartLabel> = {
   },
 };
 
-export interface TutorialStep {
+/**
+ * Which piece of garage furniture a tour step points at. The overlay resolves
+ * these to elements; `core` stays free of the DOM.
+ */
+export type TourAnchor =
+  | 'viewport'
+  | 'store'
+  | 'stats'
+  | 'abilities'
+  | 'buildBar'
+  | 'fight';
+
+/** Everything the tour needs to know about the garage at one instant. */
+export interface GarageTourSnapshot {
+  /** Parts bought but not yet placed. */
+  inventoryCount: number;
+  /** Parts on the rig, Chassis Core excluded. */
+  placedPartCount: number;
+  /** The rig passes validation, so a wave can be started. */
+  canFight: boolean;
+}
+
+export interface GarageTourStep {
   id: string;
-  /** Short instructional title. */
+  /** Heading of the coach card. */
   title: string;
-  /** Short instruction telling the player exactly what to do. */
+  /** What this part of the garage is for. */
   text: string;
-  /** Palette part to highlight while this step is active. */
-  paletteDefId?: string;
-  isComplete(bp: VehicleBlueprint, getDef: GetDef): boolean;
+  /** Garage furniture the card points at. */
+  anchor: TourAnchor;
+  /**
+   * Whether the spotlight dims the rest of the garage. Steps whose real work
+   * happens on the truck itself only ring their anchor, because the scrim would
+   * black out the thing the player has to click.
+   */
+  dim?: boolean;
+  /**
+   * `next` waits on the tour's own button; `action` waits on the player doing
+   * the thing, and `isDone` says when they have.
+   */
+  advance: 'next' | 'action';
+  /** Imperative one-liner shown on action steps: the thing to actually do. */
+  action?: string;
+  isDone?(now: GarageTourSnapshot, start: GarageTourSnapshot): boolean;
 }
 
-function countOf(bp: VehicleBlueprint, defId: string): number {
-  return bp.parts.filter((part) => part.defId === defId).length;
+/** Parts the player has paid for, wherever they currently sit. */
+function partsOwned(state: GarageTourSnapshot): number {
+  return state.inventoryCount + state.placedPartCount;
 }
 
-/** The guided build: frame → wheels → engine → fuel → drive. */
-const BUILD_STEPS: readonly TutorialStep[] = [
+/**
+ * Four stops that name the garage, then the loop itself. The action steps
+ * compare against the snapshot taken when the tour started rather than against
+ * absolute counts, so a player who already owns a yard full of parts still has
+ * to buy one to move on.
+ */
+export const GARAGE_TOUR_STEPS: readonly GarageTourStep[] = [
   {
-    id: 'frame',
-    title: 'Build the frame',
-    text: 'Add 4 Blocks around the orange Truck Heart. Right-click a mistake to erase.',
-    paletteDefId: 'frame-box',
-    isComplete: (bp) =>
-      countOf(bp, 'frame-box') + countOf(bp, 'frame-reinforced') >= 4,
+    id: 'welcome',
+    title: 'Welcome to the Garage',
+    text: 'This is where the truck gets built. Four quick stops, then you run the loop yourself. Nothing you have already built gets touched.',
+    anchor: 'viewport',
+    advance: 'next',
   },
   {
-    id: 'wheels',
-    title: 'Wheels on',
-    text: 'Put 4 Wheels straight onto the outside Blocks. Wheels set themselves up.',
-    paletteDefId: 'wheel-standard',
-    isComplete: (bp) =>
-      countOf(bp, 'wheel-standard') + countOf(bp, 'wheel-offroad') >= 4,
+    id: 'store',
+    title: 'The Store',
+    text: 'Every block, wheel, gun, and gadget is bought here. The tabs split the shelves into Essentials, Weapons, Defence, and Mobility, and each tile carries its price. Your cash sits up in the top-right corner.',
+    anchor: 'store',
+    advance: 'next',
   },
   {
-    id: 'engine',
-    title: 'Engine time',
-    text: 'Snap on an Engine.',
-    paletteDefId: 'engine-small',
-    isComplete: (bp) => countOf(bp, 'engine-small') >= 1,
+    id: 'stats',
+    title: 'Vehicle Stats',
+    text: 'The read-out for the whole truck: how heavy it is, how likely it is to roll, how much damage it puts out, and how fast it goes. Watch these move as you bolt parts on.',
+    anchor: 'stats',
+    advance: 'next',
   },
   {
-    id: 'fuel',
-    title: 'Fuel it up',
-    text: 'Add a Fuel Tank.',
-    paletteDefId: 'fuel-tank',
-    isComplete: (bp) => countOf(bp, 'fuel-tank') >= 1,
+    id: 'abilities',
+    title: 'Abilities',
+    text: 'Some parts bring an ability you fire by hand mid-wave with Q, E, and R. Three boxes, so three abilities — click a box to change which part fills it.',
+    anchor: 'abilities',
+    advance: 'next',
+  },
+  {
+    id: 'buy',
+    title: 'Buy a part',
+    text: 'Your turn. Pick anything you can afford in the Store and click its tile. Buying puts the part straight in your hands, ready to place.',
+    action: 'Buy any part from the Store',
+    anchor: 'store',
+    advance: 'action',
+    isDone: (now, start) => partsOwned(now) > partsOwned(start),
+  },
+  {
+    id: 'attach',
+    title: 'Bolt it on',
+    text: 'Move over the truck and click a green cell to attach the part — red means it cannot go there, because everything has to touch what it mounts to. The build bar along the bottom keeps your blocks one click away.',
+    action: 'Attach the part to the truck',
+    anchor: 'buildBar',
+    // The truck is the target here, so nothing gets dimmed.
+    dim: false,
+    advance: 'action',
+    isDone: (now, start) => now.placedPartCount > start.placedPartCount,
+  },
+  {
+    id: 'fight',
+    title: 'Start the wave',
+    text: 'That is the whole loop: buy, bolt on, drive out. Press Fight Zombies to take this truck into a wave — the tour ends the moment you do.',
+    action: 'Press Fight Zombies',
+    anchor: 'fight',
+    advance: 'action',
   },
 ];
 
-export const TUTORIAL_STEPS: readonly TutorialStep[] = [
-  ...BUILD_STEPS,
-  {
-    id: 'drive',
-    title: 'Ready to roll',
-    text: 'Press TEST DRIVE!',
-    isComplete: (bp, getDef) =>
-      validateBlueprint(bp, getDef).errors.length === 0 &&
-      BUILD_STEPS.every((step) => step.isComplete(bp, getDef)),
-  },
-];
-
-/** Fresh blueprint the tutorial starts from: just the Truck Heart placed. */
-export function createTutorialBlueprint(): VehicleBlueprint {
-  return withPartAdded(createEmptyBlueprint('my-first-truck'), {
-    id: 'p1',
-    defId: 'chassis-core',
-    pos: { x: 0, y: 1, z: 0 },
-    orient: 0,
-    config: {},
-  });
-}
-
-/** Index of the first incomplete step; TUTORIAL_STEPS.length when finished. */
-export function tutorialProgress(bp: VehicleBlueprint, getDef: GetDef): number {
-  for (let i = 0; i < TUTORIAL_STEPS.length; i++) {
-    if (!TUTORIAL_STEPS[i].isComplete(bp, getDef)) return i;
+/** Reads the garage state the tour's action steps are measured against. */
+export function garageTourSnapshot(
+  bp: VehicleBlueprint,
+  inventory: Readonly<Record<string, number>>,
+  getDef: GetDef,
+): GarageTourSnapshot {
+  let inventoryCount = 0;
+  for (const count of Object.values(inventory)) {
+    if (Number.isFinite(count) && count > 0) inventoryCount += count;
   }
-  return TUTORIAL_STEPS.length;
+  return {
+    inventoryCount,
+    placedPartCount: bp.parts.filter((part) => part.defId !== 'chassis-core')
+      .length,
+    canFight: validateBlueprint(bp, getDef).errors.length === 0,
+  };
+}
+
+/** Has the player done what this step asked? Narration steps never have. */
+export function tourStepDone(
+  step: GarageTourStep,
+  now: GarageTourSnapshot,
+  start: GarageTourSnapshot,
+): boolean {
+  return step.advance === 'action' && (step.isDone?.(now, start) ?? false);
+}
+
+/**
+ * Index to sit on after a garage change. Only action steps advance on their
+ * own — narration waits on the Next button — and several can fall at once when
+ * a single click both buys a part and places it.
+ */
+export function advanceGarageTour(
+  index: number,
+  now: GarageTourSnapshot,
+  start: GarageTourSnapshot,
+): number {
+  let next = Math.max(0, index);
+  while (
+    next < GARAGE_TOUR_STEPS.length &&
+    tourStepDone(GARAGE_TOUR_STEPS[next], now, start)
+  ) {
+    next += 1;
+  }
+  return next;
 }

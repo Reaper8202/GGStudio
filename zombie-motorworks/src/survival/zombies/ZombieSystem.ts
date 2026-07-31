@@ -377,7 +377,7 @@ export class ZombieSystem {
       4,
       8,
     );
-    this.projectiles = new ThrowerProjectiles(scene);
+    this.projectiles = new ThrowerProjectiles(scene, vfx);
     this.landmines = new Landmines(scene);
     this.iceTrail = new IceTrail(scene);
     this.acidPuddles = new AcidPuddles(scene);
@@ -951,13 +951,27 @@ export class ZombieSystem {
   private launchProjectileFrom(zombie: Zombie): void {
     const target = zombie.vehicleTarget;
     if (target.partId === null) return;
+    const fromY = zombie.position.y + PROJECTILE_LAUNCH_HEIGHT;
     this.projectiles.launch(
       zombie.position.x,
-      zombie.position.y + PROJECTILE_LAUNCH_HEIGHT,
+      fromY,
       zombie.position.z,
       target.x,
       target.y,
       target.z,
+    );
+    // Flash at the hand, pointing the way the box went, so the shooter is
+    // identifiable in a horde the moment it fires rather than only once the
+    // projectile is halfway across.
+    const dx = target.x - zombie.position.x;
+    const dz = target.z - zombie.position.z;
+    const length = Math.hypot(dx, dz) || 1;
+    this.vfx?.throwerRelease(
+      zombie.position.x,
+      fromY,
+      zombie.position.z,
+      dx / length,
+      dz / length,
     );
   }
 

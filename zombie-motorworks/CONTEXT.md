@@ -244,8 +244,12 @@ Storage access failures must not make the in-memory game unusable.
 - `App.ts`, `EditorMode.ts`, and `SurvivalMode.ts` are large orchestration
   Modules. Changes that span them need one integration owner because callback
   ordering is part of their Interface.
-- The existing tutorial is editor-owned and resets the active editor Blueprint.
-  Do not assume it is an isolated full-loop tutorial.
+- The tutorial is a coach-mark **Garage Tour**: it narrates the Store, Vehicle
+  Stats, and Abilities panels, then walks the player through buy → attach →
+  fight on whatever rig is already in the bay. It never mutates the Blueprint,
+  Profile, or Inventory, so it is safe to start at any point in a run. Its
+  action steps compare a live snapshot against the one taken when the tour
+  opened, never against absolute counts.
 
 ## Task Routing
 
@@ -278,7 +282,7 @@ the task crosses their Interface.
 | Minimap/mine detection             | `src/survival/Minimap.ts`                    | `arena/Arena.ts`, `Landmines.ts`, `turretModules.ts`                    | `unit/minimap.test.ts`, `unit/landmines.test.ts`                                                                |
 | Biome recipes/arena generation     | `src/survival/arena/recipes/index.ts`        | `arena/ArenaBuilder.ts`, `core/biomes.ts`, `core/rng.ts`                | `unit/biome-recipes.test.ts`, `unit/arena.test.ts`, `unit/arena-perimeter.test.ts`                              |
 | Surface grip/biome handling        | `src/core/surfaces.ts`                       | `core/biomes.ts`, `runtime/wheels.ts`, `runtime/vehicle.ts`             | `unit/surfaces.test.ts`, `unit/biome-hazard.test.ts`, `unit/biome-selection.test.ts`                            |
-| Tutorial                           | `src/core/tutorial.ts`                       | `editor/TutorialOverlay.ts`, `EditorMode.ts`, `ui.ts`                   | `unit/tutorial.test.ts`, `tests/tutorial.spec.ts`                                                               |
+| Garage Tour (tutorial)             | `src/core/tutorial.ts`                       | `editor/TutorialOverlay.ts`, `EditorMode.ts`, `ui.ts`, `style.css`      | none — verified by playing the tour                                                                             |
 | Title/resume flow                  | `src/app/TitleScreen.ts`                     | `App.ts`, `runSaveStore.ts`                                             | `tests/title.spec.ts`, `unit/app.test.ts`                                                                       |
 | CrazyGames SDK/lifecycle           | `src/app/crazyGamesSdk.ts`                   | `main.ts`, `App.ts`, `SurvivalMode.ts`, `sfx.ts`                        | `unit/crazygames-sdk.test.ts`, `unit/audio-volume.test.ts`                                                      |
 | Debug/browser Seam                 | `src/app/App.ts` (`installDebugSeam`)        | `tests/seam.ts`                                                         | the affected Playwright spec                                                                                    |

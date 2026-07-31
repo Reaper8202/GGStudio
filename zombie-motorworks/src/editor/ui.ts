@@ -7,7 +7,11 @@ import {
   withHotbarSlot,
 } from '../core/hotbar.ts';
 import { ABILITY_SLOT_KEYS } from '../core/abilities.ts';
-import { KID_LABELS, SIMPLE_PART_IDS } from '../core/tutorial.ts';
+import {
+  KID_LABELS,
+  SIMPLE_PART_IDS,
+  type TourAnchor,
+} from '../core/tutorial.ts';
 import {
   type PartDefinition,
   type PartConfig,
@@ -203,6 +207,10 @@ export interface EditorUI {
   ): void;
   setArmedPart(defId: string | null): void;
   highlightPaletteButton(defId: string | null): void;
+  /** Garage furniture the guided tour spotlights, by anchor name. */
+  tourAnchor(anchor: TourAnchor): HTMLElement | null;
+  /** Expand the Store dock panel so a tour step has something to point at. */
+  openStorePanel(): void;
   setStatus(text: string): void;
   /**
    * Ask where an imported build should go. Resolves to the player's choice, or
@@ -1336,9 +1344,9 @@ export function buildEditorUI(
   storeContent.appendChild(storeEmpty);
   inventoryContent.appendChild(inventoryEmpty);
 
-  // The build bar: a fixed row of slots, one per chosen block type. Slots keep
-  // their position whatever the inventory does, so muscle memory survives
-  // buying, placing, and running a type down to zero.
+  // The build bar: a fixed row of slots, one per chosen block type. A type the
+  // player has run down to zero leaves the bar along with its inventory tile,
+  // and buying more puts it back, so the bar only ever shows blocks on hand.
   const hotbarPanel = document.createElement('section');
   hotbarPanel.className = 'panel hotbar-panel';
   hotbarPanel.setAttribute('aria-label', 'Active block selection');
@@ -2219,6 +2227,20 @@ export function buildEditorUI(
       }
       applyToolStates();
     },
+    tourAnchor: (anchor) => {
+      const anchors: Record<TourAnchor, HTMLElement | null> = {
+        viewport: null,
+        store: store.panel,
+        stats: vehicleStats,
+        abilities: abilityLoadout,
+        buildBar: hotbarPanel,
+        fight: fightBtn,
+      };
+      return anchors[anchor];
+    },
+    openStorePanel: () => {
+      store.setCollapsed(false);
+    },
     setStatus,
     askShareImportTarget: (buildName) =>
       new Promise((resolve) => {
@@ -2393,12 +2415,12 @@ function buildWelcomeDialog(
   const wrap = document.createElement('div');
   wrap.className = 'panel welcome-panel';
   const prompt = document.createElement('div');
-  prompt.textContent = 'Want to learn how to build a truck?';
+  prompt.textContent = 'Want a quick tour of the garage?';
   const actions = document.createElement('div');
   actions.className = 'welcome-actions';
   const tutorial = document.createElement('button');
   tutorial.className = 'primary';
-  tutorial.textContent = 'Start Tutorial';
+  tutorial.textContent = 'Show Me Around';
   tutorial.addEventListener('click', onStartTutorial);
   const close = document.createElement('button');
   close.textContent = 'Explore Garage';

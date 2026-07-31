@@ -180,7 +180,9 @@ export const THROWER_HEALTH_MULTIPLIER = 1.6;
 export const THROWER_REWARD = 8;
 export const THROWER_ATTACK_RANGE = 13;
 export const THROWER_ATTACK_EXIT_MARGIN = 2;
-export const THROWER_ATTACK_INTERVAL = 2.8;
+/** A modest firerate buff over the old 2.8 s: still a dodgeable lob, but a
+ * standing thrower now keeps up enough pressure to be worth turning on. */
+export const THROWER_ATTACK_INTERVAL = 2.35;
 export const THROWER_VISUAL_HEIGHT = 1; // pre-baseScale model height, m
 
 // Gunslinger: the rigged GLB character (gunslinger.rigged.glb). Closes to

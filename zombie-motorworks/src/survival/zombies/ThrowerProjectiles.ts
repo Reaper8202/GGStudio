@@ -17,10 +17,15 @@ import {
   VIAL_MAX_FLIGHT_TIME,
   VIAL_MIN_FLIGHT_TIME,
 } from './zombieConfig.ts';
+import { VFX_PALETTE } from '../../vfx/vfxConfig.ts';
+import type { VfxSystem } from '../../vfx/VfxSystem.ts';
 
 const GRAVITY_MPS2 = 9.81;
 const GROUND_DESPAWN_Y = 0.1;
 const SPIN_RATE = 5; // rad/s, visual only
+/** How often a box vents a trail mote, seconds. Independent of the step rate
+ * so a physics substep never doubles the emission. */
+const BOX_TRAIL_INTERVAL = 0.045;
 
 /** Which look and flight feel a launched projectile uses. */
 export type ProjectileVariant = 'box' | 'vial';
@@ -99,6 +104,7 @@ interface Projectile {
   variant: ProjectileVariant;
   gravity: number;
   puddle: ProjectileSpec['puddle'];
+  trailTimer: number;
 }
 
 /**
@@ -120,7 +126,10 @@ export class ThrowerProjectiles {
   private readonly vialMaterial: THREE.MeshLambertMaterial;
   private disposed = false;
 
-  constructor(private readonly scene: THREE.Scene) {
+  constructor(
+    private readonly scene: THREE.Scene,
+    private readonly vfx: VfxSystem | null = null,
+  ) {
     this.boxGeometry = new THREE.BoxGeometry(
       PROJECTILE_SIZE,
       PROJECTILE_SIZE,
@@ -135,9 +144,14 @@ export class ThrowerProjectiles {
       3,
       6,
     );
+    // Lit to the same violet as the trail it trails, and emissive enough to
+    // stay legible against a dark arena while it is still far enough out to be
+    // dodged — an incoming lob the player never picks up is just unexplained
+    // damage. The glow is the light-independent half of that read; the
+    // per-mote trail on top is what makes the arc itself readable.
     this.boxMaterial = new THREE.MeshLambertMaterial({
-      color: 0x9b4fd6,
-      emissive: 0x38175c,
+      color: VFX_PALETTE.necro,
+      emissive: 0x6b23c4,
       flatShading: true,
     });
     // Glassy acid green with a faint glow, matching the alchemist and the
@@ -164,6 +178,7 @@ export class ThrowerProjectiles {
         variant: 'box',
         gravity: GRAVITY_MPS2,
         puddle: undefined,
+        trailTimer: 0,
       });
     }
   }
@@ -227,6 +242,7 @@ export class ThrowerProjectiles {
     slot.variant = spec.variant;
     slot.gravity = gravity;
     slot.puddle = spec.puddle;
+    slot.trailTimer = 0;
     slot.mesh.geometry =
       spec.variant === 'vial' ? this.vialGeometry : this.boxGeometry;
     slot.mesh.material =
@@ -278,6 +294,16 @@ export class ThrowerProjectiles {
       projectile.mesh.rotation.x += SPIN_RATE * dt;
       projectile.mesh.rotation.y += SPIN_RATE * 0.7 * dt;
 
+      // Boxes stream witch-light along the arc; a vial already reads on its own
+      // and carries the boss's gas trail besides.
+      if (projectile.variant === 'box') {
+        projectile.trailTimer -= dt;
+        if (projectile.trailTimer <= 0) {
+          projectile.trailTimer = BOX_TRAIL_INTERVAL;
+          this.vfx?.throwerTrail(position.x, position.y, position.z);
+        }
+      }
+
       if (
         projectile.life <= 0 ||
         position.y < GROUND_DESPAWN_Y ||
@@ -289,6 +315,9 @@ export class ThrowerProjectiles {
           projectile.hitRadius,
         )
       ) {
+        if (projectile.variant === 'box') {
+          this.vfx?.throwerImpact(position.x, position.y, position.z);
+        }
         onLand?.(
           position.x,
           position.y,

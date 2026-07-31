@@ -627,8 +627,10 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('spike-mount', 'frame', ORIGIN, 'nz')],
     massKg: 90,
     health: 130,
-    cost: 135,
-    upgrade: upgrade(135),
+    // The cheapest melee option on the shelf: all the damage sits on one thin
+    // contact point, so it undercuts the sawblade's wide sweep on price.
+    cost: 100,
+    upgrade: upgrade(100),
     reinforcement: 1,
     melee: {
       damage: 32,
@@ -736,9 +738,12 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 40,
     health: 90,
-    cost: 135,
-    upgrade: upgrade(135),
-    unlockCost: unlock(135),
+    // Cheap to get onto the shelf, dear to stock: the unlock is a low bar
+    // because auto-targeting throwers is the answer to a specific problem,
+    // and every extra barrel after that is priced as the premium it is.
+    cost: 150,
+    upgrade: upgrade(150),
+    unlockCost: 100,
     reinforcement: 1,
     weapon: {
       mountType: 'turret',
@@ -820,9 +825,12 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 120,
     health: 160,
-    cost: 290,
-    upgrade: upgrade(290),
-    unlockCost: unlock(290),
+    // Priced to be reachable: a panic button that saves a run is worth more
+    // to a player early than late, so neither the unlock nor the shelf price
+    // is allowed to push it into the endgame.
+    cost: 200,
+    upgrade: upgrade(200),
+    unlockCost: 150,
     reinforcement: 1.15,
     // Ability payload only (no `weapon`): SurvivalMode grants the vehicle
     // temporary invulnerability when this ability's slot key is pressed.
@@ -915,9 +923,12 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 110,
     health: 140,
-    cost: 270,
-    upgrade: upgrade(270),
-    unlockCost: unlock(270),
+    // Same reasoning as the Shield Generator: pure knockback with no damage
+    // behind it only earns its slot if it lands while the horde still fits in
+    // one blast, so it sits at the cheap end of the ability shelf.
+    cost: 180,
+    upgrade: upgrade(180),
+    unlockCost: 130,
     reinforcement: 1.15,
     // Player-triggered active ability only (no `weapon` payload): SurvivalMode
     // shoves every nearby zombie radially outward off the Q key. `baseDamage`

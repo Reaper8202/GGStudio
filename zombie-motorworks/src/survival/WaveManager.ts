@@ -42,8 +42,8 @@ function countFromCurve(
 /**
  * Extra walkers layered onto waves 1-3 only, on top of the normal curve.
  * Every kill pays out, so this is really an early-money bump: with barely
- * any specialists in play yet (gunslinger/thrower only just start at wave
- * 3, one each), more walkers just means more kill reward banked before the
+ * any specialists in play yet (throwers start at wave 3, gunslingers at
+ * wave 4), more walkers just means more kill reward banked before the
  * roster gets complicated. Paired with `earlyWaveHealthDiscount` below —
  * the swarm gets bigger at the same time each body gets easier to drop, so
  * early waves read as "more zombies, more shootable" rather than a tougher

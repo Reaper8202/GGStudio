@@ -28,8 +28,8 @@ export function seedHotbar(
  * Normalizes a saved bar: unknown ids and duplicates drop out and the bar never
  * exceeds capacity. `undefined` means the player has never curated one, so it
  * is seeded from what they own; an empty array is a deliberate choice and is
- * left empty. Slots survive running out of stock — the block type stays
- * chosen, it just cannot be armed until more is bought.
+ * left empty. A block type the player has none of leaves the bar entirely
+ * rather than sitting there as a dead slot — buying more puts it back.
  */
 export function resolveHotbar(
   saved: readonly string[] | undefined,
@@ -40,6 +40,7 @@ export function resolveHotbar(
   for (const defId of source) {
     if (slots.length >= HOTBAR_CAPACITY) break;
     if (!isPlaceableType(defId) || slots.includes(defId)) continue;
+    if ((inventory[defId] ?? 0) <= 0) continue;
     slots.push(defId);
   }
   return slots;

@@ -1269,6 +1269,7 @@ export class App {
         this.editor?.debugPlace(defId, pos, orient, config),
       startTutorial: () => this.editor?.startTutorial(),
       tutorialState: () => this.editor?.debugTutorialState(),
+      tutorialNext: () => this.editor?.debugTutorialNext(),
       configureAt: (pos: Vec3i, config: PartConfig) =>
         this.editor?.debugConfigure(pos, config),
       undo: () => this.editor?.debugUndo(),

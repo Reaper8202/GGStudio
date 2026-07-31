@@ -247,9 +247,12 @@ export function defaultTuning(): DevTuningState {
       damage: { perWave: 0.06, cap: 2 },
       composition: {
         walker: { startWave: 1, base: 13, perStep: 3, every: 1, cap: 70 },
-        gunslinger: { startWave: 3, base: 1, perStep: 2, every: 1, cap: 10 },
+        gunslinger: { startWave: 4, base: 1, perStep: 2, every: 1, cap: 10 },
         necromancer: { startWave: 6, base: 1, perStep: 1, every: 5, cap: 4 },
-        thrower: { startWave: 3, base: 1, perStep: 1, every: 2, cap: 10 },
+        // Wave 3 is the ranged wave: a squad of four throwers arrives together
+        // so the lesson lands ("that damage came from over there") a wave
+        // before gunslingers turn up to muddle it.
+        thrower: { startWave: 3, base: 4, perStep: 1, every: 2, cap: 10 },
         worker: { startWave: 7, base: 1, perStep: 1, every: 3, cap: 6 },
         'phone-addict': { startWave: 10, base: 1, perStep: 1, every: 4, cap: 6 },
         kamikaze: { startWave: 4, base: 2, perStep: 1, every: 2, cap: 10 },

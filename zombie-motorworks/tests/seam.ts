@@ -19,6 +19,8 @@ declare global {
       startTutorial(): void;
       tutorialState():
         { active: boolean; stepIndex: number; total: number } | undefined;
+      /** Advance a narration step, as the tour's Next button does. */
+      tutorialNext(): void;
       configureAt(
         pos: { x: number; y: number; z: number },
         config: Record<string, unknown>,
