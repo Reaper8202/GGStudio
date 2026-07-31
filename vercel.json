@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "vite",
+  "installCommand": "npm run install:game",
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "outputDirectory": "zombie-motorworks/dist",
   "headers": [
     {
       "source": "/assets/:file(.+\\.(?:js|css))",
