@@ -19,6 +19,11 @@ import {
 } from '../core/blueprint.ts';
 import { serializeBlueprint, deserializeBlueprint } from '../core/serialize.ts';
 import { validateBlueprint } from '../core/placement.ts';
+import {
+  STARTER_TUTORIAL_INVENTORY,
+  starterBodyBlueprint,
+  starterTutorialBlueprint,
+} from '../core/tutorial.ts';
 import { analyzeVehicle } from '../core/analysis.ts';
 import { getPartDef } from '../core/parts.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
@@ -74,8 +79,26 @@ const EDITOR_SFX: Record<EditorSfxCue, SfxName> = {
   remove: 'garageRemove',
   purchase: 'garagePurchase',
   repair: 'garageRepair',
+  tutorialWord: 'typewriterWord',
   upgrade: 'garageUpgrade',
 };
+
+const ONBOARDING_STORAGE_KEY = 'scraprig.onboarding.v1';
+type OnboardingStage = 'garage' | 'combat' | 'done' | 'skipped';
+
+function loadOnboardingStage(): OnboardingStage | null {
+  try {
+    const value = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+    return value === 'garage' ||
+      value === 'combat' ||
+      value === 'done' ||
+      value === 'skipped'
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export interface RunCheckpoint {
   /** Wave the player will play next. */
@@ -369,7 +392,7 @@ export class App {
   private profileFlushTimer: number | undefined;
   private saveFailureNotified = false;
   private pendingEditorNotice: string | undefined;
-  private pendingIsNewGame = false;
+  private onboardingStage: OnboardingStage | null = loadOnboardingStage();
 
   constructor(private readonly root: HTMLElement) {
     // Raw-key detection must happen before profile loading can synthesize an
@@ -534,7 +557,7 @@ export class App {
       this.renderer,
       this.bp,
       (bp) => this.enterChamber(bp),
-      (bp) => this.startOrResumeRun(bp),
+      (bp, tutorialHandoff) => this.startOrResumeRun(bp, tutorialHandoff),
       {
         history: this.history,
         view: this.savedView,
@@ -556,11 +579,11 @@ export class App {
             : undefined,
         runSummary: this.runSummary,
         notice: this.pendingEditorNotice,
-        isNewGame: this.pendingIsNewGame,
+        startTutorial: this.onboardingStage === 'garage',
+        onTutorialSkipped: () => this.setOnboardingStage('skipped'),
       },
     );
     this.pendingEditorNotice = undefined;
-    this.pendingIsNewGame = false;
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
     startGarageMusic();
     setCrazyGamesGameplayActive(true);
@@ -607,8 +630,11 @@ export class App {
     this.clearStoredSave();
     resetProfileForNewGame(this.profile);
     this.resetSessionState();
-    this.bp = buildStarterBlueprint();
-    this.pendingIsNewGame = true;
+    this.profile.inventory = { ...STARTER_TUTORIAL_INVENTORY };
+    this.profile.hotbarDefIds = Object.keys(STARTER_TUTORIAL_INVENTORY);
+    this.bp = starterTutorialBlueprint();
+    this.setOnboardingStage('garage');
+    this.markProfileDirty();
     this.openEditor();
   }
 
@@ -619,7 +645,10 @@ export class App {
     if (loaded.kind === 'loaded') {
       this.bp = loaded.blueprint;
     } else {
-      this.bp = buildStarterBlueprint();
+      this.bp =
+        this.onboardingStage === 'garage'
+          ? starterTutorialBlueprint()
+          : buildStarterBlueprint();
       if (loaded.kind === 'failed') {
         this.pendingEditorNotice = `Saved vehicle could not be loaded — it has been preserved as ${loaded.name}`;
       }
@@ -729,7 +758,11 @@ export class App {
     return true;
   }
 
-  private startOrResumeRun(bp: VehicleBlueprint): void {
+  private startOrResumeRun(
+    bp: VehicleBlueprint,
+    tutorialHandoff = false,
+  ): void {
+    if (tutorialHandoff) this.setOnboardingStage('combat');
     if (this.checkpoint !== null) {
       this.resumeRun(bp);
     } else {
@@ -778,54 +811,66 @@ export class App {
     this.chamber?.dispose();
     this.chamber = null;
     this.survival?.dispose();
-    this.survival = new SurvivalMode(this.root, this.renderer, bp, run, {
-      profileMoney: () => this.profile.money,
-      runEarnings: () => this.runMoneyEarned,
-      onRepairAll: (cost) => this.repairRunInPlace(cost),
-      onReward: (amount) => this.creditRunReward(amount),
-      onExit: () => this.abandonRun(),
-      onWaveAdvance: (state, survivingPartIds, partHp, kills, score) => {
-        this.commitClearedWaveCheckpoint(
-          state.wave,
-          survivingPartIds,
-          partHp,
-          kills,
-          score,
-          state.elapsedSeconds ?? 0,
-        );
-        this.activeRun = { wave: state.wave };
-        this.persistRunCheckpoint('wave');
+    this.survival = new SurvivalMode(
+      this.root,
+      this.renderer,
+      bp,
+      run,
+      {
+        profileMoney: () => this.profile.money,
+        runEarnings: () => this.runMoneyEarned,
+        onRepairAll: (cost) => this.repairRunInPlace(cost),
+        onReward: (amount) => this.creditRunReward(amount),
+        onExit: () => this.abandonRun(),
+        onWaveAdvance: (state, survivingPartIds, partHp, kills, score) => {
+          this.commitClearedWaveCheckpoint(
+            state.wave,
+            survivingPartIds,
+            partHp,
+            kills,
+            score,
+            state.elapsedSeconds ?? 0,
+          );
+          this.activeRun = { wave: state.wave };
+          this.persistRunCheckpoint('wave');
+        },
+        onBuildPhase: (state, survivingPartIds, partHp, kills, score) =>
+          this.enterBuildPhase(state, survivingPartIds, partHp, kills, score),
+        onWaveCheckpoint: (state, survivingPartIds, partHp, kills, score) => {
+          this.commitClearedWaveCheckpoint(
+            state.wave,
+            survivingPartIds,
+            partHp,
+            kills,
+            score,
+            state.elapsedSeconds ?? 0,
+          );
+          this.persistRunCheckpoint('wave');
+        },
+        onGameOver: (state, pendingMoneyDiscarded, score, kills) =>
+          this.concludeRun(state, pendingMoneyDiscarded, score, kills),
+        onGameOverContinue: () => this.openEditor(),
+        onResetWave: (state) => this.resetSurvivalWave(state),
+        onReturnToGarage: (state) => this.returnToGarageMidWave(state),
+        onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
+        onPhoneAddictKilled: () => {
+          recordPhoneAddictKilled(this.profile);
+          this.markProfileDirty();
+        },
+        onWaveCleared: (wave) => {
+          recordWaveCleared(this.profile, wave);
+          this.markProfileDirty();
+        },
+        onSaveAndQuit: () => this.saveAndQuitRun(),
+        onGameplayActiveChanged: (active) =>
+          setCrazyGamesGameplayActive(active),
       },
-      onBuildPhase: (state, survivingPartIds, partHp, kills, score) =>
-        this.enterBuildPhase(state, survivingPartIds, partHp, kills, score),
-      onWaveCheckpoint: (state, survivingPartIds, partHp, kills, score) => {
-        this.commitClearedWaveCheckpoint(
-          state.wave,
-          survivingPartIds,
-          partHp,
-          kills,
-          score,
-          state.elapsedSeconds ?? 0,
-        );
-        this.persistRunCheckpoint('wave');
+      {
+        firstWaveTutorial: this.onboardingStage === 'combat',
+        onTutorialComplete: (result) =>
+          this.setOnboardingStage(result === 'skipped' ? 'skipped' : 'done'),
       },
-      onGameOver: (state, pendingMoneyDiscarded, score, kills) =>
-        this.concludeRun(state, pendingMoneyDiscarded, score, kills),
-      onGameOverContinue: () => this.openEditor(),
-      onResetWave: (state) => this.resetSurvivalWave(state),
-      onReturnToGarage: (state) => this.returnToGarageMidWave(state),
-      onCheatInfiniteMoney: () => this.grantInfiniteMoney(),
-      onPhoneAddictKilled: () => {
-        recordPhoneAddictKilled(this.profile);
-        this.markProfileDirty();
-      },
-      onWaveCleared: (wave) => {
-        recordWaveCleared(this.profile, wave);
-        this.markProfileDirty();
-      },
-      onSaveAndQuit: () => this.saveAndQuitRun(),
-      onGameplayActiveChanged: (active) => setCrazyGamesGameplayActive(active),
-    });
+    );
     this.survival.resize(this.root.clientWidth, this.root.clientHeight);
   }
 
@@ -1036,6 +1081,15 @@ export class App {
         },
       ];
     });
+  }
+
+  private setOnboardingStage(stage: OnboardingStage): void {
+    this.onboardingStage = stage;
+    try {
+      localStorage.setItem(ONBOARDING_STORAGE_KEY, stage);
+    } catch {
+      // Current session still progresses when storage is blocked.
+    }
   }
 
   /**
@@ -1388,46 +1442,5 @@ export class App {
 
 /** A small, valid, drivable starter rig so first boot isn't a blank grid. */
 export function buildStarterBlueprint(): VehicleBlueprint {
-  const yaw180 = orientationFromSteps(0, 2, 0);
-  let n = 0;
-  const part = (
-    defId: string,
-    pos: Vec3i,
-    orient = 0,
-    config: PartConfig = {},
-  ): PlacedPart => ({
-    id: `p${++n}`,
-    defId,
-    pos,
-    orient,
-    config,
-  });
-  const parts: PlacedPart[] = [
-    part('chassis-core', { x: 0, y: 1, z: 0 }),
-    // Tight little triwheel: one steered wheel up front, a driven pair out
-    // back. Short spine keeps mass (and health) low so it's light on its
-    // feet compared to the old 4-wheel deck.
-    part('frame-box', { x: 0, y: 1, z: 1 }),
-    part('frame-box', { x: 0, y: 1, z: -1 }),
-    part('frame-box', { x: 1, y: 1, z: -1 }),
-    part('frame-box', { x: -1, y: 1, z: -1 }),
-    // Front wheel hangs off the nz face of the frame ahead of it, like a
-    // motorcycle fork, so it sits centred instead of hanging off one side.
-    part('wheel-standard', { x: 0, y: 1, z: 2 }, 0, defaultWheelConfig()),
-    part('wheel-standard', { x: 2, y: 1, z: -1 }, yaw180, defaultWheelConfig()),
-    part('wheel-standard', { x: -2, y: 1, z: -1 }, 0, defaultWheelConfig()),
-    part('engine-small', { x: 0, y: 2, z: -1 }),
-    part('fuel-tank', { x: 0, y: 2, z: 0 }),
-    // No weapon pre-mounted — the player picks one of the starter weapons
-    // from the inventory bar and places it themselves.
-  ];
-  return { ...createEmptyBlueprint('starter-rig'), parts };
-}
-
-function defaultWheelConfig(): PartConfig {
-  return {
-    driven: true,
-    braking: true,
-    steerInverted: false,
-  };
+  return starterBodyBlueprint();
 }

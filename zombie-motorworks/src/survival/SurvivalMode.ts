@@ -121,6 +121,11 @@ import { ArenaBuilder } from './arena/ArenaBuilder.ts';
 import { DEFAULT_BIOME_ID, getBiome } from './arena/recipes/index.ts';
 import { Minimap } from './Minimap.ts';
 import {
+  FirstWaveTutorial,
+  type FirstWaveTutorialResult,
+} from './FirstWaveTutorial.ts';
+import { TouchDriveControls } from './TouchDriveControls.ts';
+import {
   WaveManager,
   attackDamageMultiplierForWave,
   healthMultiplierForWave,
@@ -511,6 +516,12 @@ type PendingTransition =
 
 type SurvivalRunState = RunState & { kills?: number; score?: number };
 
+/** One-shot presentation passed by App; never persisted in combat RunState. */
+export interface SurvivalModeOptions {
+  firstWaveTutorial?: boolean;
+  onTutorialComplete?(result: FirstWaveTutorialResult): void;
+}
+
 export class SurvivalMode {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
@@ -663,11 +674,15 @@ export class SurvivalMode {
   private readonly spawnCheatButton: HTMLButtonElement;
   private readonly skipWaveInput: HTMLInputElement;
   private readonly settingsStatus: HTMLDivElement;
+  private readonly touchDriveControls: TouchDriveControls;
+  private firstWaveTutorial: FirstWaveTutorial | null = null;
 
   private accumulator = 0;
   private lastTime = performance.now();
   private debugPaused = false;
   private settingsOpen = false;
+  /** Holds wave 1 before its countdown while Roxy explains driving. */
+  private tutorialPaused = false;
   private speedScaleMaxKmh = 120;
   private ramDamageThresholdKmh = MIN_IMPACT_SPEED * 3.6;
   private ramKillThresholdKmh = LETHAL_IMPACT_SPEED * 3.6;
@@ -770,6 +785,7 @@ export class SurvivalMode {
   private selfDestructHudReachM = -1;
 
   private readonly keydown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented) return;
     this.unlockAudioFromInput();
     if (event.key === 'Escape' && this.phase !== 'gameOver') {
       this.setSettingsOpen(!this.settingsOpen);
@@ -820,6 +836,7 @@ export class SurvivalMode {
     bp: VehicleBlueprint,
     run: SurvivalRunState,
     private readonly callbacks: SurvivalCallbacks,
+    private readonly options: SurvivalModeOptions = {},
   ) {
     this.camera = new THREE.PerspectiveCamera(
       55,
@@ -907,6 +924,7 @@ export class SurvivalMode {
     const builtUi = this.buildUI();
     this.ui = builtUi.root;
     this.ui.addEventListener('click', this.onUiButtonClick, true);
+    this.touchDriveControls = new TouchDriveControls(this.ui);
     this.speedValue = builtUi.speedValue;
     this.speedTrack = builtUi.speedTrack;
     this.speedSafeLabel = builtUi.speedSafeLabel;
@@ -999,6 +1017,17 @@ export class SurvivalMode {
       this.attachNewIslands(this.vehicle.applyPartHpSnapshot(run.partHp));
     }
 
+    if (options.firstWaveTutorial === true && run.wave === 1) {
+      this.tutorialPaused = true;
+      const touch =
+        navigator.maxTouchPoints > 0 ||
+        window.matchMedia('(hover: none), (pointer: coarse)').matches;
+      this.firstWaveTutorial = new FirstWaveTutorial(this.ui, {
+        touch,
+        onWord: () => playSfx('typewriterWord'),
+        onRelease: (result) => this.releaseFirstWaveTutorial(result),
+      });
+    }
     this.beginCountdown(run.wave);
     window.addEventListener('keydown', this.keydown);
     window.addEventListener('keyup', this.keyup);
@@ -1541,7 +1570,8 @@ export class SurvivalMode {
   }
 
   private setSettingsOpen(open: boolean): void {
-    if (this.disposed || this.phase === 'gameOver') return;
+    if (this.disposed || this.phase === 'gameOver' || this.tutorialPaused)
+      return;
     this.settingsOpen = open;
     this.settingsOverlay.hidden = !open;
     this.settingsEyebrow.textContent = `Wave ${this.currentWave}`;
@@ -1574,8 +1604,21 @@ export class SurvivalMode {
   private syncGameplayActivity(): void {
     this.callbacks.onGameplayActiveChanged?.(
       !this.settingsOpen &&
+        !this.tutorialPaused &&
         (this.phase === 'countdown' || this.phase === 'active'),
     );
+  }
+
+  private releaseFirstWaveTutorial(result: FirstWaveTutorialResult): void {
+    if (!this.tutorialPaused || this.disposed) return;
+    this.firstWaveTutorial?.dispose();
+    this.firstWaveTutorial = null;
+    this.tutorialPaused = false;
+    this.countdownOverlay.style.display = 'block';
+    this.accumulator = 0;
+    this.lastTime = performance.now();
+    this.options.onTutorialComplete?.(result);
+    this.syncGameplayActivity();
   }
 
   private readonly onSfxVolumeInput = (): void => {
@@ -1774,6 +1817,11 @@ export class SurvivalMode {
     let frameDt =
       dtMs === undefined ? (now - this.lastTime) / 1000 : dtMs / 1000;
     this.lastTime = now;
+    if (this.tutorialPaused) {
+      this.syncView(0);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     if (this.settingsOpen) {
       this.syncView(0);
       this.renderer.render(this.scene, this.camera);
@@ -2083,8 +2131,11 @@ export class SurvivalMode {
       return;
     }
 
-    const forward = this.keys.has('w') || this.keys.has('arrowup') ? 1 : 0;
-    const reverse = this.keys.has('s') || this.keys.has('arrowdown') ? 1 : 0;
+    const touch = this.touchDriveControls.input;
+    const forward =
+      this.keys.has('w') || this.keys.has('arrowup') || touch.forward ? 1 : 0;
+    const reverse =
+      this.keys.has('s') || this.keys.has('arrowdown') || touch.reverse ? 1 : 0;
     // S brakes while rolling forward, reverses once (near-)stopped.
     const forwardSpeed = this.vehicle.forwardSpeed();
     const movingForward = forwardSpeed > 0.6;
@@ -2097,8 +2148,12 @@ export class SurvivalMode {
         : 0;
     this.controls.brake = brakeInputWithAutoHold(this.controls, forwardSpeed);
     this.controls.steer =
-      (this.keys.has('a') || this.keys.has('arrowleft') ? -1 : 0) +
-      (this.keys.has('d') || this.keys.has('arrowright') ? 1 : 0);
+      (this.keys.has('a') || this.keys.has('arrowleft') || touch.left
+        ? -1
+        : 0) +
+      (this.keys.has('d') || this.keys.has('arrowright') || touch.right
+        ? 1
+        : 0);
     this.controls.fire = this.keys.has('f') || this.pointerFiring;
     // Guns hunt on their own; holding fire takes them off their own targets
     // and puts every one of them on the cursor. It needs a sampled cursor
@@ -2156,7 +2211,9 @@ export class SurvivalMode {
     this.stuckPrompt.classList.remove('is-visible');
     this.waveClearCard.hide();
     this.damageNumbers?.clear();
-    this.countdownOverlay.style.display = 'block';
+    this.countdownOverlay.style.display = this.tutorialPaused
+      ? 'none'
+      : 'block';
     this.mineWarningDistances = new WeakMap<object, number>();
     this.mineWarningPulsed = new WeakSet<object>();
     this.mineWarningPulseSeconds = 0;
@@ -4043,6 +4100,9 @@ export class SurvivalMode {
     this.waveTimelineHud.dispose();
     this.waveClearCard.dispose();
     this.abilityBar.dispose();
+    this.firstWaveTutorial?.dispose();
+    this.firstWaveTutorial = null;
+    this.touchDriveControls.dispose();
     this.ui.remove();
     this.tracerRenderer.dispose();
     // Before the scene walk below: the ghosts share the vehicle's geometry, so

@@ -10,6 +10,7 @@ export type SfxName =
   | 'cardIn'
   | 'uiClick'
   | 'uiDeny'
+  | 'typewriterWord'
   | 'gunLight'
   | 'gunHeavy'
   | 'gunSniper'
@@ -616,6 +617,13 @@ export function playSfx(name: SfxName, options: { pitch?: number } = {}): void {
         gain: 0.11,
         playbackRate: rate,
         cooldownSeconds: 0.025,
+      });
+      break;
+    case 'typewriterWord':
+      playCue('uiClick', {
+        gain: 0.055,
+        playbackRate: 1.28 * rate,
+        cooldownSeconds: 0.035,
       });
       break;
     case 'uiDeny':

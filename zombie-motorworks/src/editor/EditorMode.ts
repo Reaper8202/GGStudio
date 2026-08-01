@@ -53,7 +53,13 @@ import { TutorialOverlay } from './TutorialOverlay.ts';
 import {
   GARAGE_TOUR_STEPS,
   garageTourSnapshot,
+  nextStarterTutorialAction,
   SIMPLE_PART_IDS,
+  starterBodyBlueprint,
+  starterTutorialActionAllowed,
+  starterTutorialPlacementAllowed,
+  type GarageTourStep,
+  type TutorialPartSpec,
 } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
 import {
@@ -81,7 +87,7 @@ import {
   unlockInvestment,
   type RunState,
 } from '../core/economy.ts';
-import type { PlayerProfile } from '../core/profile.ts';
+import { DEFAULT_MONEY, type PlayerProfile } from '../core/profile.ts';
 import { resolveHotbar, withHotbarSlot } from '../core/hotbar.ts';
 import { threatWarningsForWave } from '../survival/waveBalance.ts';
 import {
@@ -98,7 +104,6 @@ import {
 import { renderPartIconUrls } from './PartIconRenderer.ts';
 
 export const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
-const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
 
 /**
  * How far a build-face hit is stepped along its normal to land in the
@@ -120,6 +125,37 @@ function dominantAxis(normal: THREE.Vector3): THREE.Vector3 {
   if (ax >= ay && ax >= az) return new THREE.Vector3(Math.sign(normal.x), 0, 0);
   if (ay >= az) return new THREE.Vector3(0, Math.sign(normal.y), 0);
   return new THREE.Vector3(0, 0, Math.sign(normal.z));
+}
+
+/** Light-green voxel occupying the exact cell prescribed by Roxy. */
+function createTutorialVoxelMarker(): THREE.Group {
+  const group = new THREE.Group();
+  const size = CELL_SIZE * 0.94;
+  const geometry = new THREE.BoxGeometry(size, size, size);
+  const fill = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      color: 0x9dff78,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+    }),
+  );
+  fill.renderOrder = 8;
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry),
+    new THREE.LineBasicMaterial({
+      color: 0xcaffaa,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+    }),
+  );
+  edges.renderOrder = 9;
+  group.add(fill, edges);
+  group.visible = false;
+  group.userData.editorPickable = false;
+  return group;
 }
 
 /** Exact consequences of selling an installed build before starting over. */
@@ -245,7 +281,14 @@ export interface EditorViewState {
 }
 
 export type EditorSfxCue =
-  'click' | 'deny' | 'place' | 'remove' | 'purchase' | 'repair' | 'upgrade';
+  | 'click'
+  | 'deny'
+  | 'place'
+  | 'remove'
+  | 'purchase'
+  | 'repair'
+  | 'tutorialWord'
+  | 'upgrade';
 
 export interface EditorModeContext {
   history?: CommandHistory;
@@ -257,8 +300,10 @@ export interface EditorModeContext {
   /** Presentation callback; the editor owns intent, while App owns audio. */
   onSfx?: (cue: EditorSfxCue) => void;
   notice?: string;
-  /** True only right after `beginNewGame()`, to trigger the starting-weapon nudge. */
-  isNewGame?: boolean;
+  /** Start/resume forced first-car onboarding in this Garage. */
+  startTutorial?: boolean;
+  /** App owns onboarding persistence across Garage -> Survival. */
+  onTutorialSkipped?(): void;
   runContext?: RunState;
   runRepair?: {
     partHp(): Record<string, number>;
@@ -303,6 +348,14 @@ export class EditorMode {
   private ui: EditorUI;
   private tutorialOverlay: TutorialOverlay | null = null;
   private tutorialActive = false;
+  private tutorialAvailable = false;
+  private tutorialDragging = false;
+  private tutorialAwaitingRotation = false;
+  private tutorialRotationTurns = 0;
+  private readonly tutorialTarget = document.createElement('div');
+  private readonly tutorialRotateButton = document.createElement('button');
+  private readonly tutorialVoxelMarker = createTutorialVoxelMarker();
+  private tutorialTargetWorld: THREE.Vector3 | null = null;
   private pointerDown: { x: number; y: number } | null = null;
   private lastPointer: { x: number; y: number } | null = null;
   private disposed = false;
@@ -310,6 +363,7 @@ export class EditorMode {
   private readonly profile: PlayerProfile;
   private readonly persistProfile: () => void;
   private readonly onSfx: (cue: EditorSfxCue) => void;
+  private readonly onTutorialSkipped: () => void;
   private readonly runContext: RunState | undefined;
   private readonly runRepair: EditorModeContext['runRepair'];
   private readonly runPartMaxHpAtEntry: ReadonlyMap<string, number>;
@@ -328,19 +382,24 @@ export class EditorMode {
     private readonly renderer: THREE.WebGLRenderer,
     initial: VehicleBlueprint,
     private readonly onTestDrive: (bp: VehicleBlueprint) => void,
-    private readonly onFightZombies: (bp: VehicleBlueprint) => void,
+    private readonly onFightZombies: (
+      bp: VehicleBlueprint,
+      tutorialHandoff: boolean,
+    ) => void,
     context: EditorModeContext,
   ) {
     this.bp = initial;
     this.profile = context.profile;
     this.persistProfile = context.persistProfile;
     this.onSfx = context.onSfx ?? (() => undefined);
+    this.onTutorialSkipped = context.onTutorialSkipped ?? (() => undefined);
     this.runContext = context.runContext;
     this.runRepair = context.runRepair;
     this.runPartMaxHpAtEntry = new Map(
       initial.parts.map((part) => [part.id, getEffectiveDef(part).health]),
     );
     this.runSummary = context.runSummary;
+    this.tutorialAvailable = context.startTutorial === true;
     this.history =
       context.history ??
       new CommandHistory((moneyDelta) => this.mutateMoney(moneyDelta));
@@ -396,6 +455,7 @@ export class EditorMode {
 
     this.scene.add(this.partsGroup);
     this.scene.add(this.overlays.group);
+    this.scene.add(this.tutorialVoxelMarker);
 
     const partIconUrls = renderPartIconUrls(
       renderer,
@@ -411,6 +471,13 @@ export class EditorMode {
         onPurchasePart: (defId) => this.handleStorePart(defId),
         onBuyPart: (defId) => this.buyInventoryPart(defId),
         onArmPart: (defId) => this.armGhost(defId),
+        onTutorialPartDragStart: (defId, clientX, clientY) =>
+          this.startTutorialPartDrag(defId, clientX, clientY),
+        onTutorialPartDragMove: (clientX, clientY) =>
+          this.moveTutorialPartDrag(clientX, clientY),
+        onTutorialPartDragEnd: (clientX, clientY) =>
+          this.endTutorialPartDrag(clientX, clientY),
+        onTutorialPartDragCancel: () => this.cancelTutorialPartDrag(),
         onHotbarChange: (defIds) => this.setHotbar(defIds),
         newGarageDisposalSummary: () =>
           newGarageDisposalSummary(this.bp.parts, getPartDef),
@@ -431,6 +498,10 @@ export class EditorMode {
         onUndo: () => this.undo(),
         onRedo: () => this.redo(),
         onSymmetryToggle: (on) => {
+          if (this.blockTutorialMutation('turn on mirror building')) {
+            this.symmetry = false;
+            return;
+          }
           this.symmetry = on;
         },
         onView: (v) => this.setView(v),
@@ -439,26 +510,41 @@ export class EditorMode {
           this.rebuildMeshes();
         },
         onTestDrive: () => {
+          if (this.tutorialActive) {
+            this.deny('Finish the glowing build steps before Test Drive');
+            return;
+          }
           const report = validateBlueprint(this.bp, getPartDef);
           if (report.errors.length === 0) {
-            if (this.tutorialActive) {
-              localStorage.setItem(TUTORIAL_DONE_KEY, '1');
-              this.stopTutorial();
-            }
             this.onTestDrive(this.bp);
           }
         },
         onFightZombies: () => {
           const report = validateBlueprint(this.bp, getPartDef);
-          if (report.errors.length === 0) {
-            if (this.tutorialActive) {
-              localStorage.setItem(TUTORIAL_DONE_KEY, '1');
-              this.stopTutorial();
+          if (report.errors.length > 0) return;
+          if (this.tutorialActive) {
+            const step = this.tutorialOverlay?.step;
+            if (
+              !step ||
+              !starterTutorialActionAllowed(
+                step,
+                { kind: 'fight' },
+                this.tourSnapshot(),
+              )
+            ) {
+              this.deny('Build each glowing piece before fighting');
+              return;
             }
-            this.onFightZombies(this.bp);
+            this.stopTutorial();
+            this.onFightZombies(this.bp, true);
+            return;
           }
+          this.onFightZombies(this.bp, false);
         },
-        onStartTutorial: () => this.startTutorial(),
+        onStartTutorial: () => {
+          if (this.tutorialAvailable) this.startTutorial();
+          else this.ui.setStatus('Start a New Game to replay the guided build');
+        },
         onConfigChange: (partId, key, value) =>
           this.changeConfig(partId, key, value),
         onAbilitySlotClick: (slot) => this.cycleAbilitySlot(slot),
@@ -478,6 +564,19 @@ export class EditorMode {
       partIconUrls,
     );
     this.ui.root.addEventListener('click', this.onUiButtonClick, true);
+    this.tutorialTarget.className = 'tutorial-build-target';
+    this.tutorialTarget.hidden = true;
+    this.tutorialTarget.setAttribute('aria-hidden', 'true');
+    this.ui.root.appendChild(this.tutorialTarget);
+    this.tutorialRotateButton.type = 'button';
+    this.tutorialRotateButton.className = 'primary tutorial-rotate-button';
+    this.tutorialRotateButton.textContent = '↻ Rotate Part (R)';
+    this.tutorialRotateButton.hidden = true;
+    this.tutorialRotateButton.addEventListener(
+      'click',
+      this.rotateTutorialGhost,
+    );
+    this.ui.root.appendChild(this.tutorialRotateButton);
 
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);
     renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
@@ -500,7 +599,7 @@ export class EditorMode {
     }
     this.refresh();
     if (context.notice) this.ui.setNotice(context.notice);
-    if (context.isNewGame) this.ui.showWeaponPrompt();
+    if (context.startTutorial) this.startTutorial();
   }
 
   viewState(): EditorViewState {
@@ -523,8 +622,31 @@ export class EditorMode {
 
   update(): void {
     this.controls.update();
+    if (this.tutorialVoxelMarker.visible) {
+      const pulse = 1 + Math.sin(performance.now() * 0.006) * 0.055;
+      this.tutorialVoxelMarker.scale.setScalar(pulse);
+    }
     this.updateSelectionTip();
+    this.updateTutorialTarget();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private updateTutorialTarget(): void {
+    if (!this.tutorialActive || !this.tutorialTargetWorld) {
+      this.tutorialTarget.hidden = true;
+      return;
+    }
+    const projected = this.tipProjection
+      .copy(this.tutorialTargetWorld)
+      .project(this.camera);
+    if (projected.z > 1) {
+      this.tutorialTarget.hidden = true;
+      return;
+    }
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.tutorialTarget.hidden = false;
+    this.tutorialTarget.style.left = `${rect.left + ((projected.x + 1) / 2) * rect.width}px`;
+    this.tutorialTarget.style.top = `${rect.top + ((1 - projected.y) / 2) * rect.height}px`;
   }
 
   /**
@@ -577,6 +699,10 @@ export class EditorMode {
       this.onContextMenu,
     );
     window.removeEventListener('keydown', this.keyHandler);
+    this.tutorialRotateButton.removeEventListener(
+      'click',
+      this.rotateTutorialGhost,
+    );
     this.ui.root.removeEventListener('click', this.onUiButtonClick, true);
     this.controls.dispose();
     this.tutorialOverlay?.dispose();
@@ -619,6 +745,7 @@ export class EditorMode {
   }
 
   private resetBlueprint(next: VehicleBlueprint, label: string): boolean {
+    if (this.blockTutorialMutation('start a different build')) return false;
     const refund = newGarageDisposalSummary(this.bp.parts, getPartDef).refund;
     const previousSelection = [...this.selected];
     this.selected.clear();
@@ -633,23 +760,34 @@ export class EditorMode {
     return true;
   }
 
-  /**
-   * Open the guided garage tour. It narrates the dock panels and then walks the
-   * player through buy → attach → fight on whatever rig is already in the bay;
-   * unlike the old scripted build it never replaces the blueprint.
-   */
+  /** Hard business gate: coach marks are guidance, never sole protection. */
+  private blockTutorialMutation(action: string): boolean {
+    if (!this.tutorialActive) return false;
+    this.deny(`Finish or skip Roxy's tutorial before you ${action}`);
+    return true;
+  }
+
+  /** Start/resume exact first-car build. New Game stages its free body kit. */
   startTutorial(): void {
+    if (!this.tutorialAvailable && !this.tutorialActive) {
+      this.ui.setStatus('Start a New Game to replay the guided build');
+      return;
+    }
     this.tutorialOverlay?.dispose();
     this.tutorialOverlay = null;
     this.tutorialActive = true;
+    this.controls.enabled = false;
     this.tutorialOverlay = new TutorialOverlay(
       this.ui.root,
-      this.ui,
-      this.tourSnapshot(),
-      () => {
-        localStorage.setItem(TUTORIAL_DONE_KEY, '1');
-        this.stopTutorial();
+      {
+        tutorialAnchor: (step) => this.tutorialAnchor(step),
+        prepareTutorialStep: (step) => this.prepareTutorialStep(step),
+        playWordSound: () => this.onSfx('tutorialWord'),
+        allowKey: (event) =>
+          this.tutorialAwaitingRotation && event.key.toLowerCase() === 'r',
       },
+      this.tourSnapshot(),
+      () => this.skipTutorial(),
     );
   }
 
@@ -657,11 +795,270 @@ export class EditorMode {
     this.tutorialOverlay?.dispose();
     this.tutorialOverlay = null;
     this.tutorialActive = false;
+    this.tutorialDragging = false;
+    this.tutorialAwaitingRotation = false;
+    this.tutorialRotationTurns = 0;
+    this.controls.enabled = true;
+    this.tutorialTarget.hidden = true;
+    this.tutorialTargetWorld = null;
+    this.tutorialRotateButton.hidden = true;
+    this.tutorialVoxelMarker.visible = false;
     this.ui.highlightPaletteButton(null);
+    this.ui.setTutorialDragPart(null);
   }
 
   private tourSnapshot(): ReturnType<typeof garageTourSnapshot> {
-    return garageTourSnapshot(this.bp, this.inventory(), getPartDef);
+    return garageTourSnapshot(
+      this.bp,
+      this.inventory(),
+      getPartDef,
+      this.ghost?.defId ?? null,
+      this.ghost?.orient ?? null,
+      this.tutorialRotationTurns,
+    );
+  }
+
+  private skipTutorial(): void {
+    this.stopTutorial();
+    this.tutorialAvailable = false;
+    this.bp = starterBodyBlueprint();
+    this.profile.money = DEFAULT_MONEY;
+    this.profile.inventory = {};
+    delete this.profile.hotbarDefIds;
+    this.history.clear();
+    this.selected.clear();
+    this.disarmGhost();
+    try {
+      this.persistProfile();
+    } catch (err) {
+      this.ui.setStatus(
+        `Tutorial skip could not be saved: ${this.errorMessage(err)}`,
+      );
+    }
+    this.refresh();
+    this.persistGarage();
+    this.onTutorialSkipped();
+    this.ui.showWeaponPrompt();
+  }
+
+  private tutorialAnchor(step: GarageTourStep): HTMLElement | null {
+    if (step.kind === 'welcome') return null;
+    if (step.kind === 'fight') return this.ui.tourAnchor('fight');
+    if (step.kind === 'place' && step.piece) {
+      if (this.tutorialAwaitingRotation) return this.tutorialRotateButton;
+      if (this.tutorialDragging) return this.tutorialTarget;
+      return this.ui.tutorialPartAnchor(step.piece.defId, 'store');
+    }
+    return this.ui.tutorialPartAnchor('turret', 'store');
+  }
+
+  private prepareTutorialStep(step: GarageTourStep): void {
+    this.tutorialTarget.hidden = true;
+    this.tutorialTargetWorld = null;
+    this.tutorialAwaitingRotation = false;
+    this.tutorialRotationTurns = 0;
+    this.tutorialRotateButton.hidden = true;
+    this.tutorialVoxelMarker.visible = false;
+    this.ui.highlightPaletteButton(null);
+    this.ui.setTutorialDragPart(null);
+    if (step.kind === 'buy') {
+      this.disarmGhost();
+      this.ui.revealTutorialPart('turret');
+      return;
+    }
+    if (step.kind !== 'place' || !step.piece) {
+      this.disarmGhost();
+      return;
+    }
+    this.disarmGhost();
+    this.ui.revealTutorialPart(step.piece.defId);
+    this.ui.setTutorialDragPart(step.piece.defId);
+    this.focusTutorialPiece(step.piece);
+  }
+
+  private startTutorialPartDrag(
+    defId: string,
+    clientX: number,
+    clientY: number,
+  ): boolean {
+    if (!this.tutorialActive || this.tutorialDragging) return false;
+    const step = this.tutorialOverlay?.step;
+    const piece = step?.piece;
+    if (
+      !step ||
+      step.kind !== 'place' ||
+      !piece ||
+      piece.defId !== defId ||
+      !starterTutorialActionAllowed(
+        step,
+        { kind: 'arm', defId },
+        this.tourSnapshot(),
+      ) ||
+      (this.inventory()[defId] ?? 0) <= 0
+    ) {
+      return false;
+    }
+    this.armTutorialPiece(piece);
+    if (!this.ghost) return false;
+    this.tutorialDragging = true;
+    this.tutorialOverlay?.setDragging(true);
+    this.lastPointer = { x: clientX, y: clientY };
+    this.updateGhost(clientX, clientY);
+    this.ui.setStatus('Keep holding. Drag the part onto the glowing car spot');
+    return true;
+  }
+
+  private moveTutorialPartDrag(clientX: number, clientY: number): void {
+    if (!this.tutorialDragging) return;
+    this.lastPointer = { x: clientX, y: clientY };
+    this.updateGhost(clientX, clientY);
+  }
+
+  private endTutorialPartDrag(clientX: number, clientY: number): void {
+    if (!this.tutorialDragging) return;
+    const step = this.tutorialOverlay?.step;
+    const piece = step?.piece;
+    this.lastPointer = { x: clientX, y: clientY };
+    this.updateGhost(clientX, clientY);
+    const targetRect = this.tutorialTarget.getBoundingClientRect();
+    const releasedInsideGlow =
+      clientX >= targetRect.left &&
+      clientX <= targetRect.right &&
+      clientY >= targetRect.top &&
+      clientY <= targetRect.bottom;
+    if (releasedInsideGlow) {
+      // Whole visible glow means the same thing. Resolve its centre so edges
+      // cannot raycast a neighbouring face and punish an apparently good drop.
+      const targetX = targetRect.left + targetRect.width / 2;
+      const targetY = targetRect.top + targetRect.height / 2;
+      this.lastPointer = { x: targetX, y: targetY };
+      this.updateGhost(targetX, targetY);
+    }
+    this.tutorialDragging = false;
+
+    const exactCell =
+      piece !== undefined &&
+      this.ghost !== null &&
+      this.ghostTarget !== null &&
+      this.ghost.defId === piece.defId &&
+      this.ghostTarget.pos.x === piece.pos.x &&
+      this.ghostTarget.pos.y === piece.pos.y &&
+      this.ghostTarget.pos.z === piece.pos.z;
+    if (exactCell && this.ghost?.orient !== piece?.orient) {
+      this.tutorialAwaitingRotation = true;
+      this.tutorialRotateButton.hidden = false;
+      this.tutorialOverlay?.setDragging(false);
+      this.tutorialOverlay?.setAction(
+        'Tap Rotate Part (R) until the preview turns green',
+      );
+      this.ui.setStatus('Good spot! Now rotate the part yourself');
+      return;
+    }
+
+    this.tutorialOverlay?.setDragging(false);
+    if (exactCell && this.ghost) this.placeGhost();
+    if (this.tutorialActive && this.tutorialOverlay?.step === step) {
+      this.disarmGhost();
+      this.ui.setStatus('Try again: drag from the Store onto the exact glow');
+    }
+  }
+
+  private cancelTutorialPartDrag(): void {
+    if (!this.tutorialDragging) return;
+    this.tutorialDragging = false;
+    this.tutorialOverlay?.setDragging(false);
+    this.disarmGhost();
+  }
+
+  private readonly rotateTutorialGhost = (): void => {
+    if (!this.tutorialActive || !this.tutorialAwaitingRotation || !this.ghost)
+      return;
+    const step = this.tutorialOverlay?.step;
+    if (!step?.piece || !this.ghostTarget) return;
+    const action = nextStarterTutorialAction(step, this.tourSnapshot());
+    if (
+      action?.kind !== 'rotate' ||
+      !starterTutorialActionAllowed(step, action, this.tourSnapshot())
+    ) {
+      this.deny('Only the glowing Rotate button works right now');
+      return;
+    }
+    this.ghost.orient = action.orient;
+    this.tutorialRotationTurns += 1;
+    this.refreshGhostAtLastPointer();
+
+    const next = nextStarterTutorialAction(step, this.tourSnapshot());
+    if (next?.kind === 'rotate') {
+      this.tutorialOverlay?.setAction('Nice turn! Rotate it one more time');
+      this.ui.setStatus('Rotate once more until the preview turns green');
+      return;
+    }
+    if (next?.kind !== 'place') {
+      this.deny('Grab the part again so it starts facing forward');
+      this.tutorialAwaitingRotation = false;
+      this.tutorialRotateButton.hidden = true;
+      this.disarmGhost();
+      return;
+    }
+
+    this.tutorialAwaitingRotation = false;
+    this.tutorialRotateButton.hidden = true;
+    this.ui.setStatus('Perfect! Green means it fits');
+    this.placeGhost();
+  };
+
+  private armTutorialPiece(piece: TutorialPartSpec): void {
+    if ((this.inventory()[piece.defId] ?? 0) <= 0) return;
+    // Every Store grab starts unturned. Roxy never rotates a part for player.
+    this.ghost = { defId: piece.defId, orient: 0 };
+    this.tutorialRotationTurns = 0;
+    this.ui.setArmedPart(piece.defId);
+    this.selected.clear();
+    this.refreshSelectionUI();
+  }
+
+  /** Snap the camera toward the exposed face the next piece attaches to. */
+  private focusTutorialPiece(piece: TutorialPartSpec): void {
+    const host = this.bp.parts.find((part) => {
+      const dx = Math.abs(part.pos.x - piece.pos.x);
+      const dy = Math.abs(part.pos.y - piece.pos.y);
+      const dz = Math.abs(part.pos.z - piece.pos.z);
+      return dx + dy + dz === 1;
+    });
+    if (!host) return;
+    const hostCentre = cellCentreM(host.pos);
+    const pieceCentre = cellCentreM(piece.pos);
+    const face = new THREE.Vector3(
+      (hostCentre.x + pieceCentre.x) / 2,
+      (hostCentre.y + pieceCentre.y) / 2,
+      (hostCentre.z + pieceCentre.z) / 2,
+    );
+    const outward = new THREE.Vector3(
+      piece.pos.x - host.pos.x,
+      piece.pos.y - host.pos.y,
+      piece.pos.z - host.pos.z,
+    ).normalize();
+    this.tutorialTargetWorld = face;
+    this.tutorialTarget.hidden = false;
+    const markerCentre = cellCentreM(piece.pos);
+    this.tutorialVoxelMarker.position.set(
+      markerCentre.x,
+      markerCentre.y,
+      markerCentre.z,
+    );
+    this.tutorialVoxelMarker.scale.setScalar(1);
+    this.tutorialVoxelMarker.visible = true;
+    this.controls.target.copy(face);
+    if (outward.y > 0.5) {
+      this.persp.position.copy(face).add(new THREE.Vector3(3.2, 5.5, 4.2));
+    } else {
+      this.persp.position
+        .copy(face)
+        .addScaledVector(outward, 5.4)
+        .add(new THREE.Vector3(0, 2.6, 0));
+    }
+    this.controls.update();
+    this.updateTutorialTarget();
   }
 
   debugTutorialState(): { active: boolean; stepIndex: number; total: number } {
@@ -742,6 +1139,7 @@ export class EditorMode {
   }
 
   private undo(): void {
+    if (this.blockTutorialMutation('undo parts')) return;
     try {
       const label = this.history.undoLabels.at(-1) ?? '';
       const before = this.bp;
@@ -761,6 +1159,7 @@ export class EditorMode {
   }
 
   private redo(): void {
+    if (this.blockTutorialMutation('redo parts')) return;
     try {
       const label = this.history.redoLabels.at(-1) ?? '';
       const before = this.bp;
@@ -825,6 +1224,7 @@ export class EditorMode {
 
   /** Persists a bar the player just re-curated, rolling back a failed save. */
   private setHotbar(defIds: readonly string[]): void {
+    if (this.blockTutorialMutation('change the build bar')) return;
     const previous = this.profile.hotbarDefIds;
     this.profile.hotbarDefIds = [...defIds];
     try {
@@ -882,6 +1282,7 @@ export class EditorMode {
     key: string,
     value: boolean | string,
   ): void {
+    if (this.blockTutorialMutation('change part settings')) return;
     if (key === 'level') {
       this.deny('Use Upgrade to increase a part level');
       return;
@@ -969,6 +1370,7 @@ export class EditorMode {
    * passing through empty on the way round.
    */
   private cycleAbilitySlot(slot: number): void {
+    if (this.blockTutorialMutation('change abilities')) return;
     const candidates = this.abilityCandidates();
     if (candidates.length === 0) {
       this.ui.setStatus('Fit an ability part to fill this box');
@@ -1065,6 +1467,7 @@ export class EditorMode {
    * would make the move a trap.
    */
   private returnSelectedToInventory(): void {
+    if (this.blockTutorialMutation('remove blocks')) return;
     const parts = this.removableSelection("Truck Heart can't be removed");
     if (parts.length === 0) return;
     const refund = parts.reduce(
@@ -1093,6 +1496,7 @@ export class EditorMode {
   }
 
   private deleteSelected(): void {
+    if (this.blockTutorialMutation('sell blocks')) return;
     const parts = this.removableSelection("Truck Heart can't be deleted");
     if (parts.length === 0) return;
     const refund = parts.reduce((total, part) => total + sellRefund(part), 0);
@@ -1113,6 +1517,7 @@ export class EditorMode {
   }
 
   private buyUpgrade(partId: string): boolean {
+    if (this.blockTutorialMutation('upgrade blocks')) return false;
     const part = getPart(this.bp, partId);
     if (!part) {
       this.deny(`Unknown part: ${partId}`);
@@ -1267,6 +1672,7 @@ export class EditorMode {
   }
 
   private sellPart(partId: string): boolean {
+    if (this.blockTutorialMutation('sell blocks')) return false;
     const part = getPart(this.bp, partId);
     if (!part) {
       this.deny(`Unknown part: ${partId}`);
@@ -1302,6 +1708,7 @@ export class EditorMode {
   }
 
   private rotateSelected(axis: 'y' | 'x'): void {
+    if (this.blockTutorialMutation('rotate placed blocks')) return;
     const first = [...this.selected][0];
     if (!first) return;
     const part = getPart(this.bp, first);
@@ -1334,6 +1741,7 @@ export class EditorMode {
   // ---------- ghost placement ----------
 
   private armGhost(defId: string): void {
+    if (this.blockTutorialMutation('pick a different block')) return;
     if ((this.inventory()[defId] ?? 0) <= 0) {
       this.deny(`No ${getPartDef(defId).name} in inventory`);
       return;
@@ -1449,11 +1857,29 @@ export class EditorMode {
       return false;
     }
 
+    if (this.tutorialActive) {
+      const step = this.tutorialOverlay?.step;
+      if (
+        !step ||
+        !starterTutorialActionAllowed(
+          step,
+          { kind: 'buy', defId },
+          this.tourSnapshot(),
+        )
+      ) {
+        this.deny('Roxy says: tap only the glowing Zombie Blaster');
+        return false;
+      }
+    }
+
     const offer = storeOffer(defId, this.profile.unlockedDefIds);
     if (offer.action === 'unlock') return this.unlockPart(defId);
     if (!this.buyInventoryPart(defId)) return false;
-    this.armGhost(defId);
-    this.ui.setStatus(`Bought ${def.name} and armed placement (-$${offer.price})`);
+    if (!this.tutorialActive) this.armGhost(defId);
+    this.refreshTutorial();
+    this.ui.setStatus(
+      `Bought ${def.name} and armed placement (-$${offer.price})`,
+    );
     return true;
   }
 
@@ -1687,9 +2113,39 @@ export class EditorMode {
       orient: this.ghost.orient,
       config,
     };
+    if (this.tutorialActive) {
+      const step = this.tutorialOverlay?.step;
+      const action = {
+        kind: 'place' as const,
+        defId: part.defId,
+        pos: part.pos,
+        orient: part.orient,
+        config: part.config,
+      };
+      if (
+        !step ||
+        !starterTutorialPlacementAllowed(
+          step,
+          part.defId,
+          part.pos,
+          part.orient,
+          part.config,
+          this.tutorialRotationTurns,
+        ) ||
+        !starterTutorialActionAllowed(step, action, this.tourSnapshot())
+      ) {
+        this.deny('That piece only fits on the glowing spot');
+        return;
+      }
+    }
     const cmds: EditorCommand[] = [placeCommand(part)];
 
-    if (this.symmetry && !def.unique && available >= 2) {
+    if (
+      !this.tutorialActive &&
+      this.symmetry &&
+      !def.unique &&
+      available >= 2
+    ) {
       const mPos = mirrorCellX(pos);
       if (mPos.x !== pos.x || def.cells.length === 0) {
         const after = cmds[0].apply(this.bp);
@@ -1715,7 +2171,10 @@ export class EditorMode {
       )
     ) {
       this.onSfx('place');
-      if ((this.inventory()[part.defId] ?? 0) > 0) {
+      if (this.tutorialActive) {
+        // `exec` refreshed the exact next step, including its armed piece and
+        // camera target. Do not let the old piece disarm that new instruction.
+      } else if ((this.inventory()[part.defId] ?? 0) > 0) {
         // Keep the hotbar item armed so repeated clicks keep building with it.
         this.refreshGhostAtLastPointer();
       } else {
@@ -1927,6 +2386,9 @@ export class EditorMode {
 
   private onPointerDown = (e: PointerEvent): void => {
     this.pointerDown = { x: e.clientX, y: e.clientY };
+    // Tap-only touch devices may never send a prior pointermove.
+    this.lastPointer = { x: e.clientX, y: e.clientY };
+    this.updateGhost(e.clientX, e.clientY);
   };
 
   private onPointerUp = (e: PointerEvent): void => {
@@ -1986,6 +2448,11 @@ export class EditorMode {
         this.rebuildMeshes();
         break;
       case 'r':
+        if (this.tutorialActive) {
+          e.preventDefault();
+          this.rotateTutorialGhost();
+          break;
+        }
         if (this.ghost) {
           this.ghost.orient = this.nextAllowedOrient(
             this.ghost.defId,

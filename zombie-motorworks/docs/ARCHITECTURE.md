@@ -139,6 +139,14 @@ Successful editor commands autosave. Undo and redo remain alive across ordinary
 Garage/Test Chamber round trips, along with the camera/layer view. They are
 cleared when permanent survival losses invalidate references to old part IDs.
 
+New Game onboarding is a small cross-mode state machine owned by App. Core owns
+the exact starter recipe, explicit rotation proof, and action predicates; Editor
+owns forced garage input, target voxels, and coach marks; Survival owns paused
+driving/auto-fire/manual-fire cards and touch drive Adapter.
+The `garage -> combat -> done|skipped` marker survives refresh, while RunState
+and Run Checkpoint remain tutorial-free. Skipping in the Garage restores the
+same canonical starter body ordinary fallback paths use.
+
 ### Test Chamber
 
 `App.enterChamber` captures editor view state, disposes the Garage, and creates a
@@ -158,6 +166,11 @@ At run start, `createInitialRunCheckpoint` records full effective HP. Survival
 is created from `runStateFromCheckpoint`. A kill adds pending reward inside
 `SurvivalMode`; Profile money changes only when `bankPendingWaveRewards` calls
 the App reward callback after a valid wave clear.
+
+When App passes the one-shot first-wave tutorial option, Survival remains in its
+existing countdown phase but does not advance the fixed-step clock until the
+controls card is dismissed. Touch buttons and keyboard state merge into the
+same `VehicleControls`; no touch-only physics path exists.
 
 The clear transition first resolves the completed physics step. If the vehicle
 also died, the clear is rejected. Otherwise the reward is banked once, lifetime
@@ -254,7 +267,7 @@ instead of reading them front to back:
 | File                           | Search targets by concern                                                                                                                                                          |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/app/App.ts`               | `openEditor`, `enterChamber`, `startRun`, `resumeRun`, `enterSurvival`, `commitClearedWaveCheckpoint`, `enterBuildPhase`, `finishRun`, `repairPart`, `saveAndQuitRun`, `debugSeam` |
-| `src/editor/EditorMode.ts`     | exported store/preview helpers, `exec`, `buyUpgrade`, `repairPart`, `sellPart`, `handleStorePart`, `placeGhost`, selection methods, `persistGarage`, `refresh`                       |
+| `src/editor/EditorMode.ts`     | exported store/preview helpers, `exec`, `buyUpgrade`, `repairPart`, `sellPart`, `handleStorePart`, `placeGhost`, selection methods, `persistGarage`, `refresh`                     |
 | `src/survival/SurvivalMode.ts` | `SurvivalCallbacks`, `buildUI`, `stepFixed`, `onWaveComplete`, pending reward methods, `queueCompletedStepTransition`, `showVictory`, `queueGameOver`, `syncHud`, debug methods    |
 
 These files are integration owners, so callback order is part of their

@@ -32,6 +32,15 @@ export interface EditorUIHandlers {
   onPurchasePart?(defId: string): void;
   onBuyPart(defId: string): void;
   onArmPart(defId: string): void;
+  /** Tutorial-only Store drag; returning false leaves ordinary Store click. */
+  onTutorialPartDragStart?(
+    defId: string,
+    clientX: number,
+    clientY: number,
+  ): boolean;
+  onTutorialPartDragMove?(clientX: number, clientY: number): void;
+  onTutorialPartDragEnd?(clientX: number, clientY: number): void;
+  onTutorialPartDragCancel?(): void;
   /** The player re-curated the build bar; older harnesses may omit this. */
   onHotbarChange?(defIds: readonly string[]): void;
   onCancelTool(): void;
@@ -209,6 +218,15 @@ export interface EditorUI {
   highlightPaletteButton(defId: string | null): void;
   /** Garage furniture the guided tour spotlights, by anchor name. */
   tourAnchor(anchor: TourAnchor): HTMLElement | null;
+  /** Exact Store tile or build-bar slot used by forced tutorial steps. */
+  tutorialPartAnchor(
+    defId: string,
+    surface: 'store' | 'hotbar',
+  ): HTMLElement | null;
+  /** Open/filter/scroll Store so its prescribed tile is visible. */
+  revealTutorialPart(defId: string): void;
+  /** Marks exact Store tile that must be dragged, or clears drag mode. */
+  setTutorialDragPart(defId: string | null): void;
   /** Expand the Store dock panel so a tour step has something to point at. */
   openStorePanel(): void;
   setStatus(text: string): void;
@@ -1257,6 +1275,7 @@ export function buildEditorUI(
   let hotbar: string[] = [];
   let stock: Readonly<Record<string, number>> = {};
   let currentUnlockedDefIds: readonly string[] = [];
+  let tutorialDragPart: string | null = null;
 
   for (const id of SIMPLE_PART_IDS) {
     const def = catalog[id];
@@ -1298,7 +1317,64 @@ export function buildEditorUI(
       priceBreakdown,
       unlockMilestone,
     );
-    storeButton.addEventListener('click', () => {
+    let tutorialDragPointer: number | null = null;
+    let suppressStoreClick = false;
+    let suppressStoreClickTimer = 0;
+    storeButton.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || tutorialDragPointer !== null) return;
+      const accepted = handlers.onTutorialPartDragStart?.(
+        id,
+        event.clientX,
+        event.clientY,
+      );
+      if (accepted !== true) return;
+      event.preventDefault();
+      tutorialDragPointer = event.pointerId;
+      suppressStoreClick = true;
+      window.clearTimeout(suppressStoreClickTimer);
+      try {
+        storeButton.setPointerCapture(event.pointerId);
+      } catch {
+        tutorialDragPointer = null;
+        suppressStoreClick = false;
+        handlers.onTutorialPartDragCancel?.();
+      }
+    });
+    storeButton.addEventListener('pointermove', (event) => {
+      if (event.pointerId !== tutorialDragPointer) return;
+      handlers.onTutorialPartDragMove?.(event.clientX, event.clientY);
+    });
+    storeButton.addEventListener('pointerup', (event) => {
+      if (event.pointerId !== tutorialDragPointer) return;
+      event.preventDefault();
+      tutorialDragPointer = null;
+      handlers.onTutorialPartDragEnd?.(event.clientX, event.clientY);
+      if (storeButton.hasPointerCapture(event.pointerId)) {
+        storeButton.releasePointerCapture(event.pointerId);
+      }
+      suppressStoreClickTimer = window.setTimeout(() => {
+        suppressStoreClick = false;
+      }, 80);
+    });
+    storeButton.addEventListener('pointercancel', (event) => {
+      if (event.pointerId !== tutorialDragPointer) return;
+      tutorialDragPointer = null;
+      suppressStoreClick = false;
+      handlers.onTutorialPartDragCancel?.();
+    });
+    storeButton.addEventListener('lostpointercapture', (event) => {
+      if (event.pointerId !== tutorialDragPointer) return;
+      tutorialDragPointer = null;
+      suppressStoreClick = false;
+      handlers.onTutorialPartDragCancel?.();
+    });
+    storeButton.addEventListener('click', (event) => {
+      if (suppressStoreClick) {
+        suppressStoreClick = false;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       if (handlers.onPurchasePart) handlers.onPurchasePart(id);
       else handlers.onBuyPart(id);
     });
@@ -1754,29 +1830,6 @@ export function buildEditorUI(
     if (!showing) localStorage.setItem(HELP_SEEN_KEY, '1');
   };
   help.querySelector('button')?.addEventListener('click', toggleHelp);
-  const debugMode = new URLSearchParams(location.search).get('debug') === '1';
-  const WELCOME_SEEN_KEY = 'scraprig.welcome-seen';
-  const TUTORIAL_DONE_KEY = 'scraprig.tutorial-done';
-  if (
-    !debugMode &&
-    !localStorage.getItem(TUTORIAL_DONE_KEY) &&
-    !localStorage.getItem(HELP_SEEN_KEY) &&
-    !localStorage.getItem(WELCOME_SEEN_KEY)
-  ) {
-    const welcome = buildWelcomeDialog(
-      () => {
-        localStorage.setItem(WELCOME_SEEN_KEY, '1');
-        welcome.remove();
-        handlers.onStartTutorial();
-      },
-      () => {
-        localStorage.setItem(WELCOME_SEEN_KEY, '1');
-        welcome.remove();
-      },
-    );
-    root.appendChild(welcome);
-  }
-
   const showNoSelection = (): void => {
     root.classList.remove('has-selection');
     selectedPanel.classList.remove('is-visible');
@@ -2095,6 +2148,9 @@ export function buildEditorUI(
           // DOM, so a live search or a focused tile keeps its place.
           storeButton.style.order = String(price);
           storeButton.disabled = unaffordable || atOwnershipLimit;
+          if (tutorialDragPart === id && count > 0) {
+            storeButton.disabled = false;
+          }
           storeButton.setAttribute(
             'aria-label',
             atOwnershipLimit
@@ -2237,6 +2293,28 @@ export function buildEditorUI(
         fight: fightBtn,
       };
       return anchors[anchor];
+    },
+    tutorialPartAnchor: (defId, surface) => {
+      if (surface === 'store') return storeButtons.get(defId) ?? null;
+      return hotbarSlots.find((slot) => slot.defId === defId)?.button ?? null;
+    },
+    revealTutorialPart: (defId) => {
+      revealInStore(defId);
+      setStatus('Grab the glowing Store part and drag it onto the car');
+    },
+    setTutorialDragPart: (defId) => {
+      tutorialDragPart = defId;
+      for (const [id, button] of storeButtons) {
+        const active = id === defId;
+        button.classList.toggle('tutorial-drag-source', active);
+        if (active && (stock[id] ?? 0) > 0) {
+          button.disabled = false;
+        } else if (!active) {
+          button.disabled =
+            button.classList.contains('unaffordable') ||
+            button.classList.contains('limit-reached');
+        }
+      }
     },
     openStorePanel: () => {
       store.setCollapsed(false);
@@ -2406,28 +2484,6 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
 
 function formatStat(value: number): string {
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
-}
-
-function buildWelcomeDialog(
-  onStartTutorial: () => void,
-  onClose: () => void,
-): HTMLDivElement {
-  const wrap = document.createElement('div');
-  wrap.className = 'panel welcome-panel';
-  const prompt = document.createElement('div');
-  prompt.textContent = 'Want a quick tour of the garage?';
-  const actions = document.createElement('div');
-  actions.className = 'welcome-actions';
-  const tutorial = document.createElement('button');
-  tutorial.className = 'primary';
-  tutorial.textContent = 'Show Me Around';
-  tutorial.addEventListener('click', onStartTutorial);
-  const close = document.createElement('button');
-  close.textContent = 'Explore Garage';
-  close.addEventListener('click', onClose);
-  actions.append(tutorial, close);
-  wrap.append(prompt, actions);
-  return wrap;
 }
 
 function buildHelpOverlay(): HTMLDivElement {

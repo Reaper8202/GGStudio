@@ -14,7 +14,7 @@ routing, `ARCHITECTURE.md` for design rationale, and
 | Effective stats and prices | `src/core/upgrades.ts`, `src/core/economy.ts`                         | `unit/upgrades.test.ts`, `unit/economy.test.ts`, `unit/repair.test.ts`                 |
 | Run checkpoint lifecycle   | `src/app/App.ts`                                                      | `unit/run-checkpoint.test.ts`, `unit/pending-rewards.test.ts`, `tests/runloop.spec.ts` |
 | Saved-run compatibility    | `src/core/runSave.ts`, `src/app/runSaveStore.ts`                      | `unit/run-save.test.ts`                                                                |
-| Wave composition/tuning    | `src/survival/WaveManager.ts`, `src/survival/zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/zombie-balance.test.ts`       |
+| Wave composition/tuning    | `src/survival/WaveManager.ts`, `src/survival/zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/zombie-balance.test.ts`                                    |
 | Survival phase behavior    | `src/survival/SurvivalMode.ts`                                        | `tests/runloop.spec.ts`, `tests/failure.spec.ts`, `tests/combat.spec.ts`               |
 | CrazyGames platform state  | `src/app/crazyGamesSdk.ts`                                            | `unit/crazygames-sdk.test.ts`, `unit/audio-volume.test.ts`                             |
 | Browser verification Seam  | `src/app/App.ts` (`debugSeam`), `tests/seam.ts`                       | affected Playwright specs                                                              |
@@ -109,11 +109,30 @@ Transaction requirements:
 - Ordinary editor work may use undo/redo. A cleared wave clears history because
   permanent destruction can invalidate referenced part IDs.
 
-The tutorial is an Editor-owned coach-mark overlay over the live garage. It
-reads Blueprint and Inventory state to know when a step is satisfied and writes
-nothing back beyond its local completion flag; it is not an isolated cross-mode
-tutorial session. `EditorMode` feeds it a snapshot from both `refresh` and
-`refreshProfile`, because a purchase only goes through the latter.
+First-car onboarding is a New Game-only cross-mode flow:
+
+- App resets `scraprig.onboarding.v1` to `garage`, starts from a Chassis-Core-only
+  Blueprint, and stages the canonical starter body as free Inventory. The recipe
+  is owned by `core/tutorial.ts`; App's ordinary `buildStarterBlueprint` delegates
+  to that same source so skip and fallback cannot drift from the taught car.
+- Editor derives progress from an exact Blueprint prefix. Coach marks block
+  pointer and keyboard input outside the highlighted target, while command paths
+  independently reject wrong parts, cells, unperformed rotations, purchases,
+  removals, or Fight.
+- Skip normalizes the tutorial-only Blueprint/Profile mutations back to the
+  ordinary prebuilt starter body, starting wallet, and empty Inventory, then
+  records `skipped`.
+- A valid Fight records `combat` before the wave checkpoint is persisted. App
+  passes this as a one-shot `SurvivalModeOptions` value, not RunState or
+  RunCheckpoint data.
+- Survival keeps phase `countdown` but freezes its clock behind three first-wave
+  cards covering driving, automatic fire, and optional manual aim/fire.
+  Dismissal records `done` or `skipped`, resets frame timing, and releases the
+  normal three-second countdown. A resumed wave-1 save with stage `combat`
+  shows the cards again.
+- Coarse pointers receive held, multi-touch-safe drive buttons. Desktop and touch
+  input merge only at `SurvivalMode.updateControls`; gameplay physics sees the
+  same `VehicleControls` Interface.
 
 ## Test Chamber Contract
 
