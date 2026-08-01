@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   SurvivalMode,
   type SurvivalCallbacks,
   type SurvivalPhase,
 } from '../src/survival/SurvivalMode.ts';
 import { BASE_ZOMBIE_STATS } from '../src/survival/zombies/zombieConfig.ts';
+import { installCashHudStub } from './cash-hud-stub.ts';
+
+const cashHud = installCashHudStub();
+afterAll(() => cashHud.restore());
 
 interface PendingRewardsHarness {
   disposed: boolean;
@@ -29,6 +33,7 @@ interface PendingRewardsHarness {
     clearLandmines(): void;
     clearIceTrail(): void;
     clearAcidPuddles(): void;
+    clearGasTrail(): void;
     forceKillAll(): void;
   };
   vehicle: {
@@ -130,6 +135,7 @@ function createHarness(options: { destroyed?: boolean } = {}): {
       clearLandmines: vi.fn(),
       clearIceTrail: vi.fn(),
       clearAcidPuddles: vi.fn(),
+      clearGasTrail: vi.fn(),
       forceKillAll: vi.fn(),
     },
     vehicle: {
@@ -151,6 +157,8 @@ function createHarness(options: { destroyed?: boolean } = {}): {
       discardedCalls.push(pendingMoneyDiscarded);
       mode.phase = 'gameOver';
     },
+    syncGameplayActivity: vi.fn(),
+    ...cashHud.fields,
   });
   return {
     mode,

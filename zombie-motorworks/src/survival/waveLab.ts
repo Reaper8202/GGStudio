@@ -93,13 +93,26 @@ export function kindProfiles(wave: number): KindProfiles {
 
   const boss = bossForWave(wave);
   if (boss !== null) {
-    // A boss ignores the per-kind tuning entirely: `Zombie.spawn` gives it
-    // `bossDef.baseHealth * waveMultiplier`. Expressing that as a multiplier
+    // The two encounter styles are priced the way `Zombie.spawn` actually
+    // spawns them, or a boss wave reads as the wrong difficulty entirely.
+    //
+    // A classic boss ignores the per-kind tuning: it gets
+    // `definition.baseHealth * waveMultiplier`. Expressing that as a multiplier
     // over the walker's base health is what lets one threat formula price both.
-    profiles.boss = {
-      healthMultiplier: boss.baseHealth / devTuning.base.health,
-      reward: boss.reward,
-    };
+    //
+    // An elite is a real kind spawned hot, so its own slider still applies and
+    // the elite multiplier stacks on top of it.
+    profiles.boss =
+      boss.style === 'classic'
+        ? {
+            healthMultiplier: boss.definition.baseHealth / devTuning.base.health,
+            reward: boss.definition.reward,
+          }
+        : {
+            healthMultiplier:
+              types[boss.elite.kind].healthMult * boss.elite.healthMultiplier,
+            reward: boss.elite.reward,
+          };
   }
   return profiles;
 }

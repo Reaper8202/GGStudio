@@ -14,7 +14,7 @@ routing, `ARCHITECTURE.md` for design rationale, and
 | Effective stats and prices | `src/core/upgrades.ts`, `src/core/economy.ts`                         | `unit/upgrades.test.ts`, `unit/economy.test.ts`, `unit/repair.test.ts`                 |
 | Run checkpoint lifecycle   | `src/app/App.ts`                                                      | `unit/run-checkpoint.test.ts`, `unit/pending-rewards.test.ts`, `tests/runloop.spec.ts` |
 | Saved-run compatibility    | `src/core/runSave.ts`, `src/app/runSaveStore.ts`                      | `unit/run-save.test.ts`                                                                |
-| Wave composition/tuning    | `src/survival/WaveManager.ts`, `src/survival/zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/wave-balance.test.ts`, `unit/zombie-balance.test.ts`       |
+| Wave composition/tuning    | `src/survival/WaveManager.ts`, `src/survival/zombies/zombieConfig.ts` | `unit/waves.test.ts`, `unit/zombie-balance.test.ts`       |
 | Survival phase behavior    | `src/survival/SurvivalMode.ts`                                        | `tests/runloop.spec.ts`, `tests/failure.spec.ts`, `tests/combat.spec.ts`               |
 | CrazyGames platform state  | `src/app/crazyGamesSdk.ts`                                            | `unit/crazygames-sdk.test.ts`, `unit/audio-volume.test.ts`                             |
 | Browser verification Seam  | `src/app/App.ts` (`debugSeam`), `tests/seam.ts`                       | affected Playwright specs                                                              |
