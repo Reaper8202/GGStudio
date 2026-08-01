@@ -140,3 +140,5 @@ InitTestScene*.unity*
 /zombie-car/.DS_Store
 /zombie-car/Thumbs.db
 .npm-cache/
+.vercel
+.env*

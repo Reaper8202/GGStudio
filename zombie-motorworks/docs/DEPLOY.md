@@ -66,7 +66,12 @@ where the deploy starts from.
   be cached forever, and everything copied out of `public/`, which keeps its
   filename across deploys. Caching the second group the same way would leave a
   returning tester quietly playing against yesterday's models, so those
-  revalidate.
+  revalidate. **Order matters.** Vercel applies every rule whose `source`
+  matches and lets the later one win, so the broad `/assets/(.*)` rule is listed
+  first and the narrow `.js`/`.css` rule second. Written the other way round —
+  as it was on the first deploy — the catch-all silently overrides the
+  immutable header and nothing is cached at all. Check with
+  `curl -I <url>/assets/<a hashed .js>` after changing this.
 - `.vercelignore` — the other projects in the monorepo, plus this game's docs,
   screenshots, tests and probe scripts. Only `dist/` is ever served, so this is
   build weight, not exposure.
