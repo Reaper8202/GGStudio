@@ -1,8 +1,15 @@
 /** Editor palette presentation + exact first-car tutorial logic. */
 
 import { createEmptyBlueprint } from './blueprint.ts';
+import {
+  buildStarterRig,
+  getBuild,
+  isSignatureDefId,
+  type BuildId,
+} from './builds.ts';
 import { composeOrientations, orientationFromSteps } from './grid.ts';
-import { validateBlueprint } from './placement.ts';
+import { getPartDef, PART_CATALOG } from './parts.ts';
+import { canPlacePart, validateBlueprint } from './placement.ts';
 import type {
   OrientationIndex,
   PartConfig,
@@ -160,6 +167,22 @@ export const KID_LABELS: Record<string, PartLabel> = {
   'phase-drive': {
     name: 'Blink Coil',
     blurb: 'Zap! Jump forward right through zombies and walls!',
+  },
+  // The three Build signature blocks. They are never on the store shelf (see
+  // SIMPLE_PART_IDS above, which deliberately omits them), so these labels are
+  // only ever read by the inspector and the ability panel.
+  'storm-rod': {
+    name: 'Lightning Mast',
+    blurb: 'Click anywhere to drop a bolt of lightning on it!',
+  },
+  'pyre-core': {
+    name: 'Fire Heart',
+    blurb:
+      'Click to throw a big ball of fire. Everything it hits keeps burning!',
+  },
+  'fallout-silo': {
+    name: 'Boom Tube',
+    blurb: 'Click far away to call down a HUGE bomb. Count to four!',
   },
 };
 
@@ -339,21 +362,22 @@ export function partMatchesTutorialSpec(
  * Exact prefix, ignoring array order and generated IDs. `prefixLength` includes
  * Chassis Core. Extra, early, misplaced, or misconfigured parts fail.
  */
-export function blueprintMatchesTutorialPrefix(
+export function blueprintMatchesSpecsPrefix(
   bp: VehicleBlueprint,
+  specs: readonly TutorialPartSpec[],
   prefixLength: number,
 ): boolean {
   if (
     !Number.isInteger(prefixLength) ||
     prefixLength < 1 ||
-    prefixLength > TUTORIAL_COMPLETE_VEHICLE_SPECS.length ||
+    prefixLength > specs.length ||
     bp.parts.length !== prefixLength
   ) {
     return false;
   }
 
   const unmatched = [...bp.parts];
-  for (const piece of TUTORIAL_COMPLETE_VEHICLE_SPECS.slice(0, prefixLength)) {
+  for (const piece of specs.slice(0, prefixLength)) {
     const match = unmatched.findIndex((part) =>
       partMatchesTutorialSpec(part, piece),
     );
@@ -363,13 +387,33 @@ export function blueprintMatchesTutorialPrefix(
   return unmatched.length === 0;
 }
 
+/** Fixed-recipe wrapper kept for the original hand-authored starter tutorial. */
+export function blueprintMatchesTutorialPrefix(
+  bp: VehicleBlueprint,
+  prefixLength: number,
+): boolean {
+  return blueprintMatchesSpecsPrefix(
+    bp,
+    TUTORIAL_COMPLETE_VEHICLE_SPECS,
+    prefixLength,
+  );
+}
+
+/** Current valid recipe prefix for any spec list, or null after a stray edit. */
+export function recipePrefixLengthFor(
+  bp: VehicleBlueprint,
+  specs: readonly TutorialPartSpec[],
+): number | null {
+  return blueprintMatchesSpecsPrefix(bp, specs, bp.parts.length)
+    ? bp.parts.length
+    : null;
+}
+
 /** Current valid recipe prefix, or null when an unexpected edit slipped in. */
 export function tutorialRecipePrefixLength(
   bp: VehicleBlueprint,
 ): number | null {
-  return blueprintMatchesTutorialPrefix(bp, bp.parts.length)
-    ? bp.parts.length
-    : null;
+  return recipePrefixLengthFor(bp, TUTORIAL_COMPLETE_VEHICLE_SPECS);
 }
 
 export function starterTutorialBodyComplete(bp: VehicleBlueprint): boolean {
@@ -855,4 +899,405 @@ export function advanceGarageTour(
     next += 1;
   }
   return next;
+}
+
+// ---------------------------------------------------------------------------
+// Build-aware tutorial: the same coached build, taught for whichever starting
+// rig the player picked. The hand-authored constants above stay exactly as they
+// were — everything below derives the recipe, the free stock and the coach copy
+// from `core/builds.ts`, so a change to a rig changes its tutorial with it.
+// ---------------------------------------------------------------------------
+
+/**
+ * What the editor writes into a freshly placed wheel. A rig only spells out the
+ * settings it deviates on, so the tutorial spec has to fill the rest in or the
+ * player's placement — which always carries the full default — never matches.
+ */
+const PLACED_WHEEL_CONFIG: Readonly<PartConfig> = {
+  driven: true,
+  braking: true,
+  steerInverted: false,
+  suspensionPreset: 'standard',
+};
+
+function placementDefaultConfig(defId: string): Readonly<PartConfig> {
+  return PART_CATALOG[defId]?.wheel ? PLACED_WHEEL_CONFIG : {};
+}
+
+/**
+ * Reorder a rig into an order it can actually be built in, one block at a time.
+ *
+ * A rig is written for readability — the Crawler lists its hull left to right,
+ * starting a cell away from the Chassis Core — but a coached build can only ask
+ * for a block that has something to bolt to right now. This walks the list
+ * repeatedly and takes the first block that will connect to what is already in
+ * the bay, so the rig's own order is preserved wherever it was already legal.
+ *
+ * The signature block is held back regardless: every build ends on its weapon,
+ * and that is the moment the tutorial is building towards.
+ */
+function orderSpecsForPlacement(
+  specs: readonly TutorialPartSpec[],
+): TutorialPartSpec[] {
+  const [chassis, ...rest] = specs;
+  const ordered: TutorialPartSpec[] = [chassis];
+  const signature = rest.filter((piece) => isSignatureDefId(piece.defId));
+  const pending = rest.filter((piece) => !isSignatureDefId(piece.defId));
+  const bp: VehicleBlueprint = {
+    ...createEmptyBlueprint('tutorial-order'),
+    parts: [partFromSpec(chassis, 0)],
+  };
+  while (pending.length > 0) {
+    const next = pending.findIndex(
+      (piece) =>
+        canPlacePart(bp, getPartDef, piece.defId, piece.pos, piece.orient, {})
+          .ok,
+    );
+    // Nothing attaches: the rig is not buildable block by block. Fall back to
+    // its own order rather than looping, and let the recipe check surface it.
+    const piece = next >= 0 ? pending.splice(next, 1)[0] : pending.shift();
+    if (!piece) break;
+    ordered.push(piece);
+    bp.parts = [...bp.parts, partFromSpec(piece, ordered.length - 1)];
+  }
+  return [...ordered, ...signature];
+}
+
+/**
+ * The rig for `buildId` as an ordered tutorial recipe: chassis first, signature
+ * block last, every other block in the order the player is asked to fit it.
+ */
+export function tutorialBodySpecsForBuild(
+  buildId: BuildId,
+): TutorialPartSpec[] {
+  return orderSpecsForPlacement(
+    buildStarterRig(buildId).parts.map((part) => ({
+      defId: part.defId,
+      pos: { ...part.pos },
+      orient: part.orient,
+      config: { ...placementDefaultConfig(part.defId), ...part.config },
+    })),
+  );
+}
+
+/** Fresh tutorial bay for a chosen build: that rig's Chassis Core, nothing else. */
+export function starterTutorialBlueprintForBuild(
+  buildId: BuildId,
+  name = 'starter-rig',
+): VehicleBlueprint {
+  return {
+    ...createEmptyBlueprint(name),
+    parts: [partFromSpec(tutorialBodySpecsForBuild(buildId)[0], 0)],
+  };
+}
+
+/**
+ * Free stock staged while the build-aware tutorial runs: one of everything the
+ * rig is made of, minus the Chassis Core, which is already in the bay. The
+ * signature block is in here too — it is never for sale, so this is the only
+ * way it can reach the player's hands before it is bolted on.
+ */
+export function tutorialStagedInventoryForBuild(
+  buildId: BuildId,
+): Record<string, number> {
+  const tally: Record<string, number> = {};
+  for (const spec_ of tutorialBodySpecsForBuild(buildId).slice(1)) {
+    tally[spec_.defId] = (tally[spec_.defId] ?? 0) + 1;
+  }
+  return tally;
+}
+
+type TutorialPartCategory =
+  'frame' | 'wheel' | 'engine' | 'fuel' | 'armour' | 'signature' | 'other';
+
+function tutorialPartCategory(defId: string): TutorialPartCategory {
+  if (isSignatureDefId(defId)) return 'signature';
+  if (defId === 'frame-box' || defId === 'frame-reinforced') return 'frame';
+  if (defId.startsWith('wheel-') || defId.startsWith('tread-')) return 'wheel';
+  if (defId === 'engine-small') return 'engine';
+  if (defId === 'fuel-tank') return 'fuel';
+  if (defId === 'armour-plate') return 'armour';
+  return 'other';
+}
+
+const TURN_WORDS: readonly string[] = ['', 'once', 'twice', 'three times'];
+
+function turnWord(turns: number): string {
+  return TURN_WORDS[turns] ?? `${turns} times`;
+}
+
+function kidName(defId: string): string {
+  return KID_LABELS[defId]?.name ?? PART_CATALOG[defId]?.name ?? 'Block';
+}
+
+function kidBlurb(defId: string): string {
+  return KID_LABELS[defId]?.blurb ?? '';
+}
+
+interface GeneratedStepCopy {
+  title: string;
+  text: string;
+}
+
+/**
+ * Warm, one-instruction-at-a-time copy for a single placement, written from the
+ * part's friendly name and where it falls among its own kind. Keeping the shape
+ * ("what it is, grab it from the Store, drop it on the glow") identical to the
+ * hand-authored light-build script is deliberate: every build should sound like
+ * the same coach.
+ */
+function stepCopyForSpec(
+  piece: TutorialPartSpec,
+  nth: number,
+  total: number,
+): GeneratedStepCopy {
+  const name = kidName(piece.defId);
+  const blurb = kidBlurb(piece.defId);
+  const first = nth === 1;
+  const last = nth === total && total > 1;
+  switch (tutorialPartCategory(piece.defId)) {
+    case 'frame':
+      if (first) {
+        return {
+          title: `Add the First ${name}`,
+          text: `${name}s are the car’s bones. Grab the shiny ${name} in the Store. Drag it onto the glowing space.`,
+        };
+      }
+      return last
+        ? {
+            title: `Add the Last ${name}`,
+            text: `One more ${name}! Drag it from the Store onto the last glow so the car stays balanced.`,
+          }
+        : {
+            title: `Add Another ${name}`,
+            text: `Nice work! Grab another ${name} from the Store and drag it onto the next glow.`,
+          };
+    case 'wheel':
+      if (first) {
+        return {
+          title: `Give It a ${name}`,
+          text: `${blurb} Grab one from the Store and drag it onto the glow.`,
+        };
+      }
+      return last
+        ? {
+            title: `Add the Last ${name}`,
+            text: `Grab the last ${name} from the Store. Drag it to the final glow.`,
+          }
+        : {
+            title: `Add Another ${name}`,
+            text: `Grab another ${name} from the Store and drag it onto the next glow.`,
+          };
+    case 'engine':
+      return first
+        ? {
+            title: 'Give It an Engine',
+            text: `The ${name} makes the wheels go. Grab it from the Store and drag it onto the glowing block.`,
+          }
+        : {
+            title: 'Add One More Engine',
+            text: `This rig is heavy, so it needs two! Grab another ${name} and drag it onto the glow.`,
+          };
+    case 'fuel':
+      return first
+        ? {
+            title: 'Fill It With Go-Juice',
+            text: `The ${name} keeps the Engine running. Grab it from the Store and drag it onto the glow.`,
+          }
+        : {
+            title: 'Add More Go-Juice',
+            text: `Another ${name}! Drag it from the Store onto the next glow.`,
+          };
+    case 'armour':
+      return first
+        ? {
+            title: 'Bolt On Some Armour',
+            text: `${blurb} Grab the ${name} from the Store and drag it onto the glow.`,
+          }
+        : {
+            title: 'Add More Armour',
+            text: `Another ${name} keeps the zombies off. Drag it from the Store onto the next glow.`,
+          };
+    case 'signature':
+      return {
+        title: `Bolt On the ${name}`,
+        text: `${blurb} It is yours to keep — grab it from the Store and drag it onto the last glow.`,
+      };
+    default:
+      return {
+        title: `Add the ${name}`,
+        text: `${blurb} Grab it from the Store and drag it onto the glow.`,
+      };
+  }
+}
+
+/** Build-aware twin of `placementStep`: progress is checked against `specs`. */
+function placementStepForSpecs(
+  specs: readonly TutorialPartSpec[],
+  id: string,
+  title: string,
+  text: string,
+  action: string,
+  piece: TutorialPartSpec,
+  completedPrefixLength: number,
+): GarageTourStep {
+  return {
+    id,
+    kind: 'place',
+    title,
+    text,
+    action,
+    anchor: 'buildBar',
+    dim: false,
+    advance: 'action',
+    piece,
+    completedPrefixLength,
+    isDone: (now) => {
+      const prefix = recipePrefixLengthFor(now.blueprint, specs);
+      return prefix !== null && prefix >= completedPrefixLength;
+    },
+  };
+}
+
+/**
+ * The coached sequence for one build: a welcome, one placement per block on the
+ * rig (chassis excluded — it starts in the bay), and the hand-off to the fight.
+ * The signature block is always the last placement, because every rig lists it
+ * last, which makes bolting on the weapon the natural finale.
+ */
+export function tutorialStepsForBuild(buildId: BuildId): GarageTourStep[] {
+  const specs = tutorialBodySpecsForBuild(buildId);
+  const build = getBuild(buildId);
+  const totals = new Map<string, number>();
+  for (const piece of specs.slice(1)) {
+    totals.set(piece.defId, (totals.get(piece.defId) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+
+  const steps: GarageTourStep[] = [
+    {
+      id: 'welcome',
+      kind: 'welcome',
+      title: `Let’s Build Your ${build.name}!`,
+      text: `Hey, builder! I’m your garage buddy. We’ll put your ${build.name} together one piece at a time — drag only the shiny parts and we’ll have it smashing zombies in no time.`,
+      anchor: 'viewport',
+      advance: 'next',
+    },
+  ];
+
+  specs.slice(1).forEach((piece, index) => {
+    const nth = (seen.get(piece.defId) ?? 0) + 1;
+    seen.set(piece.defId, nth);
+    const copy = stepCopyForSpec(piece, nth, totals.get(piece.defId) ?? 1);
+    const turns = tutorialRequiredRotationTurns(piece);
+    const name = kidName(piece.defId);
+    const rotated = Number.isFinite(turns) && turns > 0;
+    steps.push(
+      placementStepForSpecs(
+        specs,
+        `${piece.defId}-${index + 1}`,
+        copy.title,
+        rotated
+          ? `${copy.text} This one has to face the other way: drop it on the green spot, then tap Rotate ${turnWord(turns)}.`
+          : copy.text,
+        rotated
+          ? `Drag the ${name} in, then Rotate ${turnWord(turns)}`
+          : `Drag the ${name} to the glow`,
+        piece,
+        index + 2,
+      ),
+    );
+  });
+
+  steps.push({
+    id: 'fight',
+    kind: 'fight',
+    title: 'Ready to Smash Zombies!',
+    text: 'Your first car is ready. Tap Fight Zombies. I’ll show you the driving controls before the wave starts.',
+    action: 'Tap Fight Zombies',
+    anchor: 'fight',
+    advance: 'action',
+  });
+  return steps;
+}
+
+/**
+ * Resumable progress for a build-aware tutorial. Simpler than the fixed script
+ * it mirrors: there is no purchase to make, so the step is always "place spec
+ * number `prefix`" until the rig is finished and the fight step is all that is
+ * left.
+ */
+export function deriveGarageTourProgress(
+  snapshot: GarageTourSnapshot,
+  specs: readonly TutorialPartSpec[],
+  steps: readonly GarageTourStep[],
+  welcomeAcknowledged: boolean,
+): StarterTutorialProgress {
+  if (!welcomeAcknowledged) {
+    return { valid: true, stepIndex: 0, step: steps[0] ?? null };
+  }
+  const prefix = recipePrefixLengthFor(snapshot.blueprint, specs);
+  if (prefix === null) return { valid: false, stepIndex: -1, step: null };
+  const stepIndex = Math.min(Math.max(prefix, 1), steps.length - 1);
+  return { valid: true, stepIndex, step: steps[stepIndex] ?? null };
+}
+
+/**
+ * Build-aware twin of `starterTutorialActionAllowed`. Same hard gate — exact
+ * part, exact cell, exact orientation, exact number of explicit turns — checked
+ * against the recipe for the rig actually being taught.
+ */
+export function garageTourActionAllowed(
+  step: GarageTourStep,
+  action: StarterTutorialAction,
+  snapshot: GarageTourSnapshot,
+  specs: readonly TutorialPartSpec[],
+): boolean {
+  if (action.kind === 'skip') return true;
+  if (step.kind === 'welcome') return action.kind === 'next';
+  // No build hands out a purchase step: every block on a starting rig, the
+  // signature included, is staged free before the first coach mark appears.
+  if (step.kind === 'buy') return false;
+
+  if (step.kind === 'fight') {
+    return (
+      action.kind === 'fight' &&
+      blueprintMatchesSpecsPrefix(snapshot.blueprint, specs, specs.length) &&
+      snapshot.canFight
+    );
+  }
+
+  const piece = step.piece;
+  if (!piece) return false;
+  const expectedBefore = (step.completedPrefixLength ?? 1) - 1;
+  if (recipePrefixLengthFor(snapshot.blueprint, specs) !== expectedBefore) {
+    return false;
+  }
+  if (action.kind === 'arm') return action.defId === piece.defId;
+  if (action.kind === 'rotate') {
+    return (
+      action.defId === piece.defId &&
+      snapshot.armedDefId === piece.defId &&
+      snapshot.armedOrient !== null &&
+      action.orient ===
+        nextTutorialRotationOrientation(snapshot.armedOrient, piece.orient)
+    );
+  }
+  if (action.kind !== 'place') return false;
+  if (
+    snapshot.armedDefId !== piece.defId ||
+    snapshot.armedOrient !== piece.orient ||
+    snapshot.rotationTurnsCompleted < tutorialRequiredRotationTurns(piece)
+  ) {
+    return false;
+  }
+  return partMatchesTutorialSpec(
+    {
+      defId: action.defId,
+      pos: action.pos,
+      orient: action.orient,
+      config: action.config,
+    },
+    piece,
+  );
 }

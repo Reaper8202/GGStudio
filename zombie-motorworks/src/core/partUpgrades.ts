@@ -43,7 +43,10 @@ export type UpgradeTrackId =
   | 'armour'
   | 'ability'
   | 'tank'
-  | 'frame';
+  | 'frame'
+  | 'signature-storm'
+  | 'signature-pyre'
+  | 'signature-fallout';
 
 export interface UpgradeStep {
   /** Level this unlock grants. Steps run 2..MAX_PART_LEVEL. */
@@ -170,6 +173,30 @@ export const UPGRADE_TRACKS: Record<UpgradeTrackId, readonly UpgradeStep[]> = {
     ['⌇', 'Filler Neck', 'Fat neck for a quicker refill'],
     ['▮', 'Blast Cage', 'Steel cage around the whole tank'],
   ]),
+  // The three Build signature blocks. Each chain is the one upgrade path a
+  // player is guaranteed to have from wave one, so every link says plainly
+  // which half of the block it feeds — the click-strike or the ability.
+  'signature-storm': track([
+    ['⌁', 'Tuned Mast', 'Longer mast drops a hotter bolt'],
+    ['⊙', 'Charge Bank', 'Stored charge comes round sooner'],
+    ['✦', 'Arc Spreader', 'Splayed tips widen the strike'],
+    ['»', 'Boost Coil', 'Bigger kick out of Jump Start'],
+    ['⚡', 'Storm Crown', 'Lit crown drives it to full power'],
+  ]),
+  'signature-pyre': track([
+    ['✷', 'Pressure Jets', 'Fatter bolus, wider burst'],
+    ['⊙', 'Fuel Bladder', 'Bigger bladder reloads faster'],
+    ['≣', 'Heat Shroud', 'Ribbed shroud takes the heat'],
+    ['≫', 'Lance Nozzle', 'Fire Blast reaches further'],
+    ['♨', 'Furnace Grate', 'Open grate burns hottest'],
+  ]),
+  'signature-fallout': track([
+    ['☢', 'Bored Tube', 'Longer tube, heavier shell'],
+    ['⊙', 'Shell Rack', 'Ready rack loads it quicker'],
+    ['◎', 'Spotter Optics', 'Marked ring reaches wider'],
+    ['▤', 'Plate Rams', 'Ward soaks more, holds longer'],
+    ['◈', 'Hardened Core', 'Cased core puts everything up'],
+  ]),
   frame: track([
     ['▤', 'Bolted Plating', 'Extra skin bolted over the box'],
     ['≣', 'Cross Bracing', 'Diagonal braces stiffen the cell'],
@@ -185,6 +212,19 @@ export const UPGRADE_TRACKS: Record<UpgradeTrackId, readonly UpgradeStep[]> = {
  * sees bolted on is the gun's.
  */
 export function upgradeTrackFor(def: PartDefinition): UpgradeTrackId {
+  // Signature blocks first: they are the only parts whose chain has to feed a
+  // click-strike as well as an ability, so neither the weapon nor the ability
+  // track describes what the player is actually buying.
+  if (def.signature) {
+    switch (def.signature.kind) {
+      case 'fireball':
+        return 'signature-pyre';
+      case 'nuke':
+        return 'signature-fallout';
+      default:
+        return 'signature-storm';
+    }
+  }
   if (def.weapon) {
     switch (def.id) {
       case 'cannon-heavy':

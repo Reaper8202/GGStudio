@@ -49,6 +49,12 @@ const EXPECTED_CATALOG_IDS = [
   'thumper',
   'pulse-emitter',
   'nitro-injector',
+  // The three Build signature blocks sit between the ability shelf and the
+  // phase drive in the catalog. They are never on the store shelf, so they are
+  // deliberately absent from SIMPLE_PART_IDS while still living here.
+  'storm-rod',
+  'pyre-core',
+  'fallout-silo',
   'phase-drive',
 ];
 

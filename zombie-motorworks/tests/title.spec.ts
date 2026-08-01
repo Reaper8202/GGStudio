@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 
 const PROFILE_STORAGE_KEY = 'scraprig.profile.v1';
 const BLUEPRINT_STORAGE_KEY = 'scraprig.blueprints.v1';
+/** Default rig a new game lands on, and the blueprint name it saves under. */
+const STARTER_BUILD_NAME = 'Sparkrunner';
+const STARTER_BLUEPRINT_NAME = 'sparkrunner';
 const DEFAULT_PROFILE = {
   money: 200,
   unlocks: [
@@ -11,6 +14,8 @@ const DEFAULT_PROFILE = {
     'engine-small',
     'fuel-tank',
     'turret',
+    // Granted by the starting rig itself, so every block on it stays buyable.
+    'wheel-moto',
   ],
   highestWaveCleared: 0,
   phoneAddictsKilled: 0,
@@ -66,9 +71,21 @@ async function expectContinueUnavailable(page: Page): Promise<void> {
   await expect(continueButton).toBeDisabled();
 }
 
+/**
+ * A new game now opens onto the rig picker, and picking a rig starts the guided
+ * build for it. These tests are about the title screen and saving, so the
+ * helper takes the default rig and skips the coaching to reach a plain garage.
+ */
 async function startNewGame(page: Page): Promise<void> {
   expect(await page.evaluate(() => window.__scrapRig.newGame())).toBe(true);
   await page.waitForFunction(() => window.__scrapRig.mode() === 'editor');
+  await page
+    .getByRole('dialog', { name: 'Choose Your Rig' })
+    .getByText(STARTER_BUILD_NAME, { exact: false })
+    .first()
+    .click();
+  await page.getByRole('button', { name: 'Skip Tutorial' }).click();
+  await expect(page.locator('.tutorial-coach')).toHaveCount(0);
 }
 
 async function createDistinctSave(page: Page): Promise<{
@@ -149,7 +166,7 @@ test('fresh boot stays on the title until New Game starts a default garage', asy
   const starter = await page.evaluate(
     () => JSON.parse(window.__scrapRig.getBlueprintJson()) as BlueprintSnapshot,
   );
-  expect(starter.name).toBe('starter-rig');
+  expect(starter.name).toBe(STARTER_BLUEPRINT_NAME);
   expect(starter.parts.some((part) => part.defId === 'chassis-core')).toBe(
     true,
   );
@@ -229,7 +246,7 @@ test('New Game confirms before erasing an existing save', async ({ page }) => {
   const replacement = await page.evaluate(
     () => JSON.parse(window.__scrapRig.getBlueprintJson()) as BlueprintSnapshot,
   );
-  expect(replacement.name).toBe('starter-rig');
+  expect(replacement.name).toBe(STARTER_BLUEPRINT_NAME);
   expect(replacement.parts.some((part) => part.id === 'saved-frame')).toBe(
     false,
   );

@@ -202,6 +202,85 @@ export interface WeaponDefinition {
 }
 
 /**
+ * The click-targeted headline attack carried by a Build's signature block.
+ *
+ * Unlike a `WeaponDefinition` this is not stepped by the weapon loop and never
+ * auto-acquires: the player picks a point on the ground with the left mouse
+ * button and the strike lands there. Unlike an `AbilityDefinition` it is not in
+ * the Q/E/R bar — it is the build's primary fire, and its cooldown is drawn
+ * inside the reticle rather than in the ability bar.
+ *
+ * All three kinds resolve as one blast with linear falloff from the impact
+ * point, so `radiusM` and `damage` mean the same thing across the set; what
+ * separates them is reach, cadence, delivery delay, and the status they leave
+ * on what survives.
+ */
+export interface SignatureDefinition {
+  /**
+   * 'lightning' snaps a bolt onto the zombie nearest the cursor and arcs from
+   * it to its neighbours; 'fireball' lobs an arcing bolus that bursts and
+   * leaves the survivors burning; 'nuke' calls a shell that falls for
+   * `delaySeconds` before a very large blast.
+   *
+   * Only 'lightning' is a chain; the other two are blasts with linear falloff
+   * from the impact point.
+   */
+  kind: 'lightning' | 'fireball' | 'nuke';
+  /** Seconds between shots at level 1; upgrades shorten it. */
+  cooldownSeconds: number;
+  /** Damage at the centre of the blast at level 1, falling off to the rim. */
+  baseDamage: number;
+  /**
+   * Blast radius in metres at level 1. For a chain this is not a blast at all
+   * — it is how far from the cursor the first body may be found.
+   */
+  baseRadiusM: number;
+  /**
+   * Fires itself the moment it comes off cooldown, at whatever the cursor is
+   * over, with no click. For a weapon on a cadence fast enough that clicking it
+   * would be a chore rather than a decision — the player aims, and the weapon
+   * keeps up.
+   *
+   * An auto-firing signature only spends its cooldown on a shot that found a
+   * target, so it never burns itself on empty ground.
+   */
+  autoFire?: boolean;
+  /**
+   * Chain weapons only: how many bodies one shot hits in total, the first plus
+   * its jumps.
+   */
+  chainTargets?: number;
+  /** Chain weapons only: how far the arc may jump body-to-body, metres. */
+  chainRangeM?: number;
+  /**
+   * Chain weapons only: share of the damage carried into each jump, so the
+   * first body struck always takes the most. Fixed across levels.
+   */
+  chainFalloff?: number;
+  /**
+   * Metres from the rig the player may place the strike. Clicks past this are
+   * clamped back onto the ring rather than refused, so the shot always fires
+   * somewhere sensible instead of eating the click.
+   */
+  rangeM: number;
+  /**
+   * Metres per second the payload travels to the point (fireball's arc). Zero
+   * or undefined lands it on the frame it was fired.
+   */
+  travelSpeedMps?: number;
+  /**
+   * Fixed seconds between the click and the detonation, on top of any travel
+   * time — the nuke's fall. The impact ring is telegraphed for the whole
+   * window, so the delay is a cost the player plays around, not a surprise.
+   */
+  delaySeconds?: number;
+  /** Seconds of burn (blackened, smoking) left on caught zombies. */
+  burnSeconds?: number;
+  /** Seconds of shock (blue arc glow) left on caught zombies. */
+  shockSeconds?: number;
+}
+
+/**
  * Player-triggered active ability carried by a part. Unlike a
  * WeaponDefinition these do not auto-fire or follow aim — they discharge on a
  * key press and run on their own cooldown, handled outside the weapon firing
@@ -224,7 +303,11 @@ export interface AbilityDefinition {
    * 'thump' slams a shockwave outward that knocks every nearby zombie back;
    * 'pulse' slams out a damaging ring of force; 'overdrive' floods the
    * drivetrain with torque; 'hellfire' overcharges the part's own flame nozzle;
-   * 'phase' blinks the rig forward through whatever is in the way.
+   * 'phase' blinks the rig forward through whatever is in the way;
+   * 'flamelance' opens an unbroken sheet of flame along the rig's heading for
+   * the whole duration, with no host weapon behind it; 'reinforce' throws up a
+   * hex ward that soaks a pool of damage before the hull takes any — extra
+   * health on a timer, bought with a drivetrain that drags.
    */
   kind:
     | 'freeze'
@@ -236,7 +319,19 @@ export interface AbilityDefinition {
     | 'pulse'
     | 'overdrive'
     | 'hellfire'
-    | 'phase';
+    | 'phase'
+    | 'flamelance'
+    | 'reinforce';
+  /**
+   * Overrides the kind's entry in `ABILITY_KIND_META` for the HUD box and the
+   * garage panel. Set when one kind backs two abilities the player should read
+   * as different things — a Build's signature dash is an `overdrive`, but
+   * calling it "Overdrive" in the bar would tell the player it came from a
+   * Nitro Injector they never bought.
+   */
+  label?: string;
+  glyph?: string;
+  blurb?: string;
   /**
    * Upgrade level the host part must reach before the ability reaches the bar
    * at all; 1 (the default) means it ships with the part. Set above 1 for an
@@ -294,6 +389,28 @@ export interface AbilityDefinition {
    */
   rangeMultiplier?: number;
   coneMultiplier?: number;
+  /**
+   * Flame lance only: damage per tick, ticks per second, reach in metres, and
+   * the width of the sheet in degrees. The lance has no host weapon to borrow
+   * numbers from, so it carries its own. `baseDamage` is the per-tick damage;
+   * reach grows with level, the rest are fixed.
+   */
+  ticksPerSecond?: number;
+  coneDeg?: number;
+  /**
+   * Reinforce only: what the plating costs in mobility, as a multiplier on
+   * drive torque and top speed while it holds (0..1). Fixed across levels —
+   * upgrades buy a longer hold, never a cheaper one.
+   */
+  mobilityMultiplier?: number;
+  /**
+   * Reinforce only: how much damage the ward soaks at level 1 before it
+   * shatters (grows with upgrade level). This is the ability's real cost
+   * control — the timer says how long the ward may last, this says how much
+   * horde it can actually eat, and a wave that out-damages the pool breaks it
+   * early rather than waiting the player out.
+   */
+  baseShieldHp?: number;
 }
 
 /** Contact weapon (grinder drum, spikes, sawblade): damages any zombie touching the part. */
@@ -388,9 +505,19 @@ export interface PartDefinition {
   unique?: boolean;
   /** True for the root chassis that anchors connectivity. */
   isRoot?: boolean;
+  /**
+   * The signature block of a Build (`src/core/builds.ts`). It ships bolted to
+   * the rig the player picked and is theirs for the run: it is not on the store
+   * shelf at any price and cannot be sold off the vehicle, because a player who
+   * scrapped it would have no way to get their build's identity back. Upgrading
+   * it works exactly like any other part.
+   */
+  buildSignature?: boolean;
   wheel?: WheelDefinition;
   engine?: EngineDefinition;
   weapon?: WeaponDefinition;
+  /** Click-targeted primary fire; only Build signature blocks carry one. */
+  signature?: SignatureDefinition;
   ability?: AbilityDefinition;
   melee?: MeleeDefinition;
   armour?: ArmourDefinition;

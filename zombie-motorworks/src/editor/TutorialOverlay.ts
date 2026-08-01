@@ -1,8 +1,8 @@
 import {
-  deriveStarterTutorialProgress,
-  STARTER_TUTORIAL_STEPS,
+  deriveGarageTourProgress,
   type GarageTourSnapshot,
   type GarageTourStep,
+  type TutorialPartSpec,
 } from '../core/tutorial.ts';
 import { startTypewriter } from '../ui/typewriter.ts';
 
@@ -55,6 +55,10 @@ export class TutorialOverlay {
     private readonly root: HTMLElement,
     private readonly ui: TutorialUI,
     start: GarageTourSnapshot,
+    /** Coached script for the rig being taught, welcome and fight included. */
+    private readonly steps: readonly GarageTourStep[],
+    /** That rig's recipe, in placement order, Chassis Core first. */
+    private readonly specs: readonly TutorialPartSpec[],
     private readonly onSkip: () => void,
   ) {
     this.latest = start;
@@ -112,11 +116,11 @@ export class TutorialOverlay {
   }
 
   get total(): number {
-    return STARTER_TUTORIAL_STEPS.length;
+    return this.steps.length;
   }
 
   get step(): GarageTourStep {
-    return STARTER_TUTORIAL_STEPS[this.stepIndex];
+    return this.steps[this.stepIndex];
   }
 
   /** Switch spotlight from Store source to exact canvas drop target. */
@@ -137,8 +141,10 @@ export class TutorialOverlay {
 
   update(snapshot: GarageTourSnapshot): void {
     this.latest = snapshot;
-    const progress = deriveStarterTutorialProgress(
+    const progress = deriveGarageTourProgress(
       snapshot,
+      this.specs,
+      this.steps,
       this.welcomeAcknowledged,
     );
     if (!progress.valid || progress.step === null) return;
@@ -172,7 +178,12 @@ export class TutorialOverlay {
   readonly advance = (): void => {
     if (this.step.kind !== 'welcome') return;
     this.welcomeAcknowledged = true;
-    const progress = deriveStarterTutorialProgress(this.latest, true);
+    const progress = deriveGarageTourProgress(
+      this.latest,
+      this.specs,
+      this.steps,
+      true,
+    );
     if (!progress.valid || progress.step === null) return;
     this.stepIndex = progress.stepIndex;
     this.render();

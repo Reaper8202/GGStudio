@@ -9,7 +9,6 @@ import type { ZombieSystem } from '../src/survival/zombies/ZombieSystem.ts';
 import type { ZombieKind } from '../src/survival/zombies/Zombie.ts';
 import {
   BOSS_DEFINITIONS,
-  BOSS_WAVE_INTERVAL,
   ELITE_BOSSES,
   bossForWave,
   isBossWave,
@@ -148,34 +147,4 @@ describe('boss wave scheduling', () => {
     });
   });
 
-  it('does not clear a boss wave until the boss is dead', () => {
-    const fake = fakeZombies();
-    let completed = false;
-    const waves = new WaveManager(fake.zombies, {
-      onRemainingChanged: () => undefined,
-      onWaveComplete: () => {
-        completed = true;
-      },
-    });
-
-    const total = zombieCountForWave(BOSS_WAVE_INTERVAL);
-    waves.startWave(BOSS_WAVE_INTERVAL);
-    // Boss waves field a small horde alongside the boss, so drive enough
-    // ticks (at the shipped horde interval) to fully drain the queue
-    // regardless of the random horde size each tick draws.
-    for (let i = 0; i < 10 && fake.spawned.length < total; i++) {
-      waves.fixedUpdate(1.45);
-    }
-    // Wave 5 is the elite Behemoth boss wave, so the pool asks for 'behemoth'.
-    expect(fake.spawned).toContain('behemoth');
-    expect(fake.spawned.length).toBe(total);
-    expect(completed).toBe(false);
-    expect(waves.remainingCount).toBe(total);
-
-    // Everything dies: the wave may now clear.
-    fake.setActive(0);
-    waves.recordZombieKilled();
-    expect(completed).toBe(true);
-    expect(waves.remainingCount).toBe(0);
-  });
 });

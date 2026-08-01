@@ -51,19 +51,19 @@ import {
 } from './ui.ts';
 import { TutorialOverlay } from './TutorialOverlay.ts';
 import {
-  GARAGE_TOUR_STEPS,
+  garageTourActionAllowed,
   garageTourSnapshot,
   nextStarterTutorialAction,
   SIMPLE_PART_IDS,
-  starterBodyBlueprint,
-  starterTutorialActionAllowed,
   starterTutorialPlacementAllowed,
+  tutorialBodySpecsForBuild,
+  tutorialStepsForBuild,
   type GarageTourStep,
   type TutorialPartSpec,
 } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
 import {
-  ABILITY_KIND_META,
+  abilityMeta,
   ABILITY_SLOT_KEYS,
   abilityUnlocked,
   abilityUnlockLevel,
@@ -73,6 +73,11 @@ import {
   type AbilityCandidate,
 } from '../core/abilities.ts';
 import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
+import {
+  buildStarterRig,
+  DEFAULT_BUILD_ID,
+  type BuildId,
+} from '../core/builds.ts';
 import {
   canAfford,
   nextUpgrade,
@@ -158,15 +163,25 @@ function createTutorialVoxelMarker(): THREE.Group {
   return group;
 }
 
+/**
+ * Blocks that are the player's for the whole run and may never leave the rig:
+ * the Truck Heart, which everything else is bolted to, and the Build signature
+ * block, which cannot be bought back from anywhere if it is scrapped.
+ *
+ * Every removal path — return to inventory, delete, sell, and the New Garage
+ * clear-out — resolves through this one predicate, so none of them can drift
+ * apart and let a signature block off through a side door.
+ */
+export function isFixedToRig(def: PartDefinition): boolean {
+  return def.isRoot === true || def.buildSignature === true;
+}
+
 /** Exact consequences of selling an installed build before starting over. */
 export function newGarageDisposalSummary(
   parts: readonly PlacedPart[],
   getDef: (defId: string) => PartDefinition,
 ): NewGarageDisposalSummary {
-  const disposable = parts.filter((part) => {
-    const def = getDef(part.defId);
-    return def.isRoot !== true;
-  });
+  const disposable = parts.filter((part) => !isFixedToRig(getDef(part.defId)));
   const investment = disposable.reduce(
     (total, part) => total + partInvestment(part),
     0,
@@ -304,6 +319,15 @@ export interface EditorModeContext {
   startTutorial?: boolean;
   /** App owns onboarding persistence across Garage -> Survival. */
   onTutorialSkipped?(): void;
+  /** True only right after `beginNewGame()`, to open the rig picker. */
+  isNewGame?: boolean;
+  /**
+   * The player picked a starting rig in that picker. App owns the swap: the
+   * choice replaces the whole blueprint, grants the unlocks that rig needs to
+   * stay repairable, and is written to the Profile so a finished run hands
+   * back the same build.
+   */
+  onChooseBuild?: (buildId: BuildId) => void;
   runContext?: RunState;
   runRepair?: {
     partHp(): Record<string, number>;
@@ -352,6 +376,9 @@ export class EditorMode {
   private tutorialDragging = false;
   private tutorialAwaitingRotation = false;
   private tutorialRotationTurns = 0;
+  /** Recipe and script for the rig currently being taught, in placement order. */
+  private tutorialSpecs: readonly TutorialPartSpec[] = [];
+  private tutorialSteps: readonly GarageTourStep[] = [];
   private readonly tutorialTarget = document.createElement('div');
   private readonly tutorialRotateButton = document.createElement('button');
   private readonly tutorialVoxelMarker = createTutorialVoxelMarker();
@@ -526,10 +553,11 @@ export class EditorMode {
             const step = this.tutorialOverlay?.step;
             if (
               !step ||
-              !starterTutorialActionAllowed(
+              !garageTourActionAllowed(
                 step,
                 { kind: 'fight' },
                 this.tourSnapshot(),
+                this.tutorialSpecs,
               )
             ) {
               this.deny('Build each glowing piece before fighting');
@@ -556,6 +584,7 @@ export class EditorMode {
         onReturnSelected: () => this.returnSelectedToInventory(),
         onRotateSelected: (axis) => this.rotateSelected(axis),
         onCancelTool: () => this.disarmTool(),
+        onChooseBuild: (buildId) => context.onChooseBuild?.(buildId),
         onCopyCode: () => this.copyShareText(encodeShareCode(this.bp), 'code'),
         onCopyLink: () =>
           this.copyShareText(buildShareLink(encodeShareCode(this.bp)), 'link'),
@@ -600,6 +629,12 @@ export class EditorMode {
     this.refresh();
     if (context.notice) this.ui.setNotice(context.notice);
     if (context.startTutorial) this.startTutorial();
+    // A new game opens onto the rig picker rather than the old "buy a weapon"
+    // prompt: the three builds each arrive with a weapon already bolted on, so
+    // the first decision is which rig, not which gun. App sets at most one of
+    // these per `openEditor()`: the picker on the first open after New Game,
+    // the tutorial on the re-open once a build has been chosen.
+    if (context.isNewGame) this.ui.showBuildPrompt();
   }
 
   viewState(): EditorViewState {
@@ -777,6 +812,11 @@ export class EditorMode {
     this.tutorialOverlay = null;
     this.tutorialActive = true;
     this.controls.enabled = false;
+    // The coached build teaches the rig the player picked, so both the recipe
+    // and the script come from their Build rather than from a fixed layout.
+    const buildId = this.profile.buildId ?? DEFAULT_BUILD_ID;
+    this.tutorialSpecs = tutorialBodySpecsForBuild(buildId);
+    this.tutorialSteps = tutorialStepsForBuild(buildId);
     this.tutorialOverlay = new TutorialOverlay(
       this.ui.root,
       {
@@ -787,6 +827,8 @@ export class EditorMode {
           this.tutorialAwaitingRotation && event.key.toLowerCase() === 'r',
       },
       this.tourSnapshot(),
+      this.tutorialSteps,
+      this.tutorialSpecs,
       () => this.skipTutorial(),
     );
   }
@@ -821,7 +863,10 @@ export class EditorMode {
   private skipTutorial(): void {
     this.stopTutorial();
     this.tutorialAvailable = false;
-    this.bp = starterBodyBlueprint();
+    // Skipping hands over the finished rig for the build they chose, weapon
+    // bolted on: the tutorial was the only way to earn those staged blocks, so
+    // dropping it has to leave them with the same car it would have built.
+    this.bp = buildStarterRig(this.profile.buildId ?? DEFAULT_BUILD_ID);
     this.profile.money = DEFAULT_MONEY;
     this.profile.inventory = {};
     delete this.profile.hotbarDefIds;
@@ -838,7 +883,6 @@ export class EditorMode {
     this.refresh();
     this.persistGarage();
     this.onTutorialSkipped();
-    this.ui.showWeaponPrompt();
   }
 
   private tutorialAnchor(step: GarageTourStep): HTMLElement | null {
@@ -889,10 +933,11 @@ export class EditorMode {
       step.kind !== 'place' ||
       !piece ||
       piece.defId !== defId ||
-      !starterTutorialActionAllowed(
+      !garageTourActionAllowed(
         step,
         { kind: 'arm', defId },
         this.tourSnapshot(),
+        this.tutorialSpecs,
       ) ||
       (this.inventory()[defId] ?? 0) <= 0
     ) {
@@ -978,7 +1023,12 @@ export class EditorMode {
     const action = nextStarterTutorialAction(step, this.tourSnapshot());
     if (
       action?.kind !== 'rotate' ||
-      !starterTutorialActionAllowed(step, action, this.tourSnapshot())
+      !garageTourActionAllowed(
+        step,
+        action,
+        this.tourSnapshot(),
+        this.tutorialSpecs,
+      )
     ) {
       this.deny('Only the glowing Rotate button works right now');
       return;
@@ -1065,7 +1115,7 @@ export class EditorMode {
     return {
       active: this.tutorialActive,
       stepIndex: this.tutorialOverlay?.index ?? 0,
-      total: GARAGE_TOUR_STEPS.length,
+      total: this.tutorialOverlay?.total ?? this.tutorialSteps.length,
     };
   }
 
@@ -1397,7 +1447,7 @@ export class EditorMode {
     this.ui.setStatus(
       next === null
         ? `${ABILITY_SLOT_KEYS[slot].toUpperCase()} slot cleared`
-        : `${ABILITY_SLOT_KEYS[slot].toUpperCase()}: ${ABILITY_KIND_META[next.ability.kind].label}`,
+        : `${ABILITY_SLOT_KEYS[slot].toUpperCase()}: ${abilityMeta(next.ability).label}`,
     );
   }
 
@@ -1435,25 +1485,30 @@ export class EditorMode {
   }
 
   /**
-   * The selection, minus the Truck Heart. Returns an empty list (after saying
-   * why) when the player only had the root selected, so the two removal
-   * actions agree on what may come off the rig.
+   * The selection, minus anything fixed to the rig. Returns an empty list
+   * (after saying why) when the player only had fixed blocks selected, so the
+   * two removal actions agree on what may come off.
    */
   private removableSelection(refusal: string): PlacedPart[] {
     const parts = [...this.selected]
       .map((id) => getPart(this.bp, id))
       .filter(
         (part): part is PlacedPart =>
-          part !== undefined && !getPartDef(part.defId).isRoot,
+          part !== undefined && !isFixedToRig(getPartDef(part.defId)),
       );
     if (parts.length === 0) {
-      if (
-        [...this.selected].some((id) => {
-          const part = getPart(this.bp, id);
-          return part ? getPartDef(part.defId).isRoot : false;
-        })
-      ) {
-        this.ui.setStatus(refusal);
+      const blocked = [...this.selected]
+        .map((id) => getPart(this.bp, id))
+        .find(
+          (part) => part !== undefined && isFixedToRig(getPartDef(part.defId)),
+        );
+      if (blocked !== undefined) {
+        const def = getPartDef(blocked.defId);
+        this.ui.setStatus(
+          def.buildSignature === true
+            ? `Your ${def.name} is part of the build and stays on the rig`
+            : refusal,
+        );
       }
     }
     return parts;
@@ -1679,8 +1734,12 @@ export class EditorMode {
       return false;
     }
     const def = getPartDef(part.defId);
-    if (def.isRoot) {
-      this.deny("Truck Heart can't be sold");
+    if (isFixedToRig(def)) {
+      this.deny(
+        def.buildSignature === true
+          ? `${def.name} can't be sold — it's your build`
+          : "Truck Heart can't be sold",
+      );
       return false;
     }
     const refund = sellRefund(part);
@@ -1861,13 +1920,14 @@ export class EditorMode {
       const step = this.tutorialOverlay?.step;
       if (
         !step ||
-        !starterTutorialActionAllowed(
+        !garageTourActionAllowed(
           step,
           { kind: 'buy', defId },
           this.tourSnapshot(),
+          this.tutorialSpecs,
         )
       ) {
-        this.deny('Roxy says: tap only the glowing Zombie Blaster');
+        this.deny('Roxy says: finish the glowing build steps first');
         return false;
       }
     }
@@ -2105,7 +2165,18 @@ export class EditorMode {
       return;
     }
     const id = nextPartId(this.bp);
-    const config = defaultConfigForDef(def);
+    const tutorialPiece =
+      this.tutorialActive &&
+      this.tutorialOverlay?.step.piece?.defId === this.ghost.defId
+        ? this.tutorialOverlay.step.piece
+        : null;
+    // A coached placement carries the settings the chosen rig specifies — the
+    // Sparkrunner's off-road suspension and turbocharged engine, say. Placing
+    // the block bare would hand the tutorial player a weaker car than skipping
+    // the tutorial does, and the exact-match recipe would never accept it.
+    const config = tutorialPiece
+      ? { ...defaultConfigForDef(def), ...tutorialPiece.config }
+      : defaultConfigForDef(def);
     const part: PlacedPart = {
       id,
       defId: this.ghost.defId,
@@ -2132,7 +2203,12 @@ export class EditorMode {
           part.config,
           this.tutorialRotationTurns,
         ) ||
-        !starterTutorialActionAllowed(step, action, this.tourSnapshot())
+        !garageTourActionAllowed(
+          step,
+          action,
+          this.tourSnapshot(),
+          this.tutorialSpecs,
+        )
       ) {
         this.deny('That piece only fits on the glowing spot');
         return;
@@ -2291,7 +2367,7 @@ export class EditorMode {
       () => null,
     );
     for (const assignment of assignments) {
-      const meta = ABILITY_KIND_META[assignment.ability.kind];
+      const meta = abilityMeta(assignment.ability);
       boxes[assignment.slot] = {
         name: meta.label,
         glyph: meta.glyph,
@@ -2322,7 +2398,8 @@ export class EditorMode {
       .map((id) => getPart(this.bp, id))
       .filter(
         (selectedPart): selectedPart is PlacedPart =>
-          selectedPart !== undefined && !getPartDef(selectedPart.defId).isRoot,
+          selectedPart !== undefined &&
+          !isFixedToRig(getPartDef(selectedPart.defId)),
       );
     const selectionRefund = selectedParts.reduce(
       (total, selectedPart) => total + sellRefund(selectedPart),

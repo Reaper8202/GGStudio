@@ -81,10 +81,11 @@ function buildBlobGeometry(segments: number): THREE.BufferGeometry {
  * Pooled acid puddles: flat, irregular ground splats with no Rapier body,
  * left behind by a vial wherever it lands (vehicle or bare ground), plus a
  * pooled swarm of small bubbles that pop up inside whichever puddles are
- * live. A puddle deals no damage at all: it is a movement hazard, killing
- * grip through `muAt` and bleeding off speed through the drag `ZombieSystem`
- * applies wherever `containsPoint` is true. This class never reaches into the
- * vehicle itself, the same way it reads boss/mine state.
+ * live. A puddle is both a movement hazard and a damage one: it kills grip
+ * through `muAt`, and wherever `containsPoint` is true `ZombieSystem` bleeds
+ * off speed and burns the parts standing over it
+ * (`ACID_PUDDLE_DAMAGE_PER_SECOND`). This class never reaches into the vehicle
+ * itself, the same way it reads boss/mine state.
  *
  * Puddles never chase and never grow after they land — the only way one slows
  * you is if you are still inside `radiusM`, so driving clear restores normal

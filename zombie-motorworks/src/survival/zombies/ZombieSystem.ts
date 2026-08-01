@@ -30,6 +30,7 @@ import type { BossEncounter } from './bossConfig.ts';
 import { Landmines, type MineSnapshot } from './Landmines.ts';
 import { AcidPuddles } from './AcidPuddles.ts';
 import {
+  BOULDER_PROJECTILE,
   VIAL_PROJECTILE,
   ThrowerProjectiles,
   type ProjectileSpec,
@@ -37,7 +38,9 @@ import {
 } from './ThrowerProjectiles.ts';
 import {
   ACID_POISON_TICK_SECONDS,
+  ACID_PUDDLE_DAMAGE_PER_SECOND,
   ACID_PUDDLE_DRAG_PER_SECOND,
+  BEHEMOTH_BOULDER_LAUNCH_HEIGHT,
   HORDE_SCATTER_RADIUS,
   IMPACT_DAMAGE_PER_SPEED,
   LANDMINE_BLAST_RADIUS,
@@ -302,7 +305,9 @@ export class ZombieSystem {
     z: number,
     _variant: ProjectileVariant,
     puddle: ProjectileSpec['puddle'],
+    aoe: ProjectileSpec['aoe'],
   ): void => {
+    if (aoe) this.detonateBoulder(x, y, z, aoe);
     if (!puddle) return;
     this.acidPuddles.spawn(x, y, z, puddle.radiusM, puddle.durationSeconds);
   };
@@ -350,6 +355,14 @@ export class ZombieSystem {
   onZombiesRaised: ((count: number) => void) | null = null;
   /** Set by the owning mode; reports where a behemoth's slam just landed. */
   onBehemothSmash: ((x: number, y: number, z: number) => void) | null = null;
+  /**
+   * Set by the owning mode; a hazard caught the vehicle in a stun blast (today
+   * only a behemoth's boulder). The mode owns what a stun actually means —
+   * killing momentum and locking abilities out — because both live over there.
+   */
+  onVehicleStun:
+    | ((seconds: number, x: number, y: number, z: number) => void)
+    | null = null;
   /** Presentation-only event sink owned by the active mode. */
   onSfx: ((report: ZombieSfxReport) => void) | null = null;
   private healthMultiplier = 1;
@@ -425,6 +438,10 @@ export class ZombieSystem {
       zombie.onSmash = (behemoth) => {
         this.emitSfx('behemoth', behemoth);
         this.smashAt(behemoth);
+      };
+      zombie.onBoulder = (behemoth) => {
+        this.emitSfx('behemoth', behemoth);
+        this.throwBoulderFrom(behemoth);
       };
       zombie.onBossSlam = (boss) => this.applyBossSlam(boss);
       zombie.onBossVials = (boss) => this.fireVialsFrom(boss);
@@ -815,9 +832,10 @@ export class ZombieSystem {
   /**
    * Poison ticks on a clock instead of every physics step; see
    * `ACID_POISON_TICK_SECONDS` for why (the direct-damage floor would otherwise
-   * turn any nonzero per-frame dose into 60 HP/s). Only the boss's gas trail
-   * feeds this — puddles are a pure handling hazard now (see `applyAcidDrag`),
-   * so the trail is the one thing on the ground that can still hurt a part.
+   * turn any nonzero per-frame dose into 60 HP/s). Both ground hazards feed it:
+   * the boss's gas trail, and its acid puddles, which now burn what stands in
+   * them on top of the handling penalty `applyAcidDrag` applies. A part over
+   * both takes both — they are separate hazards that happen to overlap.
    */
   private tickAcidPoison(dt: number): void {
     this.acidTickTimer -= dt;
@@ -828,7 +846,10 @@ export class ZombieSystem {
     for (const anchor of this.vehicleAnchors) {
       if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
         continue;
-      const dps = this.gasTrail.dpsAt(anchor.worldX, anchor.worldZ);
+      let dps = this.gasTrail.dpsAt(anchor.worldX, anchor.worldZ);
+      if (this.acidPuddles.containsPoint(anchor.worldX, anchor.worldZ)) {
+        dps += ACID_PUDDLE_DAMAGE_PER_SECOND;
+      }
       if (dps > 0) {
         this.vehicle.applyDirectDamage(
           anchor.partId,
@@ -973,6 +994,73 @@ export class ZombieSystem {
       dx / length,
       dz / length,
     );
+  }
+
+  /**
+   * A behemoth released a boulder: lob it at where the vehicle is right now,
+   * on the same pooled ballistic arc a thrower's box uses. Aimed at the target
+   * point rather than led, so driving is a real dodge — the whole point of the
+   * attack is that it punishes a rig that has parked at range.
+   */
+  private throwBoulderFrom(behemoth: Zombie): void {
+    const target = behemoth.vehicleTarget;
+    if (target.partId === null) return;
+    const fromY = behemoth.position.y + BEHEMOTH_BOULDER_LAUNCH_HEIGHT;
+    this.projectiles.launch(
+      behemoth.position.x,
+      fromY,
+      behemoth.position.z,
+      target.x,
+      target.y,
+      target.z,
+      BOULDER_PROJECTILE,
+    );
+    const dx = target.x - behemoth.position.x;
+    const dz = target.z - behemoth.position.z;
+    const length = Math.hypot(dx, dz) || 1;
+    this.vfx?.throwerRelease(
+      behemoth.position.x,
+      fromY,
+      behemoth.position.z,
+      dx / length,
+      dz / length,
+    );
+  }
+
+  /**
+   * A boulder landed. Everything inside the blast takes falloff damage, and if
+   * any live part is caught the whole rig is stunned — momentum and abilities
+   * both, handled by the owning mode through `onVehicleStun`. The stun is all
+   * or nothing rather than scaled by distance: a partial stun would be
+   * unreadable, and the radius is generous enough to be worth driving out of.
+   */
+  private detonateBoulder(
+    x: number,
+    y: number,
+    z: number,
+    aoe: NonNullable<ProjectileSpec['aoe']>,
+  ): void {
+    if (this.disposed) return;
+    this.vfx?.groundSmash(x, y, z, aoe.radiusM * 0.6);
+    const radiusSq = aoe.radiusM * aoe.radiusM;
+    let caught = false;
+    for (const anchor of this.vehicleAnchors) {
+      if (!anchor.part.alive || anchor.part.detached || anchor.part.health <= 0)
+        continue;
+      const dx = anchor.worldX - x;
+      const dy = anchor.worldY - y;
+      const dz = anchor.worldZ - z;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq > radiusSq) continue;
+      caught = true;
+      const falloff = 1 - Math.sqrt(distanceSq) / aoe.radiusM;
+      const damage = aoe.damage * falloff;
+      if (damage <= 0) continue;
+      this.vehicle.applyDirectDamage(anchor.partId, damage);
+    }
+    if (!caught) return;
+    this.emitSfxAt('mineExplosion', 'behemoth', x, y, z);
+    this.onVehicleStun?.(aoe.stunSeconds, x, y, z);
   }
 
   /** Advance render-rate feedback after physics has moved the bodies. */
@@ -1139,6 +1227,215 @@ export class ZombieSystem {
       }
     }
     return best ? { x: best.position.x, z: best.position.z } : null;
+  }
+
+  /**
+   * Flame-lance tick: damage every targetable zombie standing in a horizontal
+   * cone of `coneDeg` about `direction`, out to `rangeM`. Returns how many were
+   * hit, so the caller can skip the follow-up char pass on an empty sheet.
+   *
+   * Flat damage rather than falloff: a sheet of fire burns whatever is standing
+   * in it, and the reach limit is the only thing that decides who is in it.
+   */
+  damageInCone(
+    origin: { x: number; z: number },
+    direction: { x: number; z: number },
+    rangeM: number,
+    coneDeg: number,
+    damage: number,
+  ): number {
+    if (this.disposed || rangeM <= 0 || damage <= 0) return 0;
+    const caught: Zombie[] = [];
+    this.collectInCone(origin, direction, rangeM, coneDeg, (zombie) => {
+      if (zombie.isTargetable) caught.push(zombie);
+    });
+    let anyKilled = false;
+    for (const zombie of caught) {
+      const killed = zombie.takeDamage(damage);
+      this.reportZombieDamage(zombie, damage, killed);
+      if (killed) anyKilled = true;
+    }
+    if (anyKilled) this.rebuildAliveTargets();
+    return caught.length;
+  }
+
+  /** Char everything in the same cone the lance just burned. Cosmetic only. */
+  burnInCone(
+    origin: { x: number; z: number },
+    direction: { x: number; z: number },
+    rangeM: number,
+    coneDeg: number,
+    seconds: number,
+  ): void {
+    if (this.disposed || seconds <= 0) return;
+    this.collectInCone(origin, direction, rangeM, coneDeg, (zombie) =>
+      zombie.applyBurn(seconds),
+    );
+  }
+
+  /**
+   * Visit every active zombie inside a horizontal cone.
+   *
+   * The half-angle is compared through the dot product of unit vectors rather
+   * than an `atan2`, so a wide sheet sweeping a full horde costs one multiply
+   * and one compare per body.
+   */
+  private collectInCone(
+    origin: { x: number; z: number },
+    direction: { x: number; z: number },
+    rangeM: number,
+    coneDeg: number,
+    visit: (zombie: Zombie) => void,
+  ): void {
+    const length = Math.hypot(direction.x, direction.z);
+    if (length < 1e-6 || rangeM <= 0) return;
+    const dirX = direction.x / length;
+    const dirZ = direction.z / length;
+    const rangeSq = rangeM * rangeM;
+    const cosLimit = Math.cos((Math.max(0, coneDeg) / 2) * (Math.PI / 180));
+    for (const zombie of this.pool) {
+      if (!zombie.active) continue;
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq > rangeSq) continue;
+      const distance = Math.sqrt(distanceSq);
+      // A body standing on the nozzle has no direction to test; it is in the
+      // sheet by definition.
+      if (distance > 1e-6) {
+        if ((dx / distance) * dirX + (dz / distance) * dirZ < cosLimit) continue;
+      }
+      visit(zombie);
+    }
+  }
+
+  /**
+   * Mark every zombie within `radiusM` of a fire blast as charred for
+   * `seconds`. Purely cosmetic, so unlike `damageWithin` it deliberately
+   * includes zombies that are already dead — a corpse the blast caught should
+   * look like it was caught — and never rebuilds the target list.
+   */
+  burnWithin(
+    origin: { x: number; z: number },
+    radiusM: number,
+    seconds: number,
+  ): void {
+    this.applyCosmeticWithin(origin, radiusM, (zombie) =>
+      zombie.applyBurn(seconds),
+    );
+  }
+
+  /**
+   * Flare every zombie within `radiusM` of a lightning strike for `seconds`.
+   * Cosmetic, on the same terms as {@link burnWithin}.
+   */
+  shockWithin(
+    origin: { x: number; z: number },
+    radiusM: number,
+    seconds: number,
+  ): void {
+    this.applyCosmeticWithin(origin, radiusM, (zombie) =>
+      zombie.applyShock(seconds),
+    );
+  }
+
+  /**
+   * Run a presentation-only effect over every active zombie in a circle.
+   *
+   * Iterates the whole pool rather than `aliveTargets` precisely because the
+   * bodies these effects most need to reach — the ones the blast just killed —
+   * have already left that list by the time the caller gets here.
+   */
+  private applyCosmeticWithin(
+    origin: { x: number; z: number },
+    radiusM: number,
+    apply: (zombie: Zombie) => void,
+  ): void {
+    if (this.disposed || radiusM <= 0) return;
+    const radiusSq = radiusM * radiusM;
+    for (const zombie of this.pool) {
+      if (!zombie.active) continue;
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      if (dx * dx + dz * dz > radiusSq) continue;
+      apply(zombie);
+    }
+  }
+
+  /**
+   * Storm Rod strike: hit the targetable zombie nearest `origin`, then arc from
+   * body to body, nearest-first, until `maxTargets` have been struck or nothing
+   * is left inside `chainRangeM` of the last one.
+   *
+   * Damage is multiplied by `falloff` at each jump, so the body the player put
+   * the cursor on always takes the most. Returns the world position of every
+   * body struck, in strike order, so the caller can draw the arc that connects
+   * them — an empty list means the shot found nothing and never happened.
+   *
+   * `seekRadiusM` is measured from the cursor, not from the rig: this is a
+   * chain, not a blast, and the player is picking a body rather than a spot.
+   */
+  chainFrom(
+    origin: { x: number; z: number },
+    seekRadiusM: number,
+    chainRangeM: number,
+    maxTargets: number,
+    damage: number,
+    falloff: number,
+    shockSeconds = 0,
+  ): { x: number; y: number; z: number }[] {
+    const path: { x: number; y: number; z: number }[] = [];
+    if (this.disposed || damage <= 0 || maxTargets < 1) return path;
+
+    const struck = new Set<Zombie>();
+    let from = origin;
+    let reach = seekRadiusM;
+    let hitDamage = damage;
+    let killedAny = false;
+
+    for (let jump = 0; jump < maxTargets; jump++) {
+      const next = this.nearestTargetable(from, reach, struck);
+      if (next === null) break;
+      struck.add(next);
+      path.push({ x: next.position.x, y: next.position.y, z: next.position.z });
+
+      const killed = next.takeDamage(hitDamage);
+      this.reportZombieDamage(next, hitDamage, killed);
+      if (killed) killedAny = true;
+      if (shockSeconds > 0) next.applyShock(shockSeconds);
+
+      // Subsequent jumps measure from the body just struck, not the cursor, so
+      // the arc walks along a queue of zombies instead of fanning out.
+      from = next.position;
+      reach = chainRangeM;
+      hitDamage *= falloff;
+      if (hitDamage <= 0) break;
+    }
+
+    if (killedAny) this.rebuildAliveTargets();
+    return path;
+  }
+
+  /** Closest targetable zombie to a point within `radiusM`, skipping `exclude`. */
+  private nearestTargetable(
+    origin: { x: number; z: number },
+    radiusM: number,
+    exclude: ReadonlySet<Zombie>,
+  ): Zombie | null {
+    if (radiusM <= 0) return null;
+    const radiusSq = radiusM * radiusM;
+    let best: Zombie | null = null;
+    let bestSq = Infinity;
+    for (const zombie of this.aliveTargets) {
+      if (exclude.has(zombie)) continue;
+      const dx = zombie.position.x - origin.x;
+      const dz = zombie.position.z - origin.z;
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq > radiusSq || distanceSq >= bestSq) continue;
+      bestSq = distanceSq;
+      best = zombie;
+    }
+    return best;
   }
 
   /** True when the collider belongs to a shielded (Phone Addict) zombie. */

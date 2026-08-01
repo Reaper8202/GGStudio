@@ -28,6 +28,8 @@ import { createWeapon, overchargeWeapon, stepWeapons } from './weapons.ts';
 import {
   applyDirectDamage as damagePart,
   applyImpactDamage,
+  impactImpulseNs,
+  partDamage,
   resolveStructure,
   type DetachedIsland,
 } from './damage.ts';
@@ -260,6 +262,18 @@ export class RuntimeVehicle {
   /** Seconds of remaining shield invulnerability; >0 blocks all damage. */
   private invulnTimer = 0;
   private environment = NEUTRAL_ENVIRONMENT;
+  /** Seconds of remaining Reinforce; while >0 mobility is scaled down. */
+  private reinforceTimer = 0;
+  /** Drive-torque and top-speed multiplier while `reinforceTimer` runs. */
+  private reinforceMobility = 1;
+  /** Damage the Reinforce ward can still soak; 0 once it has shattered. */
+  private wardHp = 0;
+  /** Pool the live ward started from, so callers can draw it as a fraction. */
+  private wardHpMax = 0;
+  /** Ward damage soaked since the last `consumeWardHit`; drives the cracks. */
+  private wardSoakedSinceRead = 0;
+  /** Set when the ward's last point went; cleared by `consumeWardHit`. */
+  private wardShatteredSinceRead = false;
   /** Seconds of remaining overdrive torque surge; 0 when not boosting. */
   private overdriveTimer = 0;
   /** Drive-torque multiplier applied while `overdriveTimer` runs. */
@@ -340,7 +354,33 @@ export class RuntimeVehicle {
 
   applyDirectDamage(partId: string, amount: number): void {
     if (this.damageBlocked) return;
-    damagePart(this.assembled, partId, amount);
+    const through = this.soakWithWard(amount);
+    if (through <= 0) return;
+    damagePart(this.assembled, partId, through);
+  }
+
+  /**
+   * Run `amount` through the Reinforce ward and return what got past it. The
+   * ward is a pool of hit points in front of the hull rather than a switch: a
+   * hit bigger than what is left of it spends the remainder and the overflow
+   * lands on the part as usual, so the ward breaking mid-hit costs the player
+   * the tail of that hit and not the whole of it.
+   */
+  private soakWithWard(amount: number): number {
+    if (amount <= 0 || this.wardHp <= 0) return amount;
+    const soaked = Math.min(this.wardHp, amount);
+    this.wardHp -= soaked;
+    this.wardSoakedSinceRead += soaked;
+    if (this.wardHp <= 0) this.breakWard();
+    return amount - soaked;
+  }
+
+  /** Drop the ward: the plating is gone, and so is the drag that came with it. */
+  private breakWard(): void {
+    this.wardHp = 0;
+    this.wardShatteredSinceRead = true;
+    this.reinforceTimer = 0;
+    this.reinforceMobility = 1;
   }
 
   /**
@@ -390,13 +430,75 @@ export class RuntimeVehicle {
    */
   private currentSpeedCeiling(): number {
     const lift = this.overdriveTimer > 0 ? this.overdriveSpeedMultiplier : 1;
-    if (lift <= 1) return this.topSpeedCap;
-    return Math.min(HARD_MAX_SPEED_MPS, this.topSpeedCap * lift);
+    // Reinforce drags the ceiling down by the same factor it drags torque, so
+    // a plated rig is slow at the top end and not just slow off the line.
+    const drag = this.reinforceTimer > 0 ? this.reinforceMobility : 1;
+    const scale = lift * drag;
+    if (scale === 1) return this.topSpeedCap;
+    return Math.min(HARD_MAX_SPEED_MPS, this.topSpeedCap * scale);
   }
 
   /** True while the overdrive surge is running. */
   get isOverdriving(): boolean {
     return this.overdriveTimer > 0;
+  }
+
+  /**
+   * Reinforce ability: throw up a ward carrying `shieldHp` points of damage in
+   * front of the hull, for at most `seconds`. It is extra health rather than
+   * immunity — every hit spends the pool, and the ward drops the moment the
+   * pool is empty, whatever the timer says. Drive torque and the speed ceiling
+   * are both multiplied by `mobilityMultiplier` while it holds, so the rig pays
+   * for the cover by being unable to leave.
+   *
+   * Re-activation takes the longer time, the deeper pool and the *heavier*
+   * penalty rather than stacking, matching how overdrive resolves overlapping
+   * grants: neither can be spammed into something stronger than one press of it.
+   */
+  grantReinforce(
+    seconds: number,
+    mobilityMultiplier: number,
+    shieldHp: number,
+  ): void {
+    if (seconds <= 0 || shieldHp <= 0) return;
+    this.reinforceTimer = Math.max(this.reinforceTimer, seconds);
+    this.wardHp = Math.max(this.wardHp, shieldHp);
+    this.wardHpMax = Math.max(this.wardHp, shieldHp);
+    this.reinforceMobility = Math.min(
+      this.reinforceMobility,
+      Math.max(0.05, Math.min(1, mobilityMultiplier)),
+    );
+  }
+
+  /** True while the ward is up: the timer is running and the pool has points left. */
+  get isReinforced(): boolean {
+    return this.reinforceTimer > 0 && this.wardHp > 0;
+  }
+
+  /** Ward pool left, 0..1 of what this activation started with. */
+  get wardFraction(): number {
+    if (this.wardHpMax <= 0 || !this.isReinforced) return 0;
+    return Math.min(1, Math.max(0, this.wardHp / this.wardHpMax));
+  }
+
+  /** Damage the ward can still soak, in hit points. */
+  get wardHpRemaining(): number {
+    return this.isReinforced ? this.wardHp : 0;
+  }
+
+  /**
+   * What the ward took since this was last called, for whoever draws it: how
+   * much it soaked, and whether that was the hit that shattered it. Reading
+   * clears both, so exactly one caller (the ward's visuals) should consume it.
+   */
+  consumeWardHit(): { soaked: number; shattered: boolean } {
+    const hit = {
+      soaked: this.wardSoakedSinceRead,
+      shattered: this.wardShatteredSinceRead,
+    };
+    this.wardSoakedSinceRead = 0;
+    this.wardShatteredSinceRead = false;
+    return hit;
   }
 
   /**
@@ -599,6 +701,15 @@ export class RuntimeVehicle {
         this.overdriveThrustAccel = 0;
       }
     }
+    if (this.reinforceTimer > 0) {
+      this.reinforceTimer = Math.max(0, this.reinforceTimer - dt);
+      // Timing out is not a shatter: the ward is simply let down, so what is
+      // left of the pool is dropped without the break being reported.
+      if (this.reinforceTimer === 0) {
+        this.reinforceMobility = 1;
+        this.wardHp = 0;
+      }
+    }
     const body = this.assembled.body;
     const velocityAtStart = body.linvel();
     const angularVelocityAtStart = body.angvel();
@@ -671,6 +782,10 @@ export class RuntimeVehicle {
     // Overdrive rides on top of the mass and biome penalties, so the surge is
     // worth most to the heavy rigs and hostile ground the penalties hurt.
     if (this.overdriveTimer > 0) totalTorque *= this.overdriveMultiplier;
+    // Reinforce is applied last and multiplies whatever is left, so a player
+    // who lit both at once gets a boosted-but-still-bogged rig rather than one
+    // effect silently cancelling the other.
+    if (this.reinforceTimer > 0) totalTorque *= this.reinforceMobility;
 
     const torques = distributeTorque(
       totalTorque,
@@ -993,6 +1108,15 @@ export class RuntimeVehicle {
     // The bubble blocks self-damage from impacts; the vehicle still crushes
     // zombies (that runs through ZombieSystem, not this path).
     if (this.damageBlocked) return;
+    if (this.wardHp > 0) {
+      // The ward eats the whole collision and pays for it out of its pool, at
+      // the same rate the hull would have paid in health. A ram heavy enough to
+      // empty the pool still lands as one absorbed hit — the ward is gone from
+      // the next one on, which is where the player feels it.
+      const cost = partDamage(impactImpulseNs(forceMagnitude));
+      if (cost > 0) this.soakWithWard(cost);
+      return;
+    }
     applyImpactDamage(
       this.assembled,
       this.colliderToPart,

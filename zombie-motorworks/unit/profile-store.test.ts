@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_BUILD_ID } from '../src/core/builds.ts';
 import {
   PROFILE_STORAGE_KEY,
   ProfileStore,
@@ -49,6 +50,7 @@ describe('profile store', () => {
       money: 340,
       unlockedDefIds: [...STARTER_UNLOCKS, 'frame-reinforced'],
       inventory: {},
+      buildId: DEFAULT_BUILD_ID,
     });
     expect(second).toBe(first);
     expect(storage.reads).toBe(1);
@@ -62,6 +64,7 @@ describe('profile store', () => {
       money: 85,
       unlockedDefIds: ['wheel-offroad'],
       currentBlueprintName: 'Tow Rig',
+      buildId: DEFAULT_BUILD_ID,
     };
 
     expect(() => store.save(profile)).not.toThrow();
@@ -70,6 +73,8 @@ describe('profile store', () => {
     expect(decodeProfile(persisted)).toEqual({
       ...profile,
       unlockedDefIds: [...STARTER_UNLOCKS, 'wheel-offroad'],
+      inventory: {},
+      buildId: DEFAULT_BUILD_ID,
     });
     expect(store.load()).toEqual(decodeProfile(encodeProfile(profile)));
     expect(store.load()).toBe(profile);

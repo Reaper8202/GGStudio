@@ -37,6 +37,7 @@ import {
   orientationQuaternion,
   shade,
 } from './shared.ts';
+import { FALLOUT_GLOW, PYRE_FIRE, STORM_ARC } from './signature.ts';
 
 /** Only for hardware that emits something: cryo rings, pilots, emitters. */
 const FROST = 0x8fe3ff;
@@ -1033,6 +1034,227 @@ function addAbilityUpgrades(
   }
 }
 
+/**
+ * Storm Rod. The chain runs up the mast: a taller tip, charge cans on the
+ * plinth, splayed arc horns, a boost coil for Jump Start, and finally a lit
+ * crown ring that makes a maxed rod visible from across the arena.
+ *
+ * Positions assume the block's own geometry from `parts/signature.ts` — the
+ * mast head sits at about +0.9 cells, the crown tips at +0.95.
+ */
+function addStormUpgrades(
+  kit: THREE.Group,
+  level: number,
+  color: number,
+  opacity: number,
+): void {
+  const s = CELL_SIZE;
+  const steel = lambert(STEEL, opacity);
+
+  // 2 — Tuned Mast: a finial extending the rod past its crown.
+  const finial = new THREE.Mesh(
+    new THREE.ConeGeometry(s * 0.04, s * 0.34, 6),
+    lambert(shade(color, 1.3), opacity),
+  );
+  finial.position.y = s * 1.1;
+  kit.add(finial);
+
+  // 3 — Charge Bank: cans strapped down one flank of the plinth.
+  if (level >= 3) {
+    for (const z of [-0.22, 0.22]) {
+      const can = new THREE.Mesh(
+        new THREE.CylinderGeometry(s * 0.075, s * 0.075, s * 0.32, 8),
+        lambert(shade(color, 0.55), opacity),
+      );
+      can.position.set(-s * 0.46, s * 0.06, z * s);
+      kit.add(can);
+    }
+  }
+
+  // 4 — Arc Spreader: horns reaching out from the mast, widening the strike.
+  if (level >= 4) {
+    for (let i = 0; i < 3; i++) {
+      const angle = (i / 3) * Math.PI * 2;
+      const horn = new THREE.Mesh(
+        new THREE.CylinderGeometry(s * 0.022, s * 0.022, s * 0.3, 5),
+        steel,
+      );
+      horn.position.set(
+        Math.cos(angle) * s * 0.2,
+        s * 0.56,
+        Math.sin(angle) * s * 0.2,
+      );
+      horn.rotation.set(Math.sin(angle) * 1.1, 0, -Math.cos(angle) * 1.1);
+      kit.add(horn);
+    }
+  }
+
+  // 5 — Boost Coil: a fat winding low on the mast, feeding the drivetrain.
+  if (level >= 5) {
+    const coil = new THREE.Mesh(
+      new THREE.TorusGeometry(s * 0.21, s * 0.055, 6, 14),
+      lambert(shade(color, 0.7), opacity),
+    );
+    coil.rotation.x = Math.PI / 2;
+    coil.position.set(0, s * 0.3, 0);
+    kit.add(coil);
+  }
+
+  // 6 — Storm Crown: the lit ring the whole chain has been building toward.
+  if (level >= 6) {
+    const crown = new THREE.Mesh(
+      new THREE.TorusGeometry(s * 0.17, s * 0.035, 6, 16),
+      glowLambert(STORM_ARC, opacity, 1),
+    );
+    crown.rotation.x = Math.PI / 2;
+    crown.position.y = s * 0.95;
+    kit.add(crown);
+  }
+}
+
+/**
+ * Pyre Core. The chain feeds the furnace: wider jets on the mouth, a fuel
+ * bladder slung underneath, a ribbed heat shroud, the lance nozzle that Fire
+ * Blast throws through, and a lit grate over the whole throat.
+ */
+function addPyreUpgrades(
+  kit: THREE.Group,
+  level: number,
+  color: number,
+  opacity: number,
+): void {
+  const s = CELL_SIZE;
+  const steel = lambert(STEEL, opacity);
+
+  // 2 — Pressure Jets: a pair of injectors flanking the mouth.
+  for (const x of [-1, 1]) {
+    const jet = new THREE.Mesh(
+      new THREE.CylinderGeometry(s * 0.045, s * 0.06, s * 0.2, 7),
+      steel,
+    );
+    jet.rotation.x = Math.PI / 2;
+    jet.position.set(x * s * 0.22, s * 0.28, s * 0.36);
+    kit.add(jet);
+  }
+
+  // 3 — Fuel Bladder: a fat tank slung under the drum.
+  if (level >= 3) {
+    const bladder = new THREE.Mesh(
+      new THREE.CapsuleGeometry(s * 0.12, s * 0.3, 4, 8),
+      lambert(shade(color, 0.5), opacity),
+    );
+    bladder.rotation.x = Math.PI / 2;
+    bladder.position.set(0, -s * 0.02, -s * 0.06);
+    kit.add(bladder);
+  }
+
+  // 4 — Heat Shroud: ribs over the drum's back half.
+  if (level >= 4) {
+    const fins = finStack(4, s * 0.5, s * 0.1, s * 0.075, steel);
+    fins.position.set(0, s * 0.42, -s * 0.22);
+    kit.add(fins);
+  }
+
+  // 5 — Lance Nozzle: the long throat Fire Blast comes out of.
+  if (level >= 5) {
+    const nozzle = tube(s * 0.1, s * 0.16, s * 0.34, steel, 8);
+    nozzle.position.set(0, s * 0.28, s * 0.5);
+    kit.add(nozzle);
+  }
+
+  // 6 — Furnace Grate: the mouth stops being a hole and starts being a fire.
+  if (level >= 6) {
+    const grate = new THREE.Mesh(
+      new THREE.CylinderGeometry(s * 0.24, s * 0.24, s * 0.05, 10),
+      glowLambert(PYRE_FIRE, opacity, 1),
+    );
+    grate.rotation.x = Math.PI / 2;
+    grate.position.set(0, s * 0.28, s * 0.66);
+    kit.add(grate);
+  }
+}
+
+/**
+ * Fallout Silo. The chain arms the tube: a muzzle extension, a ready rack of
+ * shells, spotter optics on the cradle, hydraulic rams for Reinforce, and a lit
+ * core band at the breech.
+ *
+ * `buildBlockUpgrades` anchors this on the part's footprint centre, which for
+ * the silo's 2x2 pad is the middle of all four cells — the same point the
+ * tube in `parts/signature.ts` is built about. Everything below is therefore
+ * measured from the middle of the tube, and the two files stay in step as long
+ * as they keep sharing that origin.
+ */
+function addFalloutUpgrades(
+  kit: THREE.Group,
+  level: number,
+  color: number,
+  opacity: number,
+): void {
+  const s = CELL_SIZE;
+  const steel = lambert(STEEL, opacity);
+  // The tube's own nose-up tilt, so the extension lines up with the barrel it
+  // extends instead of poking out of it at an angle.
+  const tilt = 0.34;
+
+  // 2 — Bored Tube: an extension past the blast collar.
+  const extension = tube(s * 0.27, s * 0.3, s * 0.42, steel, 12);
+  extension.position.set(0, s * 0.5 + Math.sin(tilt) * s * 1.0, s * 0.95);
+  extension.rotation.x = Math.PI / 2 - tilt;
+  kit.add(extension);
+
+  // 3 — Shell Rack: rounds stood up in a rack along the left flank.
+  if (level >= 3) {
+    for (let i = 0; i < 3; i++) {
+      const shell = new THREE.Mesh(
+        new THREE.CapsuleGeometry(s * 0.06, s * 0.18, 3, 7),
+        lambert(shade(color, 1.15), opacity),
+      );
+      shell.position.set(-s * 0.78, s * 0.2, (i - 1) * s * 0.34);
+      kit.add(shell);
+    }
+  }
+
+  // 4 — Spotter Optics: a periscope head beside the breech.
+  if (level >= 4) {
+    const post = new THREE.Mesh(
+      new THREE.BoxGeometry(s * 0.08, s * 0.28, s * 0.08),
+      steel,
+    );
+    post.position.set(s * 0.66, s * 0.36, -s * 0.6);
+    kit.add(post);
+    const head = greebleBox(s * 0.22, s * 0.12, s * 0.14, DARK_STEEL, opacity);
+    head.position.set(s * 0.66, s * 0.52, -s * 0.6);
+    kit.add(head);
+  }
+
+  // 5 — Plate Rams: hydraulics down both flanks of the barbette, which is
+  // what Reinforce slams shut.
+  if (level >= 5) {
+    for (const x of [-1, 1]) {
+      const ram = new THREE.Mesh(
+        new THREE.CylinderGeometry(s * 0.065, s * 0.065, s * 0.5, 7),
+        lambert(shade(color, 0.6), opacity),
+      );
+      ram.rotation.z = Math.PI / 2;
+      ram.position.set(x * s * 0.5, -s * 0.16, s * 0.62);
+      kit.add(ram);
+    }
+  }
+
+  // 6 — Hardened Core: the breech band lights, the way every top unlock on an
+  // energy device does.
+  if (level >= 6) {
+    const band = new THREE.Mesh(
+      new THREE.TorusGeometry(s * 0.33, s * 0.045, 6, 16),
+      glowLambert(FALLOUT_GLOW, opacity, 1),
+    );
+    band.position.set(0, s * 0.5 - Math.sin(tilt) * s * 0.9, -s * 0.85);
+    band.rotation.x = tilt;
+    kit.add(band);
+  }
+}
+
 function addTankUpgrades(
   kit: THREE.Group,
   level: number,
@@ -1209,6 +1431,15 @@ export function buildBlockUpgrades(
       break;
     case 'ability':
       addAbilityUpgrades(kit, level, color, opacity);
+      break;
+    case 'signature-storm':
+      addStormUpgrades(kit, level, color, opacity);
+      break;
+    case 'signature-pyre':
+      addPyreUpgrades(kit, level, color, opacity);
+      break;
+    case 'signature-fallout':
+      addFalloutUpgrades(kit, level, color, opacity);
       break;
     case 'tank':
       addTankUpgrades(kit, level, color, opacity);

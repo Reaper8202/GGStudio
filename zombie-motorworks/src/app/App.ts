@@ -20,9 +20,8 @@ import {
 import { serializeBlueprint, deserializeBlueprint } from '../core/serialize.ts';
 import { validateBlueprint } from '../core/placement.ts';
 import {
-  STARTER_TUTORIAL_INVENTORY,
-  starterBodyBlueprint,
-  starterTutorialBlueprint,
+  starterTutorialBlueprintForBuild,
+  tutorialStagedInventoryForBuild,
 } from '../core/tutorial.ts';
 import { analyzeVehicle } from '../core/analysis.ts';
 import { getPartDef } from '../core/parts.ts';
@@ -47,6 +46,13 @@ import {
   type RunState,
 } from '../core/economy.ts';
 import type { BiomeId } from '../core/biomes.ts';
+import {
+  DEFAULT_BUILD_ID,
+  buildStarterRig,
+  buildStarterUnlocks,
+  buildWelcomeNotice,
+  type BuildId,
+} from '../core/builds.ts';
 import {
   defaultProfile,
   MINE_SWEEPER_UNLOCK_WAVE,
@@ -387,11 +393,25 @@ export class App {
   private runSummary: RunSummary | undefined;
   /** Map the next run starts on. Chosen on the title screen, kept in the Profile. */
   private preferredBiomeId: BiomeId;
+  /**
+   * Build the next run starts on. Like the map it is chosen on the title screen
+   * and kept in the Profile, but unlike the map it also has to survive a run
+   * ending: `resetProgressionForNewRun` hands back a fresh rig, and that rig
+   * has to be the build the player is playing.
+   */
+  private preferredBuildId: BuildId;
   private readonly committedDestroyedPartNames: string[] = [];
   private profileDirty = false;
   private profileFlushTimer: number | undefined;
   private saveFailureNotified = false;
   private pendingEditorNotice: string | undefined;
+  /**
+   * One-shot flag: the next `openEditor()` is the very first one after New
+   * Game, so the garage opens onto the rig picker. Cleared as soon as it is
+   * consumed, exactly like `pendingEditorNotice`, so a later re-open (the one
+   * `applyChosenBuild` makes to start the tutorial) never shows the picker again.
+   */
+  private pendingIsNewGame = false;
   private onboardingStage: OnboardingStage | null = loadOnboardingStage();
 
   constructor(private readonly root: HTMLElement) {
@@ -401,6 +421,7 @@ export class App {
     this.saveExistedAtBoot = this.hasStoredSave();
     this.profile = profileStore.load();
     this.preferredBiomeId = this.profile.preferredBiomeId ?? DEFAULT_BIOME_ID;
+    this.preferredBuildId = this.profile.buildId ?? DEFAULT_BUILD_ID;
     this.history = new CommandHistory((moneyDelta) =>
       this.changeMoney(moneyDelta, true),
     );
@@ -548,6 +569,11 @@ export class App {
 
   private openEditor(): void {
     this.disposeTitle();
+    // Re-opening replaces the garage rather than stacking a second one on top
+    // of it: `applyChosenBuild` comes back through here with a new blueprint,
+    // and the editor it built its meshes, DOM and overlays from is now stale.
+    this.editor?.dispose();
+    this.editor = null;
     this.chamber?.dispose();
     this.chamber = null;
     this.survival?.dispose();
@@ -581,9 +607,12 @@ export class App {
         notice: this.pendingEditorNotice,
         startTutorial: this.onboardingStage === 'garage',
         onTutorialSkipped: () => this.setOnboardingStage('skipped'),
+        isNewGame: this.pendingIsNewGame,
+        onChooseBuild: (buildId) => this.applyChosenBuild(buildId),
       },
     );
     this.pendingEditorNotice = undefined;
+    this.pendingIsNewGame = false;
     this.editor.resize(this.root.clientWidth, this.root.clientHeight);
     startGarageMusic();
     setCrazyGamesGameplayActive(true);
@@ -616,6 +645,52 @@ export class App {
     this.markProfileDirty();
   }
 
+  /**
+   * Commit the rig the player picked in the garage's first-run prompt.
+   *
+   * The choice replaces the whole blueprint rather than editing the one on
+   * screen, so the garage is rebuilt around it. That is also why the pick is
+   * only offered on a brand-new game: there is nothing here worth preserving
+   * yet, and swapping a rig the player had already started modifying would
+   * throw their work away.
+   */
+  private applyChosenBuild(buildId: BuildId): void {
+    this.preferredBuildId = buildId;
+    this.profile.buildId = buildId;
+    // Everything the rig is made of has to stay buyable, or the first tread a
+    // zombie tears off is a hole nothing can fill.
+    this.grantBuildUnlocks();
+    this.markProfileDirty();
+    // The rig is not handed over finished: the player is walked through
+    // building it. The bay starts as that build's Chassis Core alone, with
+    // every other block on it — signature weapon included — staged free in the
+    // inventory, and the coached steps teach exactly those blocks in order.
+    const staged = tutorialStagedInventoryForBuild(buildId);
+    this.profile.inventory = { ...staged };
+    this.profile.hotbarDefIds = Object.keys(staged);
+    this.bp = starterTutorialBlueprintForBuild(buildId);
+    this.history.clear();
+    this.setOnboardingStage('garage');
+    // Reopened rather than refreshed: the editor caches meshes, selection and
+    // overlays off the blueprint it was constructed with, and every one of
+    // those is stale the moment the rig underneath changes.
+    this.pendingEditorNotice = buildWelcomeNotice(buildId);
+    this.openEditor();
+  }
+
+  /**
+   * Make sure every block on the player's starting rig is one the Store will
+   * sell them again. A build handed out on tank treads has to leave treads
+   * buyable, or the first belt a zombie tears off is unreplaceable.
+   */
+  private grantBuildUnlocks(): void {
+    const unlocked = new Set(this.profile.unlockedDefIds);
+    for (const defId of buildStarterUnlocks(this.preferredBuildId)) {
+      unlocked.add(defId);
+    }
+    this.profile.unlockedDefIds = [...unlocked];
+  }
+
   private returnToTitle(): void {
     if (!this.editor || (this.activeRun && this.inBuildPhase)) return;
     this.bp = this.editor.blueprint();
@@ -630,10 +705,18 @@ export class App {
     this.clearStoredSave();
     resetProfileForNewGame(this.profile);
     this.resetSessionState();
-    this.profile.inventory = { ...STARTER_TUTORIAL_INVENTORY };
-    this.profile.hotbarDefIds = Object.keys(STARTER_TUTORIAL_INVENTORY);
-    this.bp = starterTutorialBlueprint();
-    this.setOnboardingStage('garage');
+    // The garage opens on the default rig and immediately puts the picker over
+    // it; `applyChosenBuild` swaps in whatever the player lands on and grants
+    // that build's unlocks. The default's are granted here as well so the rig
+    // on screen is always fully repairable even if the picker is somehow
+    // dismissed — the overlap costs a player who switches builds one unlock
+    // they will not use, which is a rounding error against being handed a rig
+    // with a wheel the Store refuses to sell them.
+    this.preferredBuildId = DEFAULT_BUILD_ID;
+    this.profile.buildId = DEFAULT_BUILD_ID;
+    this.grantBuildUnlocks();
+    this.bp = buildStarterBlueprint(DEFAULT_BUILD_ID);
+    this.pendingIsNewGame = true;
     this.markProfileDirty();
     this.openEditor();
   }
@@ -645,10 +728,12 @@ export class App {
     if (loaded.kind === 'loaded') {
       this.bp = loaded.blueprint;
     } else {
+      // Mid-tutorial saves resume on the chassis-only bay for the build they
+      // picked, so the coached steps still have something left to teach.
       this.bp =
         this.onboardingStage === 'garage'
-          ? starterTutorialBlueprint()
-          : buildStarterBlueprint();
+          ? starterTutorialBlueprintForBuild(this.preferredBuildId)
+          : buildStarterBlueprint(this.preferredBuildId);
       if (loaded.kind === 'failed') {
         this.pendingEditorNotice = `Saved vehicle could not be loaded — it has been preserved as ${loaded.name}`;
       }
@@ -985,7 +1070,7 @@ export class App {
     this.clearStoredBlueprints();
     resetProfileForNewRun(this.profile);
     this.resetSessionState();
-    this.bp = buildStarterBlueprint();
+    this.bp = buildStarterBlueprint(this.preferredBuildId);
     // The profile key is deliberately kept (unlocks survive a run), so the
     // wiped money and inventory must be written back explicitly — a flush
     // alone is skipped while the profile is not marked dirty.
@@ -1440,7 +1525,16 @@ export class App {
   }
 }
 
-/** A small, valid, drivable starter rig so first boot isn't a blank grid. */
-export function buildStarterBlueprint(): VehicleBlueprint {
-  return starterBodyBlueprint();
+/**
+ * A small, valid, drivable starter rig so first boot isn't a blank grid.
+ *
+ * The layouts themselves live in `core/builds.ts` — they are pure blueprint
+ * data, and the title screen needs them for its picker backdrop as much as the
+ * app does for a new run. This stays as the app-side entry point because
+ * `TitleScreen` and the unit tests already import it by name.
+ */
+export function buildStarterBlueprint(
+  buildId: BuildId = DEFAULT_BUILD_ID,
+): VehicleBlueprint {
+  return buildStarterRig(buildId);
 }

@@ -1,5 +1,15 @@
 import * as THREE from 'three';
 import {
+  BEHEMOTH_BOULDER_BLAST_RADIUS,
+  BEHEMOTH_BOULDER_COLOR,
+  BEHEMOTH_BOULDER_DAMAGE,
+  BEHEMOTH_BOULDER_HIT_RADIUS,
+  BEHEMOTH_BOULDER_LIFETIME,
+  BEHEMOTH_BOULDER_MAX_FLIGHT_TIME,
+  BEHEMOTH_BOULDER_MIN_FLIGHT_TIME,
+  BEHEMOTH_BOULDER_SIZE,
+  BEHEMOTH_BOULDER_SPEED,
+  BEHEMOTH_BOULDER_STUN_SECONDS,
   PROJECTILE_DAMAGE,
   PROJECTILE_HIT_RADIUS,
   PROJECTILE_HORIZONTAL_SPEED,
@@ -28,7 +38,7 @@ const SPIN_RATE = 5; // rad/s, visual only
 const BOX_TRAIL_INTERVAL = 0.045;
 
 /** Which look and flight feel a launched projectile uses. */
-export type ProjectileVariant = 'box' | 'vial';
+export type ProjectileVariant = 'box' | 'vial' | 'boulder';
 
 /**
  * Everything that differs between a thrower's tumbling box and a boss's vial.
@@ -63,6 +73,17 @@ export interface ProjectileSpec {
     readonly durationSeconds: number;
     readonly poisonDamagePerSecond: number;
   };
+  /**
+   * Landing blast a behemoth's boulder carries; undefined for every other
+   * variant. Like `puddle` it rides on the spec rather than being looked up at
+   * landing time, so the shot that is already in the air keeps the numbers it
+   * was thrown with even if its thrower has since died.
+   */
+  readonly aoe?: {
+    readonly radiusM: number;
+    readonly damage: number;
+    readonly stunSeconds: number;
+  };
 }
 
 /** The thrower's lob — the shape this pool originally existed to fire. */
@@ -92,6 +113,27 @@ export const VIAL_PROJECTILE: ProjectileSpec = {
   gravityScale: VIAL_GRAVITY_SCALE,
 };
 
+/**
+ * The behemoth's boulder. Slow, heavy, and the only shot in the pool that
+ * carries a landing blast — see `ProjectileSpec.aoe`.
+ */
+export const BOULDER_PROJECTILE: ProjectileSpec = {
+  horizontalSpeed: BEHEMOTH_BOULDER_SPEED,
+  minFlightTime: BEHEMOTH_BOULDER_MIN_FLIGHT_TIME,
+  maxFlightTime: BEHEMOTH_BOULDER_MAX_FLIGHT_TIME,
+  lifetime: BEHEMOTH_BOULDER_LIFETIME,
+  // The direct hit is the small half of it; the blast below is the payload.
+  damage: BEHEMOTH_BOULDER_DAMAGE * 0.5,
+  hitRadius: BEHEMOTH_BOULDER_HIT_RADIUS,
+  variant: 'boulder',
+  gravityScale: 1,
+  aoe: {
+    radiusM: BEHEMOTH_BOULDER_BLAST_RADIUS,
+    damage: BEHEMOTH_BOULDER_DAMAGE,
+    stunSeconds: BEHEMOTH_BOULDER_STUN_SECONDS,
+  },
+};
+
 interface Projectile {
   readonly mesh: THREE.Mesh;
   vx: number;
@@ -104,6 +146,7 @@ interface Projectile {
   variant: ProjectileVariant;
   gravity: number;
   puddle: ProjectileSpec['puddle'];
+  aoe: ProjectileSpec['aoe'];
   trailTimer: number;
 }
 
@@ -122,8 +165,10 @@ export class ThrowerProjectiles {
   private readonly pool: Projectile[] = [];
   private readonly boxGeometry: THREE.BoxGeometry;
   private readonly vialGeometry: THREE.CapsuleGeometry;
+  private readonly boulderGeometry: THREE.IcosahedronGeometry;
   private readonly boxMaterial: THREE.MeshLambertMaterial;
   private readonly vialMaterial: THREE.MeshLambertMaterial;
+  private readonly boulderMaterial: THREE.MeshLambertMaterial;
   private disposed = false;
 
   constructor(
@@ -161,6 +206,19 @@ export class ThrowerProjectiles {
       emissive: 0x2c5a12,
       flatShading: true,
     });
+    // A single-subdivision icosahedron: chunky rock facets with no art asset,
+    // matching the ground-smash rubble the behemoth already kicks up.
+    this.boulderGeometry = new THREE.IcosahedronGeometry(
+      BEHEMOTH_BOULDER_SIZE,
+      0,
+    );
+    // Dull, unlit stone — it must NOT glow like the box does. The read on this
+    // shot is its size and its arc, and it is the one incoming projectile the
+    // player is meant to feel is worth outrunning rather than tanking.
+    this.boulderMaterial = new THREE.MeshLambertMaterial({
+      color: BEHEMOTH_BOULDER_COLOR,
+      flatShading: true,
+    });
     for (let i = 0; i < PROJECTILE_POOL_SIZE; i++) {
       const mesh = new THREE.Mesh(this.boxGeometry, this.boxMaterial);
       mesh.castShadow = true;
@@ -178,6 +236,7 @@ export class ThrowerProjectiles {
         variant: 'box',
         gravity: GRAVITY_MPS2,
         puddle: undefined,
+        aoe: undefined,
         trailTimer: 0,
       });
     }
@@ -242,11 +301,20 @@ export class ThrowerProjectiles {
     slot.variant = spec.variant;
     slot.gravity = gravity;
     slot.puddle = spec.puddle;
+    slot.aoe = spec.aoe;
     slot.trailTimer = 0;
     slot.mesh.geometry =
-      spec.variant === 'vial' ? this.vialGeometry : this.boxGeometry;
+      spec.variant === 'vial'
+        ? this.vialGeometry
+        : spec.variant === 'boulder'
+          ? this.boulderGeometry
+          : this.boxGeometry;
     slot.mesh.material =
-      spec.variant === 'vial' ? this.vialMaterial : this.boxMaterial;
+      spec.variant === 'vial'
+        ? this.vialMaterial
+        : spec.variant === 'boulder'
+          ? this.boulderMaterial
+          : this.boxMaterial;
     slot.mesh.position.set(fromX, fromY, fromZ);
     slot.mesh.rotation.set(0, 0, 0);
     slot.mesh.visible = true;
@@ -278,6 +346,7 @@ export class ThrowerProjectiles {
       z: number,
       variant: ProjectileVariant,
       puddle: ProjectileSpec['puddle'],
+      aoe: ProjectileSpec['aoe'],
     ) => void,
   ): void {
     if (this.disposed) return;
@@ -324,6 +393,7 @@ export class ThrowerProjectiles {
           position.z,
           projectile.variant,
           projectile.puddle,
+          projectile.aoe,
         );
         this.despawn(projectile);
       }
@@ -341,8 +411,10 @@ export class ThrowerProjectiles {
     this.pool.length = 0;
     this.boxGeometry.dispose();
     this.vialGeometry.dispose();
+    this.boulderGeometry.dispose();
     this.boxMaterial.dispose();
     this.vialMaterial.dispose();
+    this.boulderMaterial.dispose();
   }
 
   private despawn(projectile: Projectile): void {
