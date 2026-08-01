@@ -6,7 +6,11 @@ import {
   toggleHotbarSlot,
   withHotbarSlot,
 } from '../core/hotbar.ts';
-import { ABILITY_SLOT_KEYS } from '../core/abilities.ts';
+import { ABILITY_SLOT_KEYS, abilityMeta } from '../core/abilities.ts';
+import {
+  SIGNATURE_KIND_META,
+  effectiveSignature,
+} from '../core/signatures.ts';
 import {
   KID_LABELS,
   SIMPLE_PART_IDS,
@@ -24,8 +28,9 @@ import {
   upgradeStepsFor,
 } from '../core/partUpgrades.ts';
 import { storeOffer } from '../core/economy.ts';
+import { BUILDS, BUILD_IDS, buildStarterRig, type BuildId } from '../core/builds.ts';
+import { mountSpinningRigPreview } from './BuildPreview.ts';
 import { upgradePrice } from '../core/upgrades.ts';
-import { mountSpinningPartPreview } from './WeaponPromptPreview.ts';
 
 export interface EditorUIHandlers {
   /** Unlocks a locked part, or buys and arms an already-unlocked part. */
@@ -35,6 +40,8 @@ export interface EditorUIHandlers {
   /** The player re-curated the build bar; older harnesses may omit this. */
   onHotbarChange?(defIds: readonly string[]): void;
   onCancelTool(): void;
+  /** The player picked their starting rig in the first-run build prompt. */
+  onChooseBuild?(buildId: BuildId): void;
   newGarageDisposalSummary(): NewGarageDisposalSummary;
   onNew(): void;
   onMenu(): void;
@@ -221,8 +228,9 @@ export interface EditorUI {
   ): Promise<'new-slot' | 'replace' | 'cancel'>;
   setNotice(text: string): void;
   deny(text: string): void;
+  /** Open the first-run rig picker. Modal, and only closable by choosing. */
+  showBuildPrompt(): void;
   /** Nudge shown at the start of every new game to buy a starting weapon. */
-  showWeaponPrompt(): void;
   ghostTip: HTMLDivElement;
   /**
    * Shortcut hint pinned to the current selection in the viewport. EditorMode
@@ -826,6 +834,113 @@ export function buildEditorUI(
   });
   root.appendChild(newGarageOverlay);
 
+  // First-run build prompt: three rigs, each spinning in its own little
+  // viewport, with the two rows that actually separate them — what the mouse
+  // does and what the ability key does.
+  //
+  // Unlike every other dialog in the garage this one has no dismiss. A run has
+  // to start on one of the three, so offering "maybe later" would only mean
+  // "start on whichever one you happened to be given", which is not a choice
+  // the player made.
+  const buildPromptOverlay = document.createElement('div');
+  buildPromptOverlay.className = 'garage-confirm-overlay';
+  buildPromptOverlay.hidden = true;
+  buildPromptOverlay.setAttribute('role', 'dialog');
+  buildPromptOverlay.setAttribute('aria-modal', 'true');
+  buildPromptOverlay.setAttribute('aria-labelledby', 'build-prompt-title');
+  buildPromptOverlay.setAttribute(
+    'aria-describedby',
+    'build-prompt-description',
+  );
+  const buildPromptDialog = document.createElement('section');
+  buildPromptDialog.className = 'panel garage-confirm build-prompt';
+  const buildPromptTitle = document.createElement('h2');
+  buildPromptTitle.id = 'build-prompt-title';
+  buildPromptTitle.textContent = 'Choose Your Rig';
+  const buildPromptDescription = document.createElement('p');
+  buildPromptDescription.id = 'build-prompt-description';
+  buildPromptDescription.textContent =
+    'Each one comes with its own weapon bolted on — left-click to fire it — ' +
+    'and its own ability. Everything in the Store works with all three.';
+  const buildPromptOptions = document.createElement('div');
+  buildPromptOptions.className = 'build-prompt__options';
+
+  let stopBuildPreviews: (() => void)[] = [];
+  const buildPromptCanvases: [BuildId, HTMLCanvasElement][] = [];
+  let firstBuildOption: HTMLButtonElement | null = null;
+
+  /** Tear down the three GL contexts. Idempotent: called on close and on pick. */
+  const stopBuildPromptPreviews = (): void => {
+    for (const stop of stopBuildPreviews) stop();
+    stopBuildPreviews = [];
+  };
+  const closeBuildPrompt = (): void => {
+    buildPromptOverlay.hidden = true;
+    stopBuildPromptPreviews();
+  };
+
+  for (const buildId of BUILD_IDS) {
+    const build = BUILDS[buildId];
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = `build-prompt__option build-prompt__option--${build.id}`;
+
+    const art = document.createElement('div');
+    art.className = 'build-prompt__art';
+    const preview = document.createElement('canvas');
+    preview.className = 'build-prompt__preview';
+    art.appendChild(preview);
+    buildPromptCanvases.push([build.id, preview]);
+
+    const name = document.createElement('strong');
+    name.className = 'build-prompt__name';
+    name.textContent = build.name;
+    const chassis = document.createElement('span');
+    chassis.className = 'build-prompt__chassis';
+    chassis.textContent = build.chassis;
+    const blurb = document.createElement('span');
+    blurb.className = 'build-prompt__blurb';
+    blurb.textContent = build.blurb;
+
+    const kit = document.createElement('span');
+    kit.className = 'build-prompt__kit';
+    for (const [label, value] of [
+      ['Click', build.signatureName],
+      ['Ability', build.abilityName],
+    ] as const) {
+      const row = document.createElement('span');
+      row.className = 'build-prompt__kit-row';
+      const rowLabel = document.createElement('span');
+      rowLabel.className = 'build-prompt__kit-label';
+      rowLabel.textContent = label;
+      const rowValue = document.createElement('span');
+      rowValue.className = 'build-prompt__kit-value';
+      rowValue.textContent = value;
+      row.append(rowLabel, rowValue);
+      kit.appendChild(row);
+    }
+
+    const pick = document.createElement('span');
+    pick.className = 'build-prompt__pick';
+    pick.textContent = 'Start with this rig';
+
+    option.append(art, name, chassis, blurb, kit, pick);
+    option.addEventListener('click', () => {
+      closeBuildPrompt();
+      handlers.onChooseBuild?.(build.id);
+    });
+    buildPromptOptions.appendChild(option);
+    firstBuildOption ??= option;
+  }
+
+  buildPromptDialog.append(
+    buildPromptTitle,
+    buildPromptDescription,
+    buildPromptOptions,
+  );
+  buildPromptOverlay.appendChild(buildPromptDialog);
+  root.appendChild(buildPromptOverlay);
+
   const openNewGarageDialog = (trigger: HTMLElement): void => {
     const summary = handlers.newGarageDisposalSummary();
     newGaragePartCount.textContent = String(summary.partCount);
@@ -837,92 +952,6 @@ export function buildEditorUI(
     cancelNewGarage.focus();
   };
 
-  // New-game nudge: a bare frame with no weapon on it can't fight back, so
-  // every brand-new garage prompts straight for one of the three cheapest,
-  // most forgiving options rather than leaving the player to find the Store.
-  const WEAPON_PROMPT_DEF_IDS = ['turret', 'sawblade', 'flamethrower'] as const;
-  const weaponPromptOverlay = document.createElement('div');
-  weaponPromptOverlay.className = 'garage-confirm-overlay';
-  weaponPromptOverlay.hidden = true;
-  weaponPromptOverlay.setAttribute('role', 'dialog');
-  weaponPromptOverlay.setAttribute('aria-modal', 'true');
-  weaponPromptOverlay.setAttribute('aria-labelledby', 'weapon-prompt-title');
-  weaponPromptOverlay.setAttribute(
-    'aria-describedby',
-    'weapon-prompt-description',
-  );
-  const weaponPromptDialog = document.createElement('section');
-  weaponPromptDialog.className = 'panel garage-confirm weapon-prompt';
-  const weaponPromptTitle = document.createElement('h2');
-  weaponPromptTitle.id = 'weapon-prompt-title';
-  weaponPromptTitle.textContent = 'Get Started: Buy a Weapon';
-  const weaponPromptDescription = document.createElement('p');
-  weaponPromptDescription.id = 'weapon-prompt-description';
-  weaponPromptDescription.textContent =
-    'Your rig can’t fight back without one. Grab a weapon now — it’s armed and ready to place the moment you buy it.';
-  const weaponPromptOptions = document.createElement('div');
-  weaponPromptOptions.className = 'weapon-prompt__options';
-  let stopWeaponPreviews: Array<() => void> = [];
-  const closeWeaponPrompt = (): void => {
-    weaponPromptOverlay.hidden = true;
-    for (const stop of stopWeaponPreviews) stop();
-    stopWeaponPreviews = [];
-  };
-  const weaponPromptCanvases: [string, HTMLCanvasElement][] = [];
-  const weaponPromptPrices: [string, HTMLElement][] = [];
-  for (const defId of WEAPON_PROMPT_DEF_IDS) {
-    const def = catalog[defId];
-    if (!def) continue;
-    const option = document.createElement('button');
-    option.type = 'button';
-    option.className = 'weapon-prompt__option';
-    const art = document.createElement('div');
-    art.className = 'weapon-prompt__art';
-    const preview = document.createElement('canvas');
-    preview.className = 'weapon-prompt__preview';
-    art.appendChild(preview);
-    weaponPromptCanvases.push([defId, preview]);
-    const name = document.createElement('strong');
-    name.textContent = KID_LABELS[defId]?.name ?? def.name;
-    const price = document.createElement('span');
-    weaponPromptPrices.push([defId, price]);
-    option.append(art, name, price);
-    option.addEventListener('click', () => {
-      closeWeaponPrompt();
-      (handlers.onPurchasePart ?? handlers.onBuyPart)(defId);
-    });
-    weaponPromptOptions.appendChild(option);
-  }
-  const refreshWeaponPromptPrices = (): void => {
-    for (const [defId, price] of weaponPromptPrices) {
-      if (!catalog[defId]) continue;
-      const offer = storeOffer(defId, currentUnlockedDefIds);
-      price.textContent =
-        offer.action === 'unlock'
-          ? `Unlock $${offer.price}`
-          : `$${offer.price}`;
-    }
-  };
-  const weaponPromptActions = document.createElement('div');
-  weaponPromptActions.className = 'garage-confirm__actions';
-  const dismissWeaponPrompt = btn('Maybe Later', closeWeaponPrompt);
-  weaponPromptActions.appendChild(dismissWeaponPrompt);
-  weaponPromptDialog.append(
-    weaponPromptTitle,
-    weaponPromptDescription,
-    weaponPromptOptions,
-    weaponPromptActions,
-  );
-  weaponPromptOverlay.appendChild(weaponPromptDialog);
-  weaponPromptOverlay.addEventListener('pointerdown', (event) => {
-    if (event.target === weaponPromptOverlay) closeWeaponPrompt();
-  });
-  weaponPromptOverlay.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape') return;
-    closeWeaponPrompt();
-    event.preventDefault();
-  });
-  root.appendChild(weaponPromptOverlay);
 
   // Where should an imported build go? Modelled on the New Garage dialog above
   // rather than window.confirm/prompt: native dialogs are unusable on mobile
@@ -1256,7 +1285,6 @@ export function buildEditorUI(
   let highlighted: string | null = null;
   let hotbar: string[] = [];
   let stock: Readonly<Record<string, number>> = {};
-  let currentUnlockedDefIds: readonly string[] = [];
 
   for (const id of SIMPLE_PART_IDS) {
     const def = catalog[id];
@@ -1902,7 +1930,7 @@ export function buildEditorUI(
 
       const statList = document.createElement('div');
       statList.className = 'selected-part__stats';
-      for (const stat of effectiveStatLabels(effectiveDef ?? def)) {
+      for (const stat of effectiveStatLabels(effectiveDef ?? def, level)) {
         const row = document.createElement('div');
         const [labelText, valueText] = stat;
         const label = document.createElement('span');
@@ -2059,7 +2087,6 @@ export function buildEditorUI(
       moneyReadout.textContent = `$${money}`;
       stock = currentInventory;
       hotbar = resolveHotbar(hotbarDefIds, currentInventory);
-      currentUnlockedDefIds = unlockedDefIds;
       const installedCounts = new Map<string, number>();
       for (const defId of installedDefIds) {
         installedCounts.set(defId, (installedCounts.get(defId) ?? 0) + 1);
@@ -2250,6 +2277,18 @@ export function buildEditorUI(
         importOverlay.hidden = false;
         importAsNewSlot.focus();
       }),
+    showBuildPrompt: () => {
+      buildPromptOverlay.hidden = false;
+      firstBuildOption?.focus();
+      // Previews are mounted on open and torn down on close: three live WebGL
+      // contexts are not something to hold for a whole garage session.
+      stopBuildPromptPreviews();
+      for (const [buildId, canvas] of buildPromptCanvases) {
+        stopBuildPreviews.push(
+          mountSpinningRigPreview(canvas, buildStarterRig(buildId)),
+        );
+      }
+    },
     setNotice: (text) => {
       noticeBanner.textContent = text;
       noticeBanner.style.display = 'block';
@@ -2260,24 +2299,55 @@ export function buildEditorUI(
       void moneyReadout.offsetWidth;
       moneyReadout.classList.add('deny-shake');
     },
-    showWeaponPrompt: () => {
-      weaponPromptOverlay.hidden = false;
-      dismissWeaponPrompt.focus();
-      refreshWeaponPromptPrices();
-      for (const stop of stopWeaponPreviews) stop();
-      stopWeaponPreviews = [];
-      for (const [defId, canvas] of weaponPromptCanvases) {
-        const def = catalog[defId];
-        if (def) stopWeaponPreviews.push(mountSpinningPartPreview(canvas, def));
-      }
-    },
   };
 }
 
-function effectiveStatLabels(def: PartDefinition): [string, string][] {
+/**
+ * Inspector rows for a part at `level`.
+ *
+ * Most rows read straight off the already-level-scaled `effectiveDef`. The
+ * signature block's strike is the exception: `effectivePartDef` deliberately
+ * does not scale `signature` (abilities work the same way), so it is resolved
+ * here through its own helper — which matters more for these three than for
+ * anything else, because upgrading the signature block is the one upgrade path
+ * every player has from wave one and they should see what it buys.
+ */
+function effectiveStatLabels(
+  def: PartDefinition,
+  level = 1,
+): [string, string][] {
   const labels: [string, string][] = [
     ['Integrity', `${formatStat(def.health)} HP`],
   ];
+  if (def.signature) {
+    const strike = effectiveSignature(def.signature, level);
+    labels.push([
+      strike.autoFire ? 'Auto Attack' : 'Click Attack',
+      SIGNATURE_KIND_META[def.signature.kind].label,
+    ]);
+    if (strike.chainTargets > 1) {
+      // A chain has no blast, so quoting a radius would describe a weapon it
+      // is not; what the player wants to know is how many it hits and how far
+      // the arc reaches between them.
+      labels.push(
+        ['Damage', `${formatStat(strike.damage)} DMG`],
+        ['Chains To', `${strike.chainTargets} ZOMBIES`],
+        ['Arc Range', `${strike.chainRangeM.toFixed(1)} M`],
+      );
+    } else {
+      labels.push(
+        ['Blast', `${formatStat(strike.damage)} DMG`],
+        ['Radius', `${strike.radiusM.toFixed(1)} M`],
+      );
+    }
+    labels.push(
+      ['Reload', `${strike.cooldownSeconds.toFixed(1)} S`],
+      ['Reach', `${formatStat(strike.rangeM)} M`],
+    );
+    if (strike.delaySeconds > 0) {
+      labels.push(['Fall Time', `${strike.delaySeconds.toFixed(1)} S`]);
+    }
+  }
   if (def.engine) {
     const peakTorque = Math.max(
       0,
@@ -2356,9 +2426,37 @@ function effectiveStatLabels(def: PartDefinition): [string, string][] {
       ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
     );
   }
+  if (def.ability?.kind === 'flamelance') {
+    labels.push(
+      ['Ability', abilityMeta(def.ability).label],
+      [
+        'Burn',
+        `${formatStat(
+          (def.ability.baseDamage ?? 0) * (def.ability.ticksPerSecond ?? 8),
+        )} DPS`,
+      ],
+      ['Reach', `${formatStat(def.ability.rangeM ?? 0)} M`],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
+  if (def.ability?.kind === 'reinforce') {
+    labels.push(
+      ['Ability', abilityMeta(def.ability).label],
+      ['Effect', 'Invulnerable'],
+      [
+        'Mobility',
+        `x${formatStat(def.ability.mobilityMultiplier ?? 1)}`,
+      ],
+      ['Duration', `${formatStat(def.ability.baseDurationSeconds)} S`],
+      ['Cooldown', `${formatStat(def.ability.cooldownSeconds)} S`],
+    );
+  }
   if (def.ability?.kind === 'overdrive') {
     labels.push(
-      ['Ability', 'Overdrive'],
+      // A Build's dash is an overdrive too, so this row uses the part's own
+      // label rather than hard-coding the Nitro Injector's name.
+      ['Ability', abilityMeta(def.ability).label],
       ['Thrust', `${formatStat(def.ability.baseThrustAccel ?? 0)} M/S²`],
       ['Torque', `x${formatStat(def.ability.baseTorqueMultiplier ?? 1)}`],
       ['Top Speed', `x${formatStat(def.ability.baseTopSpeedMultiplier ?? 1)}`],

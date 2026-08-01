@@ -6,15 +6,17 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import {
-  ABILITY_KIND_META,
+  abilityMeta,
   ABILITY_SLOT_KEYS,
   abilityUnlocked,
   effectiveCharm,
+  effectiveFlameLance,
   effectiveFreeze,
   effectiveHellfire,
   effectiveOverdrive,
   effectivePhase,
   effectivePulse,
+  effectiveReinforce,
   effectiveRocket,
   effectiveShield,
   effectiveThump,
@@ -25,6 +27,12 @@ import {
   type AbilityCandidate,
   type AbilitySlotAssignment,
 } from '../core/abilities.ts';
+import { effectiveSignature, type SignatureStats } from '../core/signatures.ts';
+import {
+  SignatureStrikes,
+  clampStrikePoint,
+  type StrikeImpact,
+} from './SignatureStrikes.ts';
 import {
   badgeAwards,
   badgeBonusTotal,
@@ -110,6 +118,7 @@ import { FuelPickups } from './FuelPickups.ts';
 import { AutoAim } from './AutoAim.ts';
 import { FollowCamera } from './FollowCamera.ts';
 import { PhaseGhosts } from './PhaseGhosts.ts';
+import { ReinforceWard } from './ReinforceWard.ts';
 import {
   chassisFootprintRadiusM,
   ORBIT_MARGIN_M,
@@ -601,6 +610,8 @@ export class SurvivalMode {
   private readonly phaseGhosts: PhaseGhosts;
   /** Ground chevron orbiting the rig, aimed at the nearest live zombie. */
   private readonly threatPointer: ThreatPointer;
+  /** Yellow hex shell shown while the Reinforce ward is soaking damage. */
+  private reinforceWard: ReinforceWard | null = null;
   /** Translucent blue bubble shown while the shield special is active. */
   private shieldBubble: THREE.Mesh | null = null;
   private shieldBubbleMaterial: THREE.MeshBasicMaterial | null = null;
@@ -712,6 +723,14 @@ export class SurvivalMode {
   /** Ability slots pressed since the last fixed step, drained by updateAbility. */
   private readonly abilityRequests = new Set<number>();
   /**
+   * Seconds left on a stun — today only from a behemoth's boulder blast. While
+   * it runs the rig takes no driving input at all and every ability and the
+   * signature are locked out; the momentum itself was killed at the moment of
+   * impact (see `applyStun`). Guns keep firing: a stun is meant to strand the
+   * player, not disarm them.
+   */
+  private stunTimer = 0;
+  /**
    * Seconds left on each ability's cooldown, keyed by the placed part backing
    * it. Keyed by part rather than by slot so a cooldown follows its emitter:
    * losing one ability part mid-wave must not hand another a free recharge.
@@ -725,6 +744,32 @@ export class SurvivalMode {
     ABILITY_SLOT_KEYS.map(() => undefined);
   /** Loadout the slot views were built from; see abilityLoadoutSignature. */
   private abilitySlotViewSignature = '';
+  /** Strikes between the click that fired them and the blast landing. */
+  private readonly strikes = new SignatureStrikes();
+  /**
+   * Seconds left before the signature block can fire again, and the cooldown
+   * it is counting down from. Both are zero for a rig carrying no signature
+   * block, which is also how the reticle knows to hide its gauge.
+   */
+  private signatureCooldown = 0;
+  private signatureCooldownTotal = 0;
+  /** Set by a click, consumed on the next fixed step. */
+  private signatureRequested = false;
+  /**
+   * Seconds left on a flame lance, and the numbers it is burning at. The lance
+   * has no host weapon to ride, so unlike Hellfire the mode owns it outright.
+   */
+  private flameLanceSeconds = 0;
+  private flameLanceTickTimer = 0;
+  private flameLanceStats: {
+    damage: number;
+    ticksPerSecond: number;
+    rangeM: number;
+    coneDeg: number;
+  } | null = null;
+  /** Scratch vectors for the lance, so a burning frame allocates nothing. */
+  private readonly lanceForward = new THREE.Vector3();
+  private readonly lanceQuaternion = new THREE.Quaternion();
   /** Whether the shield bubble was up last frame, for its raise/drop effects. */
   private shieldWasUp = false;
   private debugProgressionSuppressed = false;
@@ -901,6 +946,12 @@ export class SurvivalMode {
     // A behemoth's slam is the heaviest hit a zombie lands on the vehicle, so
     // it gets the same camera-kick treatment as a Heavy Cannon shell.
     this.zombies.onBehemothSmash = (x, _y, z) => this.shakeCameraAt(x, z, 1.1);
+    this.zombies.onVehicleStun = (seconds, x, _y, z) => {
+      this.applyStun(seconds);
+      // Harder kick than the slam: this one took the car's controls away, and
+      // the shake is the only thing that says so at the moment it happens.
+      this.shakeCameraAt(x, z, 1.4);
+    };
     this.tracerRenderer = new TracerRenderer(this.scene);
     this.phaseGhosts = new PhaseGhosts(this.scene);
 
@@ -1760,8 +1811,13 @@ export class SurvivalMode {
 
   private readonly onFireDown = (event: PointerEvent): void => {
     this.unlockAudioFromInput();
-    if (this.phase === 'active' && !this.settingsOpen && event.button === 0)
-      this.pointerFiring = true;
+    if (this.phase !== 'active' || this.settingsOpen || event.button !== 0)
+      return;
+    this.pointerFiring = true;
+    // The same click both pulls the turrets onto the cursor and calls the
+    // signature strike down on it. Queued rather than fired here so the strike
+    // resolves inside the fixed step with everything else.
+    this.signatureRequested = true;
   };
 
   private readonly onFireUp = (): void => {
@@ -1834,6 +1890,8 @@ export class SurvivalMode {
     this.updateControls();
     this.updateRecoveryAssist(FIXED_DT);
     this.updateAbility();
+    this.updateFlameLance();
+    this.updateSignature();
     this.controls.weaponAim = this.autoAim.step();
     const mineSweeper = this.resolveLiveMineSweeper();
     this.currentMineSweeperLevel =
@@ -2072,7 +2130,35 @@ export class SurvivalMode {
     this.controls.steer = 0;
   }
 
+  /**
+   * Take the rig's momentum and its controls away for `seconds`. The velocity
+   * is killed here, once, rather than being held at zero for the duration —
+   * the car should be dead in the water and then shoved around by whatever
+   * hits it next, not pinned in place. A second blast landing inside an
+   * existing stun extends it rather than restarting a shorter one.
+   */
+  private applyStun(seconds: number): void {
+    if (this.phase !== 'active' || !(seconds > 0)) return;
+    this.stunTimer = Math.max(this.stunTimer, seconds);
+    this.vehicle.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    this.vehicle.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    playSfx('uiDeny');
+  }
+
   private updateControls(): void {
+    if (this.stunTimer > 0 && this.phase === 'active') {
+      this.stunTimer = Math.max(0, this.stunTimer - FIXED_DT);
+      // Full brake, no steering, no throttle — but the guns are left on their
+      // own inputs so the player is stranded rather than defenceless.
+      this.controls.throttle = 0;
+      this.controls.reverse = 0;
+      this.controls.brake = 1;
+      this.controls.steer = 0;
+      this.controls.fire = this.keys.has('f') || this.pointerFiring;
+      this.controls.manualAim =
+        this.controls.fire && this.controls.aimPoint !== undefined;
+      return;
+    }
     if (this.phase !== 'active') {
       this.controls.throttle = 0;
       this.controls.reverse = 0;
@@ -2153,6 +2239,16 @@ export class SurvivalMode {
     // Each wave is its own fight: abilities come back charged for it.
     this.abilityCooldowns.clear();
     this.abilityRequests.clear();
+    // Nobody starts a wave still stunned by the last one's boulder.
+    this.stunTimer = 0;
+    // The signature block recharges with them, and anything still in the air
+    // is dropped rather than carried over — a shell fired at the last zombie
+    // of the previous wave must not land on the first of this one.
+    this.signatureCooldown = 0;
+    this.signatureRequested = false;
+    this.strikes.clear();
+    this.flameLanceSeconds = 0;
+    this.flameLanceStats = null;
     this.stuckPrompt.classList.remove('is-visible');
     this.waveClearCard.hide();
     this.damageNumbers?.clear();
@@ -2606,6 +2702,7 @@ export class SurvivalMode {
     this.zombies.updateVisuals(frameDt);
     this.fuelPickups.updateVisuals(frameDt);
     this.syncShieldBubble(frameDt);
+    this.syncReinforceWard(frameDt);
     this.syncZapBlast(frameDt);
     this.syncCharmPulse(frameDt);
     this.syncExplosions(frameDt);
@@ -2686,6 +2783,312 @@ export class SurvivalMode {
     this.abilityLoadout = resolveAbilityLoadout(this.abilityCandidates);
   }
 
+  /**
+   * Burn the flame lance for one step: a sheet of fire down the rig's heading,
+   * damaging everything standing in the cone and charring what survives.
+   *
+   * It follows the chassis rather than the cursor, so steering is aiming. That
+   * is the whole shape of the ability — five seconds where the player's line
+   * of travel and their line of fire are the same thing — and pointing it at
+   * the mouse instead would make it a second, better primary fire.
+   */
+  private updateFlameLance(): void {
+    if (this.flameLanceSeconds <= 0 || this.flameLanceStats === null) return;
+    const lance = this.flameLanceStats;
+    this.flameLanceSeconds = Math.max(0, this.flameLanceSeconds - FIXED_DT);
+    if (this.flameLanceSeconds === 0) this.flameLanceStats = null;
+
+    const pos = this.vehicle.body.translation();
+    const rotation = this.vehicle.body.rotation();
+    this.lanceQuaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    this.lanceForward.set(0, 0, 1).applyQuaternion(this.lanceQuaternion);
+    // Flat heading: a rig climbing a wreck still throws its flame across the
+    // ground rather than into the sky.
+    this.lanceForward.y = 0;
+    if (this.lanceForward.lengthSq() < 1e-6) return;
+    this.lanceForward.normalize();
+
+    // Flame and damage share one cadence. Drawing the jet every fixed step
+    // instead would spawn it sixty times a second — several times what the
+    // flamethrower itself asks for — and the frame spawn budget would then
+    // thin out every other effect on screen to pay for it. At eight ticks a
+    // second the sheet still reads as unbroken.
+    this.flameLanceTickTimer -= FIXED_DT;
+    if (this.flameLanceTickTimer > 0) return;
+    this.flameLanceTickTimer += 1 / Math.max(1, lance.ticksPerSecond);
+
+    this.vfx.flameJet(
+      { x: pos.x, y: pos.y + 0.3, z: pos.z },
+      {
+        x: pos.x + this.lanceForward.x * lance.rangeM,
+        y: pos.y + 0.3,
+        z: pos.z + this.lanceForward.z * lance.rangeM,
+      },
+      true,
+    );
+
+    const burned = this.zombies.damageInCone(
+      { x: pos.x, z: pos.z },
+      { x: this.lanceForward.x, z: this.lanceForward.z },
+      lance.rangeM,
+      lance.coneDeg,
+      lance.damage,
+    );
+    // Char whatever the sheet is washing over, on the same cadence as the
+    // damage, so a lance leaves the same blackened trail a fireball does.
+    if (burned > 0) {
+      this.zombies.burnInCone(
+        { x: pos.x, z: pos.z },
+        { x: this.lanceForward.x, z: this.lanceForward.z },
+        lance.rangeM,
+        lance.coneDeg,
+        SurvivalMode.LANCE_CHAR_SECONDS,
+      );
+    }
+  }
+
+  // ------------------------------------------------ Build signature strikes
+
+  /**
+   * The live signature block: the first attached, working part carrying one.
+   *
+   * Resolved fresh every step, like the ability loadout, so a block torn off
+   * mid-wave takes its click attack with it — and a repaired one brings it
+   * back. Only one is ever fitted (the blocks are `unique` and unbuyable), so
+   * the first match is the answer.
+   */
+  private resolveLiveSignature(): {
+    stats: SignatureStats;
+    kind: 'lightning' | 'fireball' | 'nuke';
+    origin: RuntimePart;
+  } | null {
+    for (const part of this.vehicle.assembled.parts.values()) {
+      const signature = part.def.signature;
+      if (signature === undefined) continue;
+      if (!this.isAttachedAlivePart(part)) continue;
+      return {
+        stats: effectiveSignature(signature, part.placed.config.level ?? 1),
+        kind: signature.kind,
+        origin: part,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Tick the signature cooldown, fire a queued click, and advance whatever is
+   * already in the air.
+   *
+   * Strikes keep flying even after the block that launched them is destroyed:
+   * a shell that has left the tube is not the tube's business any more, and
+   * cancelling it in mid-air would read as the game eating a shot.
+   */
+  private updateSignature(): void {
+    const live = this.resolveLiveSignature();
+    if (this.signatureCooldown > 0) {
+      this.signatureCooldown = Math.max(0, this.signatureCooldown - FIXED_DT);
+    }
+
+    // An auto-firing signature needs no click: the player aims and it keeps up.
+    // It is only asked to fire when it is actually ready, so a weapon that
+    // cannot find a target never spends a cooldown and never plays a refusal.
+    const clicked = this.signatureRequested;
+    this.signatureRequested = false;
+    if (live !== null && this.stunTimer <= 0) {
+      if (live.stats.autoFire) {
+        if (this.signatureCooldown <= 0) this.fireSignature(live);
+      } else if (clicked) {
+        this.fireSignature(live);
+      }
+    }
+
+    this.strikes.step(FIXED_DT, (impact) => this.detonateStrike(impact));
+    this.drawStrikeVisuals();
+    this.syncSignatureCursor(live !== null);
+  }
+
+  /**
+   * Fire the signature at the player's cursor point, or refuse the click.
+   *
+   * A press made while the block is still recharging is refused on the reticle
+   * rather than buffered. Buffering would fire a strike a moment after the
+   * player stopped asking for one, which on a ten-second nuke is a wasted
+   * cooldown they did not choose to spend.
+   */
+  private fireSignature(live: {
+    stats: SignatureStats;
+    kind: 'lightning' | 'fireball' | 'nuke';
+    origin: RuntimePart;
+  }): void {
+    if (this.signatureCooldown > 0) {
+      // Only a hand-fired weapon can be refused: an auto-firing one is never
+      // asked to shoot early, so flashing at a stray click would be noise.
+      if (!live.stats.autoFire) {
+        this.scopeCursor.flashDenied();
+        playSfx('uiDeny');
+      }
+      return;
+    }
+    // No cursor point yet — the pointer has not moved over the canvas this
+    // wave. Nothing to aim at, so the shot is dropped without a cooldown.
+    const aim = this.controls.aimPoint;
+    if (aim === undefined) return;
+
+    const pos = this.vehicle.body.translation();
+    const target = clampStrikePoint(
+      { x: pos.x, z: pos.z },
+      { x: aim.x, z: aim.z },
+      live.stats.rangeM,
+    );
+
+    // A chain resolves here rather than through the flight queue: it has no
+    // travel time and no blast, and it needs the bodies it struck to draw the
+    // arc between them.
+    if (live.stats.chainTargets > 1) {
+      this.fireChain(live.stats, target);
+      return;
+    }
+
+    this.strikes.fire(
+      live.stats,
+      live.kind,
+      { x: pos.x, y: pos.y + SurvivalMode.STRIKE_LAUNCH_LIFT_M, z: pos.z },
+      target,
+      (impact) => this.detonateStrike(impact),
+    );
+    this.signatureCooldown = live.stats.cooldownSeconds;
+    this.signatureCooldownTotal = live.stats.cooldownSeconds;
+    playSfx(
+      live.kind === 'nuke'
+        ? 'signatureNukeLaunch'
+        : live.kind === 'fireball'
+          ? 'signatureFireball'
+          : 'signatureLightning',
+    );
+  }
+
+  /**
+   * Fire a chain strike at the cursor and draw the arc it walked.
+   *
+   * A shot that finds nobody is not a shot: it starts no cooldown and makes no
+   * sound. That matters far more here than for the other two signatures,
+   * because this one fires itself twice a second — burning a cooldown on empty
+   * ground would leave the weapon silently unavailable the instant a zombie
+   * finally walked into reach.
+   */
+  private fireChain(stats: SignatureStats, target: { x: number; z: number }): void {
+    const path = this.zombies.chainFrom(
+      target,
+      stats.radiusM,
+      stats.chainRangeM,
+      stats.chainTargets,
+      stats.damage,
+      stats.chainFalloff,
+      stats.shockSeconds,
+    );
+    if (path.length === 0) return;
+
+    // The bolt itself lands on the first body; every jump after it is an arc
+    // between two bodies, so the shape on screen is the shape of the damage.
+    const [first] = path;
+    this.vfx.lightningStrike(first.x, first.y, first.z, 1.2);
+    for (let i = 1; i < path.length; i++) {
+      this.vfx.lightningArc(path[i - 1], path[i]);
+    }
+    this.signatureCooldown = stats.cooldownSeconds;
+    this.signatureCooldownTotal = stats.cooldownSeconds;
+    playSfx('signatureLightning');
+  }
+
+  /**
+   * Land a strike: damage with distance falloff, the status it leaves behind,
+   * and the effect that sells it.
+   *
+   * `explodeAt` already applies linear falloff from the centre and shoves the
+   * survivors outward, which is exactly the contract all three signatures
+   * describe — so none of them reimplements it.
+   */
+  private detonateStrike(impact: StrikeImpact): void {
+    this.zombies.explodeAt(
+      impact.x,
+      impact.y,
+      impact.z,
+      impact.radiusM,
+      impact.damage,
+    );
+    // Status is applied after the damage so it also marks the bodies the blast
+    // just killed — a corpse the fire caught should look like it.
+    if (impact.burnSeconds > 0) {
+      this.zombies.burnWithin(impact, impact.radiusM, impact.burnSeconds);
+    }
+    if (impact.shockSeconds > 0) {
+      this.zombies.shockWithin(impact, impact.radiusM, impact.shockSeconds);
+    }
+
+    if (impact.kind === 'lightning') {
+      this.vfx.lightningStrike(impact.x, impact.y, impact.z, impact.radiusM);
+      return;
+    }
+    if (impact.kind === 'fireball') {
+      this.vfx.fireballBurst(impact.x, impact.y, impact.z, impact.radiusM);
+      playSfx('signatureFireballBurst');
+      return;
+    }
+    this.vfx.nukeBlast(impact.x, impact.y, impact.z, impact.radiusM);
+    // The blast sphere on top of the particles: the nuke is the one strike big
+    // enough that the particle layer alone under-sells it.
+    this.spawnExplosion(
+      impact.x,
+      impact.y + 1,
+      impact.z,
+      impact.radiusM,
+      0xffd76e,
+      0.7,
+    );
+    playSfx('signatureNukeBlast');
+  }
+
+  /**
+   * Draw every in-flight payload and its ground marker for this frame.
+   *
+   * Guarded on the count because `visuals()` builds a list, and the common
+   * case by a wide margin is nothing in the air at all.
+   */
+  private drawStrikeVisuals(): void {
+    if (this.strikes.activeCount === 0) return;
+    for (const visual of this.strikes.visuals()) {
+      if (visual.kind === 'fireball') {
+        this.vfx.fireballTrail(visual.x, visual.y, visual.z);
+        continue;
+      }
+      if (visual.kind !== 'nuke' || !visual.drawMark) continue;
+      this.vfx.nukeMarker(
+        visual.targetX,
+        0,
+        visual.targetZ,
+        visual.radiusM,
+        visual.progress,
+      );
+    }
+  }
+
+  /**
+   * Push the signature's recharge into the reticle. A rig with no signature
+   * block clears the gauge entirely rather than showing a permanently full
+   * one, so the brackets go back to being decoration.
+   */
+  private syncSignatureCursor(hasSignature: boolean): void {
+    if (!hasSignature) {
+      this.scopeCursor.clearCooldown();
+      return;
+    }
+    this.scopeCursor.setCooldown(
+      this.signatureCooldownTotal <= 0
+        ? 1
+        : 1 - this.signatureCooldown / this.signatureCooldownTotal,
+    );
+  }
+
   /** Queue an ability slot, from either its keybind or a click on its box. */
   private requestAbility(slot: number): void {
     if (this.phase !== 'active' || this.settingsOpen) return;
@@ -2699,6 +3102,16 @@ export class SurvivalMode {
       else this.abilityCooldowns.set(partId, remaining - FIXED_DT);
     }
     this.refreshAbilityLoadout();
+    if (this.stunTimer > 0) {
+      // Cooldowns keep ticking through a stun; only firing is locked out.
+      // Presses made while stunned are dropped rather than queued, so nothing
+      // discharges the instant it wears off.
+      if (this.abilityRequests.size > 0) {
+        this.abilityRequests.clear();
+        playSfx('uiDeny');
+      }
+      return;
+    }
     if (this.abilityRequests.size === 0) return;
 
     let denied = false;
@@ -2814,6 +3227,36 @@ export class SurvivalMode {
     }
     if (ability.kind === 'phase') {
       return this.firePhase(ability, level);
+    }
+    if (ability.kind === 'reinforce') {
+      const reinforce = effectiveReinforce(ability, level);
+      this.vehicle.grantReinforce(
+        reinforce.durationSeconds,
+        reinforce.mobilityMultiplier,
+        reinforce.shieldHp,
+      );
+      // The hex shell is raised by syncReinforceWard off the ward pool itself,
+      // so the plating is already going up by the time this returns.
+      playSfx('abilityReinforce');
+      return reinforce.cooldownSeconds;
+    }
+    if (ability.kind === 'flamelance') {
+      const lance = effectiveFlameLance(ability, level);
+      this.flameLanceSeconds = Math.max(
+        this.flameLanceSeconds,
+        lance.durationSeconds,
+      );
+      this.flameLanceStats = {
+        damage: lance.damage,
+        ticksPerSecond: lance.ticksPerSecond,
+        rangeM: lance.rangeM,
+        coneDeg: lance.coneDeg,
+      };
+      // Start hot: the first tick lands on the frame the key was pressed
+      // rather than an eighth of a second later.
+      this.flameLanceTickTimer = 0;
+      playSfx('abilityFlameLance');
+      return lance.cooldownSeconds;
     }
     if (ability.kind === 'hellfire') {
       const hellfire = effectiveHellfire(ability, level);
@@ -3235,7 +3678,7 @@ export class SurvivalMode {
       // still have an ability bound to R.
       this.abilitySlotViews.fill(undefined);
       for (const assignment of this.abilityLoadout) {
-        const meta = ABILITY_KIND_META[assignment.ability.kind];
+        const meta = abilityMeta(assignment.ability);
         const keyLabel = assignment.key.toUpperCase();
         this.abilitySlotViews[assignment.slot] = {
           partId: assignment.partId,
@@ -3369,6 +3812,33 @@ export class SurvivalMode {
       this.shieldBubbleMaterial.opacity =
         0.24 + 0.1 * (0.5 + 0.5 * Math.sin(this.shieldBubblePhase));
     }
+  }
+
+  /**
+   * Drive the Reinforce ward's hex shell from the vehicle's ward pool. The
+   * shell is a child of the vehicle group, so it follows the chassis; it is
+   * built on the first activation of the run and reused from then on, since a
+   * heavy rig raises it every twenty seconds.
+   *
+   * The shatter is reported separately from the fraction: a ward emptied by a
+   * hit is down on the same frame, and without the explicit break the shell
+   * would be asked to disappear while its last panels were still whole.
+   */
+  private syncReinforceWard(frameDt: number): void {
+    const active = this.vehicle.isReinforced;
+    if (!active && this.reinforceWard === null) return;
+    if (this.reinforceWard === null) {
+      this.reinforceWard = new ReinforceWard(SHIELD_BUBBLE_RADIUS_M);
+      this.vehicleGroup.add(this.reinforceWard.root);
+    }
+    const hit = this.vehicle.consumeWardHit();
+    if (hit.shattered) {
+      this.reinforceWard.shatterAll();
+      const pos = this.vehicle.body.translation();
+      this.vfx.shieldCollapse(pos.x, pos.y, pos.z, SHIELD_BUBBLE_RADIUS_M);
+      playSfx('abilityReinforce');
+    }
+    this.reinforceWard.update(frameDt, active, this.vehicle.wardFraction);
   }
 
   /** Duration of the Tesla Coil blast flash, seconds. */
@@ -3511,6 +3981,14 @@ export class SurvivalMode {
   private static readonly ROCKET_SEEK_RANGE_M = 30;
   /** Number of pooled explosion flash meshes cycled for rocket impacts. */
   private static readonly EXPLOSION_POOL_SIZE = 8;
+  /**
+   * Height a signature strike is launched from above the chassis origin, m.
+   * Only the arcing bolus reads it — it decides where the trail starts, which
+   * should be the block on the deck rather than the axle line.
+   */
+  private static readonly STRIKE_LAUNCH_LIFT_M = 0.8;
+  /** Seconds of char the flame lance leaves on what it washes over. */
+  private static readonly LANCE_CHAR_SECONDS = 2.5;
 
   /** A point `distanceM` ahead of the vehicle on its heading (rocket fallback). */
   private forwardGroundPoint(distanceM: number): { x: number; z: number } {
@@ -4048,6 +4526,8 @@ export class SurvivalMode {
     // Before the scene walk below: the ghosts share the vehicle's geometry, so
     // they have to be off the graph before it is disposed.
     this.phaseGhosts.dispose();
+    this.reinforceWard?.dispose();
+    this.reinforceWard = null;
     this.threatPointer.dispose();
     disposeObject(this.scene);
     this.scene.clear();
@@ -4081,6 +4561,32 @@ function abilityDetail(assignment: AbilitySlotAssignment): string {
   }
   if (ability.kind === 'phase') {
     return `${trimSeconds(effectivePhase(ability, level).distanceM)}m blink`;
+  }
+  if (ability.kind === 'flamelance') {
+    const lance = effectiveFlameLance(ability, level);
+    return `${trimSeconds(lance.durationSeconds)}s · ${trimSeconds(lance.rangeM)}m`;
+  }
+  if (ability.kind === 'reinforce') {
+    const reinforce = effectiveReinforce(ability, level);
+    return `${Math.round(reinforce.shieldHp)} shield · ${trimSeconds(reinforce.durationSeconds)}s, slowed`;
+  }
+  // The remaining kinds all read as "damage, or targets, at a radius"; they
+  // used to fall through to the overdrive line below, which quoted a torque
+  // multiplier at a Tesla Coil.
+  if (ability.kind === 'zap') {
+    return `${Math.round(effectiveZap(ability, level).damage)} dmg`;
+  }
+  if (ability.kind === 'rocket') {
+    const rocket = effectiveRocket(ability, level);
+    return `${Math.round(rocket.damage)} dmg · ${trimSeconds(rocket.radiusM)}m`;
+  }
+  if (ability.kind === 'charm') {
+    const charm = effectiveCharm(ability, level);
+    return `${charm.targets} × ${trimSeconds(charm.durationSeconds)}s`;
+  }
+  if (ability.kind === 'thump') {
+    const thump = effectiveThump(ability, level);
+    return `${Math.round(thump.knockbackSpeed)} m/s · ${trimSeconds(thump.radiusM)}m`;
   }
   const overdrive = effectiveOverdrive(ability, level);
   return `×${trimSeconds(overdrive.torqueMultiplier)} for ${trimSeconds(overdrive.durationSeconds)}s`;

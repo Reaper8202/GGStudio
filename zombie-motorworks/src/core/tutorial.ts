@@ -152,6 +152,21 @@ export const KID_LABELS: Record<string, PartLabel> = {
     name: 'Blink Coil',
     blurb: 'Zap! Jump forward right through zombies and walls!',
   },
+  // The three Build signature blocks. They are never on the store shelf (see
+  // SIMPLE_PART_IDS above, which deliberately omits them), so these labels are
+  // only ever read by the inspector and the ability panel.
+  'storm-rod': {
+    name: 'Lightning Mast',
+    blurb: 'Click anywhere to drop a bolt of lightning on it!',
+  },
+  'pyre-core': {
+    name: 'Fire Heart',
+    blurb: 'Click to throw a big ball of fire. Everything it hits keeps burning!',
+  },
+  'fallout-silo': {
+    name: 'Boom Tube',
+    blurb: 'Click far away to call down a HUGE bomb. Count to four!',
+  },
 };
 
 /**

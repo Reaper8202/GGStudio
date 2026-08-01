@@ -338,13 +338,23 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       brakeTorque: 4200,
       frictionLong: 1.5,
       frictionLat: 0.8,
-      maxLoad: 36000,
+      // A belt spreads its load over three cells of ground instead of one
+      // contact patch, so it is rated far above any wheel: a tracked rig has
+      // to be able to carry an armoured hull without the tail digging in, and
+      // the rating is also what the soft-ground sinkage drag is measured
+      // against (load / rating), so a high one keeps treads from bogging in
+      // mud and snow the way an overloaded wheel does.
+      maxLoad: 62000,
       suspension: {
         restLength: 0.4,
-        travel: 0.14,
+        // Long travel for the belt's bogies. This was 0.14 — barely more than
+        // the 0.08 m the mass-normalised spring already sags at rest, so a
+        // heavy hull spent its life on the bump stops and every dip put the
+        // chassis on the ground.
+        travel: 0.24,
         stiffness: 105000,
         damping: 7600,
-        maxLoad: 34000,
+        maxLoad: 58000,
       },
     },
   },
@@ -479,9 +489,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     // that the extra surface zombies can reach does not make it fragile.
     massKg: 240,
     health: 300,
-    cost: 310,
-    upgrade: upgrade(310),
-    unlockCost: unlock(310),
+    cost: 460,
+    upgrade: upgrade(460),
+    unlockCost: unlock(460),
     reinforcement: 1.25,
     weapon: {
       mountType: 'turret',
@@ -563,9 +573,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 115,
     health: 150,
-    cost: 270,
-    upgrade: upgrade(270),
-    unlockCost: unlock(270),
+    cost: 400,
+    upgrade: upgrade(400),
+    unlockCost: unlock(400),
     reinforcement: 1.15,
     // Normal fire: an auto-aim turret that snaps blue lightning zaps at zombies.
     weapon: {
@@ -694,9 +704,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     // lets the rig keep pushing a full load instead of bogging down in it.
     massKg: 280,
     health: 380,
-    cost: 235,
-    upgrade: upgrade(235),
-    unlockCost: unlock(235),
+    cost: 350,
+    upgrade: upgrade(350),
+    unlockCost: unlock(350),
     reinforcement: 2,
     // Driving the load into a wall is what the blade is *for*, so it takes a
     // fifth of what a collision would otherwise cost it. Without this the
@@ -854,9 +864,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 105,
     health: 140,
-    cost: 290,
-    upgrade: upgrade(290),
-    unlockCost: unlock(290),
+    cost: 430,
+    upgrade: upgrade(430),
+    unlockCost: unlock(430),
     reinforcement: 1.15,
     // Player-triggered active ability only (no `weapon` payload): the beam does
     // nothing on its own; SurvivalMode charms the nearest zombies off the Q key.
@@ -882,9 +892,9 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
     sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
     massKg: 160,
     health: 150,
-    cost: 310,
-    upgrade: upgrade(310),
-    unlockCost: unlock(310),
+    cost: 460,
+    upgrade: upgrade(460),
+    unlockCost: unlock(460),
     reinforcement: 1.15,
     // Normal fire: an auto-aim turret lobbing small splash rockets at zombies.
     weapon: {
@@ -910,7 +920,7 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       baseDamage: 170,
     },
   },
-  'thumper': {
+  thumper: {
     id: 'thumper',
     name: 'Thumper',
     category: 'weapon',
@@ -1000,6 +1010,195 @@ export const PART_CATALOG: Record<string, PartDefinition> = {
       // Propellant: fires through the chassis, so it still shoves when the
       // driver is coasting or the wheels are bogged in a crowd.
       baseThrustAccel: 16,
+    },
+  },
+  // ------------------------------------------------- Build signature blocks
+  //
+  // One per Build (see `core/builds.ts`). These three never appear on the
+  // store shelf and never come off the rig: the player is handed exactly one
+  // of them by the build they picked at the start of the run, and it is the
+  // thing that makes that build feel different from the other two.
+  //
+  // Each carries both a `signature` — the click-targeted primary fire, whose
+  // cooldown is drawn in the reticle — and an `ability` for the Q/E/R bar. They
+  // are priced at zero because they are never bought; `upgrade()` is fed the
+  // notional worth of the hardware instead, so their unlock chains cost about
+  // what a mid-tier weapon's do. Nothing else in the catalog does this, so the
+  // one-off is called out here rather than hidden in a helper.
+  'storm-rod': {
+    id: 'storm-rod',
+    name: 'Storm Rod',
+    category: 'weapon',
+    description:
+      'The Sparkrunner’s mast. It fires on its own twice a second — put the ' +
+      'cursor on the horde and it snaps a bolt onto the nearest zombie, then ' +
+      'arcs from it to two more. Also fills an ability slot with Dash, a ' +
+      'short blink straight through whatever is in the way (5s cooldown).',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    // Light, like the rig it belongs to: a mast and a capacitor, nothing more.
+    massKg: 55,
+    health: 110,
+    cost: 0,
+    upgrade: upgrade(220),
+    reinforcement: 1.1,
+    buildSignature: true,
+    unique: true,
+    signature: {
+      kind: 'lightning',
+      // The mast does not wait to be clicked. Twice a second is a cadence no
+      // one wants to hammer a mouse button for, so the player's job is aiming
+      // and the rod's job is keeping up: hold the cursor over the horde and it
+      // works. That is the whole feel of the light build.
+      autoFire: true,
+      cooldownSeconds: 0.5,
+      // Not a blast. The bolt picks the body nearest the cursor and arcs from
+      // it to two more, so `baseRadiusM` is how far from the cursor it will
+      // look for that first body rather than an area of effect.
+      baseDamage: 16,
+      baseRadiusM: 2.4,
+      chainTargets: 3,
+      chainRangeM: 4.5,
+      // Each jump lands lighter, so which body you put the cursor on still
+      // matters even though the shot hits three. 16 / 9.6 / 5.8 a volley, twice
+      // a second: it shreds a wave-1 knot and visibly stops keeping up around
+      // wave 4, when walkers stop dying to two volleys and the horde is
+      // arriving faster than the arc can clear it.
+      chainFalloff: 0.6,
+      rangeM: 26,
+      shockSeconds: 1,
+    },
+    ability: {
+      // A blink, not a boost. The Sparkrunner is already the quickest thing on
+      // the field, so more speed was the one thing it did not need; what it
+      // lacks is a way out of a crowd that has closed on it. Sharing the Phase
+      // Drive's kind gives it exactly that — a short hop straight through
+      // whatever has hold of you — at a third of the coil's reach.
+      kind: 'phase',
+      label: 'Dash',
+      glyph: '»',
+      blurb:
+        'Snap a few metres forward, straight through whatever is in the way. ' +
+        'Short, cheap, and back almost as soon as it is gone.',
+      cooldownSeconds: 5,
+      // Instant: a blink has no window to scale.
+      baseDurationSeconds: 0,
+      rangeM: 4.5,
+    },
+  },
+  'pyre-core': {
+    id: 'pyre-core',
+    name: 'Pyre Core',
+    category: 'weapon',
+    description:
+      'The Emberframe’s furnace. Click to lob a bolus of fire onto a spot; ' +
+      'it bursts wide and leaves the survivors burning. Also fills an ' +
+      'ability slot with Fire Blast, which holds the core open and throws an ' +
+      'unbroken lance of flame along your heading for five seconds (20s ' +
+      'cooldown).',
+    cells: oneCell,
+    clearanceCells: [v(0, 1, 0)],
+    sockets: [singleSocket('hardpoint-ny', 'frame', ORIGIN, 'ny')],
+    massKg: 105,
+    health: 150,
+    cost: 0,
+    upgrade: upgrade(240),
+    reinforcement: 1.2,
+    buildSignature: true,
+    unique: true,
+    signature: {
+      kind: 'fireball',
+      // Between the other two on every axis. The arc is the character: the
+      // bolus takes long enough to land that the player leads a moving pack
+      // with it, which is a different skill from the rod's point-and-click.
+      cooldownSeconds: 4,
+      // Wide but no longer a one-press pack wipe: at level 1 the kill circle
+      // is ~1.7m at wave 1 and under a metre by wave 5, so the Emberframe
+      // softens a crowd and finishes it with the guns and the lance rather
+      // than deleting it outright.
+      baseDamage: 52,
+      baseRadiusM: 4,
+      rangeM: 30,
+      travelSpeedMps: 26,
+      burnSeconds: 4,
+    },
+    ability: {
+      kind: 'flamelance',
+      cooldownSeconds: 20,
+      baseDurationSeconds: 5,
+      // Per tick, eight times a second: ~136 dps to anything that stays in
+      // the sheet, which is lethal to a queue of walkers and survivable for
+      // exactly as long as it takes a player to steer off them.
+      baseDamage: 17,
+      ticksPerSecond: 8,
+      rangeM: 11,
+      coneDeg: 26,
+    },
+  },
+  'fallout-silo': {
+    id: 'fallout-silo',
+    name: 'Fallout Silo',
+    category: 'weapon',
+    description:
+      'The Crawler’s launch tube. Click to call a shell down on a spot — it ' +
+      'falls for four seconds under a marked ring, then flattens everything ' +
+      'near the middle of it. Also fills an ability slot with Reinforce, ' +
+      'which throws up a hex ward that soaks 450 damage before it shatters ' +
+      'and drags the drivetrain while it holds (20s cooldown).',
+    // A four-cell barbette, the same footprint as the Heavy Cannon. The silo
+    // is the size it looks, and finding a square of deck to stand it on — and
+    // hauling the weight of it around — is most of what makes the heavy build
+    // heavy.
+    cells: PAD_2X2_CELLS,
+    clearanceCells: headroom(PAD_2X2_CELLS),
+    sockets: hardpointsBelow(PAD_2X2_CELLS),
+    // The tube is elevated and angled up; turning it about anything but the
+    // vertical axis would lay a mortar on its side.
+    allowedOrientations: YAW_ORIENTATIONS,
+    // The heaviest single block in the catalog by a wide margin. A rig that
+    // carries this is committed to being slow; that is the trade.
+    massKg: 340,
+    health: 300,
+    cost: 0,
+    upgrade: upgrade(260),
+    reinforcement: 1.3,
+    buildSignature: true,
+    unique: true,
+    signature: {
+      kind: 'nuke',
+      // The slowest and by far the biggest. Four seconds of fall is the price
+      // of the blast: the ring is drawn for the whole window, so a walker that
+      // keeps walking is out of it, and the shot has to be led into where the
+      // horde is going rather than dropped on where it is.
+      // Fires perhaps twice in an early wave. The blast barely falls off
+      // across the run, so the wait is the only thing holding it in check —
+      // which makes this number, not the damage, the whole balance of the
+      // heavy build. Upgrades pull it back toward ten seconds.
+      cooldownSeconds: 16,
+      // Deliberately slow to fall off with wave number: what limits the silo
+      // late is how few times it fires against a thickening horde, not any one
+      // blast running out of damage.
+      baseDamage: 220,
+      baseRadiusM: 9,
+      rangeM: 38,
+      delaySeconds: 4,
+      burnSeconds: 5,
+    },
+    ability: {
+      kind: 'reinforce',
+      cooldownSeconds: 20,
+      baseDurationSeconds: 4,
+      // Two thirds of the drivetrain: enough that a player feels the rig go
+      // heavy and has to commit to standing their ground, not so much that a
+      // reinforced tank is a stationary target.
+      mobilityMultiplier: 0.35,
+      // Roughly ten kamikaze detonations, or forty walker bites, before the
+      // ward goes. That is a surge eaten whole in the early waves and a couple
+      // of seconds of breathing room by wave fifteen — the pool is what stops
+      // the ability being a free "skip this moment" button, since standing in
+      // the wrong place now breaks the ward well before its timer runs out.
+      baseShieldHp: 530,
     },
   },
   'phase-drive': {

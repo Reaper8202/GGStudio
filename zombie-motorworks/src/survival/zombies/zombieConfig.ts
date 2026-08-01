@@ -22,7 +22,12 @@ export const ZOMBIE_POOL_COUNTS = {
   thrower: 26,
   worker: 8,
   'phone-addict': 8,
-  kamikaze: 16,
+  // Sized for the wave-8 bomber wave, which pins three surges of 5, 10 and 20
+  // into one wave (see KAMIKAZE_WAVE_SURGES). The reserve covers the last
+  // surge landing on top of stragglers from the one before — a smaller pool
+  // would trickle them in as slots freed rather than releasing each surge as
+  // the wall it is meant to be.
+  kamikaze: 40,
   behemoth: 5,
   zamboni: 4,
   // Boss waves summon one boss; the spare slot is headroom for a future
@@ -348,6 +353,38 @@ export const BEHEMOTH_SMASH_VFX_RADIUS = 2.6;
 /** Ground warning ring colour while it winds up — distinct from the Worker's amber and the Necromancer's violet. */
 export const BEHEMOTH_RING_COLOR = 0xff3020;
 
+// Boulder throw: the Behemoth's alternative attack, used at the ranges where
+// its smash cannot reach. It rips a chunk of ground up over the same wind-up
+// clip the smash uses (so nothing new has to be animated) and lobs it on a
+// ballistic arc. The rock itself does modest damage; the point of it is the
+// blast where it lands — anything caught in that is stunned, which is the one
+// thing in the game that takes the player's momentum *and* their abilities
+// away at once. That makes "keep your distance from the big one" a worse plan
+// than it used to be without making the melee smash any less lethal.
+/** Closer than this and it just walks in and smashes instead. */
+export const BEHEMOTH_BOULDER_MIN_RANGE = 8;
+/** Beyond this the throw would fall short; it closes distance first. */
+export const BEHEMOTH_BOULDER_MAX_RANGE = 30;
+/** Seconds between throws from one behemoth. Long: the stun is punishing. */
+export const BEHEMOTH_BOULDER_COOLDOWN_SECONDS = 7;
+/** Direct damage to every part inside the blast, before falloff. */
+export const BEHEMOTH_BOULDER_DAMAGE = 34;
+/** Blast footprint on landing — wider than the smash, since it is dodgeable in flight. */
+export const BEHEMOTH_BOULDER_BLAST_RADIUS = 5;
+/** Momentum is killed and abilities locked out for this long on a hit. */
+export const BEHEMOTH_BOULDER_STUN_SECONDS = 1.5;
+/** Horizontal travel speed, m/s — slower than a thrower's box: it is a boulder. */
+export const BEHEMOTH_BOULDER_SPEED = 13;
+export const BEHEMOTH_BOULDER_MIN_FLIGHT_TIME = 0.6;
+export const BEHEMOTH_BOULDER_MAX_FLIGHT_TIME = 3;
+export const BEHEMOTH_BOULDER_LIFETIME = 6;
+/** Direct-hit radius in flight; the landing blast is the wider one above. */
+export const BEHEMOTH_BOULDER_HIT_RADIUS = 1.4;
+/** Rock radius in world metres, thrown from roughly the behemoth's shoulder. */
+export const BEHEMOTH_BOULDER_SIZE = 0.55;
+export const BEHEMOTH_BOULDER_LAUNCH_HEIGHT = 2.1;
+export const BEHEMOTH_BOULDER_COLOR = 0x6d6257;
+
 /**
  * Steps per second for the Alchemist boss's walk. Slower than the Necromancer's
  * 1.05 would suggest for its speed, because the rig's legs pivot at the apron
@@ -578,6 +615,16 @@ export const ACID_PUDDLE_GRIP_MULTIPLIER = 0.45;
  * second and recovers the moment it is clear.
  */
 export const ACID_PUDDLE_DRAG_PER_SECOND = 2.4;
+/**
+ * Damage per second to every vehicle part sitting over a puddle. Puddles used
+ * to be a pure handling hazard, which made the Alchemist's whole kit skippable
+ * — you could park in the acid and shoot it down. Now sitting in one costs
+ * real health, so the arena it floods actually has to be driven out of. Ticked
+ * through the same `ACID_POISON_TICK_SECONDS` clock the gas trail uses, and
+ * deliberately above the trail's 8: the trail is incidental exposure from
+ * chasing the boss, a puddle is ground you chose to stay on.
+ */
+export const ACID_PUDDLE_DAMAGE_PER_SECOND = 22;
 /**
  * Poison is ticked on a timer rather than applied every physics step (1/60 s).
  * `applyDirectDamage` floors any nonzero hit to at least 1 HP — tuned for

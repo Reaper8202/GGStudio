@@ -333,18 +333,12 @@ export function stepWheels(
     }
 
     const sampleCount = samples.length;
-    const meanCompression = groundedHits.reduce(
-      (sum, sample) => sum + clamp(w.mountOffset + w.radius - sample.hit.timeOfImpact, 0, travel),
-      0,
-    ) / sampleCount;
-    w.compression = meanCompression;
 
-    // Spring/damper along the suspension axis, applied at this wheel's
-    // anchor: a compressed corner pushes its own side of the chassis back
-    // up. Damping uses the anchor's velocity toward the ground, so chassis
-    // roll and pitch motion is damped per corner as well. The ratios of the
-    // preset-scaled params to the base params recover the pure preset
-    // multipliers, applied on top of the mass-normalised base rates.
+    // Spring/damper along the suspension axis, applied at each contact
+    // sample: a compressed corner pushes its own side of the chassis back
+    // up. The ratios of the preset-scaled params to the base params recover
+    // the pure preset multipliers, applied on top of the mass-normalised
+    // base rates.
     const stiffness =
       baseStiffness * (w.suspension.stiffness / w.wheelDef.suspension.stiffness);
     const damping =
@@ -352,21 +346,42 @@ export function stepWheels(
       SUSPENSION_DAMPING_RATIO *
       Math.sqrt(stiffness * cornerMass) *
       (w.suspension.damping / w.wheelDef.suspension.damping);
-    const vAnchor = add(linvelV, cross(angvelV, sub(anchorW, comV)));
-    const compressionSpeed = dot(vAnchor, suspDirW);
-    const totalSpringForce = clamp(
-      stiffness * w.compression + damping * compressionSpeed,
+    // A multi-cell footprint (a tank belt) is one spring per cell, each
+    // solved against its own compression and its own vertical speed, and
+    // each carrying its share of the wheel's rate. That is what gives a belt
+    // pitch stiffness: sharing one averaged force equally across the samples
+    // puts the resultant on the belt's centre no matter how the load leans,
+    // so a rear-biased hull rotated back until the tail was in the dirt with
+    // nothing pushing it out. Splitting the rate keeps a level rig settling
+    // at exactly the same ride height as one lumped spring would.
+    const loaded = groundedHits.map((sample) => {
+      const compression = clamp(
+        w.mountOffset + w.radius - sample.hit.timeOfImpact,
+        0,
+        travel,
+      );
+      const vSample = add(linvelV, cross(angvelV, sub(sample.origin, comV)));
+      const springForce = clamp(
+        (stiffness * compression + damping * dot(vSample, suspDirW)) / sampleCount,
+        0,
+        maxSpringForce / sampleCount,
+      );
+      return { ...sample, compression, springForce };
+    });
+    w.compression =
+      loaded.reduce((sum, sample) => sum + sample.compression, 0) / sampleCount;
+    const totalSpringForce = loaded.reduce(
+      (sum, sample) => sum + sample.springForce,
       0,
-      maxSpringForce,
     );
-    const springForce = totalSpringForce / sampleCount;
     if (forwardLen < 0.35) {
       w.omega *= 1 - clamp(3 * dt, 0, 1);
       continue;
     }
     const fwd = scale(forward, 1 / forwardLen);
     const lat = axleW;
-    for (const sample of groundedHits) {
+    for (const sample of loaded) {
+      const springForce = sample.springForce;
       const contact = add(sample.origin, scale(suspDirW, sample.hit.timeOfImpact));
       body.applyImpulseAtPoint(scale(up, springForce * dt), sample.origin, true);
       const surfaceKind = surfaceOf(sample.hit.collider.handle);

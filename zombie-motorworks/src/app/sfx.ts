@@ -24,6 +24,13 @@ export type SfxName =
   | 'abilityPhaseIn'
   | 'abilityHellfire'
   | 'abilityOverdrive'
+  | 'signatureLightning'
+  | 'signatureFireball'
+  | 'signatureFireballBurst'
+  | 'signatureNukeLaunch'
+  | 'signatureNukeBlast'
+  | 'abilityFlameLance'
+  | 'abilityReinforce'
   | 'fuelPickup'
   | 'garagePlace'
   | 'garageRemove'
@@ -666,6 +673,45 @@ export function playSfx(name: SfxName, options: { pitch?: number } = {}): void {
       break;
     case 'abilityOverdrive':
       playCue('overdrive', { gain: 0.3, playbackRate: rate });
+      break;
+    // Build signature strikes. All six are voiced from existing samples,
+    // pitched and layered rather than mixed new: the strike sounds have to sit
+    // alongside guns already firing, and a bank of unfamiliar one-shots would
+    // crowd the mix a run already runs hot on.
+    case 'signatureLightning':
+      // Fires several times a second, so it is quiet, short, and rate-limited:
+      // a loud crack at this cadence would be unbearable inside a minute.
+      playCue('electricPulse', {
+        gain: 0.22,
+        playbackRate: 1.25 * rate,
+        cooldownSeconds: 0.1,
+      });
+      break;
+    case 'signatureFireball':
+      // The launch: a compressed whoomph as the bolus leaves the core.
+      playCue('cannon', { gain: 0.26, playbackRate: 1.2 * rate });
+      break;
+    case 'signatureFireballBurst':
+      playCue('explosion', { gain: 0.34, playbackRate: 1.1 * rate });
+      break;
+    case 'signatureNukeLaunch':
+      // The launch is a thump, deliberately understated — the shell being in
+      // the air is what matters, and the payoff is four seconds away.
+      playCue('mechanical', { gain: 0.3, playbackRate: 0.7 * rate });
+      break;
+    case 'signatureNukeBlast':
+      // Layered and pitched down: the loudest thing in the game short of the
+      // scuttle charge, because it is on a ten-second cooldown and should feel
+      // like it was worth waiting for.
+      playCue('explosion', { gain: 0.55, playbackRate: 0.66 * rate });
+      playCue('heavyImpact', { gain: 0.34, playbackRate: 0.6 * rate });
+      break;
+    case 'abilityFlameLance':
+      playCue('powerUp', { gain: 0.26, playbackRate: 0.76 * rate });
+      break;
+    case 'abilityReinforce':
+      playCue('mechanical', { gain: 0.32, playbackRate: 0.64 * rate });
+      playCue('shield', { gain: 0.2, playbackRate: 0.8 * rate });
       break;
     case 'partBreak':
       playCue('metalImpact', { gain: 0.36, playbackRate: 0.82 * rate });

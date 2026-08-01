@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_BUILD_ID } from '../src/core/builds.ts';
 import {
   DEFAULT_MONEY,
   MINE_SWEEPER_UNLOCK_WAVE,
@@ -23,6 +24,9 @@ describe('player profile codec', () => {
       ...profile,
       unlockedDefIds: [...STARTER_UNLOCKS, ...profile.unlockedDefIds],
       inventory: {},
+      // Saves written before builds existed decode onto the default rig, which
+      // is also the one they were already playing.
+      buildId: DEFAULT_BUILD_ID,
     });
   });
 
@@ -138,6 +142,7 @@ describe('player profile codec', () => {
       money: 25,
       unlockedDefIds: [...STARTER_UNLOCKS],
       inventory: {},
+      buildId: DEFAULT_BUILD_ID,
     });
     expect(
       decodeProfile(

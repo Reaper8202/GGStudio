@@ -2940,6 +2940,377 @@ export class VfxSystem {
    * Deliberately exempt from LOD thinning — the flash is what makes a distant
    * hit legible — but it still stops when effects are turned off outright.
    */
+  // ------------------------------------------------ Build signature strikes
+  //
+  // The three click attacks. Each is fired far more often than the ability
+  // effects above it, so all three are budgeted tightly: the lightning bolt in
+  // particular can land twice a second all wave, and cannot be allowed to eat
+  // the frame budget that the horde's own gibs and impacts need.
+
+  /**
+   * Storm Rod strike: a column of arc light slamming down onto the point, a
+   * hot ground flash, and sparks thrown out along the floor.
+   *
+   * The bolt is drawn as a stack of cubes rather than a line, because the
+   * particle layers are the only renderer here — and a jittered stack that
+   * fades from the top down reads as a strike arriving rather than as a pillar
+   * standing there.
+   */
+  lightningStrike(x: number, y: number, z: number, radiusM: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y + 0.3, z, radiusM * 1.1, 0.1, VFX_PALETTE.arcPale);
+
+    // The channel: segments up a column, each kicked off the axis so the bolt
+    // forks the way lightning does. Counts are deliberately modest — the rod
+    // fires twice a second all wave, so a bolt that cost as much as a one-off
+    // ability would starve every other effect on screen of spawn budget.
+    const segments = this.count(9, detail);
+    for (let i = 0; i < segments; i++) {
+      const height = (i / Math.max(1, segments)) * 6;
+      // Jitter widens with height, so the strike is pinned at the point of
+      // impact and ragged at the top — the opposite reads as a searchlight.
+      const spread = 0.08 + height * 0.06;
+      this.reset0();
+      this.spec.x = x + this.randSigned(spread);
+      this.spec.y = y + height;
+      this.spec.z = z + this.randSigned(spread);
+      this.spec.vy = this.rand(-3, -1);
+      this.spec.size = this.rand(0.1, 0.2);
+      this.spec.endSize = 0.02;
+      // Higher segments die first, so the bolt reads as draining downward.
+      this.spec.lifeSeconds = 0.14 + (1 - i / Math.max(1, segments)) * 0.16;
+      this.spec.colorStart = VFX_PALETTE.arcPale;
+      this.spec.colorEnd = VFX_PALETTE.arc;
+      this.spec.gravity = 0;
+      this.glow.spawn(this.take());
+    }
+
+    // Ground discharge: sparks skating outward across the floor.
+    const sparks = this.count(7, detail);
+    for (let i = 0; i < sparks; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(4, 11);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y + 0.12;
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(1, 4);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.05, 0.1);
+      this.spec.endSize = 0.01;
+      this.spec.lifeSeconds = this.rand(0.18, 0.4);
+      this.spec.colorStart = VFX_PALETTE.arcPale;
+      this.spec.colorEnd = VFX_PALETTE.arcDeep;
+      this.spec.gravity = -12;
+      this.spec.drag = 0.8;
+      this.spec.bounce = 0.5;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
+   * One jump of a Storm Rod chain: a jagged arc between two bodies.
+   *
+   * Drawn as cubes stepped along the line with a perpendicular wobble that
+   * peaks in the middle and pins to zero at both ends, so the arc always
+   * touches the two zombies it connects — an arc that missed its endpoints
+   * would read as a stray spark rather than as the thing that killed them.
+   */
+  lightningArc(
+    from: { x: number; y: number; z: number },
+    to: { x: number; y: number; z: number },
+  ): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(to.x, to.y, to.z);
+    if (detail <= 0) return;
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dz = to.z - from.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 1e-4) return;
+    // Perpendicular to the arc in the ground plane; the kink rides along it.
+    const perpX = -dz / length;
+    const perpZ = dx / length;
+
+    const steps = this.count(Math.max(4, Math.min(9, length * 2)), detail);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / (steps + 1);
+      // sin(pi*t) is zero at both ends and widest in the middle.
+      const kink = Math.sin(Math.PI * t) * this.randSigned(0.45);
+      this.reset0();
+      this.spec.x = from.x + dx * t + perpX * kink;
+      this.spec.y = from.y + dy * t + this.randSigned(0.12);
+      this.spec.z = from.z + dz * t + perpZ * kink;
+      this.spec.size = this.rand(0.09, 0.16);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.1, 0.18);
+      this.spec.colorStart = VFX_PALETTE.arcPale;
+      this.spec.colorEnd = VFX_PALETTE.arc;
+      this.spec.gravity = 0;
+      this.glow.spawn(this.take());
+    }
+  }
+
+  /**
+   * Pyre Core bolus in flight: a short trail of embers dragged behind the
+   * travelling fireball. Called once per frame while it is in the air, so the
+   * counts here are per-frame and deliberately tiny.
+   */
+  fireballTrail(x: number, y: number, z: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const embers = this.count(3, detail);
+    for (let i = 0; i < embers; i++) {
+      this.reset0();
+      this.spec.x = x + this.randSigned(0.16);
+      this.spec.y = y + this.randSigned(0.16);
+      this.spec.z = z + this.randSigned(0.16);
+      this.spec.vx = this.randSigned(0.8);
+      this.spec.vy = this.rand(0.2, 1.4);
+      this.spec.vz = this.randSigned(0.8);
+      this.spec.size = this.rand(0.09, 0.17);
+      this.spec.endSize = 0.02;
+      this.spec.lifeSeconds = this.rand(0.2, 0.45);
+      this.spec.colorStart = VFX_PALETTE.hellYellow;
+      this.spec.colorEnd = VFX_PALETTE.emberDark;
+      this.spec.gravity = 2;
+      this.spec.drag = 1.4;
+      this.glow.spawn(this.take());
+    }
+    // A single fat core cube keeps the projectile readable at distance, where
+    // the trail thins out to nothing under LOD.
+    this.reset0();
+    this.spec.x = x;
+    this.spec.y = y;
+    this.spec.z = z;
+    this.spec.size = 0.3;
+    this.spec.endSize = 0.16;
+    this.spec.lifeSeconds = 0.09;
+    this.spec.colorStart = VFX_PALETTE.hellYellow;
+    this.spec.colorEnd = VFX_PALETTE.ember;
+    this.spec.gravity = 0;
+    this.glow.spawn(this.take());
+  }
+
+  /**
+   * Pyre Core burst: the bolus opening out into a rolling ball of fire, with
+   * ash and smoke left standing where it landed.
+   */
+  fireballBurst(x: number, y: number, z: number, radiusM: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y + 0.3, z, radiusM * 1.2, 0.14, VFX_PALETTE.hellYellow);
+
+    // Fire rolling outward along the ground to about the blast radius, so the
+    // effect teaches the player how far the burst actually reaches.
+    const fire = this.count(20, detail);
+    for (let i = 0; i < fire; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(0.4, 1) * radiusM * 2.2;
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y + 0.2;
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(1.5, 5);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.16, 0.3);
+      this.spec.endSize = this.spec.size * 1.7;
+      this.spec.lifeSeconds = this.rand(0.35, 0.7);
+      this.spec.colorStart = VFX_PALETTE.hellYellow;
+      this.spec.colorEnd = VFX_PALETTE.hellRedDark;
+      this.spec.gravity = 1.6;
+      this.spec.drag = 2.4;
+      this.glow.spawn(this.take());
+    }
+
+    // Ash: the only lit-layer part of the burst, and the part that settles, so
+    // the ground under a fireball ends up visibly scorched.
+    const ash = this.count(9, detail);
+    for (let i = 0; i < ash; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(1, 5);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y + 0.15;
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(2, 6);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.07, 0.14);
+      this.spec.endSize = this.spec.size * 0.7;
+      this.spec.lifeSeconds = this.rand(0.8, 1.5);
+      this.spec.colorStart = VFX_PALETTE.ash;
+      this.spec.colorEnd = VFX_PALETTE.char;
+      this.spec.gravity = -16;
+      this.spec.spin = 9;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+
+    const smoke = this.count(8, detail);
+    for (let i = 0; i < smoke; i++) {
+      this.reset0();
+      this.spec.x = x + this.randSigned(radiusM * 0.4);
+      this.spec.y = y + this.rand(0.2, 0.9);
+      this.spec.z = z + this.randSigned(radiusM * 0.4);
+      this.spec.vy = this.rand(1.2, 3);
+      this.spec.size = this.rand(0.2, 0.36);
+      this.spec.endSize = this.spec.size * 2.8;
+      this.spec.lifeSeconds = this.rand(0.9, 1.6);
+      this.spec.colorStart = VFX_PALETTE.smoke;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = 1.2;
+      this.spec.drag = 2;
+      this.lit.spawn(this.take());
+    }
+  }
+
+  /**
+   * Fallout Silo warning: the ring a falling shell is going to land in.
+   *
+   * Called once every tenth of a second or so for the whole fall, not once per
+   * frame — the shell takes seconds to arrive, and a per-frame ring would spend
+   * the entire particle budget telegraphing a shot that has not landed yet.
+   * `progress` runs 0 at launch to 1 at impact and tightens the marker as the
+   * shell closes, so the ring reads as a countdown rather than as decoration.
+   */
+  nukeMarker(
+    x: number,
+    y: number,
+    z: number,
+    radiusM: number,
+    progress: number,
+  ): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    const closing = Math.max(0, Math.min(1, progress));
+    const marks = this.count(10, detail);
+    for (let i = 0; i < marks; i++) {
+      const angle = (i / Math.max(1, marks)) * Math.PI * 2;
+      this.reset0();
+      this.spec.x = x + Math.cos(angle) * radiusM;
+      this.spec.y = y + 0.08;
+      this.spec.z = z + Math.sin(angle) * radiusM;
+      // Marks grow and brighten as impact nears, so the last second before a
+      // shell lands is unmistakable from across the arena.
+      this.spec.size = 0.14 + closing * 0.2;
+      this.spec.endSize = this.spec.size;
+      this.spec.lifeSeconds = 0.22;
+      this.spec.colorStart = VFX_PALETTE.fallout;
+      this.spec.colorEnd = VFX_PALETTE.falloutDeep;
+      this.spec.gravity = 0;
+      this.glow.spawn(this.take());
+    }
+
+    // A pip at the centre, so the aim point is readable even when the ring is
+    // wider than the screen.
+    this.reset0();
+    this.spec.x = x;
+    this.spec.y = y + 0.1;
+    this.spec.z = z;
+    this.spec.size = 0.18 + closing * 0.3;
+    this.spec.endSize = 0.05;
+    this.spec.lifeSeconds = 0.22;
+    this.spec.colorStart = VFX_PALETTE.fallout;
+    this.spec.colorEnd = VFX_PALETTE.falloutDeep;
+    this.spec.gravity = 0;
+    this.glow.spawn(this.take());
+  }
+
+  /**
+   * Fallout Silo detonation: the biggest thing the player can put on screen
+   * that is not their own rig going up.
+   *
+   * Built as a column rather than a sphere — a stem of fire, a cap that climbs
+   * and spreads above it, and a dirt ring thrown out along the ground to the
+   * blast radius. The ring is what makes the reach legible: the damage falls
+   * off to nothing exactly where those cubes stop.
+   */
+  nukeBlast(x: number, y: number, z: number, radiusM: number): void {
+    if (this.disposed) return;
+    const detail = this.detailAt(x, y, z);
+    if (detail <= 0) return;
+
+    this.flash(x, y + 1.2, z, radiusM * 1.4, 0.26, VFX_PALETTE.sparkHot);
+
+    // Stem: fire driven straight up out of the impact point.
+    const stem = this.count(18, detail);
+    for (let i = 0; i < stem; i++) {
+      this.reset0();
+      this.spec.x = x + this.randSigned(radiusM * 0.16);
+      this.spec.y = y + this.rand(0.2, 2.4);
+      this.spec.z = z + this.randSigned(radiusM * 0.16);
+      this.spec.vy = this.rand(7, 15);
+      this.spec.size = this.rand(0.3, 0.55);
+      this.spec.endSize = this.spec.size * 1.6;
+      this.spec.lifeSeconds = this.rand(0.7, 1.2);
+      this.spec.colorStart = VFX_PALETTE.hellYellow;
+      this.spec.colorEnd = VFX_PALETTE.hellRedDark;
+      this.spec.gravity = -2;
+      this.spec.drag = 1.2;
+      this.glow.spawn(this.take());
+    }
+
+    // Cap: the head of the column, thrown out sideways as it rises.
+    const cap = this.count(16, detail);
+    for (let i = 0; i < cap; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = this.rand(2, 7);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y + this.rand(4, 7);
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(1, 4);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.34, 0.6);
+      this.spec.endSize = this.spec.size * 2.6;
+      this.spec.lifeSeconds = this.rand(1.1, 1.9);
+      this.spec.colorStart = VFX_PALETTE.smoke;
+      this.spec.colorEnd = VFX_PALETTE.smokeDark;
+      this.spec.gravity = 0.6;
+      this.spec.drag = 1.6;
+      this.lit.spawn(this.take());
+    }
+
+    // Ground ring: dirt and rubble flung out to exactly the blast radius, then
+    // left where it lands. This is the part the player learns the reach from.
+    const ring = this.count(22, detail);
+    for (let i = 0; i < ring; i++) {
+      const angle = (i / Math.max(1, ring)) * Math.PI * 2 + this.randSigned(0.2);
+      const speed = radiusM * this.rand(1.4, 2.1);
+      this.reset0();
+      this.spec.x = x;
+      this.spec.y = y + 0.2;
+      this.spec.z = z;
+      this.spec.vx = Math.cos(angle) * speed;
+      this.spec.vy = this.rand(2, 6);
+      this.spec.vz = Math.sin(angle) * speed;
+      this.spec.size = this.rand(0.12, 0.26);
+      this.spec.endSize = this.spec.size * 0.8;
+      this.spec.lifeSeconds = this.rand(1, 1.8);
+      this.spec.colorStart = VFX_PALETTE.rubble;
+      this.spec.colorEnd = VFX_PALETTE.char;
+      this.spec.gravity = -18;
+      this.spec.spin = 11;
+      this.spec.bounce = 0.25;
+      this.spec.stick = true;
+      this.lit.spawn(this.take());
+    }
+  }
+
   private flash(
     x: number,
     y: number,

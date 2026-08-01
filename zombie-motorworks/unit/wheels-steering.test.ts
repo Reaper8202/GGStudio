@@ -22,7 +22,12 @@ describe('steering geometry and actuator', () => {
     const blueprint = buildStarterBlueprint();
     const driven = resolveDrivenPartIds(blueprint, getPartDef);
     const { steeringPartIds } = deriveAutomaticWheelLayout(blueprint, getPartDef);
-    const front = blueprint.parts.find((part) => part.defId === 'wheel-standard' && part.pos.z === 2)!;
+    // Found by geometry rather than by definition id: which wheel the starter
+    // rig runs is a build decision that has changed before and will again, but
+    // "the wheel furthest forward" is what this test is actually about.
+    const front = blueprint.parts
+      .filter((part) => getPartDef(part.defId).wheel !== undefined)
+      .reduce((furthest, part) => (part.pos.z > furthest.pos.z ? part : furthest));
     // The whole point of the fix: these two sets used to be disjoint.
     expect(driven.has(front.id)).toBe(true);
     expect(steeringPartIds.has(front.id)).toBe(true);

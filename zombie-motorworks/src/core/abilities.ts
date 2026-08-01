@@ -242,6 +242,86 @@ export function effectiveHellfire(
   };
 }
 
+/** Resolved flame-lance stats after applying a placed part's upgrade level. */
+export interface FlameLanceStats {
+  /** Seconds the sheet of flame stays open. */
+  durationSeconds: number;
+  /** Damage per tick to everything standing in the cone. */
+  damage: number;
+  /** Ticks per second. */
+  ticksPerSecond: number;
+  /** How far the sheet reaches along the rig's heading, metres. */
+  rangeM: number;
+  /** Width of the sheet, degrees. */
+  coneDeg: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+}
+
+/** Metres of reach added to the lance per upgrade level beyond the first. */
+const LANCE_RANGE_PER_LEVEL = 0.8;
+
+/**
+ * Scales a flame-lance ability by the placed part's upgrade level. Each level
+ * beyond the first adds an eighth of the base per-tick damage and
+ * {@link LANCE_RANGE_PER_LEVEL} of reach; the duration, cone and cooldown are
+ * fixed, because the lance's cost is the five seconds it pins the player's aim
+ * to one heading and that has to mean the same thing at every level.
+ */
+export function effectiveFlameLance(
+  def: AbilityDefinition,
+  level = 1,
+): FlameLanceStats {
+  const steps = upgradeSteps(level);
+  const base = def.baseDamage ?? 0;
+  return {
+    durationSeconds: def.baseDurationSeconds,
+    damage: base + base * 0.125 * steps,
+    ticksPerSecond: def.ticksPerSecond ?? 8,
+    rangeM: (def.rangeM ?? 0) + LANCE_RANGE_PER_LEVEL * steps,
+    coneDeg: def.coneDeg ?? 30,
+    cooldownSeconds: def.cooldownSeconds,
+  };
+}
+
+/** Resolved reinforce stats after applying a placed part's upgrade level. */
+export interface ReinforceStats {
+  /** Seconds the ward holds, if the horde does not break it first. */
+  durationSeconds: number;
+  /** Damage the ward soaks before it shatters and the hull is bare again. */
+  shieldHp: number;
+  /** Multiplier on drive torque and top speed while it holds (0..1). */
+  mobilityMultiplier: number;
+  /** Seconds between activations. */
+  cooldownSeconds: number;
+}
+
+/** Ward pool added per upgrade level beyond the first. */
+const REINFORCE_SHIELD_HP_PER_LEVEL = 120;
+
+/**
+ * Scales a reinforce ability by the placed part's upgrade level. Each level
+ * beyond the first adds half a second of cover and
+ * {@link REINFORCE_SHIELD_HP_PER_LEVEL} to the ward's pool. The mobility
+ * penalty and the cooldown never move: the whole shape of the ability is "you
+ * can eat this much and you are slow while you do", and an upgrade that
+ * softened the second half would quietly turn a heavy rig's panic button into
+ * free movement.
+ */
+export function effectiveReinforce(
+  def: AbilityDefinition,
+  level = 1,
+): ReinforceStats {
+  const steps = upgradeSteps(level);
+  return {
+    durationSeconds: def.baseDurationSeconds + 0.5 * steps,
+    shieldHp:
+      (def.baseShieldHp ?? 0) + REINFORCE_SHIELD_HP_PER_LEVEL * steps,
+    mobilityMultiplier: Math.min(1, Math.max(0.05, def.mobilityMultiplier ?? 1)),
+    cooldownSeconds: def.cooldownSeconds,
+  };
+}
+
 /** Resolved Thumper shockwave stats after applying a placed part's level. */
 export interface ThumpStats {
   /** Speed, m/s, every caught zombie is flung radially outward at. */
@@ -459,7 +539,38 @@ export const ABILITY_KIND_META: Record<
     glyph: '◎',
     blurb: 'Slam a shockwave outward that knocks every nearby zombie back.',
   },
+  flamelance: {
+    label: 'Fire Blast',
+    glyph: '≫',
+    blurb:
+      'Hold the core wide open: an unbroken lance of flame along your ' +
+      'heading, so steering is aiming for as long as it burns.',
+  },
+  reinforce: {
+    label: 'Reinforce',
+    glyph: '▤',
+    blurb:
+      'Throw up a hex ward that soaks damage until it shatters. It is extra ' +
+      'health, not immunity — and nothing moves quickly while it holds.',
+  },
 };
+
+/**
+ * How one ability reads in the HUD and the garage: its kind's presentation,
+ * with any per-part override applied. A Build's dash is an `overdrive` under
+ * the skin, but naming it after the Nitro Injector would credit a part the
+ * player never bought — see `AbilityDefinition.label`.
+ */
+export function abilityMeta(def: AbilityDefinition): AbilityKindMeta {
+  const base = ABILITY_KIND_META[def.kind];
+  if (def.label === undefined && def.glyph === undefined && def.blurb === undefined)
+    return base;
+  return {
+    label: def.label ?? base.label,
+    glyph: def.glyph ?? base.glyph,
+    blurb: def.blurb ?? base.blurb,
+  };
+}
 
 /**
  * `PartConfig.abilitySlot` value meaning "the player took this one out of the

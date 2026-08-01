@@ -57,6 +57,45 @@ function earlyWalkerBonus(safeWave: number): number {
 }
 
 /**
+ * Wave 8 is the bomber wave: kamikazes instead of the usual mixed roster,
+ * arriving in three escalating surges rather than one flat wall. It sits
+ * between the Behemoth (wave 5) and the Alchemist (wave 10) as the one wave
+ * that is about a single threat arriving in bulk — nothing here out-ranges you
+ * or out-tanks you, so it reads as a check on whether the player can keep
+ * moving and shoot something small before it closes.
+ *
+ * The escalation is the whole point of the wave: five bombers is a warning the
+ * player survives by accident, ten is a real problem, twenty is the wave asking
+ * whether they learned anything from the first two. Each surge is a contiguous
+ * block in the spawn order (see `spawnOrderForWave`) with a screen of walkers
+ * between blocks, so the surges arrive as three distinct pushes instead of a
+ * steady trickle. The kamikaze curve alone never gets near these counts, which
+ * is the point of pinning them.
+ */
+const KAMIKAZE_WAVE = 8;
+const KAMIKAZE_WAVE_SURGES: readonly number[] = [5, 10, 20];
+const KAMIKAZE_WAVE_COUNT = KAMIKAZE_WAVE_SURGES.reduce(
+  (total, count) => total + count,
+  0,
+);
+
+/** True when `wave` is the pinned bomber wave rather than an ordinary one. */
+function isKamikazeWave(wave: number): boolean {
+  return wave === KAMIKAZE_WAVE && devTuning.types.kamikaze.countOverride === null;
+}
+
+/**
+ * How many walkers a boss wave releases each time it tops itself up while the
+ * boss is still standing, and how long it waits between top-ups. See
+ * `refillBossWave`: without this a boss wave runs dry of adds and turns into a
+ * one-on-one duel in an empty arena, which is not what a wave is supposed to
+ * be. Sized so the arena stays populated without the boss ever being lost in
+ * the crowd; `maxActiveZombiesForWave` still caps what is actually alive.
+ */
+const BOSS_REFILL_BATCH = 6;
+const BOSS_REFILL_SECONDS = 5;
+
+/**
  * Normals remain the overwhelming majority while specialists unlock slowly.
  * Every fifth wave adds a boss duel on top of the horde rather than replacing
  * it: the boss still short-circuits every other specialist curve (a boss wave
@@ -85,6 +124,23 @@ export function zombieCompositionForWave(wave: number): WaveComposition {
       behemoth: 0,
       zamboni: 0,
       boss: 1,
+    };
+  }
+  if (isKamikazeWave(safeWave)) {
+    // Bombers and a thin screen of walkers, nothing else: the wave has one
+    // idea in it. A dev pin on the kamikaze count opts back out of this and
+    // takes the ordinary curve, so the tuner can still study the normal wave.
+    return {
+      walker: Math.round(walkerCount * 0.4),
+      gunslinger: 0,
+      necromancer: 0,
+      thrower: 0,
+      worker: 0,
+      'phone-addict': 0,
+      kamikaze: KAMIKAZE_WAVE_COUNT,
+      behemoth: 0,
+      zamboni: 0,
+      boss: 0,
     };
   }
   return {
@@ -204,8 +260,35 @@ function hordeSizeForWave(): number {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 
+/**
+ * The bomber wave's queue: surge, screen of walkers, bigger surge, screen,
+ * biggest surge. Kamikazes are queued in solid blocks so a surge leaves the
+ * spawn ring together — the horde spawner drains the queue a few bodies at a
+ * time, so interleaving them the ordinary way would spread the same count into
+ * a thin, permanent drizzle and lose the escalation entirely.
+ */
+function kamikazeWaveOrder(composition: WaveComposition): ZombieKind[] {
+  const order: ZombieKind[] = [];
+  let walkersLeft = composition.walker;
+  // Walkers screen the gaps between surges, not the run-up to the first one:
+  // the wave opens on bombers so the player reads what it is about immediately.
+  const gaps = Math.max(1, KAMIKAZE_WAVE_SURGES.length - 1);
+  for (let i = 0; i < KAMIKAZE_WAVE_SURGES.length; i++) {
+    for (let j = 0; j < KAMIKAZE_WAVE_SURGES[i]; j++) order.push('kamikaze');
+    if (i === KAMIKAZE_WAVE_SURGES.length - 1) break;
+    const screen = Math.ceil(walkersLeft / (gaps - i));
+    for (let j = 0; j < screen; j++) order.push('walker');
+    walkersLeft -= screen;
+  }
+  for (let i = 0; i < walkersLeft; i++) order.push('walker');
+  return order;
+}
+
 export function spawnOrderForWave(wave: number): ZombieKind[] {
   const composition = zombieCompositionForWave(wave);
+  if (isKamikazeWave(safeWaveNumber(wave))) {
+    return kamikazeWaveOrder(composition);
+  }
   // Bosses head the queue rather than joining the specialist interleave, so the
   // health bar is up from the start of the wave whatever else is scheduled. An
   // elite boss is an ordinary kind under the hood, so the queue asks the pool
@@ -254,6 +337,8 @@ export class WaveManager {
   private waveDone = true;
   private lastEmittedRemaining = -1;
   private spawnPaused = false;
+  /** Counts down to the next boss-wave top-up; see `refillBossWave`. */
+  private bossRefillTimer = 0;
 
   constructor(
     private readonly zombies: ZombieSystem,
@@ -285,6 +370,7 @@ export class WaveManager {
     this.spawnTimer = 0;
     this.waveDone = false;
     this.lastEmittedRemaining = -1;
+    this.bossRefillTimer = BOSS_REFILL_SECONDS;
 
     this.zombies.setWaveMultipliers(
       healthMultiplierForWave(this.waveNumber),
@@ -303,12 +389,41 @@ export class WaveManager {
   fixedUpdate(dt: number): void {
     if (this.waveDone) return;
 
+    if (!this.spawnPaused) this.refillBossWave(dt);
+
     if (!this.spawnPaused && this.spawnQueueIndex < this.spawnOrder.length) {
       this.spawnTimer -= Math.max(0, dt);
       if (this.spawnTimer <= 0) this.trySpawnHorde();
     }
 
     this.checkWaveComplete();
+  }
+
+  /**
+   * Keep a boss wave populated for as long as its boss is alive. The wave's
+   * queue is finite, so once it drained the arena emptied out and the fight
+   * became a duel; this appends another batch of walkers whenever the queue is
+   * spent and the boss is still standing. They are added to `assignedCount`
+   * like any other unscheduled body (see `countBonusSpawns`), so the wave's
+   * remaining count stays honest.
+   *
+   * The moment the boss dies the top-ups stop, and the wave ends the ordinary
+   * way once the stragglers already in the arena are cleared — killing the
+   * boss is what ends the wave, not outlasting an endless queue.
+   */
+  private refillBossWave(dt: number): void {
+    if (!isBossWave(this.waveNumber)) return;
+    if (this.zombies.activeBoss() === null) return;
+    // Only top up once the scheduled queue is spent, so this never races the
+    // wave's own spawn cadence.
+    if (this.spawnQueueIndex < this.spawnOrder.length) return;
+
+    this.bossRefillTimer -= Math.max(0, dt);
+    if (this.bossRefillTimer > 0) return;
+    this.bossRefillTimer = BOSS_REFILL_SECONDS;
+    for (let i = 0; i < BOSS_REFILL_BATCH; i++) this.spawnOrder.push('walker');
+    this.assignedCount += BOSS_REFILL_BATCH;
+    this.emitRemaining();
   }
 
   recordZombieKilled(): void {
@@ -369,6 +484,7 @@ export class WaveManager {
     this.waveNumber = 0;
     this.waveDone = true;
     this.lastEmittedRemaining = -1;
+    this.bossRefillTimer = 0;
   }
 
   private trySpawnHorde(): void {

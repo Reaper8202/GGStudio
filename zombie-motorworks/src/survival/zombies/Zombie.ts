@@ -59,6 +59,9 @@ import {
 import {
   ALCHEMIST_WALK_CADENCE,
   BEHEMOTH_ATTACK_EXIT_MARGIN,
+  BEHEMOTH_BOULDER_COOLDOWN_SECONDS,
+  BEHEMOTH_BOULDER_MAX_RANGE,
+  BEHEMOTH_BOULDER_MIN_RANGE,
   BEHEMOTH_RING_COLOR,
   BEHEMOTH_SMASH_VFX_RADIUS,
   BEHEMOTH_VISUAL_HEIGHT,
@@ -158,6 +161,28 @@ const ICE_FREEZE_EMISSIVE = 0.85;
 /** Purple glow applied to a mind-controlled zombie fighting on your side. */
 const CHARM_COLOR = new THREE.Color(0xc060ff);
 const CHARM_EMISSIVE = 0.7;
+/**
+ * Scorched black, for a zombie the Pyre Core or the Fallout Silo has burned.
+ * Fire is the only thing on the field that darkens a body instead of lighting
+ * it, so charring reads instantly as "that one has been in a blast" — and it
+ * survives the kill, because the corpse of something that burned should look
+ * burned. The faint ember glow keeps a charred body from disappearing into the
+ * night the way flat black would.
+ */
+const BURN_COLOR = new THREE.Color(0x140d09);
+const BURN_EMBER_COLOR = new THREE.Color(0xff4a12);
+const BURN_EMISSIVE = 0.22;
+/** How far a burned body's tint is dragged to the char colour. */
+const BURN_TINT = 0.82;
+/**
+ * Electric blue, for a zombie the Storm Rod has just struck. Deliberately the
+ * briefest status on the field: it is a hit confirmation for a weapon fired
+ * several times a second, not a condition to play around, so it flares hard
+ * and is gone.
+ */
+const SHOCK_COLOR = new THREE.Color(0x7fd4ff);
+const SHOCK_EMISSIVE = 1.1;
+const SHOCK_TINT = 0.45;
 /** Charmed zombies hit enemy zombies harder than they'd claw at the vehicle. */
 const CHARM_ATTACK_MULTIPLIER = 2.5;
 /**
@@ -647,6 +672,12 @@ export class Zombie {
   onExplode: ((zombie: Zombie) => void) | null = null;
   /** Set by ZombieSystem; fired the instant a behemoth's slam lands. */
   onSmash: ((zombie: Zombie) => void) | null = null;
+  /**
+   * Set by ZombieSystem; fired the instant a behemoth releases a boulder — the
+   * same beat of the same clip its smash lands on, just with the rig too far
+   * away to hit anything with its hands.
+   */
+  onBoulder: ((zombie: Zombie) => void) | null = null;
   /** Presentation event routed by ZombieSystem without coupling AI to audio. */
   onSfx: ((event: ZombieLocalSfxEvent, zombie: Zombie) => void) | null = null;
   /**
@@ -731,12 +762,19 @@ export class Zombie {
   /** Shards stuck in the body, shown for as long as the cold holds. */
   private frostShardMesh: THREE.Mesh | null = null;
   private frostShardMaterial: THREE.MeshLambertMaterial | null = null;
-  /** True while the body tint is shifted to ice, so the reset runs once. */
-  private frostTinted = false;
   /** Body tint strength currently written into the materials (0 = stock). */
   private appliedTint = 0;
+  /** Colour that strength is pulling toward, so a change of status repaints. */
+  private appliedTintColor: THREE.Color = ICE_FREEZE_COLOR;
   /** Emissive look currently written into the materials. */
-  private appliedGlow: 'none' | 'flash' | 'frozen' | 'charmed' | 'slowed' =
+  private appliedGlow:
+    | 'none'
+    | 'flash'
+    | 'frozen'
+    | 'charmed'
+    | 'slowed'
+    | 'burning'
+    | 'shocked' =
     'none';
   private ringMesh: THREE.Mesh | null = null;
   private ringMaterial: THREE.MeshBasicMaterial | null = null;
@@ -764,6 +802,15 @@ export class Zombie {
   private gunslingerFlashTimer = 0;
   /** True once this cycle's slam has already landed, so it lands once. */
   private behemothSmashed = false;
+  /**
+   * Behemoth only: this Attacking cycle is a boulder throw, not a ground slam.
+   * Chosen when the cycle is entered (see `stepChasing`) and held for the whole
+   * cycle, so a rig that drives into melee range mid-wind-up still eats the
+   * throw it triggered rather than the swing silently converting into a smash.
+   */
+  private behemothThrowingBoulder = false;
+  /** Behemoth only: seconds until it may throw another boulder. */
+  private boulderCooldown = 0;
   /** Scratch for the muzzle world position, read off the gun-arm bone. */
   private readonly muzzleScratch = { x: 0, y: 0, z: 0 };
   private readonly boneWorldScratch = new THREE.Vector3();
@@ -824,6 +871,15 @@ export class Zombie {
   /** Seconds of remaining ice-fire slow; while >0 move speed scales by slowFactor. */
   private slowTimer = 0;
   private slowFactor = 1;
+  /**
+   * Seconds of remaining char from a fire blast. Purely cosmetic — the damage
+   * was already dealt by the blast that lit it — and it deliberately keeps
+   * ticking on a corpse, so a pile of bodies the Pyre Core cleared still looks
+   * like one for a few seconds afterwards.
+   */
+  private burnTimer = 0;
+  /** Seconds of remaining lightning flare. Cosmetic, like the burn. */
+  private shockTimer = 0;
   private bobPhase = 0;
   /** Animatable bone nodes of a rigged GLB kind; empty for voxel kinds. */
   private readonly rigBones = new Map<BoneName, THREE.Object3D>();
@@ -1429,6 +1485,10 @@ export class Zombie {
     this.summonTimer = 0;
     this.summonCooldown = 0;
     this.channelVfxTimer = 0;
+    this.behemothThrowingBoulder = false;
+    // A recycled behemoth arrives with a rock ready, the same way a recycled
+    // caster arrives rested — the first thing it does at range is throw.
+    this.boulderCooldown = 0;
     // No caster is ever recycled still standing in half of its own circle.
     this.sigilFade = 0;
     if (this.sigilGroup) this.sigilGroup.visible = false;
@@ -1445,12 +1505,18 @@ export class Zombie {
     this.charmTarget.distance = Infinity;
     this.slowTimer = 0;
     this.slowFactor = 1;
+    // Char and arc-flare both outlive the body that carried them, so they are
+    // the two states most likely to ride a recycled slot back into the arena.
+    this.burnTimer = 0;
+    this.shockTimer = 0;
     // A recycled zombie must never come back out of the pool still iced over.
     this.frostShellFade = 0;
     if (this.frostShardMesh) this.frostShardMesh.visible = false;
     if (this.frostShellMesh) this.frostShellMesh.visible = false;
     if (this.frostGlowMesh) this.frostGlowMesh.visible = false;
-    if (this.frostTinted) this.applyFrostTint(0);
+    // Any status tint at all, not just ice: a recycled slot must never arrive
+    // still charred from the body that used it last.
+    if (this.appliedTint > 0) this.applyBodyTint(this.appliedTintColor, 0);
     // A recycled zombie starts from the resting look, so the next visual
     // frame writes whatever it needs rather than trusting a stale cache.
     this.appliedGlow = 'none';
@@ -1704,6 +1770,9 @@ export class Zombie {
     if (this.summonCooldown > 0) {
       this.summonCooldown = Math.max(0, this.summonCooldown - dt);
     }
+    if (this.boulderCooldown > 0) {
+      this.boulderCooldown = Math.max(0, this.boulderCooldown - dt);
+    }
 
     switch (this.state) {
       case ZombieState.Spawning:
@@ -1802,6 +1871,39 @@ export class Zombie {
     return this.slowTimer > 0;
   }
 
+  /**
+   * Char this zombie for `seconds` — the mark a fire blast leaves behind.
+   *
+   * Cosmetic only: the blast that lit it already dealt its damage, so this
+   * changes nothing about how the zombie behaves. Unlike every other status it
+   * applies to corpses too, because a body that burned to death should go on
+   * looking burned while it lies there.
+   */
+  applyBurn(seconds: number): void {
+    if (seconds <= 0 || !this.active) return;
+    this.burnTimer = Math.max(this.burnTimer, seconds);
+  }
+
+  /** True while this zombie is charred from a fire blast. */
+  get isBurning(): boolean {
+    return this.burnTimer > 0;
+  }
+
+  /**
+   * Flare this zombie with arc light for `seconds` — the mark a lightning
+   * strike leaves. Cosmetic only, and brief by design: it is the Storm Rod's
+   * hit confirmation, so it has to clear before the next bolt lands.
+   */
+  applyShock(seconds: number): void {
+    if (seconds <= 0 || !this.active) return;
+    this.shockTimer = Math.max(this.shockTimer, seconds);
+  }
+
+  /** True while this zombie is lit up by a lightning strike. */
+  get isShocked(): boolean {
+    return this.shockTimer > 0;
+  }
+
   teleportTo(position: Vector3Like): void {
     if (!this.isAlive) return;
     const y = this.standHeight();
@@ -1843,6 +1945,14 @@ export class Zombie {
   updateVisuals(dt: number): void {
     if (!this.active) return;
 
+    // Char and arc-flare are the two purely cosmetic statuses, so they are the
+    // only ones timed here rather than in `fixedUpdate`. They tick before the
+    // glow chain below and outside it, because that chain short-circuits on a
+    // hit flash — and a zombie being shot every frame must still stop burning
+    // eventually.
+    if (this.burnTimer > 0) this.burnTimer = Math.max(0, this.burnTimer - dt);
+    if (this.shockTimer > 0) this.shockTimer = Math.max(0, this.shockTimer - dt);
+
     // Emissive and tint are written through every body material, so they are
     // only touched when the look actually changes. A walker crossing the
     // graveyard in its resting state — the overwhelming majority of the horde,
@@ -1857,6 +1967,25 @@ export class Zombie {
       // The flash fades continuously, so the next frame must rewrite whatever
       // state follows it.
       this.appliedGlow = 'flash';
+    } else if (this.shockTimer > 0) {
+      // Arc flare outranks every other status: the Storm Rod fires several
+      // times a second, and a bolt landing on an already-frozen or already-
+      // charred zombie still has to read as a hit.
+      if (this.appliedGlow !== 'shocked') {
+        this.appliedGlow = 'shocked';
+        for (const material of this.visualMaterials)
+          material.emissive.copy(SHOCK_COLOR).multiplyScalar(SHOCK_EMISSIVE);
+      }
+    } else if (this.burnTimer > 0) {
+      // Char sits below the flare but above the cold states, because a body
+      // that is both burned and slowed is, visibly, a burned one.
+      if (this.appliedGlow !== 'burning') {
+        this.appliedGlow = 'burning';
+        for (const material of this.visualMaterials)
+          material.emissive
+            .copy(BURN_EMBER_COLOR)
+            .multiplyScalar(BURN_EMISSIVE);
+      }
     } else if (this.freezeTimer > 0) {
       // Icy blue glow while frozen (a hit-flash briefly overrides it above).
       if (this.appliedGlow !== 'frozen') {
@@ -1889,11 +2018,26 @@ export class Zombie {
     }
 
     // Emissive alone washes out against the graveyard's own lights, so the
-    // body tint moves too: frozen zombies go turquoise, slowed ones frost over.
+    // body tint moves too: frozen zombies go turquoise, slowed ones frost over,
+    // struck ones flare blue, and burned ones char to black. Char is checked
+    // ahead of the cold states because fire and ice cancelling out to the stock
+    // body colour would be the one result that tells the player nothing.
     const frozen = this.freezeTimer > 0 && this.isAlive;
     const slowed = !frozen && this.slowTimer > 0 && this.isAlive;
-    const tint = frozen ? ICE_FREEZE_TINT : slowed ? ICE_SLOW_TINT : 0;
-    if (tint !== this.appliedTint) this.applyFrostTint(tint);
+    // Unlike the others, char is not gated on `isAlive`: a burned corpse stays
+    // burned for as long as it lies there.
+    const [tintColor, tintStrength] =
+      this.shockTimer > 0
+        ? ([SHOCK_COLOR, SHOCK_TINT] as const)
+        : this.burnTimer > 0
+          ? ([BURN_COLOR, BURN_TINT] as const)
+          : frozen
+            ? ([ICE_FREEZE_COLOR, ICE_FREEZE_TINT] as const)
+            : slowed
+              ? ([ICE_FREEZE_COLOR, ICE_SLOW_TINT] as const)
+              : ([ICE_FREEZE_COLOR, 0] as const);
+    if (tintStrength !== this.appliedTint || tintColor !== this.appliedTintColor)
+      this.applyBodyTint(tintColor, tintStrength);
     this.updateFrostShell(dt, frozen);
     this.updateFrostShards(frozen || slowed);
 
@@ -2448,6 +2592,25 @@ export class Zombie {
         this.updateFacing(dx, dz);
         return;
       }
+      if (
+        this.kind === 'behemoth' &&
+        this.boulderCooldown <= 0 &&
+        target.distance >= BEHEMOTH_BOULDER_MIN_RANGE &&
+        target.distance <= BEHEMOTH_BOULDER_MAX_RANGE
+      ) {
+        // Too far to swing at, close enough to throw at: plant and start the
+        // same wind-up the smash uses. The cooldown is spent here rather than
+        // at release, so a behemoth interrupted mid-throw still has to wait
+        // before trying again instead of re-entering the cycle every step.
+        this.behemothThrowingBoulder = true;
+        this.boulderCooldown = BEHEMOTH_BOULDER_COOLDOWN_SECONDS;
+        this.state = ZombieState.Attacking;
+        this.attackTimer = this.attackInterval;
+        this.behemothSmashed = false;
+        this.zeroHorizontalVelocity();
+        this.updateFacing(dx, dz);
+        return;
+      }
       // Kamikazes never melee: between detonate range and here they just keep
       // closing distance, so the gap above only shortens until they arm.
       if (this.kind !== 'kamikaze') {
@@ -2470,6 +2633,7 @@ export class Zombie {
           this.gunslingerAimLocked = false;
           this.gunslingerShotFired = false;
           this.behemothSmashed = false;
+          this.behemothThrowingBoulder = false;
           this.zeroHorizontalVelocity();
           return;
         }
@@ -2628,8 +2792,12 @@ export class Zombie {
             ? devTuning.specialist.gunslingerAttackRange +
               GUNSLINGER_ATTACK_EXIT_MARGIN
             : this.kind === 'behemoth'
-              ? devTuning.specialist.behemothAttackRange +
-                BEHEMOTH_ATTACK_EXIT_MARGIN
+              ? // A boulder cycle holds out to the throw's own reach; only its
+                // melee cycle aborts at arm's length plus a margin.
+                this.behemothThrowingBoulder
+                ? BEHEMOTH_BOULDER_MAX_RANGE + BEHEMOTH_ATTACK_EXIT_MARGIN
+                : devTuning.specialist.behemothAttackRange +
+                  BEHEMOTH_ATTACK_EXIT_MARGIN
               : ZOMBIE_ATTACK_RANGE + ZOMBIE_ATTACK_EXIT_MARGIN;
       if (target.partId === null || target.distance > exitRange) {
         this.state = ZombieState.Chasing;
@@ -2696,19 +2864,31 @@ export class Zombie {
         this.behemothPoseProgress() >= BEHEMOTH_SMASH_IMPACT
       ) {
         this.behemothSmashed = true;
-        // A physical ground-pound, not a blast: chunky rubble and dust, no
-        // bright flash or glow — see VfxSystem.groundSmash for why.
-        this.vfx?.groundSmash(
-          this.position.x,
-          this.position.y,
-          this.position.z,
-          BEHEMOTH_SMASH_VFX_RADIUS,
-        );
-        this.onSmash?.(this);
+        if (this.behemothThrowingBoulder) {
+          // Same frame of the same clip, different payload: the rock leaves the
+          // hands instead of the hands hitting the ground.
+          this.onBoulder?.(this);
+        } else {
+          // A physical ground-pound, not a blast: chunky rubble and dust, no
+          // bright flash or glow — see VfxSystem.groundSmash for why.
+          this.vfx?.groundSmash(
+            this.position.x,
+            this.position.y,
+            this.position.z,
+            BEHEMOTH_SMASH_VFX_RADIUS,
+          );
+          this.onSmash?.(this);
+        }
       }
       if (this.attackTimer <= 0) {
         this.attackTimer = this.attackInterval;
         this.behemothSmashed = false;
+        // The throw is over; the next cycle re-decides from range, so a
+        // behemoth that closed the distance goes back to smashing.
+        if (this.behemothThrowingBoulder) {
+          this.behemothThrowingBoulder = false;
+          this.state = ZombieState.Chasing;
+        }
       }
       return;
     }
@@ -3077,18 +3257,22 @@ export class Zombie {
   }
 
   /**
-   * Drag every body material `strength` of the way from its own tint to the
-   * ice colour, remembering each material's original tint the first time it is
+   * Drag every body material `strength` of the way from its own tint toward
+   * `color`, remembering each material's original tint the first time it is
    * touched. Passing 0 puts the body back exactly as it was.
+   *
+   * One path serves every status that recolours a body — ice, char, arc — so
+   * they can never fight over the materials or leave one another's colour
+   * stranded on a zombie whose status has since changed.
    */
-  private applyFrostTint(strength: number): void {
+  private applyBodyTint(color: THREE.Color, strength: number): void {
     for (const material of this.visualMaterials) {
       const base = (material.userData.baseColor ??=
         material.color.clone()) as THREE.Color;
-      material.color.copy(base).lerp(ICE_FREEZE_COLOR, strength);
+      material.color.copy(base).lerp(color, strength);
     }
-    this.frostTinted = strength > 0;
     this.appliedTint = strength;
+    this.appliedTintColor = color;
   }
 
   /**

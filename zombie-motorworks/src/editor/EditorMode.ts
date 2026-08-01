@@ -57,7 +57,7 @@ import {
 } from '../core/tutorial.ts';
 import { getEffectiveDef } from '../core/upgrades.ts';
 import {
-  ABILITY_KIND_META,
+  abilityMeta,
   ABILITY_SLOT_KEYS,
   abilityUnlocked,
   abilityUnlockLevel,
@@ -67,6 +67,7 @@ import {
   type AbilityCandidate,
 } from '../core/abilities.ts';
 import { deriveAutomaticWheelLayout } from '../core/wheelLayout.ts';
+import type { BuildId } from '../core/builds.ts';
 import {
   canAfford,
   nextUpgrade,
@@ -122,15 +123,25 @@ function dominantAxis(normal: THREE.Vector3): THREE.Vector3 {
   return new THREE.Vector3(0, 0, Math.sign(normal.z));
 }
 
+/**
+ * Blocks that are the player's for the whole run and may never leave the rig:
+ * the Truck Heart, which everything else is bolted to, and the Build signature
+ * block, which cannot be bought back from anywhere if it is scrapped.
+ *
+ * Every removal path — return to inventory, delete, sell, and the New Garage
+ * clear-out — resolves through this one predicate, so none of them can drift
+ * apart and let a signature block off through a side door.
+ */
+export function isFixedToRig(def: PartDefinition): boolean {
+  return def.isRoot === true || def.buildSignature === true;
+}
+
 /** Exact consequences of selling an installed build before starting over. */
 export function newGarageDisposalSummary(
   parts: readonly PlacedPart[],
   getDef: (defId: string) => PartDefinition,
 ): NewGarageDisposalSummary {
-  const disposable = parts.filter((part) => {
-    const def = getDef(part.defId);
-    return def.isRoot !== true;
-  });
+  const disposable = parts.filter((part) => !isFixedToRig(getDef(part.defId)));
   const investment = disposable.reduce(
     (total, part) => total + partInvestment(part),
     0,
@@ -257,8 +268,15 @@ export interface EditorModeContext {
   /** Presentation callback; the editor owns intent, while App owns audio. */
   onSfx?: (cue: EditorSfxCue) => void;
   notice?: string;
-  /** True only right after `beginNewGame()`, to trigger the starting-weapon nudge. */
+  /** True only right after `beginNewGame()`, to open the rig picker. */
   isNewGame?: boolean;
+  /**
+   * The player picked a starting rig in that picker. App owns the swap: the
+   * choice replaces the whole blueprint, grants the unlocks that rig needs to
+   * stay repairable, and is written to the Profile so a finished run hands
+   * back the same build.
+   */
+  onChooseBuild?: (buildId: BuildId) => void;
   runContext?: RunState;
   runRepair?: {
     partHp(): Record<string, number>;
@@ -470,6 +488,7 @@ export class EditorMode {
         onReturnSelected: () => this.returnSelectedToInventory(),
         onRotateSelected: (axis) => this.rotateSelected(axis),
         onCancelTool: () => this.disarmTool(),
+        onChooseBuild: (buildId) => context.onChooseBuild?.(buildId),
         onCopyCode: () => this.copyShareText(encodeShareCode(this.bp), 'code'),
         onCopyLink: () =>
           this.copyShareText(buildShareLink(encodeShareCode(this.bp)), 'link'),
@@ -500,7 +519,10 @@ export class EditorMode {
     }
     this.refresh();
     if (context.notice) this.ui.setNotice(context.notice);
-    if (context.isNewGame) this.ui.showWeaponPrompt();
+    // A new game opens onto the rig picker rather than the old "buy a weapon"
+    // prompt: the three builds each arrive with a weapon already bolted on, so
+    // the first decision is which rig, not which gun.
+    if (context.isNewGame) this.ui.showBuildPrompt();
   }
 
   viewState(): EditorViewState {
@@ -995,7 +1017,7 @@ export class EditorMode {
     this.ui.setStatus(
       next === null
         ? `${ABILITY_SLOT_KEYS[slot].toUpperCase()} slot cleared`
-        : `${ABILITY_SLOT_KEYS[slot].toUpperCase()}: ${ABILITY_KIND_META[next.ability.kind].label}`,
+        : `${ABILITY_SLOT_KEYS[slot].toUpperCase()}: ${abilityMeta(next.ability).label}`,
     );
   }
 
@@ -1033,25 +1055,28 @@ export class EditorMode {
   }
 
   /**
-   * The selection, minus the Truck Heart. Returns an empty list (after saying
-   * why) when the player only had the root selected, so the two removal
-   * actions agree on what may come off the rig.
+   * The selection, minus anything fixed to the rig. Returns an empty list
+   * (after saying why) when the player only had fixed blocks selected, so the
+   * two removal actions agree on what may come off.
    */
   private removableSelection(refusal: string): PlacedPart[] {
     const parts = [...this.selected]
       .map((id) => getPart(this.bp, id))
       .filter(
         (part): part is PlacedPart =>
-          part !== undefined && !getPartDef(part.defId).isRoot,
+          part !== undefined && !isFixedToRig(getPartDef(part.defId)),
       );
     if (parts.length === 0) {
-      if (
-        [...this.selected].some((id) => {
-          const part = getPart(this.bp, id);
-          return part ? getPartDef(part.defId).isRoot : false;
-        })
-      ) {
-        this.ui.setStatus(refusal);
+      const blocked = [...this.selected]
+        .map((id) => getPart(this.bp, id))
+        .find((part) => part !== undefined && isFixedToRig(getPartDef(part.defId)));
+      if (blocked !== undefined) {
+        const def = getPartDef(blocked.defId);
+        this.ui.setStatus(
+          def.buildSignature === true
+            ? `Your ${def.name} is part of the build and stays on the rig`
+            : refusal,
+        );
       }
     }
     return parts;
@@ -1273,8 +1298,12 @@ export class EditorMode {
       return false;
     }
     const def = getPartDef(part.defId);
-    if (def.isRoot) {
-      this.deny("Truck Heart can't be sold");
+    if (isFixedToRig(def)) {
+      this.deny(
+        def.buildSignature === true
+          ? `${def.name} can't be sold — it's your build`
+          : "Truck Heart can't be sold",
+      );
       return false;
     }
     const refund = sellRefund(part);
@@ -1832,7 +1861,7 @@ export class EditorMode {
       () => null,
     );
     for (const assignment of assignments) {
-      const meta = ABILITY_KIND_META[assignment.ability.kind];
+      const meta = abilityMeta(assignment.ability);
       boxes[assignment.slot] = {
         name: meta.label,
         glyph: meta.glyph,
@@ -1863,7 +1892,8 @@ export class EditorMode {
       .map((id) => getPart(this.bp, id))
       .filter(
         (selectedPart): selectedPart is PlacedPart =>
-          selectedPart !== undefined && !getPartDef(selectedPart.defId).isRoot,
+          selectedPart !== undefined &&
+          !isFixedToRig(getPartDef(selectedPart.defId)),
       );
     const selectionRefund = selectedParts.reduce(
       (total, selectedPart) => total + sellRefund(selectedPart),

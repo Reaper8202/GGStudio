@@ -19,6 +19,11 @@ import { buildEngineMesh } from './parts/engine.ts';
 import { buildFuelTankMesh } from './parts/fuelTank.ts';
 import { buildMeleeMesh } from './parts/melee.ts';
 import { buildNitroInjectorMesh, buildPhaseDriveMesh } from './parts/mobility.ts';
+import {
+  buildFalloutSiloMesh,
+  buildPyreCoreMesh,
+  buildStormRodMesh,
+} from './parts/signature.ts';
 import { buildWeaponMesh } from './parts/weapons.ts';
 import { buildTreadMesh, buildWheelMesh } from './parts/wheels.ts';
 import { buildBlockUpgrades } from './parts/upgradeKit.ts';
@@ -114,6 +119,25 @@ export function buildPartMesh(def: PartDefinition, placed: PlacedPart, opacity =
 
   if (def.id === 'fuel-tank') {
     group.add(buildFuelTankMesh(placed, color, opacity));
+    return withUpgradeKit(group, def, placed, color, opacity);
+  }
+
+  // Build signature blocks. They carry a `signature` rather than a `weapon`, so
+  // they never reach the gun branch below and need their own dispatch — which
+  // is also what keeps their kit on the block instead of on an aiming group
+  // they do not have.
+  if (def.id === 'storm-rod') {
+    group.add(buildStormRodMesh(placed, color, opacity));
+    return withUpgradeKit(group, def, placed, color, opacity);
+  }
+
+  if (def.id === 'pyre-core') {
+    group.add(buildPyreCoreMesh(placed, color, opacity));
+    return withUpgradeKit(group, def, placed, color, opacity);
+  }
+
+  if (def.id === 'fallout-silo') {
+    group.add(buildFalloutSiloMesh(placed, color, opacity));
     return withUpgradeKit(group, def, placed, color, opacity);
   }
 

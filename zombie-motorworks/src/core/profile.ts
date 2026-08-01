@@ -1,4 +1,5 @@
 import { isBiomeId, type BiomeId } from './biomes.ts';
+import { DEFAULT_BUILD_ID, isBuildId, type BuildId } from './builds.ts';
 import { PART_CATALOG } from './parts.ts';
 
 export interface PlayerProfile {
@@ -18,6 +19,13 @@ export interface PlayerProfile {
    * a run already in flight keeps the biome recorded on its checkpoint.
    */
   preferredBiomeId?: BiomeId;
+  /**
+   * Build the player picked for this game. It decides the starter rig and the
+   * signature block on it, so it has to survive a run ending: the fresh rig a
+   * finished run hands back must be the same build the player chose, not the
+   * default one.
+   */
+  buildId?: BuildId;
   /** Highest wave the player has ever fully cleared. */
   highestWaveCleared?: number;
   /** Lifetime Phone Addict kills; gates the EMP module. */
@@ -34,9 +42,6 @@ export const STARTER_UNLOCKS = [
   'spike-ram',
   'sawblade',
   'armour-plate',
-  // Flamethrower is one of the three weapons the new-game prompt offers, so
-  // it needs to be buyable at just its shelf price with no separate unlock
-  // fee from turn one — see WeaponPromptPreview.
   'flamethrower',
 ] as const;
 
@@ -49,6 +54,7 @@ export function defaultProfile(): PlayerProfile {
   return {
     schemaVersion: 1,
     money: DEFAULT_MONEY,
+    buildId: DEFAULT_BUILD_ID,
     unlockedDefIds: [...STARTER_UNLOCKS],
     // A new garage starts bare: every block is bought from the store, so the
     // build bar starts empty too.
@@ -68,6 +74,7 @@ function hasValidShape(value: unknown): value is {
   hotbarDefIds?: unknown;
   currentBlueprintName?: string;
   preferredBiomeId?: unknown;
+  buildId?: unknown;
   highestWaveCleared?: unknown;
   phoneAddictsKilled?: unknown;
 } {
@@ -135,6 +142,9 @@ export function decodeProfile(json: string | null | undefined): PlayerProfile {
   if (isBiomeId(parsed.preferredBiomeId)) {
     profile.preferredBiomeId = parsed.preferredBiomeId;
   }
+  // A profile saved before builds existed has no pick to restore; the default
+  // build is also the rig those saves were already running, so they land on it.
+  profile.buildId = isBuildId(parsed.buildId) ? parsed.buildId : DEFAULT_BUILD_ID;
   if (isNonNegativeSafeInteger(parsed.highestWaveCleared)) {
     profile.highestWaveCleared = parsed.highestWaveCleared;
   }
@@ -160,6 +170,7 @@ export function encodeProfile(profile: PlayerProfile): string {
     ...(profile.preferredBiomeId === undefined
       ? {}
       : { preferredBiomeId: profile.preferredBiomeId }),
+    ...(profile.buildId === undefined ? {} : { buildId: profile.buildId }),
     ...(profile.highestWaveCleared !== undefined &&
     profile.highestWaveCleared > 0
       ? { highestWaveCleared: profile.highestWaveCleared }

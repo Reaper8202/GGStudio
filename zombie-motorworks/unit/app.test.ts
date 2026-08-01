@@ -8,6 +8,11 @@ import {
   type RunCheckpoint,
 } from '../src/app/App.ts';
 import { createEmptyBlueprint } from '../src/core/blueprint.ts';
+import {
+  BUILDS,
+  BUILD_IDS,
+  buildStarterUnlocks,
+} from '../src/core/builds.ts';
 import { partRepairCost, repairPlan } from '../src/core/economy.ts';
 import { getPartDef } from '../src/core/parts.ts';
 import { canPlacePart, validateBlueprint } from '../src/core/placement.ts';
@@ -73,21 +78,37 @@ function appWithDamagedCheckpoint(
 }
 
 describe('starter blueprint', () => {
-  it('has no pre-mounted weapon and remains valid', () => {
-    const blueprint = buildStarterBlueprint();
+  it('ships every build with its signature block already fitted', () => {
+    for (const buildId of BUILD_IDS) {
+      const blueprint = buildStarterBlueprint(buildId);
+      const signatures = blueprint.parts.filter(
+        (part) => getPartDef(part.defId).signature !== undefined,
+      );
 
-    expect(blueprint.parts).toHaveLength(10);
-    expect(
-      blueprint.parts.some((part) => part.defId === 'turret'),
-    ).toBe(false);
-    expect(validateBlueprint(blueprint, getPartDef).errors).toEqual([]);
-    expect(
-      blueprint.parts.every((part) =>
-        STARTER_UNLOCKS.includes(
-          part.defId as (typeof STARTER_UNLOCKS)[number],
-        ),
-      ),
-    ).toBe(true);
+      // Exactly one, and it is the one this build is defined by. A rig that
+      // shipped with two, or with another build's block, would hand the player
+      // a click attack they never chose.
+      expect(signatures).toHaveLength(1);
+      expect(signatures[0].defId).toBe(BUILDS[buildId].signatureDefId);
+      expect(validateBlueprint(blueprint, getPartDef).errors).toEqual([]);
+    }
+  });
+
+  it('leaves every replaceable block on a starting rig buyable', () => {
+    for (const buildId of BUILD_IDS) {
+      // The heavy rig ships on treads and reinforced frame, neither of which
+      // is a starter unlock — so the build grants them. Anything on the rig
+      // that is not the signature block has to be purchasable from wave one,
+      // or losing it mid-run would leave a hole nothing can fill.
+      const buyable = new Set([
+        ...STARTER_UNLOCKS,
+        ...buildStarterUnlocks(buildId),
+      ]);
+      for (const part of buildStarterBlueprint(buildId).parts) {
+        if (getPartDef(part.defId).buildSignature === true) continue;
+        expect([...buyable]).toContain(part.defId);
+      }
+    }
   });
 
   it('allows both new palette parts to mount on the chassis', () => {

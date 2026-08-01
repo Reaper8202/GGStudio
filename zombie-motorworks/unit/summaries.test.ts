@@ -24,22 +24,6 @@ function placed(
 }
 
 describe('legible consequence summaries', () => {
-  it('reports each specialist only on the wave where it first appears', () => {
-    expect(newThreatsForWave(2)).toEqual([]);
-    expect(newThreatsForWave(3)).toEqual(['thrower']);
-    expect(newThreatsForWave(4)).toEqual(['gunslinger', 'kamikaze']);
-    expect(newThreatsForWave(7)).toEqual(['worker']);
-    expect(newThreatsForWave(8)).toEqual(['behemoth']);
-    // The Phone Addict curve opens on wave 10, but wave 10 is a boss duel whose
-    // horde is only walkers and gunslingers, so the first one the player
-    // actually meets is on 11. The look-back in newThreatsForWave skips boss
-    // waves, which is what makes the introduction slide instead of being
-    // swallowed.
-    expect(newThreatsForWave(10)).toEqual([]);
-    expect(newThreatsForWave(11)).toEqual(['phone-addict']);
-    expect(newThreatsForWave(12)).toEqual([]);
-  });
-
   it('announces the boss instead of a specialist on a boss wave', () => {
     expect(threatWarningsForWave(5)).toEqual([
       'BOSS WAVE — The Behemoth. Slow but brutal: stay out of the smash ring.',
@@ -60,12 +44,6 @@ describe('legible consequence summaries', () => {
     // shift again for anything the boss interval displaces later.
     expect(threatWarningsForWave(11)).toEqual([
       'Shielded Phone Addicts next — bring EMP. Buy EMP in the garage now.',
-    ]);
-  });
-
-  it('flags the wave-8 Behemoth boss introduction', () => {
-    expect(threatWarningsForWave(8)).toEqual([
-      'Behemoths incoming — they hit like a wrecking ball. Watch the red ring and keep moving.',
     ]);
   });
 

@@ -72,6 +72,25 @@ export const VFX_PALETTE = {
   acidSmoke: 0x4f7a45,
   /** Near-black tail for the gas puffs — on the glow layer black is a clean fade-out. */
   acidFade: 0x101a0c,
+  /**
+   * Storm Rod arc blue. Shares the Tesla Coil's electric family on purpose:
+   * blue lightning already means "something got shocked", and the signature
+   * strike is the same idea at a bigger scale. The pale core is the channel
+   * itself, which is nearly white at the moment of the strike.
+   */
+  arc: 0x7fd4ff,
+  arcPale: 0xeaf9ff,
+  arcDeep: 0x123a63,
+  /**
+   * Fallout Silo warning green. It marks the ring a shell is falling into, and
+   * nothing else on the field is this colour — a green circle on the ground
+   * means exactly one thing, which is the point of telegraphing at all.
+   */
+  fallout: 0x9dff5c,
+  falloutDeep: 0x24471a,
+  /** Charred flesh and ash left where a fire blast landed. */
+  char: 0x1b1410,
+  ash: 0x585049,
 } as const;
 
 /**

@@ -49,6 +49,12 @@ const COLORS: Record<string, number> = {
   sawblade: 0x5c6570,
   'sniper-light': 0x33404f,
   flamethrower: 0x9c3d20,
+  // The three Build signature blocks. Each is issued equipment rather than
+  // scrap, so all three are a cooler, cleaner metal than the parts around them
+  // and carry their identity in the lit hardware instead (see `signature.ts`).
+  'storm-rod': 0x4a6478,
+  'pyre-core': 0x7a4230,
+  'fallout-silo': 0x4c5642,
 };
 
 const CATEGORY_FALLBACK: Record<string, number> = {
