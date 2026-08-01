@@ -13,6 +13,18 @@ afterEach(() => {
   resetTuning();
 });
 
+/**
+ * The first boss wave that summons the given encounter style. Searched rather
+ * than hard-coded so reordering BOSS_ROTATION — or adding a boss to it — moves
+ * these tests along with it instead of silently testing the wrong style.
+ */
+function firstWaveWithStyle(style: 'classic' | 'elite'): number {
+  for (let wave = 5; wave <= 100; wave += 5) {
+    if (bossForWave(wave)?.style === style) return wave;
+  }
+  throw new Error(`no boss wave uses the ${style} style`);
+}
+
 describe('kind profiles', () => {
   it('takes toughness straight from the tuning the spawner multiplies by', () => {
     // Zombie.spawn does base.health * waveMult * types[kind].healthMult, so the
@@ -48,16 +60,33 @@ describe('kind profiles', () => {
     }
   });
 
-  it('prices a boss off its own sheet, not the per-kind sliders', () => {
-    // A boss ignores devTuning.types entirely: Zombie.spawn gives it
-    // bossDef.baseHealth * waveMultiplier. Reading healthMult (which is 1) would
-    // score a 900hp boss as a 40hp walker.
-    const boss = bossForWave(5);
-    expect(boss).not.toBeNull();
-    const profile = kindProfiles(5).boss;
-    expect(profile.reward).toBe(boss!.reward);
+  it('prices a classic boss off its own sheet, not the per-kind sliders', () => {
+    // A classic boss ignores devTuning.types entirely: Zombie.spawn gives it
+    // definition.baseHealth * waveMultiplier. Reading healthMult (which is 1)
+    // would score a 900hp boss as a 40hp walker.
+    const wave = firstWaveWithStyle('classic');
+    const boss = bossForWave(wave);
+    expect(boss?.style).toBe('classic');
+    const definition = boss!.style === 'classic' ? boss!.definition : null;
+    const profile = kindProfiles(wave).boss;
+    expect(profile.reward).toBe(definition!.reward);
     expect(profile.healthMultiplier * devTuning.base.health).toBe(
-      boss!.baseHealth,
+      definition!.baseHealth,
+    );
+  });
+
+  it('stacks an elite boss on top of the kind it actually spawns as', () => {
+    // An elite is a real pool kind spawned hot, so Zombie.spawn keeps that
+    // kind's own healthMult and multiplies the elite factor on top. Pricing it
+    // like a classic boss would ignore the behemoth slider entirely.
+    const wave = firstWaveWithStyle('elite');
+    const boss = bossForWave(wave);
+    expect(boss?.style).toBe('elite');
+    const elite = boss!.style === 'elite' ? boss!.elite : null;
+    const profile = kindProfiles(wave).boss;
+    expect(profile.reward).toBe(elite!.reward);
+    expect(profile.healthMultiplier).toBe(
+      devTuning.types[elite!.kind].healthMult * elite!.healthMultiplier,
     );
   });
 
@@ -71,53 +100,64 @@ describe('measuring a wave', () => {
     const row = waveLabRow(1);
     // Asserted kind by kind rather than against the whole object, so shipping a
     // new zombie that wave one does not use cannot fail this.
-    expect(row.counts.walker).toBe(18);
-    expect(row.population).toBe(18);
-    // 18 walkers at 40hp, no wave multiplier yet.
-    expect(row.threat).toBe(720);
+    expect(row.counts.walker).toBe(30);
+    expect(row.population).toBe(30);
+    // 30 walkers at the walker slider's 0.7x of the 40hp base, no wave
+    // multiplier yet.
+    expect(row.threat).toBe(840);
     expect(row.specialistShare).toBe(0);
     expect(row.isBossWave).toBe(false);
   });
 
   it('reports the cap as headroom while the wave still fits', () => {
-    const row = waveLabRow(1);
-    expect(row.maxActive).toBe(26);
+    // Wave 4 is the lull before the first boss: the cap has climbed past what
+    // the wave asks for, so nothing queues.
+    const row = waveLabRow(4);
+    expect(row.maxActive).toBe(32);
+    expect(row.population).toBeLessThanOrEqual(row.maxActive);
     expect(row.overflow).toBe(0);
   });
 
   it('reports the surplus once the wave outgrows the cap', () => {
     const row = waveLabRow(11);
-    expect(row.population).toBe(70);
+    expect(row.population).toBe(73);
     expect(row.maxActive).toBe(46);
-    expect(row.overflow).toBe(24);
+    expect(row.overflow).toBe(27);
   });
 
-  it('measures a boss wave as the duel it is', () => {
+  it('counts the boss as a specialist on top of its wave', () => {
+    // A boss wave is a boss fought inside a horde, not a duel, so the row still
+    // measures a full population. What it must not do is file the boss under
+    // walkers: `boss` is deliberately absent from KIND_ORDER, so SPECIALIST_KINDS
+    // has to name it or the wave reads as pure chaff.
     const row = waveLabRow(5);
     expect(row.isBossWave).toBe(true);
-    expect(row.population).toBe(1);
-    // One enemy is never a queue, however much health it carries.
-    expect(row.overflow).toBe(0);
-    expect(row.spawnFloorSeconds).toBe(0);
-    // And it is emphatically not a walker, which SPECIALIST_KINDS has to say
-    // out loud because `boss` is deliberately absent from KIND_ORDER.
-    expect(row.specialistShare).toBe(1);
-    expect(row.threat).toBeGreaterThan(1000);
+    expect(row.counts.boss).toBe(1);
+    expect(row.specialistShare).toBeCloseTo(
+      (row.counts.gunslinger + row.counts.boss) / row.population,
+      6,
+    );
+    // And the boss's own health sheet is priced in: wave 5 fields the same
+    // handful of bodies as wave 4 and still scores half again as hard, which
+    // only happens if the boss is measured off its sheet rather than as chaff.
+    const hordeOnly = waveLabRow(4);
+    expect(row.population).toBe(hordeOnly.population);
+    expect(row.threat).toBeGreaterThan(hordeOnly.threat * 1.5);
   });
 
   it('prices a wave by its own composition and clear bonus', () => {
     const row = waveLabRow(1);
-    expect(row.killReward).toBe(18 * 3);
+    expect(row.killReward).toBe(30 * 3);
     expect(row.wavePayout).toBe(50);
-    expect(row.totalPayout).toBe(104);
-    expect(row.payPerThreat).toBeCloseTo(104 / 720, 6);
+    expect(row.totalPayout).toBe(140);
+    expect(row.payPerThreat).toBeCloseTo(140 / 840, 6);
   });
 
   it('charges spawn time for a wave too big to arrive at once', () => {
-    // Hordes average 11, so 70 zombies is seven hordes: six waits of 1.25s.
+    // Hordes average 11, so 73 zombies is seven hordes: six waits of 1.25s.
     expect(waveLabRow(11).spawnFloorSeconds).toBeCloseTo(7.5, 5);
-    // 18 fits in two hordes: one wait, at the early 1.45s tempo.
-    expect(waveLabRow(1).spawnFloorSeconds).toBeCloseTo(1.45, 5);
+    // 30 takes three hordes: two waits, at the early 1.45s tempo.
+    expect(waveLabRow(1).spawnFloorSeconds).toBeCloseTo(2.9, 5);
   });
 });
 
@@ -125,7 +165,9 @@ describe('run summary', () => {
   const rows = waveLabRows(20);
 
   it('finds the wave where zombies start queueing instead of appearing', () => {
-    expect(summarize(rows).firstOverflowWave).toBe(6);
+    // Wave one already asks for more bodies than the cap allows, so the queue
+    // is there from the first wave rather than opening up later in the run.
+    expect(summarize(rows).firstOverflowWave).toBe(1);
   });
 
   it('reports how far the reward curve drifts behind the difficulty curve', () => {

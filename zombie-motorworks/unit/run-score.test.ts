@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   SurvivalMode,
   type SurvivalPhase,
 } from '../src/survival/SurvivalMode.ts';
 import { killScore, waveClearScore } from '../src/core/score.ts';
 import type { ZombieKind } from '../src/survival/zombies/Zombie.ts';
+import { installCashHudStub } from './cash-hud-stub.ts';
+
+const cashHud = installCashHudStub();
+afterAll(() => cashHud.restore());
 
 interface ScoreHarness {
   phase: SurvivalPhase;
@@ -41,9 +45,12 @@ function createHarness(wave = 1): ScoreHarness {
       clearLandmines: vi.fn(),
       clearIceTrail: vi.fn(),
       clearAcidPuddles: vi.fn(),
+      clearGasTrail: vi.fn(),
     },
     countdownOverlay: { style: { display: 'block' } },
     stuckPrompt: { classList: { remove: vi.fn() } },
+    syncGameplayActivity: vi.fn(),
+    ...cashHud.fields,
   });
   return mode;
 }
